@@ -2235,9 +2235,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							progress_pct: 100,
 							stage: "completed",
 							evidence_chunks: chunks ?? state.parsingState.evidence_chunks,
-							chunks_count: chunks
-								? chunks.length
-								: (chunksCountRaw ?? state.parsingState.chunks_count),
+							chunks_count:
+								chunksCountRaw ??
+								(chunks ? chunks.length : state.parsingState.chunks_count),
 							error: null,
 						},
 					}));
@@ -3575,9 +3575,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						job.result?.pct_complete ??
 						job.result?.progress_pct;
 					const initialChunksCount =
-						initialChunks.length > 0
-							? initialChunks.length
-							: (job.chunks_count ?? job.result?.chunks_count);
+						job.chunks_count ??
+						job.result?.chunks_count ??
+						(initialChunks.length > 0 ? initialChunks.length : undefined);
 					const isAlreadyDone =
 						String(job.status || "").toUpperCase() === "COMPLETED" ||
 						String(job.status || "").toUpperCase() === "SUCCEEDED";

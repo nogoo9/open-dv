@@ -745,12 +745,29 @@ def run_parse_session_sources(
             )
             if source_id:
                 parsed_source_ids.add(source_id)
+            scanned_pages = {
+                pm.page_number for pm in (res.page_map or []) if getattr(pm, "is_scanned", False)
+            }
+            tabular_pages = {
+                t.page_number
+                for t in (res.tables or [])
+                if getattr(t, "page_number", None) is not None
+            }
             for c in res.chunks:
                 stamped_meta = dict(c.metadata or {})
                 if source_id:
                     stamped_meta["source_id"] = source_id
                 if source_sha:
                     stamped_meta["source_sha256"] = source_sha
+                stamped_meta.setdefault("filename", filename)
+                if "layout_complexity" not in stamped_meta:
+                    page_num = getattr(c, "page_number", None)
+                    if page_num in scanned_pages:
+                        stamped_meta["layout_complexity"] = "COMPLEX"
+                    elif page_num in tabular_pages or "|" in (c.text or ""):
+                        stamped_meta["layout_complexity"] = "TABULAR"
+                    else:
+                        stamped_meta["layout_complexity"] = "SIMPLE"
                 is_chunk_dns = bool(
                     is_sticky_dns or stamped_meta.get("do_not_send_to_agent") is True
                 )

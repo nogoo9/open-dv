@@ -134,6 +134,47 @@ export OPENDV_TOKEN="<your-platform-jwt-or-bearer-token>"
 opendvctl ontology studio list --api-url https://studio.enterprise.example
 ```
 
+### 2.4 Representative Regulatory Sample PDFs & OCR Modes (`examples/sample_pdfs/`)
+
+The repository ships a representative multi-document financial & regulatory corpus in [`examples/sample_pdfs/`](../examples/sample_pdfs/README.md) so you can immediately exercise PDF parsing, layout complexity detection, OCR mode routing (`auto`, `off`, `force`), and deterministic ontology construction without hunting for external filings:
+
+| Document | Source | Pages | Size (Bytes) | Extracted Chunks | Detected Tables | Layout & OCR Profile |
+|---|---|---:|---:|---:|---:|---|
+| `nyfed_sr506_repo_infrastructure.pdf` | Federal Reserve Bank of New York — Staff Report No. 506 (*Tri-Party Repo Infrastructure*) | 55 | 449,963 | 67 | 0 | Clean multi-page vector prose (`Repo`, `Dealer`, `Collateral`, `ClearingBank`) |
+| `fdic_section3_2_loans_credit_risk.pdf` | FDIC Risk Management Manual of Examination Policies — Section 3.2 (*Loans*) | 88 | 1,115,319 | 153 | 0 | Examination policies, underwriting standards, commercial loans & credit controls |
+| `occ_comptrollers_handbook_rating_credit_risk.pdf` | OCC Comptroller's Handbook — *Rating Credit Risk* | 69 | 1,467,311 | 539 | 0 | Supervisory credit-rating guidance, facility collateral & allowance governance |
+| `institutional_scanned_schedule_ocr_test.pdf` | Hybrid custody & repo schedule fixture | 2 | 6,352 | 2 | 1 | **Page 1:** clean vector + 3-row Markdown pipe collateral table (`is_complex=False`). **Page 2:** simulated scanned exhibit (`raster_ratio=0.6189 > 0.40`, `char_count=36 < 50`, `unmapped_glyphs=1` -> `is_complex=True`) |
+
+All four files together yield **761 evidence chunks** and **1 structured Markdown table**, verified via `LiteParseDocumentAdapter` (`pypdf` fallback when optional `liteparse` CLI is absent) and `TesseractOCRRouter` (`packages/opendv-sources/src/opendv_sources/ingestion/layout_evaluator.py`):
+
+- **`auto` (Recommended Default):** Scores every PDF page using character density (`char_count < 50`), embedded image area ratio (`raster_ratio > 0.40`), and unmapped glyph count (`unmapped_glyphs > 0`). Vector pages parse natively; complex pages (such as Page 2 of `institutional_scanned_schedule_ocr_test.pdf`) route to Tesseract OCR if installed on `PATH`, or gracefully fall back (`ocr_skipped=True`) when Tesseract is absent.
+- **`off`:** Skips OCR invocation deterministically (`ocr_skipped=True` on complex pages) and extracts embedded PDF text and Markdown tables only.
+- **`force`:** Fails closed with `OCRUnavailableError("OCR_UNAVAILABLE")` (`HTTP 501` in the Web Workbench / exit code `1` in the CLI) whenever the `tesseract` binary is unavailable on `PATH`, guaranteeing no silent partial extraction in strict OCR pipelines.
+
+You can validate the entire four-PDF corpus from the CLI before or alongside a Web Workbench session:
+
+```bash
+# 1. Create a capital-markets session
+opendv ontology studio create \
+  --session regulatory-pdf-e2e-walkthrough \
+  --domain-namespace capital_markets \
+  --enterprise-owner "Institutional Risk Architecture"
+
+# 2. Upload each regulatory PDF and hybrid scanned fixture
+opendv ontology studio upload --session regulatory-pdf-e2e-walkthrough --file examples/sample_pdfs/nyfed_sr506_repo_infrastructure.pdf
+opendv ontology studio upload --session regulatory-pdf-e2e-walkthrough --file examples/sample_pdfs/fdic_section3_2_loans_credit_risk.pdf
+opendv ontology studio upload --session regulatory-pdf-e2e-walkthrough --file examples/sample_pdfs/occ_comptrollers_handbook_rating_credit_risk.pdf
+opendv ontology studio upload --session regulatory-pdf-e2e-walkthrough --file examples/sample_pdfs/institutional_scanned_schedule_ocr_test.pdf
+
+# 3. Parse with smart OCR auto-detection (761 chunks, 1 table)
+opendv ontology studio parse --session regulatory-pdf-e2e-walkthrough --ocr-mode auto --wait
+
+# 4. Optionally verify fail-closed OCR enforcement (requires tesseract on PATH)
+opendv ontology studio parse --session regulatory-pdf-e2e-walkthrough --ocr-mode force --wait
+```
+
+See [`examples/sample_pdfs/README.md`](../examples/sample_pdfs/README.md) for SHA-256 digests and original source URLs.
+
 ---
 
 ## 3. End-to-End User Journeys
@@ -383,7 +424,7 @@ Administrative waivers require:
 
 ## 4. Interactive Web Workbench Walkthrough (`/ontology`)
 
-The Open-DV Web Workbench provides a visual, reactive single-page application at `/ontology`:
+The Open-DV Web Workbench provides a visual, reactive single-page application at `/ontology`. The screenshots below walk step-by-step through a real live `1440x900` session (`regulatory-pdf-e2e-walkthrough`, domain `capital_markets`) built from all four PDFs in [`examples/sample_pdfs/`](../examples/sample_pdfs/README.md):
 
 ```
 +───────────────────────────────────────────────────────────────────────────────────────────────────+
@@ -424,38 +465,60 @@ The Open-DV Web Workbench provides a visual, reactive single-page application at
   - `COMMITTED`: Version committed in session CAS (including sessions initialized from an existing workspace baseline).
   - `PROMOTED`: Head version promoted to workspace Data Vault.
 
-### 4.3 Sources Panel & Ingestion
+### 4.3 Sources Panel, OCR Modes & Chunk Inspector (Stages 1–2)
 - **Drag-and-Drop Uploader**: Supports `.pdf`, `.docx`, `.xlsx`, `.html`/`.htm`, `.json`, `.csv`, `.md`/`.markdown` (including browsers that send `application/octet-stream` for Markdown), and `.txt` up to the `100 MiB` (`STUDIO_MAX_UPLOAD_BYTES`) per-file upload cap.
-- **OCR Mode Toggle**: `auto` (default), `force`, `off`.
-- **Confidentiality Taint (`do_not_send_to_agent`)**: Mark sensitive documents as confidential before upload; taint classification badges (`public`, `internal`, `confidential`, `restricted`) track redaction across CAS chunks.
-- **Chunk Inspector Drawer**: Inspect extracted text spans with UTF-8 character offsets, layout complexity badges, and token counts after parsing finishes.
+- **OCR Mode Toggle**: `Auto`, `Force OCR`, and `Off`. Selecting `Force OCR` without Tesseract installed fails closed with `HTTP 501 OCR_UNAVAILABLE`, whereas `Auto` and `Off` extract vector pages and flag scanned/complex pages (`COMPLEX`, `ocr_skipped=True`) cleanly.
+- **Confidentiality Taint (`do_not_send_to_agent`)**: Mark sensitive documents via per-document **Privacy** classification (`public`, `internal`, `confidential`, `restricted`) to enforce redaction and taint tracking across CAS chunks.
+- **Chunk Inspector Drawer**: After parsing completes, inspect extracted evidence snippets with page/source headers, layout complexity badges (`SIMPLE`, `TABULAR`, `COMPLEX`), UTF-8 character offsets, Markdown tables, and token counts. For multi-document corpora, the workbench reports the full CAS total (for example, `761 chunks extracted`) while displaying a balanced preview sample (`Extracted Evidence Chunks (20)`) across all uploaded files so long multi-hundred-page filings stay responsive.
 
-### 4.4 Clarification Q&A & Proposal Ratification
-- **Ambiguity Questions**: Presents domain questions generated by `@domain-clarifier` with candidate reference URIs, rationale choices, and document citations, persisting answers via CAS (`clarifications/answers.json` + `If-Match`).
-- **Construct & Proposal List**: Shows each candidate proposal's operation count (`{N} ops` badge) and status (`PENDING`, `ACCEPTED`, `REJECTED`).
+![Stage 1 — Sources Panel, Privacy Classifications & OCR Mode Toggle](assets/ontology-studio/01-sources-and-ocr-mode.png)
+*Stage 1: All four sample regulatory PDFs uploaded into `regulatory-pdf-e2e-walkthrough` inside the `380px` Sources drawer alongside the `Privacy` taint selector and `OCR Mode` (`Auto` / `Force OCR` / `Off`) control prior to parsing.*
+
+![Stage 2 — Parsed Regulatory PDF Evidence & Chunk Inspector](assets/ontology-studio/02-chunk-inspector-parsed-pdfs.png)
+*Stage 2: Completion status (`Parsing complete (761 chunks extracted)`) and the balanced `Extracted Evidence Chunks (20)` preview featuring layout complexity badges (`COMPLEX` on Page 2 of the scanned exhibit fixture), token counts, and preserved Markdown table syntax.*
+
+### 4.4 Clarification Q&A & Proposal Ratification (Stage 3)
+- **Ambiguity Questions**: Presents domain questions generated by the clarification step with certainty badges (e.g., `~79%`), candidate options, rationale notes, and scrollable source citations (`Citations (N)` inside a compact overflow-safe container), persisting answers via CAS (`clarifications/answers.json` + `If-Match`).
+- **Construct & Proposal List**: Triggers construction over extracted tables and regulatory prose chunks, showing each candidate proposal's operation count (`102 ops` badge for the 4-PDF corpus) and status (`PENDING`, `ACCEPTED`, `REJECTED`).
 - **Zero-Op Proposal Guard (`0 ops`)**: When a proposal contains `0` operations (for example, constructed before source documents were uploaded and parsed), the **Accept** button is automatically disabled with an inline reminder (`"0 operations — upload and parse source documents first"`), while **Reject** remains enabled so you can clean up empty proposals.
 
-### 4.5 React Flow + elkjs Graph Canvas & Visual Editor Drawer
-- **Dark-Mode Graph Canvas**: Powered by `@xyflow/react` and `elkjs` (`< 300 ms` layout SLA with deterministic fallback) featuring high-contrast dark zoom/fit/lock controls and minimap.
+![Stage 3 — Clarification Q&A & Domain Ontology Proposal](assets/ontology-studio/03-clarifications-and-proposals.png)
+*Stage 3: Resolved Domain Ambiguity Questions with compact scrollable citations and pending candidate proposal `prop-bd4a8c90b20e62e5` (`102 ops`, `PENDING`) ready for ratification via `Accept` or `Reject`.*
+
+### 4.5 React Flow + elkjs Graph Canvas & Visual Editor Drawer (Stage 4)
+- **Dark-Mode Graph Canvas**: Powered by `@xyflow/react` and `elkjs` (`< 300 ms` layout SLA — observed `76.7 ms` for 24 regulatory concepts) featuring high-contrast dark zoom/fit/lock controls and minimap.
 - **3-Tier Level-of-Detail (LOD)**:
-  - **LOD-1 (Macro)**: Compact concept chips and primary Link edges.
-  - **LOD-2 (Meso)**: Archetype badge, target hub, and attribute/mapping counts.
-  - **LOD-3 (Micro)**: Full definitions, attribute types, and clipped external mapping pills (`scheme: TerminalFragment`) with full-IRI hover tooltips (`title`).
-- **Visual Editor Drawer & `ONT-EVO-002` Grounding Paths**: Edit uncommitted concepts, attributes, synonyms, parent taxonomy (`ONT-DAG-001`), and external mappings. Under **FIBO / External Mappings**, inline guidance explains the two ways to pass `ONT-EVO-002`:
+  - **LOD-1 (`T1 Macro`)**: Compact concept chips and primary Link edges.
+  - **LOD-2 (`T2 Meso`)**: Archetype badge, target hub, and attribute/mapping counts.
+  - **LOD-3 (`T3 Micro`)**: Full definitions, attribute types, and clipped external mapping pills (`scheme:TerminalFragment`, e.g., `fibo:Collateral`, `fibo:CreditRatingModel`, `fibo:Asset`, `fibo:RealEstate`, `fibo:CreditAgreement`) with full-IRI hover tooltips (`title`).
+- **Visual Editor Drawer (`CONCEPT EDITOR`) & `ONT-EVO-002` Grounding Paths**: Click any node (e.g., `Collateral` / `urn:ontology:entity:collateral`) to edit concept metadata, ELM archetype, target hub (`hub_collateral`), attributes, synonyms, parent taxonomy (`ONT-DAG-001`), and external mappings. Under **FIBO / External Mappings**, inline guidance explains the two ways to pass `ONT-EVO-002`:
   - **Path A (Auto-Verified)**: Supply a server-verified `FIBO` mapping using `skos:exactMatch` or `skos:closeMatch` (`skos:broadMatch` is excluded) with confidence $\ge 0.65$.
   - **Path B (Admin Steward Waiver)**: For bespoke domain concepts or manually asserted mappings, authorize an Admin Steward Waiver in the **Quality** tab (`>= 10`-character rationale + `OPENDV_WAIVER_KEY`).
 
-### 4.6 Visual Diff Overlay (Committed Versions & Uncommitted Working Draft)
-- Compare any two committed versions (`v0.0.0`, `v1.0.0`, `v1.1.0`, ...) **or** inspect your uncommitted canvas edits live against the active committed baseline (`vX.Y.Z` vs `Working Draft (Uncommitted)`).
+![Stage 4 — Graph Canvas (T3 Micro LOD) & Concept Editor Drawer](assets/ontology-studio/04-graph-canvas-and-visual-editor.png)
+*Stage 4: Accepted `v1.0.0` graph displaying 24 grounded regulatory concepts (`T3 Micro` LOD, `Layout: 76.7 ms`, Minimap enabled) with the slide-over `CONCEPT EDITOR` open on `Collateral` (`hub_collateral`).*
+
+### 4.6 Visual Diff Overlay (Committed Versions & Uncommitted Working Draft) (Stage 5)
+- Compare any two committed versions (`v0.0.0`, `v1.0.0`, `v1.1.0`, ...) **or** inspect your uncommitted canvas edits live against the active committed baseline (`vX.Y.Z` vs `Working Draft (Uncommitted)`), toggling between **`Unified`** and **`Side-by-Side`** columns.
+- Displays the real-time contract verification banner (`STRICTLY ADDITIVE GUARANTEE (ONT-EVO-001)`) and delta summary (`+24 Added`, `Δ 0 Modified`, `-0 Deleted`).
 - When unsaved canvas modifications exist, clicking **Visual Diff** defaults immediately to `active_version -> draft` using in-memory graph state without making a failing server export request for `"draft"`:
   - **Green (+)**: Newly added Conceptual Hubs, Links, or Attributes.
   - **Amber (~)**: Modified descriptions, synonyms, or external mappings.
   - **Red (-)**: Deprecated or removed elements (Admin Steward only under `ONT-EVO-001`).
 
-### 4.7 Quality Scorecard, Multi-Format Exports & Atomic Promotion
-- Validates 100% of `ONT-EVO` and `ONT-DAG-001` contract rules in real time, displaying acyclicity, contract compliance, and grounding ratio gauges (`N/A (No nodes)` when empty).
-- One-click **Export** across five UI formats: Graph A YAML (`.yaml`), Canonical JCS JSON (`.json`), W3C Turtle (`.ttl`), JSON-LD (`.jsonld`), and N-Triples (`.nt`).
-- Atomic **Promote to Workspace** executes OCC verification using both session `head_sha256` (`If-Match`) and workspace `X-OpenDV-Workspace-If-Match` (pre-filled with 64 zeros `0000...0000` for greenfield workspaces).
+![Stage 5 — Side-by-Side Visual Diff (v0.0.0 to v1.0.0)](assets/ontology-studio/05-visual-diff-side-by-side.png)
+*Stage 5: Visual Diff comparing greenfield baseline `v0.0.0` against committed `v1.0.0` in `Side-by-Side` mode, verifying `+24 Added / Δ 0 Modified / -0 Deleted` and `ONT-EVO-001` compliance.*
+
+### 4.7 Quality Scorecard, Multi-Format Exports & Atomic Promotion (Stages 6–7)
+- **Quality & Governance Scorecard**: Validates 100% of contract rules in real time, displaying **Grounding Ratio** (`100% (24/24)` vs `Target: >= 65% (BM25)`, or `N/A (No nodes)` when empty), **Acyclicity** (`PASS — Zero DAG inheritance cycles`), **Table Contracts** (`COMPLIANT — ONT-EVO-001 preserved`), the itemized **Contract Rules Checklist** (`ONT-EVO-001`, `ONT-EVO-002`, `ONT-DAG-001`, informational `YAGNI-001` attribute check), **Administrative Steward Waiver** controls, and **Steward Feedback** persistence.
+- **Multi-Format Export Modal**: Click **Export** in the top toolbar to preview, copy (`Copy`), and download (`Download File`) any committed snapshot (`v1.0.0 (Current Head)`) across five formats: **Graph A YAML (`.yaml`)**, **Canonical JSON / RFC 8785 JCS (`.json`)**, **W3C Turtle (`.ttl`)**, **JSON-LD (`.jsonld`)**, and **N-Triples (`.nt`)**.
+- **Atomic Workspace Promotion**: Switch to the **Workspace Promotion** tab (or click **Promote** in the top toolbar). Enforces dual OCC preconditions—session `head_sha256` (`If-Match`) and `Expected Workspace SHA-256` (`X-OpenDV-Workspace-If-Match`, with a one-click `Greenfield (64 zeros)` helper for new workspaces)—plus a minimum `10`-character `Promotion Rationale` and contract acknowledgment checkbox before enabling `Promote to Workspace`.
+
+![Stage 6 — Quality & Governance Scorecard](assets/ontology-studio/06-quality-and-governance.png)
+*Stage 6: Quality & Governance tab confirming `100% (24/24)` FIBO grounding, `PASS` DAG acyclicity, `COMPLIANT` `ONT-EVO-001` status, and Contract Rules Checklist.*
+
+![Stage 7 — Multi-Format Export Modal (W3C Turtle) & Workspace Promotion](assets/ontology-studio/07-export-and-promote.png)
+*Stage 7: Tabbed Export & Promotion dialog displaying `W3C Turtle (.ttl)` serialization for `v1.0.0 (Current Head)` with `Copy` and `Download File` actions alongside the `Workspace Promotion` tab.*
 
 ---
 
