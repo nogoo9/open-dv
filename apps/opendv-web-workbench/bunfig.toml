@@ -2,9 +2,13 @@
 root = "tests"
 pathIgnorePatterns = [
   "**/dist/**",
-  "**/node_modules/**"
+  "**/node_modules/**",
+  "**/e2e/**",
+  "**/*.spec.ts"
 ]
 ignore = [
   "**/dist/**",
-  "**/node_modules/**"
+  "**/node_modules/**",
+  "**/e2e/**",
+  "**/*.spec.ts"
 ]

@@ -98,6 +98,7 @@ from opendv_service.studio.session_manager import (
     SessionAlreadyExistsError,
     SessionNotFoundError,
     StudioSessionManager,
+    _atomic_write_session_json,
     append_signed_audit_record,
     sanitize_domain_namespace,
     set_owner_only_permissions,
@@ -137,6 +138,8 @@ _OP_TYPE_ADAPTER: TypeAdapter[OntologyOperation] = TypeAdapter(OntologyOperation
 _ADMIN_ROLES: frozenset[str] = frozenset({"ADMIN", "DATA_STEWARD", "RESTRICTED_PII_CUSTODIAN"})
 _EDITOR_ROLES: frozenset[str] = frozenset({"EDITOR", "STEWARD"})
 _AUTOMATED_ROLES: frozenset[str] = frozenset({"AUTOMATED", "INTERNAL_MODELER"})
+MIN_WAIVER_RATIONALE_LENGTH: int = 10
+MIN_PROMOTION_RATIONALE_LENGTH: int = 10
 _VIEWER_ROLES: frozenset[str] = frozenset({"VIEWER", "PUBLIC", "AUDITOR_FINANCE"})
 
 
@@ -1709,6 +1712,7 @@ def handle_construct(
             base_sha256=base_sha,
             if_match=base_sha if auto_commit else None,
             security_manager=sec_mgr,
+            steering_prompt=getattr(args, "steering_prompt", None),
         )
     except ConcurrentModificationError as err_occ:
         return _err(5, "ONT_EVO_CONCURRENT_MODIFICATION", str(err_occ))
@@ -2854,6 +2858,333 @@ def handle_proposal_rebase(
     }
 
 
+def handle_proposal_refine(
+    args: argparse.Namespace, executor: LocalExecutor | None = None
+) -> tuple[int, Any]:
+    """Iteratively refine a pending proposal using natural-language steering instructions."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "viewer":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Read-only viewer role is not permitted to refine proposals.",
+        )
+
+    ctx = _require_session_context(args, executor)
+    if isinstance(ctx[0], int):
+        return ctx  # type: ignore[return-value]
+    session_mgr, _meta, sdir, sid = ctx  # type: ignore[misc]
+
+    pid = getattr(args, "proposal_id", None) or getattr(args, "proposal", None)
+    if not pid:
+        return _err(2, "SYNTAX_INVALID_ARGUMENT", "Missing required --proposal-id flag")
+
+    steering = getattr(args, "steering_prompt", None)
+    if not steering:
+        return _err(2, "SYNTAX_INVALID_ARGUMENT", "Missing required --steering-prompt flag")
+
+    mode = str(getattr(args, "mode", "deterministic") or "deterministic").lower()
+
+    prop_res = _resolve_proposal_path(sdir, pid)
+    if isinstance(prop_res, tuple):
+        return prop_res
+    pfile = prop_res
+    if not pfile.is_file():
+        return _err(3, "PROPOSAL_NOT_FOUND", f"Proposal '{pid}' not found")
+
+    try:
+        pred_dict = json.loads(pfile.read_text(encoding="utf-8"))
+        status = pred_dict.get("status")
+        if status in ("ACCEPTED", "REJECTED", "SUPERSEDED"):
+            return _err(
+                1,
+                "PROPOSAL_ALREADY_RESOLVED",
+                f"Cannot refine proposal '{pid}' because its status is '{status}'. "
+                "Only PENDING proposals can be refined.",
+            )
+        res = run_construct_session(
+            session_mgr,
+            sid,
+            actor=principal,
+            actor_role=role_tier,
+            mode=mode,
+            auto_commit=False,
+            security_manager=session_mgr.security_manager,
+            steering_prompt=steering,
+        )
+        new_pid = (
+            res.get("proposal_id") if isinstance(res, dict) else getattr(res, "proposal_id", None)
+        )
+        if isinstance(res, dict) and new_pid:
+            res["replaces_proposal_id"] = pid
+            new_pfile = sdir / "proposals" / f"{new_pid}.json"
+            if new_pfile.is_file():
+                _atomic_write_json(new_pfile, res)
+
+        pred_dict["status"] = "SUPERSEDED"
+        pred_dict["superseded_by"] = new_pid
+        _atomic_write_json(pfile, pred_dict)
+        return 0, res
+    except OpenDVError as exc:
+        return _err_from_opendv_error(exc)
+
+
+def handle_starter_pack_list(
+    args: argparse.Namespace, executor: LocalExecutor | None = None
+) -> tuple[int, Any]:
+    """List available Asset Management starter packs."""
+    from opendv_sources.asset_management import AssetManagementStarterPackRegistry
+
+    packs = AssetManagementStarterPackRegistry.list_packs()
+    return 0, [p.model_dump(mode="json") for p in packs]
+
+
+def handle_starter_pack_apply(
+    args: argparse.Namespace, executor: LocalExecutor | None = None
+) -> tuple[int, Any]:
+    """Apply a vertical starter pack to the active studio session."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "viewer":
+        return _err(7, "FORBIDDEN_ADMIN_REQUIRED", "Read-only viewer cannot apply starter packs.")
+
+    ctx = _require_session_context(args, executor)
+    if isinstance(ctx[0], int):
+        return ctx  # type: ignore[return-value]
+    session_mgr, _meta, _sdir, sid = ctx  # type: ignore[misc]
+
+    pack_id_str = getattr(args, "pack", None)
+    if not pack_id_str:
+        return _err(2, "SYNTAX_INVALID_ARGUMENT", "Missing required --pack flag")
+
+    from opendv_contracts.dtos.ontology import OntologyDelta
+    from opendv_contracts.dtos.starter_packs import AssetManagementPackId
+    from opendv_sources.asset_management import AssetManagementStarterPackRegistry
+
+    try:
+        pack_id = AssetManagementPackId(pack_id_str)
+    except ValueError:
+        return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Invalid starter pack id: {pack_id_str}")
+
+    try:
+        _ = OntologyDelta
+        pack = AssetManagementStarterPackRegistry.load_pack(pack_id)
+        pack_ontology = AssetManagementStarterPackRegistry.compose_packs(
+            [pack_id],
+            version=_meta.head_version,
+            domain_namespace=_meta.domain_namespace,
+        )
+
+        with reentrant_session_lock(_sdir / ".session.lock", session_id=sid):
+            b_maj, b_min, _b_pat = parse_semver(_meta.head_version)
+            if b_maj == 0:
+                next_ver = (
+                    "1.0.0"
+                    if pack_ontology.canonical_business_concepts
+                    else f"0.{b_min + 1}.0"
+                )
+            else:
+                next_ver = f"{b_maj}.{b_min + 1}.0"
+            pack_ontology.ontology_version = next_ver
+            pack_ontology.parent_sha256 = _meta.head_sha256
+
+            new_sha = compute_ontology_sha256(pack_ontology)
+            v_dir = _sdir / "versions" / f"v{next_ver}"
+            v_dir.mkdir(parents=True, exist_ok=True)
+            v_ont_json = v_dir / "ontology.json"
+            v_ont_json.write_text(pack_ontology.model_dump_json(indent=2), encoding="utf-8")
+            set_owner_only_permissions(v_ont_json)
+
+            updated_meta = _meta.model_copy(
+                update={
+                    "head_version": next_ver,
+                    "head_sha256": new_sha,
+                    "updated_at": datetime.now(UTC).isoformat(),
+                }
+            )
+            _atomic_write_session_json(_sdir, updated_meta)
+
+            actor_name = (
+                principal
+                if isinstance(principal, str)
+                else getattr(principal, "principal", "human:steward")
+            )
+            append_signed_audit_record(
+                session_dir=_sdir,
+                action="STARTER_PACK_APPLIED",
+                actor=actor_name,
+                details={
+                    "pack_ids": [pack_id.value],
+                    "new_version": next_ver,
+                    "new_sha256": new_sha,
+                },
+                security_manager=session_mgr.security_manager,
+            )
+
+        return 0, {
+            "pack_id": pack_id.value,
+            "session_id": sid,
+            "applied": True,
+            "concepts_added": len(pack.canonical_business_concepts),
+            "relationships_added": len(pack.canonical_relationships),
+            "reference_enums_added": len(getattr(pack, "reference_enumerations", [])),
+            "new_head_sha256": new_sha,
+        }
+    except OpenDVError as exc:
+        return _err_from_opendv_error(exc)
+
+
+def handle_text_add(
+    args: argparse.Namespace, executor: LocalExecutor | None = None
+) -> tuple[int, Any]:
+    """Ingest free-form natural language text notes into session CAS storage."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "viewer":
+        return _err(7, "FORBIDDEN_ADMIN_REQUIRED", "Read-only viewer cannot add text sources.")
+
+    ctx = _require_session_context(args, executor)
+    if isinstance(ctx[0], int):
+        return ctx  # type: ignore[return-value]
+    session_mgr, _meta, _sdir, sid = ctx  # type: ignore[misc]
+
+    text = getattr(args, "text", None)
+    file_path = getattr(args, "file", None)
+    source_name = getattr(args, "source_name", "domain_notes.txt") or "domain_notes.txt"
+
+    if text is None and file_path is None:
+        return _err(2, "SYNTAX_INVALID_ARGUMENT", "Either --text or --file must be provided.")
+
+    if file_path:
+        p = Path(file_path)
+        if not p.is_file():
+            return _err(2, "SYNTAX_INVALID_ARGUMENT", f"File '{file_path}' does not exist.")
+        text = p.read_text(encoding="utf-8")
+
+    from opendv_contracts.dtos.cas import TextSourceUploadRequest
+
+    req = TextSourceUploadRequest(
+        text=text or "",
+        source_name=source_name,
+        do_not_send_to_agent=False,
+    )
+    actor_name = (
+        principal
+        if isinstance(principal, str)
+        else getattr(principal, "principal", "human:steward")
+    )
+    try:
+        res = session_mgr.add_text_source(
+            sid,
+            text=req.text,
+            source_name=req.source_name,
+            principal=actor_name,
+        )
+        return 0, res
+    except OpenDVError as exc:
+        return _err_from_opendv_error(exc)
+
+
+def handle_staged_list(
+    args: argparse.Namespace, executor: LocalExecutor | None = None
+) -> tuple[int, Any]:
+    """List held-back candidate concepts."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+
+    ctx = _require_session_context(args, executor)
+    if isinstance(ctx[0], int):
+        return ctx  # type: ignore[return-value]
+    session_mgr, _meta, _sdir, sid = ctx  # type: ignore[misc]
+
+    from opendv_service.studio.promoter import StagedCandidatePromoter
+
+    promoter = StagedCandidatePromoter(_sdir, session_mgr)
+    try:
+        candidates = promoter.list_staged_candidates()
+        return 0, {
+            "session_id": sid,
+            "total_count": len(candidates),
+            "staged_candidates": [c.model_dump(mode="json") for c in candidates],
+        }
+    except OpenDVError as exc:
+        return _err_from_opendv_error(exc)
+
+
+def handle_staged_promote(
+    args: argparse.Namespace, executor: LocalExecutor | None = None
+) -> tuple[int, Any]:
+    """Promote a held-back candidate concept via Path A or Path B."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    principal, role_tier = auth_res  # type: ignore[misc]
+
+    ctx = _require_session_context(args, executor)
+    if isinstance(ctx[0], int):
+        return ctx  # type: ignore[return-value]
+    session_mgr, _meta, _sdir, _ = ctx  # type: ignore[misc]
+
+    candidate_id = getattr(args, "candidate_id", None) or getattr(args, "candidate", None)
+    if not candidate_id:
+        return _err(2, "SYNTAX_INVALID_ARGUMENT", "Missing required --candidate-id flag")
+
+    synonyms_str = getattr(args, "synonyms", None)
+    synonyms = [s.strip() for s in synonyms_str.split(",")] if synonyms_str else []
+    waiver = bool(getattr(args, "waiver", False))
+    rationale = getattr(args, "rationale", None)
+
+    if waiver and role_tier != "admin":
+        return _err(
+            7, "FORBIDDEN_ADMIN_REQUIRED", "Admin role required for Path B waiver promotion."
+        )
+    if waiver and (not rationale or len(rationale.strip()) < MIN_WAIVER_RATIONALE_LENGTH):
+        return _err(
+            4,
+            "INVALID_GROUNDING_WAIVER",
+            f"Waiver rationale must be at least {MIN_WAIVER_RATIONALE_LENGTH} characters.",
+        )
+
+    from opendv_contracts.dtos.promotion import PromoteCandidateRequest
+    from opendv_service.studio.promoter import StagedCandidatePromoter
+
+    promoter = StagedCandidatePromoter(_sdir, session_mgr)
+    req = PromoteCandidateRequest(
+        path="path_b" if waiver else "path_a",
+        synonyms=synonyms if not waiver else None,
+        waiver_rationale=rationale if waiver else None,
+        waiver=waiver,
+    )
+    actor_name = (
+        principal
+        if isinstance(principal, str)
+        else getattr(principal, "principal", "human:steward")
+    )
+    principal_obj = type(
+        "StudioPrincipal",
+        (),
+        {
+            "principal": actor_name,
+            "role": role_tier,
+            "is_admin": role_tier == "admin",
+            "auth_method": "cli",
+        },
+    )()
+    try:
+        res = promoter.promote_candidate(candidate_id, req, principal_obj)
+        return 0, res.model_dump(mode="json")
+    except OpenDVError as exc:
+        return _err_from_opendv_error(exc)
+
+
 def handle_export(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
@@ -2999,21 +3330,26 @@ def handle_promote(
         )
 
     rationale = getattr(args, "rationale", None)
-    if not rationale or len(rationale.strip()) < 10:
+    if not rationale or len(rationale.strip()) < MIN_PROMOTION_RATIONALE_LENGTH:
         return _err(
             1,
             "PROMOTION_RATIONALE_REQUIRED",
-            "Promotion rationale of at least 10 characters is required.",
+            (
+                f"Promotion rationale of at least {MIN_PROMOTION_RATIONALE_LENGTH} "
+                "characters is required."
+            ),
         )
 
     ack_hist = bool(getattr(args, "acknowledge_historical_contract_warning", False))
     hist_rationale = getattr(args, "historical_contract_rationale", None)
-    if ack_hist and (not hist_rationale or len(str(hist_rationale).strip()) < 10):
+    if ack_hist and (
+        not hist_rationale or len(str(hist_rationale).strip()) < MIN_PROMOTION_RATIONALE_LENGTH
+    ):
         return _err(
             1,
             "HISTORICAL_CONTRACT_RATIONALE_REQUIRED",
-            "historical_contract_rationale of at least 10 characters is required when "
-            "acknowledge_historical_contract_warning=True.",
+            f"historical_contract_rationale of at least {MIN_PROMOTION_RATIONALE_LENGTH} "
+            "characters is required when acknowledge_historical_contract_warning=True.",
         )
 
     ws_sha = getattr(args, "workspace_sha256", None)
@@ -3349,6 +3685,14 @@ _STUDIO_DISPATCH = {
     ("proposal", "accept"): handle_proposal_accept,
     ("proposal", "reject"): handle_proposal_reject,
     ("proposal", "rebase"): handle_proposal_rebase,
+    ("proposal", "refine"): handle_proposal_refine,
+    ("starter-pack", "list"): handle_starter_pack_list,
+    ("starter_pack", "list"): handle_starter_pack_list,
+    ("starter-pack", "apply"): handle_starter_pack_apply,
+    ("starter_pack", "apply"): handle_starter_pack_apply,
+    ("text", "add"): handle_text_add,
+    ("staged", "list"): handle_staged_list,
+    ("staged", "promote"): handle_staged_promote,
     "export": handle_export,
     "promote": handle_promote,
     ("bundle", "export"): handle_bundle_export,
@@ -3371,13 +3715,17 @@ def run_ontology_studio_command(
             "Missing studio action (e.g. init, create, delete, list, status, ...)",
         )
 
-    if action in ("delta", "proposal", "bundle"):
-        sub_action = getattr(args, f"studio_{action}_action", None)
-        if not sub_action:
-            return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Missing {action} subcommand")
-        handler = _STUDIO_DISPATCH.get((action, sub_action))
+    action_norm = (action or "").replace("-", "_")
+    sub_action = getattr(args, f"studio_{action_norm}_action", None) or getattr(
+        args, f"studio_{action}_action", None
+    )
+
+    if sub_action:
+        handler = _STUDIO_DISPATCH.get((action, sub_action)) or _STUDIO_DISPATCH.get(
+            (action_norm, sub_action)
+        )
     else:
-        handler = _STUDIO_DISPATCH.get(action)
+        handler = _STUDIO_DISPATCH.get(action) or _STUDIO_DISPATCH.get(action_norm)
 
     if not handler:
         return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Unknown studio subcommand '{action}'")
@@ -3415,9 +3763,15 @@ __all__ = [
     "handle_proposal_accept",
     "handle_proposal_list",
     "handle_proposal_rebase",
+    "handle_proposal_refine",
     "handle_proposal_reject",
     "handle_proposal_show",
+    "handle_staged_list",
+    "handle_staged_promote",
+    "handle_starter_pack_apply",
+    "handle_starter_pack_list",
     "handle_status",
+    "handle_text_add",
     "handle_upload",
     "register_studio_subparsers",
     "resolve_studio_principal",

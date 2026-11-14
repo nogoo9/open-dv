@@ -11,6 +11,7 @@
 
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
+import { BlueprintView } from "./components/BlueprintView";
 import { ClarificationPanel } from "./components/ClarificationPanel";
 import { DiffOverlay } from "./components/DiffOverlay";
 import { ExportPromoteModal } from "./components/ExportPromoteModal";
@@ -95,6 +96,10 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 
 	const isProposalPanelActive =
 		layout.rightDrawerTab === "proposal" && layout.rightDrawerOpen !== false;
+	const isBlueprintPanelActive =
+		layout.rightDrawerTab === "blueprint" && layout.rightDrawerOpen !== false;
+	const isOntologyPanelActive =
+		!isProposalPanelActive && !isBlueprintPanelActive;
 	const activeProposal =
 		selectedProposalId === NEW_PROPOSAL_DRAFT_KEY
 			? undefined
@@ -927,8 +932,8 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 						<button
 							type="button"
 							role="tab"
-							aria-selected={!isProposalPanelActive}
-							className={`right-panel-tab-btn${!isProposalPanelActive ? " active" : ""}`}
+							aria-selected={isOntologyPanelActive}
+							className={`right-panel-tab-btn${isOntologyPanelActive ? " active" : ""}`}
 							onClick={() => setRightDrawerTab("concept")}
 							data-testid="right-panel-tab-ontology"
 						>
@@ -945,6 +950,16 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 							Proposal Details
 							{proposals.length > 0 ? ` (${proposals.length})` : ""}
 						</button>
+						<button
+							type="button"
+							role="tab"
+							aria-selected={isBlueprintPanelActive}
+							className={`right-panel-tab-btn${isBlueprintPanelActive ? " active" : ""}`}
+							onClick={() => setRightDrawerTab("blueprint")}
+							data-testid="right-panel-tab-blueprint"
+						>
+							DV 2.0 Blueprint
+						</button>
 					</div>
 					{isProposalPanelActive ? (
 						<div
@@ -960,6 +975,8 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 								onClose={() => setRightDrawerTab("concept")}
 							/>
 						</div>
+					) : isBlueprintPanelActive ? (
+						<BlueprintView />
 					) : (
 						<GraphCanvas />
 					)}

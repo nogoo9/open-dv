@@ -29,6 +29,8 @@ import {
 	followStudioJobEvents,
 } from "./sse-follower";
 
+export const MIN_RATIONALE_LENGTH = 10;
+
 export interface RemoteExecutorConfig {
 	baseUrl?: string | undefined;
 	role?: string | undefined;
@@ -410,10 +412,10 @@ export class RemoteExecutor {
 		}
 
 		const rationale = rawRationale;
-		if (!rationale || String(rationale).trim().length < 10) {
+		if (!rationale || String(rationale).trim().length < MIN_RATIONALE_LENGTH) {
 			throw new CliDomainError(
 				"INVALID_GROUNDING_WAIVER",
-				"Low-confidence grounding waiver requires a rationale of at least 10 characters.",
+				`Low-confidence grounding waiver requires a rationale of at least ${MIN_RATIONALE_LENGTH} characters.`,
 				422,
 			);
 		}
@@ -1038,6 +1040,8 @@ export class RemoteExecutor {
 						body.provider_override = enrichedOptions.provider;
 					if (enrichedOptions.hold_policy)
 						body.steward_hold_policy = enrichedOptions.hold_policy;
+					if (enrichedOptions.unstructured_only !== undefined)
+						body.unstructured_only = Boolean(enrichedOptions.unstructured_only);
 					payload = await this.postJson("/api/v1/pipelines/validate", body);
 				} else if (subcommand === "run") {
 					const body: Record<string, unknown> = {};
@@ -1071,6 +1075,8 @@ export class RemoteExecutor {
 						body.project_id = enrichedOptions.project_id;
 					if (enrichedOptions.output_dir)
 						body.output_dir = enrichedOptions.output_dir;
+					if (enrichedOptions.unstructured_only !== undefined)
+						body.unstructured_only = Boolean(enrichedOptions.unstructured_only);
 
 					// Async run lifecycle (Decision D2)
 					const runHandle = (await this.postJson(
@@ -1879,6 +1885,9 @@ export class RemoteExecutor {
 					mode,
 					auto_commit: autoCommit,
 				};
+				if (options.steering_prompt) {
+					body.steering_prompt = options.steering_prompt;
+				}
 				const handle = await this.postJson(
 					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/construct`,
 					body,
@@ -2484,6 +2493,42 @@ export class RemoteExecutor {
 				);
 			}
 
+			case "proposal refine": {
+				const sid = options.session;
+				const pid = options.proposal_id || options.proposal;
+				if (!sid) {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
+				}
+				if (!pid) {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --proposal-id flag",
+						400,
+					);
+				}
+				const steering = options.steering_prompt;
+				if (!steering) {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --steering-prompt flag",
+						400,
+					);
+				}
+				const body: Record<string, unknown> = {
+					steering_prompt: steering,
+					mode: options.mode || "deterministic",
+					stream: Boolean(options.stream),
+				};
+				return await this.postJson(
+					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/proposals/${encodeURIComponent(String(pid))}/refine`,
+					body,
+				);
+			}
+
 			case "export": {
 				const sid = options.session;
 				if (!sid) {
@@ -2550,10 +2595,10 @@ export class RemoteExecutor {
 				}
 				this.assertLoopbackForServerPath("--workspace", options.workspace);
 				const rationale = options.rationale;
-				if (!rationale || String(rationale).trim().length < 10) {
+				if (!rationale || String(rationale).trim().length < MIN_RATIONALE_LENGTH) {
 					throw new CliDomainError(
 						"PROMOTION_RATIONALE_REQUIRED",
-						"Promotion requires rationale (min 10 chars)",
+						`Promotion requires rationale (min ${MIN_RATIONALE_LENGTH} chars)`,
 						400,
 					);
 				}
@@ -2714,6 +2759,124 @@ export class RemoteExecutor {
 				};
 				return await this.postJson(
 					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/bundle/clone`,
+					body,
+				);
+			}
+
+			case "starter-pack list": {
+				return await this.getJson("/api/v1/ontology/studio/starter-packs");
+			}
+
+			case "starter-pack apply": {
+				const sid = options.session;
+				if (!sid) {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
+				}
+				const pack = options.pack;
+				if (!pack) {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --pack flag",
+						400,
+					);
+				}
+				const body: Record<string, unknown> = {
+					pack_id: pack,
+					pack_ids: [pack],
+				};
+				return await this.postJson(
+					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/starter-packs/apply`,
+					body,
+				);
+			}
+
+			case "text add": {
+				const sid = options.session;
+				if (!sid) {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
+				}
+				let textContent = options.text as string | undefined;
+				const filePath = (options.file || options.file_path) as string | undefined;
+				if (!textContent && !filePath) {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Either --text or --file must be provided",
+						400,
+					);
+				}
+				if (filePath && !textContent) {
+					try {
+						const fs = await import("node:fs/promises");
+						textContent = await fs.readFile(filePath, "utf-8");
+					} catch (err: unknown) {
+						throw new CliDomainError(
+							"FILE_NOT_FOUND",
+							`File not found: ${filePath}`,
+							404,
+						);
+					}
+				}
+				const body: Record<string, unknown> = {
+					text: textContent || "",
+					source_name: options.source_name || "domain_notes.txt",
+					do_not_send_to_agent: false,
+				};
+				return await this.postJson(
+					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/sources/text`,
+					body,
+				);
+			}
+
+			case "staged list": {
+				const sid = options.session;
+				if (!sid) {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
+				}
+				return await this.getJson(
+					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/staged-candidates`,
+				);
+			}
+
+			case "staged promote": {
+				const sid = options.session;
+				const candId = options.candidate_id || options.candidate;
+				if (!sid) {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
+				}
+				if (!candId) {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --candidate-id flag",
+						400,
+					);
+				}
+				const synonyms = typeof options.synonyms === "string"
+					? (options.synonyms as string).split(",").map((s) => s.trim())
+					: (options.synonyms as string[] | undefined);
+				const isWaiver = Boolean(options.waiver);
+				const body: Record<string, unknown> = {
+					path: isWaiver ? "path_b" : "path_a",
+					synonyms: isWaiver ? null : (synonyms || []),
+					waiver_rationale: isWaiver ? (options.rationale || null) : null,
+				};
+				return await this.postJson(
+					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/staged-candidates/${encodeURIComponent(String(candId))}/promote`,
 					body,
 				);
 			}

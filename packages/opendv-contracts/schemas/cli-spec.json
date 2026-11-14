@@ -449,6 +449,18 @@
               "env_var": null,
               "inline_upload": false,
               "help": "Target wave identifier (e.g. W0, W1, W2)"
+            },
+            {
+              "name": "unstructured_only",
+              "flag": "--unstructured-only",
+              "short": null,
+              "type": "boolean",
+              "required": false,
+              "default": false,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Enable unstructured-only mode without relational source prerequisites"
             }
           ]
         },
@@ -520,6 +532,18 @@
               "env_var": null,
               "inline_upload": false,
               "help": "Steward hold policy"
+            },
+            {
+              "name": "unstructured_only",
+              "flag": "--unstructured-only",
+              "short": null,
+              "type": "boolean",
+              "required": false,
+              "default": false,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Validate in unstructured-only mode without relational prerequisites"
             }
           ]
         },
@@ -2240,6 +2264,18 @@
                   "env_var": null,
                   "inline_upload": false,
                   "help": "Block until construct completes"
+                },
+                {
+                  "name": "steering_prompt",
+                  "flag": "--steering-prompt",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Optional natural language steering prompt for construction"
                 }
               ]
             },
@@ -2899,6 +2935,81 @@
                       "help": "Alias for target session head SHA-256"
                     }
                   ]
+                },
+                {
+                  "name": "refine",
+                  "description": "Iteratively refine a pending proposal using natural-language steering instructions",
+                  "help": "Refine proposal with steering prompt",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": "RefineProposalRequest",
+                  "response_dto": "OntologyProposal",
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Studio session identifier"
+                    },
+                    {
+                      "name": "proposal_id",
+                      "flag": "--proposal-id",
+                      "short": "-p",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Target proposal identifier to refine"
+                    },
+                    {
+                      "name": "steering_prompt",
+                      "flag": "--steering-prompt",
+                      "short": null,
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Natural language steering refinement instructions"
+                    },
+                    {
+                      "name": "mode",
+                      "flag": "--mode",
+                      "short": "-m",
+                      "type": "string",
+                      "required": false,
+                      "default": "deterministic",
+                      "choices": [
+                        "llm",
+                        "deterministic",
+                        "agentic"
+                      ],
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Proposal refinement execution mode"
+                    },
+                    {
+                      "name": "stream",
+                      "flag": "--stream",
+                      "short": null,
+                      "type": "boolean",
+                      "required": false,
+                      "default": false,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Stream agent refinement events"
+                    }
+                  ]
                 }
               ]
             },
@@ -3266,6 +3377,253 @@
                       "env_var": null,
                       "inline_upload": false,
                       "help": "Explicit target session identifier for the newly cloned session"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "starter-pack",
+              "description": "Inspect and apply Asset Management starter packs",
+              "help": "Manage vertical starter packs",
+              "aliases": [],
+              "availability": "both",
+              "subcommands": [
+                {
+                  "name": "list",
+                  "description": "List available Asset Management vertical starter packs",
+                  "help": "List vertical starter packs",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": null,
+                  "response_dto": "list[StarterPackSummaryDTO]",
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Optional session identifier for context"
+                    }
+                  ]
+                },
+                {
+                  "name": "apply",
+                  "description": "Apply a vertical starter pack to the active studio session",
+                  "help": "Apply a vertical starter pack",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": "ApplyStarterPackRequest",
+                  "response_dto": "ApplyStarterPackResponse",
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Target studio session identifier"
+                    },
+                    {
+                      "name": "pack",
+                      "flag": "--pack",
+                      "short": "-p",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": [
+                        "core_spine",
+                        "public_equities_oms",
+                        "fixed_income_rates",
+                        "multi_asset_ibor",
+                        "private_equity_buyout",
+                        "private_credit_direct_lending",
+                        "custody_clearing",
+                        "all_domains"
+                      ],
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Starter pack identifier to apply"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "text",
+              "description": "Ingest free-form natural language text notes into CAS storage",
+              "help": "Ingest free-form text into session CAS",
+              "aliases": [],
+              "availability": "both",
+              "subcommands": [
+                {
+                  "name": "add",
+                  "description": "Add free-form text or document text into session CAS storage",
+                  "help": "Add free-form text note",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": "AddTextSourceRequest",
+                  "response_dto": "SourceUploadResponse",
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Target studio session identifier"
+                    },
+                    {
+                      "name": "text",
+                      "flag": "--text",
+                      "short": "-t",
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Inline text content to ingest"
+                    },
+                    {
+                      "name": "file",
+                      "flag": "--file",
+                      "short": "-f",
+                      "type": "path",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": true,
+                      "help": "Path to text or markdown file to ingest"
+                    },
+                    {
+                      "name": "source_name",
+                      "flag": "--source-name",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": "domain_notes.txt",
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Logical source document name in manifest"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "staged",
+              "description": "Query and promote held-back candidate concepts",
+              "help": "Manage staged candidate concepts",
+              "aliases": [],
+              "availability": "both",
+              "subcommands": [
+                {
+                  "name": "list",
+                  "description": "List held-back candidate concepts (< 0.65 BM25 match score)",
+                  "help": "List staged candidates",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": null,
+                  "response_dto": "StagedCandidatesQueryResponse",
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Target studio session identifier"
+                    }
+                  ]
+                },
+                {
+                  "name": "promote",
+                  "description": "Promote a held-back candidate concept via Path A or Path B",
+                  "help": "Promote a staged candidate",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": "PromoteCandidateRequest",
+                  "response_dto": "PromoteCandidateResponse",
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Target studio session identifier"
+                    },
+                    {
+                      "name": "candidate_id",
+                      "flag": "--candidate-id",
+                      "short": "-c",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Identifier of the staged candidate to promote"
+                    },
+                    {
+                      "name": "synonyms",
+                      "flag": "--synonyms",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Comma-separated synonyms for Path A re-scoring (>= 0.6500)"
+                    },
+                    {
+                      "name": "waiver",
+                      "flag": "--waiver",
+                      "short": null,
+                      "type": "boolean",
+                      "required": false,
+                      "default": false,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Enable Path B admin waiver promotion"
+                    },
+                    {
+                      "name": "rationale",
+                      "flag": "--rationale",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Mandatory business rationale for Path B waiver (>= 10 chars)"
                     }
                   ]
                 }

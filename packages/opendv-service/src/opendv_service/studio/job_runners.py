@@ -1112,6 +1112,7 @@ def run_construct_session(
     fibo_modules: Sequence[str] | None = None,
     mode: str = "deterministic",
     if_match: str | None = None,
+    steering_prompt: str | None = None,
     actor: str = "human:local_admin",
     actor_role: str = "admin",
     min_confidence: float = PATH_A_GROUNDING_THRESHOLD,
@@ -1230,6 +1231,10 @@ def run_construct_session(
             clarification_answers=answers_dict,
             session_dir=session_dir,
             fibo_modules=list(fibo_modules or []),
+            steering_prompt=steering_prompt,
+            job_id=job_id,
+            principal=actor,
+            mode=clean_mode,
         )
     else:
         from opendv_service.construction.deterministic_pipeline import (
@@ -1247,6 +1252,7 @@ def run_construct_session(
             actor=actor,
             principal=actor,
             if_match=None,
+            steering_prompt=steering_prompt,
         )
         proposal = det_pipeline.construct_proposal(
             base_ontology=base_ontology,

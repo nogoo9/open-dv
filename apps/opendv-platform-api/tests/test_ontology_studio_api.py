@@ -2652,4 +2652,3 @@ def test_create_proposal_synthesizes_missing_op_id(
     ops = created["operations"]
     assert len(ops) == 1
     assert str(ops[0]["op_id"]).startswith("op-")
-

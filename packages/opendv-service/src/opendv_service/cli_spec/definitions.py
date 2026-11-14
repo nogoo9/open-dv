@@ -468,6 +468,13 @@ PIPELINE_COMMAND = CommandDef(
                     type="string",
                     help="Target wave identifier (e.g. W0, W1, W2)",
                 ),
+                OptionDef(
+                    name="unstructured_only",
+                    flag="--unstructured-only",
+                    type="boolean",
+                    default=False,
+                    help="Enable unstructured-only mode without relational source prerequisites",
+                ),
             ],
         ),
         CommandDef(
@@ -515,6 +522,13 @@ PIPELINE_COMMAND = CommandDef(
                     flag="--hold-policy",
                     type="string",
                     help="Steward hold policy",
+                ),
+                OptionDef(
+                    name="unstructured_only",
+                    flag="--unstructured-only",
+                    type="boolean",
+                    default=False,
+                    help="Validate in unstructured-only mode without relational prerequisites",
                 ),
             ],
         ),

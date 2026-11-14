@@ -263,7 +263,7 @@ export interface LayoutState {
 		| "quality";
 	leftDrawerOpen: boolean;
 	rightDrawerOpen: boolean;
-	rightDrawerTab?: "concept" | "proposal" | undefined;
+	rightDrawerTab?: "concept" | "proposal" | "blueprint" | undefined;
 	bottomDockOpen: boolean;
 	activeModal: "export" | "promote" | "diff" | "new_session" | null;
 	lodTier: 1 | 2 | 3;

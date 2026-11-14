@@ -1100,6 +1100,7 @@ def run_construct_job(
     fibo_modules: list[str] | None = None,
     mode: str = "deterministic",
     if_match: str | None = None,
+    steering_prompt: str | None = None,
     actor_role: str | None = None,
     agent_runner: Any = None,
 ) -> dict[str, Any]:
@@ -1139,6 +1140,7 @@ def run_construct_job(
             fibo_modules=fibo_modules,
             mode=eff_mode,
             if_match=if_match,
+            steering_prompt=steering_prompt,
             actor=ctx.principal,
             actor_role=actor_role or ctx.role,
             require_admin_for_auto_commit=False,

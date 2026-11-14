@@ -41,6 +41,16 @@ from opendv_contracts.dtos.ontology import (
     StewardWaiverRecord,
     is_destructive_delta,
 )
+from opendv_contracts.dtos.promotion import (
+    PromoteCandidateRequest,
+    PromoteCandidateResponse,
+    StagedCandidatesQueryResponse,
+)
+from opendv_contracts.dtos.starter_packs import (
+    ApplyStarterPackRequest,
+    ApplyStarterPackResponse,
+    StarterPackListResponse,
+)
 from opendv_contracts.errors import ErrorCode, OpenDVError
 from opendv_contracts.jcs import dumps_jcs_bytes
 from opendv_core.genesis import GENESIS_VERSION, create_genesis_ontology
@@ -67,8 +77,12 @@ from opendv_platform_api.security.studio_auth import (
     mint_launch_nonce,
 )
 from opendv_service.construction.clarification_harness import EMPTY_ANSWERS_SHA256
+from opendv_service.construction.deterministic_pipeline import (
+    DeterministicConstructionPipeline,
+)
+from opendv_service.construction.models import ConstructOptions
 from opendv_service.export.rdf_exporter import export_ontology
-from opendv_service.ontology.applier import compute_next_semver
+from opendv_service.ontology.applier import compute_next_semver, parse_semver
 from opendv_service.ontology.rebase import check_rebase_conflicts
 from opendv_service.ontology.validator import (
     GovernanceValidator,
@@ -92,7 +106,13 @@ from opendv_service.studio.bundle import (
     export_bundle,
     import_bundle,
 )
+from opendv_service.studio.job_runners import (
+    _prepare_evidence_for_agent,
+    load_active_session_evidence,
+    load_binding_clarification_answers,
+)
 from opendv_service.studio.locks import reentrant_session_lock
+from opendv_service.studio.promoter import StagedCandidatePromoter
 from opendv_service.studio.session_manager import (
     InvalidOntologyPayloadError,
     InvalidSessionIdentifierError,
@@ -113,6 +133,7 @@ from opendv_service.studio.workspace_security import (
     set_owner_only_permissions,
     validate_workspace_containment,
 )
+from opendv_sources.asset_management import AssetManagementStarterPackRegistry
 from opendv_sources.ingestion.layout_evaluator import TesseractOCRRouter
 
 logger = logging.getLogger(__name__)
@@ -211,6 +232,23 @@ class SourceUploadResponse(BaseModel):
     do_not_send_to_agent: bool
 
 
+class TextSourceUploadRequest(BaseModel):
+    text: str = Field(
+        ...,
+        min_length=1,
+        max_length=10_000_000,
+        description="Raw text or markdown document content",
+    )
+    source_name: str | None = Field(
+        default=None, max_length=256, description="Descriptive document filename or label"
+    )
+    format: str = Field(default="text", description="Text format encoding: 'text' or 'markdown'")
+    do_not_send_to_agent: bool = Field(default=False, description="Confidentiality taint flag")
+    description: str | None = Field(
+        default=None, max_length=1000, description="Optional description"
+    )
+
+
 class ParseRequest(BaseModel):
     source_ids: list[str] | None = None
     ocr_mode: str = "auto"
@@ -228,6 +266,14 @@ class ConstructRequest(BaseModel):
         default_factory=lambda: ["FND", "BE", "FBC", "SEC", "LOAN", "IND"]
     )
     mode: str | None = None
+    steering_prompt: str | None = None
+
+
+class RefineProposalRequest(BaseModel):
+    steering_prompt: str = Field(
+        ..., min_length=1, max_length=5000, description="Natural-language steering guidance"
+    )
+    mode: str = Field(default="auto", description="Execution mode: auto, agent, deterministic")
 
 
 class JobHandleDTO(BaseModel):
@@ -1821,6 +1867,45 @@ async def upload_source(
                 tmp_blob_path.unlink()
 
 
+@router.post(
+    "/sessions/{session_id}/sources/text",
+    response_model=SourceUploadResponse,
+    status_code=201,
+)
+def upload_text_source(
+    session_id: str,
+    payload: TextSourceUploadRequest,
+    session_mgr: Annotated[StudioSessionManager, Depends(get_session_manager)],
+    principal: Annotated[StudioPrincipal, Depends(require_editor_or_automated)],
+) -> SourceUploadResponse:
+    """Ingest free-form text or analyst notes directly into session CAS storage."""
+    _get_session_or_404(session_mgr, session_id)
+    try:
+        res = session_mgr.add_text_source(
+            session_id,
+            text=payload.text,
+            source_name=payload.source_name,
+            format=payload.format,
+            do_not_send_to_agent=payload.do_not_send_to_agent,
+            description=payload.description,
+            principal=principal.principal,
+        )
+        return SourceUploadResponse(
+            source_id=res["source_id"],
+            source_sha256=res["source_sha256"],
+            file_name=res["file_name"],
+            filename=res["filename"],
+            size_bytes=res["size_bytes"],
+            byte_count=res["byte_count"],
+            mime_type=res["mime_type"],
+            do_not_send_to_agent=res["do_not_send_to_agent"],
+        )
+    except OpenDVError as exc:
+        raise _raise_from_opendv_error(exc) from exc
+    except Exception as exc:
+        raise StudioAPIError("EXECUTION_FAILURE", str(exc)) from exc
+
+
 @router.get("/sessions/{session_id}/sources/{source_id}", response_model=SourceDocumentDTO)
 def get_source_detail(
     session_id: str,
@@ -2355,6 +2440,7 @@ def trigger_construction(
         fibo_modules=payload.fibo_modules,
         mode=clean_mode,
         if_match=clean_if_match,
+        steering_prompt=payload.steering_prompt,
         agent_runner=agent_runner,
     )
     return JobHandleDTO(**job_handle)
@@ -3356,7 +3442,7 @@ def reject_proposal(
         prop_data = _normalize_proposal_record(
             raw_prop, session_id=session_id, fallback_proposal_id=proposal_id
         )
-        if prop_data.get("status") in ("ACCEPTED", "REJECTED"):
+        if prop_data.get("status") in ("ACCEPTED", "REJECTED", "SUPERSEDED"):
             raise StudioAPIError(
                 "PROPOSAL_ALREADY_RESOLVED",
                 f"Proposal '{proposal_id}' has already been resolved ({prop_data.get('status')}).",
@@ -3733,7 +3819,7 @@ def rebase_proposal(
         prop_data = _normalize_proposal_record(
             raw_prop, session_id=session_id, fallback_proposal_id=proposal_id
         )
-        if prop_data.get("status") in ("ACCEPTED", "REJECTED"):
+        if prop_data.get("status") in ("ACCEPTED", "REJECTED", "SUPERSEDED"):
             raise StudioAPIError(
                 "PROPOSAL_ALREADY_RESOLVED",
                 f"Proposal '{proposal_id}' has already been resolved ({prop_data.get('status')}).",
@@ -3920,6 +4006,283 @@ def rebase_proposal(
         proposer=prop_data["proposer"],
         created_at=prop_data["created_at"],
         rationale=prop_data["rationale"],
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/proposals/{proposal_id}/refine",
+    response_model=ProposalRecordDTO,
+)
+def refine_proposal_endpoint(
+    session_id: str,
+    proposal_id: str,
+    payload: RefineProposalRequest,
+    session_mgr: Annotated[StudioSessionManager, Depends(get_session_manager)],
+    principal: Annotated[StudioPrincipal, Depends(require_editor)],
+    request: Request,
+) -> ProposalRecordDTO:
+    """Refine a pending ontology proposal with natural-language steering guidance."""
+    meta = _get_session_or_404(session_mgr, session_id)
+    sdir = session_mgr.get_session_dir(session_id)
+    prop_file = _resolve_proposal_file(sdir, proposal_id)
+    if not prop_file.is_file():
+        raise StudioAPIError("PROPOSAL_NOT_FOUND", f"Proposal '{proposal_id}' not found.")
+
+    with reentrant_session_lock(sdir / ".session.lock", session_id=session_id):
+        try:
+            raw_prop = json.loads(prop_file.read_text(encoding="utf-8"))
+            if not isinstance(raw_prop, dict):
+                raise StudioAPIError(
+                    "CORRUPT_SESSION_RECORD",
+                    f"Corrupt proposal record '{proposal_id}': expected JSON object.",
+                )
+        except StudioAPIError:
+            raise
+        except (OSError, json.JSONDecodeError) as exc:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt proposal record '{proposal_id}': {exc}",
+            ) from exc
+
+        prop_data = _normalize_proposal_record(
+            raw_prop, session_id=session_id, fallback_proposal_id=proposal_id
+        )
+        if prop_data.get("status") in ("ACCEPTED", "REJECTED", "SUPERSEDED"):
+            raise StudioAPIError(
+                "PROPOSAL_ALREADY_RESOLVED",
+                f"Cannot refine proposal '{proposal_id}' because its status is "
+                f"'{prop_data.get('status')}'. Only PENDING proposals can be refined.",
+                status_code=409,
+            )
+
+        base_version = prop_data.get("base_version") or meta.head_version
+        base_sha256 = prop_data.get("base_sha256") or meta.head_sha256
+
+        chunks, tables = load_active_session_evidence(sdir)
+        answers_dict = load_binding_clarification_answers(sdir)
+        base_ont = _load_version_ontology_fail_closed(sdir, meta, base_version)
+
+        clean_mode = payload.mode.strip().lower() if payload.mode else "auto"
+        agent_runner = getattr(request.app.state, "studio_agent_runner", None)
+        use_agent = (clean_mode in ("auto", "agent")) and agent_runner is not None
+
+        if use_agent and agent_runner is not None:
+            agent_chunks, agent_tables = _prepare_evidence_for_agent(
+                chunks, tables, session_mgr.security_manager
+            )
+            refined_proposal = agent_runner(
+                base_ontology=base_ont,
+                evidence_chunks=agent_chunks,
+                tables=agent_tables,
+                clarification_answers=answers_dict,
+                session_dir=sdir,
+                steering_prompt=payload.steering_prompt,
+                job_id=f"refine-{proposal_id[:8]}",
+                principal=principal.principal,
+                mode=clean_mode,
+            )
+        else:
+            det_pipeline = DeterministicConstructionPipeline()
+            opts = ConstructOptions(
+                mode="deterministic",
+                session_dir=sdir,
+                actor=principal.principal,
+                principal=principal.principal,
+                steering_prompt=payload.steering_prompt,
+            )
+            refined_proposal = det_pipeline.construct_proposal(
+                base_ontology=base_ont,
+                evidence_chunks=chunks,
+                tables=tables,
+                clarification_answers=answers_dict,
+                options=opts,
+            )
+
+        refined_proposal_id = f"prop-refine-{uuid.uuid4().hex[:8]}"
+        now_iso = datetime.now(UTC).isoformat()
+        steering_history = list(prop_data.get("steering_history") or [])
+        steering_history.append(payload.steering_prompt)
+
+        prop_data["status"] = "SUPERSEDED"
+        prop_data["superseded_by"] = refined_proposal_id
+        prop_data["updated_at"] = now_iso
+        tmp_prev = sdir / "proposals" / f".{proposal_id}.{uuid.uuid4().hex[:8]}.tmp"
+        tmp_prev.write_text(json.dumps(prop_data, indent=2), encoding="utf-8")
+        replace_with_retry(tmp_prev, prop_file)
+        set_owner_only_permissions(prop_file)
+
+        refined_ops = [
+            op.model_dump(mode="json", exclude_none=True)
+            for op in refined_proposal.delta.operations
+        ]
+        refined_record = {
+            "proposal_id": refined_proposal_id,
+            "session_id": session_id,
+            "base_version": base_version,
+            "base_sha256": base_sha256,
+            "status": "PENDING",
+            "operations": refined_ops,
+            "proposer": principal.principal,
+            "created_at": now_iso,
+            "rationale": f"Refinement of '{proposal_id}'. Steering: '{payload.steering_prompt}'.",
+            "delta": refined_proposal.delta.model_dump(mode="json", exclude_none=True),
+            "replaces_proposal_id": proposal_id,
+            "steering_history": steering_history,
+        }
+        ref_file = sdir / "proposals" / f"{refined_proposal_id}.json"
+        tmp_ref = sdir / "proposals" / f".{refined_proposal_id}.{uuid.uuid4().hex[:8]}.tmp"
+        tmp_ref.write_text(json.dumps(refined_record, indent=2), encoding="utf-8")
+        replace_with_retry(tmp_ref, ref_file)
+        set_owner_only_permissions(ref_file)
+
+        append_signed_audit_record(
+            session_dir=sdir,
+            action="PROPOSAL_REFINED",
+            actor=principal.principal,
+            details={
+                "previous_proposal_id": proposal_id,
+                "refined_proposal_id": refined_proposal_id,
+                "steering_prompt": payload.steering_prompt,
+            },
+            security_manager=session_mgr.security_manager,
+        )
+
+        return ProposalRecordDTO(**refined_record)
+
+
+@router.get(
+    "/sessions/{session_id}/staged-candidates",
+    response_model=StagedCandidatesQueryResponse,
+)
+def list_staged_candidates(
+    session_id: str,
+    session_mgr: Annotated[StudioSessionManager, Depends(get_session_manager)],
+    _principal: Annotated[StudioPrincipal, Depends(require_viewer)],
+) -> StagedCandidatesQueryResponse:
+    """Query held-back candidate concepts (< 0.65 BM25 match score) for session."""
+    _get_session_or_404(session_mgr, session_id)
+    sdir = session_mgr.get_session_dir(session_id)
+    promoter = StagedCandidatePromoter(sdir, session_mgr)
+    cands = promoter.list_staged_candidates()
+    return StagedCandidatesQueryResponse(
+        session_id=session_id,
+        staged_candidates=cands,
+        candidates=cands,
+        total_count=len(cands),
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/staged-candidates/{candidate_id}/promote",
+    response_model=PromoteCandidateResponse,
+    status_code=200,
+)
+def promote_candidate_endpoint(
+    session_id: str,
+    candidate_id: str,
+    payload: PromoteCandidateRequest,
+    session_mgr: Annotated[StudioSessionManager, Depends(get_session_manager)],
+    principal: Annotated[StudioPrincipal, Depends(require_editor_or_automated)],
+) -> PromoteCandidateResponse:
+    """Promote a held-back candidate concept via Path A or Path B (admin waiver)."""
+    _get_session_or_404(session_mgr, session_id)
+    sdir = session_mgr.get_session_dir(session_id)
+    promoter = StagedCandidatePromoter(sdir, session_mgr)
+    try:
+        return promoter.promote_candidate(candidate_id, payload, principal)
+    except OpenDVError as exc:
+        raise _raise_from_opendv_error(exc) from exc
+    except Exception as exc:
+        raise StudioAPIError("EXECUTION_FAILURE", str(exc)) from exc
+
+
+@router.get("/starter-packs", response_model=StarterPackListResponse)
+def list_starter_packs_endpoint() -> StarterPackListResponse:
+    """List available Asset Management vertical starter packs."""
+    return AssetManagementStarterPackRegistry.list_response()
+
+
+@router.post(
+    "/sessions/{session_id}/starter-packs/apply",
+    response_model=ApplyStarterPackResponse,
+)
+def apply_starter_pack_endpoint(
+    session_id: str,
+    payload: ApplyStarterPackRequest,
+    session_mgr: Annotated[StudioSessionManager, Depends(get_session_manager)],
+    principal: Annotated[StudioPrincipal, Depends(require_editor)],
+    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+) -> ApplyStarterPackResponse:
+    """Apply one or more Asset Management starter packs to the active session."""
+    meta = _get_session_or_404(session_mgr, session_id)
+    sdir = session_mgr.get_session_dir(session_id)
+
+    clean_if_match = _parse_strong_etag_or_400(if_match) if if_match is not None else None
+    clean_body_sha = (
+        _parse_strong_etag_or_400(payload.base_sha256, header_name="base_sha256")
+        if payload.base_sha256
+        else None
+    )
+    expected_sha = clean_if_match or clean_body_sha
+    if expected_sha is not None and expected_sha != meta.head_sha256:
+        raise StudioAPIError(
+            "ONT_EVO_CONCURRENT_MODIFICATION",
+            f"Expected SHA ('{expected_sha}') does not match head SHA ('{meta.head_sha256}').",
+        )
+
+    pack_ontology = AssetManagementStarterPackRegistry.compose_packs(
+        payload.pack_ids,
+        version=payload.base_version or meta.head_version,
+        domain_namespace=payload.domain_namespace or meta.domain_namespace,
+    )
+
+    with reentrant_session_lock(sdir / ".session.lock", session_id=session_id):
+        b_maj, b_min, _ = parse_semver(meta.head_version)
+        if b_maj == 0:
+            next_ver = (
+                "1.0.0"
+                if pack_ontology.canonical_business_concepts
+                else f"0.{b_min + 1}.0"
+            )
+        else:
+            next_ver = f"{b_maj}.{b_min + 1}.0"
+        pack_ontology.ontology_version = next_ver
+        pack_ontology.parent_sha256 = meta.head_sha256
+
+        new_sha = compute_ontology_sha256(pack_ontology)
+        v_dir = sdir / "versions" / f"v{next_ver}"
+        v_dir.mkdir(parents=True, exist_ok=True)
+        v_ont_json = v_dir / "ontology.json"
+        v_ont_json.write_text(pack_ontology.model_dump_json(indent=2), encoding="utf-8")
+        set_owner_only_permissions(v_ont_json)
+
+        updated_meta = meta.model_copy(
+            update={
+                "head_version": next_ver,
+                "head_sha256": new_sha,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        _atomic_write_session_json(sdir, updated_meta)
+
+        append_signed_audit_record(
+            session_dir=sdir,
+            action="STARTER_PACK_APPLIED",
+            actor=principal.principal,
+            details={
+                "pack_ids": [p.value if hasattr(p, "value") else str(p) for p in payload.pack_ids],
+                "new_version": next_ver,
+                "new_sha256": new_sha,
+            },
+            security_manager=session_mgr.security_manager,
+        )
+
+    return ApplyStarterPackResponse(
+        applied_pack_ids=payload.pack_ids,
+        ontology_version=next_ver,
+        ontology_sha256=new_sha,
+        concept_count=len(pack_ontology.canonical_business_concepts),
+        relationship_count=len(pack_ontology.canonical_relationships),
     )
 
 

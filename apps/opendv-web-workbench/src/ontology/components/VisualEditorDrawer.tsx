@@ -41,6 +41,7 @@ import type {
 	ExternalMapping,
 } from "../store/types";
 import { ProposalDetailsView } from "./ProposalDetailsView";
+import { BlueprintView } from "./BlueprintView";
 
 export interface VisualEditorDrawerProps {
 	className?: string;
@@ -364,13 +365,22 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 		isDrawerOpen &&
 		(layout?.rightDrawerTab === "proposal" ||
 			(!selectedConcept && Boolean(selectedProposalId)));
-	const activeTab: "concept" | "proposal" | null = wantsProposalTab
-		? "proposal"
-		: selectedConcept
-			? "concept"
-			: null;
+	const wantsBlueprintTab =
+		isDrawerOpen && layout?.rightDrawerTab === "blueprint";
+	const activeTab: "concept" | "proposal" | "blueprint" | null =
+		wantsBlueprintTab
+			? "blueprint"
+			: wantsProposalTab
+				? "proposal"
+				: selectedConcept
+					? "concept"
+					: null;
 
-	if (!activeTab || (hideProposalTab && activeTab === "proposal")) {
+	if (
+		!activeTab ||
+		(hideProposalTab &&
+			(activeTab === "proposal" || activeTab === "blueprint"))
+	) {
 		return null;
 	}
 
@@ -710,10 +720,22 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 						Proposal Details
 						{proposals.length > 0 ? ` (${proposals.length})` : ""}
 					</button>
+					<button
+						type="button"
+						role="tab"
+						aria-selected={activeTab === "blueprint"}
+						className={`right-drawer-tab-btn${activeTab === "blueprint" ? " active" : ""}`}
+						onClick={() => setRightDrawerTab("blueprint")}
+						data-testid="right-tab-blueprint"
+					>
+						DV 2.0 Blueprint
+					</button>
 				</div>
 			)}
 
-			{activeTab === "proposal" ? (
+			{activeTab === "blueprint" ? (
+				<BlueprintView />
+			) : activeTab === "proposal" ? (
 				<ProposalDetailsView
 					proposal={selectedProposal}
 					opFilter={proposalOpFilter}

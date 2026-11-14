@@ -125,6 +125,9 @@ def test_dump_cli_tree_studio_parity(
         "export",
         "promote",
         "bundle",
+        "starter-pack",
+        "text",
+        "staged",
     }
     expected_shared_groups = expected_groups - {"init"}
     assert set(py_groups.keys()) == expected_groups
@@ -169,8 +172,8 @@ def test_dump_cli_tree_studio_parity(
                     f"Option mismatch in '{group_name} {leaf_name}': py={py_opts} ts={ts_opts}"
                 )
 
-    assert leaf_count_py == 22, f"Expected 22 python leaf commands, got {leaf_count_py}"
-    assert leaf_count_ts == 21, f"Expected 21 TypeScript shared leaf commands, got {leaf_count_ts}"
+    assert leaf_count_py == 28, f"Expected 28 python leaf commands, got {leaf_count_py}"
+    assert leaf_count_ts == 27, f"Expected 27 TypeScript shared leaf commands, got {leaf_count_ts}"
 
 
 @pytest.mark.parity

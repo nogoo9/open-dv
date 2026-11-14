@@ -100,7 +100,7 @@
   "schema_baselines": {
     "schemas/cli-spec.json": {
       "description": "Root CLI specification schema",
-      "sha256": "3974bc378f4e063f7d7aed38316320175fdc2264f2dc3f8f35f46f26d2eeeb3f"
+      "sha256": "e0e8cea0d04a3bbf8a907fe9342230b3664fada4cacb5b1ea94864f09f8739ae"
     },
     "schemas/dv2-canonical-ir.schema.json": {
       "description": "Data Vault 2.0 Canonical Intermediate Representation schema",
@@ -116,7 +116,7 @@
     },
     "schemas/v1/cli-spec.json": {
       "description": "v1 CLI specification schema",
-      "sha256": "3974bc378f4e063f7d7aed38316320175fdc2264f2dc3f8f35f46f26d2eeeb3f"
+      "sha256": "e0e8cea0d04a3bbf8a907fe9342230b3664fada4cacb5b1ea94864f09f8739ae"
     },
     "schemas/v1/error-codes.json": {
       "description": "v1 Closed Error Code Catalog schema",

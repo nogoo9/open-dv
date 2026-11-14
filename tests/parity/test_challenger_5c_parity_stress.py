@@ -57,7 +57,7 @@ def test_stress_cli_tree_deep_structure_and_options_parity(
     ts_ont = ts_tree["commands"]["ontology"]
     ts_studio = ts_ont["subcommands"]["studio"]
 
-    # Verify all 15 standalone groups (`init` is standalone_only -> 14 client groups)
+    # Verify all 18 standalone groups (`init` is standalone_only -> 17 client groups)
     expected_groups = {
         "init",
         "create",
@@ -74,6 +74,9 @@ def test_stress_cli_tree_deep_structure_and_options_parity(
         "export",
         "promote",
         "bundle",
+        "starter-pack",
+        "text",
+        "staged",
     }
     expected_shared_groups = expected_groups - {"init"}
     py_groups = py_studio.get("subcommands", {})
@@ -111,8 +114,8 @@ def test_stress_cli_tree_deep_structure_and_options_parity(
                     f"Mismatch in leaf '{grp} {sub_name}': py={p_flags} ts={t_flags}"
                 )
 
-    assert leaf_counts["py"] == 22
-    assert leaf_counts["ts"] == 21
+    assert leaf_counts["py"] == 28, f"Expected 28 python leaf commands, got {leaf_counts['py']}"
+    assert leaf_counts["ts"] == 27, f"Expected 27 TypeScript leaf commands, got {leaf_counts['ts']}"
 
     # 2. Adversarial flag: --dump-spec (unrecognized) must exit 2 across both
     c_py, _, _ = cli_transport.invoke_raw(["--dump-spec"])

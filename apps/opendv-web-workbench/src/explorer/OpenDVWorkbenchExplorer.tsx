@@ -77,6 +77,10 @@ export function OpenDVWorkbenchExplorer({
 	const setWaveFilter = store((s) => s.setWaveFilter);
 	const syncFromUrl = store((s) => s.syncFromUrl);
 	const resolveStewardHold = store((s) => s.resolveStewardHold);
+	const builderSessionId = store((s) => s.builderSessionId);
+	const builderSource = store((s) => s.builderSource);
+	const builderDomain = store((s) => s.builderDomain);
+	const builderPipelineId = store((s) => s.builderPipelineId);
 
 	// Local UI State for Task P9.3
 	const [isRunSelectorOpen, setIsRunSelectorOpen] = safeUseState(false);
@@ -356,6 +360,10 @@ export function OpenDVWorkbenchExplorer({
 					)}
 					{view === "builder" ? (
 						<PipelineBuilderView
+							sessionId={builderSessionId ?? undefined}
+							source={builderSource ?? undefined}
+							initialDomainNamespace={builderDomain ?? undefined}
+							initialPipelineId={builderPipelineId ?? undefined}
 							stagedSpec={stagedSpec}
 							onStageSpec={setStagedSpec}
 							onRunStarted={(handle) => {
