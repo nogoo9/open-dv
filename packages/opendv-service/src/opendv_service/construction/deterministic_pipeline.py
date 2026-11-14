@@ -933,6 +933,11 @@ class DeterministicConstructionPipeline:
             else (opts.actor if opts.actor else "deterministic:pipeline")
         )
 
+        staged_dicts = [c.model_dump(mode="json") for c in staged_candidates]
+        delta_metadata: dict[str, Any] = {"staged_candidates": staged_dicts}
+        if opts.steering_prompt:
+            delta_metadata["steering_prompt"] = opts.steering_prompt
+
         delta = OntologyDelta(
             delta_id=f"delta-{_det_id('delta', base_sha, target_ver, op_content_hash)}",
             base_ontology_version=base_ver,
@@ -941,8 +946,20 @@ class DeterministicConstructionPipeline:
             domain_namespace=base_ontology.domain_namespace or "default",
             author=author,
             operations=accepted_ops,
-            rationale="Automated zero-API-key deterministic fallback construction.",
+            rationale=(
+                f"Automated zero-API-key deterministic fallback construction. "
+                f"Steering: '{opts.steering_prompt}'."
+                if opts.steering_prompt
+                else "Automated zero-API-key deterministic fallback construction."
+            ),
+            metadata=delta_metadata,
         )
+
+        diagnostics_list = [
+            f"staged_candidates_count:{len(staged_candidates)}",
+        ]
+        if opts.steering_prompt:
+            diagnostics_list.append(f"deterministic_steering:{opts.steering_prompt[:100]}")
 
         proposal = OntologyProposal(
             proposal_id=f"prop-{_det_id('proposal', delta.delta_id)}",
@@ -951,8 +968,13 @@ class DeterministicConstructionPipeline:
             base_ontology_sha256=base_sha,
             delta=delta,
             confidence_score=1.0 if accepted_ops else 0.0,
-            rationale="Deterministic fallback construction from evidence chunks and tables.",
+            rationale=(
+                f"Deterministic fallback construction. Steering: '{opts.steering_prompt}'."
+                if opts.steering_prompt
+                else "Deterministic fallback construction from evidence chunks and tables."
+            ),
             created_at_utc=datetime.now(UTC).isoformat(),
+            diagnostics=diagnostics_list,
         )
 
         return proposal

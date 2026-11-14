@@ -487,9 +487,11 @@ class OntologyArchitect(ConstructionAgent):
         self,
         base_ontology: Any,
         evidence: list[Any] | None = None,
+        steering_prompt: str | None = None,
         **kwargs: Any,
     ) -> OntologyProposal:
         """Synthesize additive ontology delta proposal implementing ConstructionAgent SPI."""
+        effective_steering = steering_prompt or kwargs.get("steering_prompt")
         if base_ontology is not None and not isinstance(base_ontology, GraphAOntology):
             raise TypeError(
                 f"base_ontology must be GraphAOntology or None, got: {type(base_ontology)}"
@@ -519,6 +521,16 @@ class OntologyArchitect(ConstructionAgent):
                     chunks.append(item)
                 elif isinstance(item, TableStructure):
                     tables.append(item)
+
+        if effective_steering:
+            chunks.append(
+                EvidenceChunk(
+                    chunk_id=f"chunk-steering-{uuid.uuid4().hex[:8]}",
+                    document_id="steering_prompt",
+                    text=effective_steering,
+                    confidence=1.0,
+                )
+            )
 
         candidates = self.term_scout.extract_candidates(chunks, tables)
 
@@ -1449,6 +1461,16 @@ class OntologyArchitect(ConstructionAgent):
                 f"Segregated {len(staged_candidates)} ungrounded/dependent candidate operation(s) "
                 "into delta.metadata['staged_candidates']."
             )
+        if effective_steering:
+            delta_meta["steering_prompt"] = effective_steering
+            diagnostics.append(f"steering_prompt_applied:{len(effective_steering)}chars")
+
+        prop_rationale = (
+            f"Agent-synthesized candidate ontology delta. "
+            f"Guided by steering prompt: '{effective_steering}'."
+            if effective_steering
+            else "Agent-synthesized candidate ontology delta"
+        )
 
         delta = OntologyDelta(
             delta_id=delta_id,
@@ -1458,7 +1480,7 @@ class OntologyArchitect(ConstructionAgent):
             author=delta_author,
             operations=committed_ops,
             metadata=delta_meta,
-            rationale="Agent-synthesized candidate ontology delta",
+            rationale=prop_rationale,
         )
 
         if not committed_ops:
@@ -1475,7 +1497,7 @@ class OntologyArchitect(ConstructionAgent):
             delta=delta,
             confidence_score=confidence,
             diagnostics=diagnostics,
-            rationale="Agent-synthesized candidate ontology delta",
+            rationale=prop_rationale,
         )
 
     def clarify(

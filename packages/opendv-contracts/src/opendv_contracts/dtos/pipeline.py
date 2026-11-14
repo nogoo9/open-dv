@@ -52,6 +52,10 @@ class PipelineValidateRequest(BaseContractModel):
         default=None, description="Target harness provider override"
     )
     steward_hold_policy: str | None = Field(default=None, description="Steward hold policy")
+    unstructured_only: bool = Field(
+        default=False,
+        description="Enable unstructured-only mode without relational source prerequisites",
+    )
 
     @model_validator(mode="after")
     def _sync_contract_fields(self) -> PipelineValidateRequest:
@@ -74,6 +78,10 @@ class PipelineRunRequest(PipelineValidateRequest):
     )
     dry_run: bool = Field(
         default=False, description="Simulate execution without persisting artifacts"
+    )
+    unstructured_only: bool = Field(
+        default=False,
+        description="Enable unstructured-only mode without relational source prerequisites",
     )
     config: dict[str, Any] = Field(default_factory=dict, description="Extended execution config")
 

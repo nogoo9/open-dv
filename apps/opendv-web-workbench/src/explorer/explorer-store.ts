@@ -113,6 +113,10 @@ export function createExplorerStore(
 		fullId: string | null;
 		fullTab: "viz" | "raw" | "split";
 		activeWave: "all" | "W0" | "W1" | "W2" | "W3";
+		builderSessionId?: string | null | undefined;
+		builderSource?: string | null | undefined;
+		builderDomain?: string | null | undefined;
+		builderPipelineId?: string | null | undefined;
 	}) => {
 		if (!shouldSyncUrl) return;
 		if (
@@ -145,6 +149,10 @@ export function createExplorerStore(
 		fullId: initialFullId,
 		fullTab: "split",
 		activeWave: options.startWave ?? "all",
+		builderSessionId: null,
+		builderSource: null,
+		builderDomain: null,
+		builderPipelineId: null,
 		runState: "sealed",
 		activeRunningStageIdx: null,
 		statusBannerText: initialBundle.statusLabel,
@@ -308,6 +316,10 @@ export function createExplorerStore(
 				fullId: parsed.fullId,
 				fullTab: parsed.fullTab,
 				activeWave: parsed.activeWave,
+				builderSessionId: parsed.builderSessionId ?? null,
+				builderSource: parsed.builderSource ?? null,
+				builderDomain: parsed.builderDomain ?? null,
+				builderPipelineId: parsed.builderPipelineId ?? null,
 			});
 		},
 

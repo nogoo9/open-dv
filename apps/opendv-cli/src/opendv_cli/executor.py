@@ -398,6 +398,7 @@ class LocalExecutor(CommandExecutor):
                 initial_contract_path=getattr(args, "initial_contract", None),
                 provider_override=getattr(args, "provider", None),
                 steward_hold_policy=getattr(args, "hold_policy", None),
+                unstructured_only=getattr(args, "unstructured_only", False),
             )
             res = self.service.validate_pipeline(val_req)
             payload = res.model_dump(mode="json") if hasattr(res, "model_dump") else dict(res)
@@ -419,6 +420,7 @@ class LocalExecutor(CommandExecutor):
                 output_dir=getattr(args, "output_dir", None),
                 provider_override=getattr(args, "provider", None),
                 steward_hold_policy=getattr(args, "hold_policy", None),
+                unstructured_only=getattr(args, "unstructured_only", False),
             )
             stream_enabled = bool(getattr(args, "stream", True))
             is_structured = bool(getattr(args, "json", False) or getattr(args, "toon", False))

@@ -203,6 +203,23 @@ def create_app(
     if getattr(active_service.state, "settings", None) is None:
         active_service.state.settings = active_settings
 
+    from opendv_agent_harness.models import HarnessConfig
+    from opendv_service.studio.agent_runner import StudioAgentRunner
+
+    provider_str = os.environ.get("OPENDV_AGENT_PROVIDER", "agy").strip().lower()
+    harness_cfg = HarnessConfig(
+        provider=provider_str,
+        workspace_dir=active_service.workspace_root,
+        state_dir=(active_service.workspace_root / ".opendv" / "harness").resolve(),
+        app_data_dir=getattr(active_settings, "app_data_dir", None)
+        or (active_service.workspace_root / ".opendv").resolve(),
+        save_dir=(active_service.workspace_root / ".opendv" / "runs").resolve(),
+    )
+    application.state.studio_agent_runner = StudioAgentRunner(
+        harness_config=harness_cfg,
+        timeout_seconds=float(os.environ.get("OPENDV_STUDIO_AGENT_TIMEOUT", "20.0")),
+    )
+
     cors_origins = list(active_settings.cors_origins or [])
     allow_cors_credentials = bool(cors_origins) and "*" not in cors_origins
 

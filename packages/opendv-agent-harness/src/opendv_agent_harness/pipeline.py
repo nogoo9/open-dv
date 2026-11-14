@@ -820,6 +820,10 @@ class PipelineWaveInput(BaseModel):
     unstructured_documents: list[PipelineUnstructuredDocInput] = Field(default_factory=list)
 
 
+PipelineWaveSpec = PipelineWaveInput
+UnstructuredDocumentSpec = PipelineUnstructuredDocInput
+
+
 class PipelineInputSpec(BaseModel):
     """Root input specification for an end-to-end Open-DV Agentic Pipeline execution."""
 
@@ -838,10 +842,16 @@ class PipelineInputSpec(BaseModel):
     assertion_cutoff_ts: str = "2026-12-31 23:59:59"
     output_dir: str | None = None
     ontology_policy: str = "off"
+    unstructured_only: bool = Field(
+        default=False,
+        description="Enable unstructured-only mode without relational source prerequisites",
+    )
     waves: list[PipelineWaveInput] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _validate_graph_a_present(self) -> PipelineInputSpec:
+        if self.unstructured_only:
+            return self
         if self.graph_a_source is None and (
             self.graph_a_ontology_path is None or not self.graph_a_ontology_path.strip()
         ):
@@ -1059,12 +1069,16 @@ def validate_pipeline_inputs(
     harness_setup: HarnessSetupConfig | dict[str, Any] | str | Path | None = None,
     *,
     base_dir: Path | None = None,
+    workspace_root: Path | None = None,
 ) -> DeterministicValidationReport:
     """Deterministically validate `PipelineInputSpec`, `HarnessSetupConfig`, ontology, and data."""
     diagnostics: list[dict[str, Any]] = []
     checked_items = 0
 
-    ws_root = Path(os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
+    ws_root = (
+        workspace_root
+        or Path(os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd())
+    ).resolve()
     eff_base = (base_dir or ws_root).resolve()
 
     # 1. Validate PipelineInputSpec model
@@ -1759,15 +1773,17 @@ def validate_pipeline_inputs(
                                 }
                             )
 
-            if wave.unstructured_documents and seen_relational_sources == 0:
+            is_unstr_only = getattr(spec, "unstructured_only", False)
+            if wave.unstructured_documents and seen_relational_sources == 0 and not is_unstr_only:
                 diagnostics.append(
                     {
                         "code": "UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE",
                         "severity": "ERROR",
                         "target": f"wave_{wave.wave_index}",
                         "message": (
-                            f"Wave {wave.wave_index} ('{wave.wave_name}') onboards unstructured "
-                            "documents before any relational source has been onboarded."
+                            f"Wave {wave.wave_index} ('{wave.wave_name}') "
+                            "onboards unstructured documents before any "
+                            "relational source has been onboarded."
                         ),
                     }
                 )
@@ -7843,10 +7859,30 @@ class _SymbolicStageSynthesizer:
             del drift_added_set
 
         # 2. Process unstructured documents accumulated through this wave
-        if cumulative_unstructured_docs and (cumulative_sources or hubs_by_name):
+        if cumulative_unstructured_docs:
             first_doc_input = cumulative_unstructured_docs[0][0]
             doc_hub_hint = first_doc_input.target_hub_name or "CBC_CONTRACT_DOCUMENT"
-            doc_hub_name, doc_uri = _resolve_hub_and_uri(doc_hub_hint, ontology)
+            try:
+                doc_hub_name, doc_uri = _resolve_hub_and_uri(doc_hub_hint, ontology)
+            except InputValidationError:
+                doc_cbc = next(
+                    (
+                        c
+                        for c in ontology.canonical_business_concepts
+                        if "doc" in c.concept_name.lower()
+                        or "doc" in c.concept_uri.lower()
+                        or (c.target_hub and "doc" in c.target_hub.lower())
+                    ),
+                    ontology.canonical_business_concepts[0]
+                    if ontology.canonical_business_concepts
+                    else None,
+                )
+                if doc_cbc:
+                    doc_hub_name = doc_cbc.target_hub or "hub_document"
+                    doc_uri = doc_cbc.concept_uri
+                else:
+                    doc_hub_name = "hub_document"
+                    doc_uri = "urn:opendv:concept:document"
             if cumulative_sources:
                 first_bronze_table = next(iter(cumulative_sources.keys()))
                 first_src = cumulative_sources[first_bronze_table][0]
@@ -7855,7 +7891,7 @@ class _SymbolicStageSynthesizer:
                     if first_src.business_key_columns
                     else first_src.table_name
                 )
-            else:
+            elif hubs_by_name and any(h != doc_hub_name for h in hubs_by_name):
                 non_doc_hubs = [h for h_name, h in hubs_by_name.items() if h_name != doc_hub_name]
                 fallback_hub = (
                     non_doc_hubs[0] if non_doc_hubs else next(iter(hubs_by_name.values()))
@@ -7864,6 +7900,9 @@ class _SymbolicStageSynthesizer:
                 first_bronze_table = str(first_bk_src.get("bronze_table", "bronze.unknown"))
                 first_bk_cols = first_bk_src.get("key_columns") or ["id"]
                 first_bk_col = str(first_bk_cols[0])
+            else:
+                first_bronze_table = "bronze.unstructured_documents"
+                first_bk_col = "document_id"
             if doc_hub_name not in hubs_by_name:
                 hubs_by_name[doc_hub_name] = {
                     "name": doc_hub_name,
@@ -7872,7 +7911,7 @@ class _SymbolicStageSynthesizer:
                         {
                             "bronze_table": first_bronze_table,
                             "key_columns": [first_bk_col],
-                            "record_source_code": first_doc_input.record_source,
+                            "record_source_code": first_doc_input.record_source or "UNSTRUCTURED",
                             "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
                             "require_src_qualifier": False,
                             "bkcc_prefix": "GLOBAL",
@@ -7890,50 +7929,51 @@ class _SymbolicStageSynthesizer:
             linked_hub = (
                 target_hubs_in_docs[0]
                 if target_hubs_in_docs
-                else (non_doc_hub_names[0] if non_doc_hub_names else next(iter(hubs_by_name)))
+                else (non_doc_hub_names[0] if non_doc_hub_names else None)
             )
-            unstr_lnk_name = (
-                first_doc_input.link_name or f"lnk_document_{linked_hub.removeprefix('hub_')}"
-            )
-            unstr_rel_uri = _resolve_relationship_uri(
-                unstr_lnk_name, [doc_hub_name, linked_hub], ontology
-            )
-            links_by_name[unstr_lnk_name] = {
-                "name": unstr_lnk_name,
-                "link_type": "UNSTRUCTURED_EXTRACTION_LINK",
-                "ontology_concept_uri": unstr_rel_uri,
-                "source_bronze_table": first_bronze_table,
-                "hub_references": [
-                    {
-                        "target_hub": doc_hub_name,
-                        "role_alias": "document",
-                        "source_fk_columns": [first_bk_col],
-                    },
-                    {
-                        "target_hub": linked_hub,
-                        "role_alias": linked_hub.removeprefix("hub_"),
-                        "source_fk_columns": [first_bk_col],
-                    },
-                ],
-            }
-            prov_sat_name = (
-                first_doc_input.satellite_name
-                or f"sat_{unstr_lnk_name.removeprefix('lnk_')}_ai_provenance"
-            )
-            sats_by_name[prov_sat_name] = {
-                "name": prov_sat_name,
-                "satellite_type": "AI_PROVENANCE_SATELLITE",
-                "parent_entity": unstr_lnk_name,
-                "source_bronze_table": first_bronze_table,
-                "security_classification": "INTERNAL",
-                "volatility_tier": "STATIC",
-                "payload_columns": [
-                    "confidence_score",
-                    "evidence_quote",
-                    "extractor_model_id",
-                ],
-                "soft_deprecated_columns": [],
-            }
+            if linked_hub and linked_hub != doc_hub_name:
+                unstr_lnk_name = (
+                    first_doc_input.link_name or f"lnk_document_{linked_hub.removeprefix('hub_')}"
+                )
+                unstr_rel_uri = _resolve_relationship_uri(
+                    unstr_lnk_name, [doc_hub_name, linked_hub], ontology
+                )
+                links_by_name[unstr_lnk_name] = {
+                    "name": unstr_lnk_name,
+                    "link_type": "UNSTRUCTURED_EXTRACTION_LINK",
+                    "ontology_concept_uri": unstr_rel_uri,
+                    "source_bronze_table": first_bronze_table,
+                    "hub_references": [
+                        {
+                            "target_hub": doc_hub_name,
+                            "role_alias": "document",
+                            "source_fk_columns": [first_bk_col],
+                        },
+                        {
+                            "target_hub": linked_hub,
+                            "role_alias": linked_hub.removeprefix("hub_"),
+                            "source_fk_columns": [first_bk_col],
+                        },
+                    ],
+                }
+                prov_sat_name = (
+                    first_doc_input.satellite_name
+                    or f"sat_{unstr_lnk_name.removeprefix('lnk_')}_ai_provenance"
+                )
+                sats_by_name[prov_sat_name] = {
+                    "name": prov_sat_name,
+                    "satellite_type": "AI_PROVENANCE_SATELLITE",
+                    "parent_entity": unstr_lnk_name,
+                    "source_bronze_table": first_bronze_table,
+                    "security_classification": "INTERNAL",
+                    "volatility_tier": "STATIC",
+                    "payload_columns": [
+                        "confidence_score",
+                        "evidence_quote",
+                        "extractor_model_id",
+                    ],
+                    "soft_deprecated_columns": [],
+                }
             mas_sat_name = "mas_document_extractions"
             sats_by_name[mas_sat_name] = {
                 "name": mas_sat_name,
@@ -7963,6 +8003,41 @@ class _SymbolicStageSynthesizer:
                         "target_dv_entity": doc_hub_name,
                     }
                 )
+
+            if first_bronze_table == "bronze.unstructured_documents":
+                meta_sat_name = "sat_document_metadata"
+                if meta_sat_name not in sats_by_name:
+                    sats_by_name[meta_sat_name] = {
+                        "name": meta_sat_name,
+                        "satellite_type": "STANDARD_SATELLITE",
+                        "parent_entity": doc_hub_name,
+                        "source_bronze_table": first_bronze_table,
+                        "security_classification": "INTERNAL",
+                        "volatility_tier": "STATIC",
+                        "payload_columns": [
+                            "file_name",
+                            "sha256",
+                            "byte_size",
+                            "mime_type",
+                            "ingested_at",
+                        ],
+                        "soft_deprecated_columns": [],
+                    }
+                for col in ["file_name", "sha256", "byte_size", "mime_type", "ingested_at"]:
+                    if not any(
+                        e.get("bronze_table") == first_bronze_table
+                        and e.get("column_name") == col
+                        and e.get("target_dv_entity") == meta_sat_name
+                        for e in ledger
+                    ):
+                        ledger.append(
+                            {
+                                "bronze_table": first_bronze_table,
+                                "column_name": col,
+                                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                                "target_dv_entity": meta_sat_name,
+                            }
+                        )
 
         lifecycle: Literal["COLD_START_N1", "MULTI_SOURCE_EXPANSION"] = (
             "COLD_START_N1" if is_cold_start else "MULTI_SOURCE_EXPANSION"

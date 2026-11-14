@@ -1422,3 +1422,161 @@ class StudioSessionManager:
             return False
 
         return tail_sha is not None
+
+    def add_text_source(
+        self,
+        session_id: str,
+        *,
+        text: str,
+        source_name: str | None = None,
+        format: str = "text",
+        do_not_send_to_agent: bool = False,
+        description: str | None = None,
+        principal: str = "human:steward",
+    ) -> dict[str, Any]:
+        """Store free-form text in session CAS, register in manifest.json, and audit."""
+        session_dir = self.get_session_dir(session_id)
+        if not session_dir.exists():
+            raise SessionNotFoundError(f"Session '{session_id}' not found")
+
+        raw_bytes = text.encode("utf-8")
+        size_bytes = len(raw_bytes)
+        if size_bytes == 0:
+            raise OpenDVError(
+                "Text content cannot be empty.",
+                error_code=ErrorCode.CORRUPT_SOURCE_BLOB,
+            )
+
+        cas = self.get_cas(session_id)
+        source_sha256 = cas.put(raw_bytes)
+        source_id = f"src-{source_sha256[:16]}"
+
+        clean_fmt = format.strip().lower()
+        is_markdown = clean_fmt == "markdown" or (
+            source_name is not None and source_name.lower().endswith((".md", ".markdown"))
+        )
+        mime_type = "text/markdown" if is_markdown else "text/plain"
+
+        if source_name and source_name.strip():
+            raw_filename = Path(source_name.strip()).name
+            filename = (
+                raw_filename
+                if raw_filename and raw_filename not in {".", ".."}
+                else f"note_{source_sha256[:8]}.txt"
+            )
+        else:
+            ext = "md" if is_markdown else "txt"
+            filename = f"note_{source_sha256[:8]}.{ext}"
+
+        lock_path = session_dir / ".session.lock"
+        with reentrant_session_lock(lock_path, session_id=session_id):
+            mfile = session_dir / "inputs" / "manifest.json"
+            mfile.parent.mkdir(parents=True, exist_ok=True)
+            mdata: dict[str, Any] = {"files": []}
+            if mfile.is_file():
+                try:
+                    mdata = json.loads(mfile.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    mdata = {"files": []}
+
+            files = mdata.get("files", [])
+            existing = next((f for f in files if f.get("source_id") == source_id), None)
+            if existing:
+                existing["tombstoned"] = False
+                existing["deleted_at"] = None
+                existing["filename"] = filename
+                existing["size_bytes"] = size_bytes
+                existing["mime_type"] = mime_type
+                existing["updated_at"] = datetime.now(UTC).isoformat()
+                if do_not_send_to_agent or existing.get("do_not_send_to_agent"):
+                    existing["do_not_send_to_agent"] = True
+                if description is not None:
+                    existing["description"] = description
+                effective_do_not_send = bool(existing.get("do_not_send_to_agent", False))
+            else:
+                entry = {
+                    "source_id": source_id,
+                    "filename": filename,
+                    "sha256": source_sha256,
+                    "size_bytes": size_bytes,
+                    "mime_type": mime_type,
+                    "do_not_send_to_agent": bool(do_not_send_to_agent),
+                    "description": description,
+                    "uploaded_at": datetime.now(UTC).isoformat(),
+                    "tombstoned": False,
+                }
+                files.append(entry)
+                effective_do_not_send = bool(do_not_send_to_agent)
+
+            mdata["files"] = files
+            tmp_mfile = session_dir / "inputs" / f".manifest.{uuid.uuid4().hex[:8]}.tmp"
+            tmp_mfile.write_text(json.dumps(mdata, indent=2), encoding="utf-8")
+            replace_with_retry(tmp_mfile, mfile)
+            set_owner_only_permissions(mfile)
+
+            if effective_do_not_send:
+                taint_idx_path = session_dir / "taint_index.json"
+                taint_data: dict[str, Any] = {"is_tainted": True, "tainted_sources": []}
+                if taint_idx_path.is_file():
+                    with contextlib.suppress(OSError, json.JSONDecodeError):
+                        loaded_t = json.loads(taint_idx_path.read_text(encoding="utf-8"))
+                        if isinstance(loaded_t, dict):
+                            taint_data = loaded_t
+                            taint_data["is_tainted"] = True
+                tainted_list = list(taint_data.get("tainted_sources") or [])
+                if not any(
+                    isinstance(item, dict) and item.get("source_id") == source_id
+                    for item in tainted_list
+                ):
+                    tainted_list.append(
+                        {
+                            "source_id": source_id,
+                            "sha256": source_sha256,
+                            "filename": filename,
+                            "marked_at": datetime.now(UTC).isoformat(),
+                        }
+                    )
+                taint_data["tainted_sources"] = tainted_list
+                tmp_taint = session_dir / f".taint_index.{uuid.uuid4().hex[:8]}.tmp"
+                tmp_taint.write_text(json.dumps(taint_data, indent=2), encoding="utf-8")
+                replace_with_retry(tmp_taint, taint_idx_path)
+                set_owner_only_permissions(taint_idx_path)
+
+                session_meta = self.get_session(session_id)
+                if session_meta.taint_classification != "TAINTED":
+                    updated_meta = session_meta.model_copy(
+                        update={
+                            "taint_classification": "TAINTED",
+                            "updated_at": datetime.now(UTC).isoformat(),
+                        }
+                    )
+                    _atomic_write_session_json(session_dir, updated_meta)
+
+            actor_str = getattr(principal, "principal", str(principal))
+            append_signed_audit_record(
+                session_dir=session_dir,
+                action="TEXT_SOURCE_INGESTED",
+                actor=actor_str,
+                details={
+                    "source_id": source_id,
+                    "source_sha256": source_sha256,
+                    "filename": filename,
+                    "size_bytes": size_bytes,
+                    "mime_type": mime_type,
+                    "do_not_send_to_agent": effective_do_not_send,
+                },
+                security_manager=self.security_manager,
+            )
+
+        return {
+            "source_id": source_id,
+            "source_sha256": source_sha256,
+            "file_name": filename,
+            "filename": filename,
+            "size_bytes": size_bytes,
+            "byte_count": size_bytes,
+            "mime_type": mime_type,
+            "do_not_send_to_agent": effective_do_not_send,
+            "provenance": "cas:text",
+            "created_at": datetime.now(UTC).isoformat(),
+        }

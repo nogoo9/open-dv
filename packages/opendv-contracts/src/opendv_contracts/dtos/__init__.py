@@ -8,6 +8,12 @@ from opendv_contracts.dtos.artifacts import (
     get_known_artifact_kinds,
     is_known_artifact_kind,
 )
+from opendv_contracts.dtos.cas import (
+    AddTextSourceRequest,
+    SourceUploadResponse,
+    TextSourceUploadRequest,
+    TextSourceUploadResponse,
+)
 from opendv_contracts.dtos.clarification import (
     ClarificationAnswerItem,
     ClarificationAnswerRequest,
@@ -92,6 +98,7 @@ from opendv_contracts.dtos.ontology import (
     AddSynonymOp,
     AnnotateConceptMetadataOp,
     BaseOntologyDeltaOp,
+    ConstructRequest,
     CustomOntologyDeltaOption,
     DeprecateConceptOp,
     DeprecateRelationshipOp,
@@ -112,6 +119,7 @@ from opendv_contracts.dtos.ontology import (
     OntologyValidateDeltaRequest,
     OntologyValidationResult,
     RefineDefinitionOp,
+    RefineProposalRequest,
     RejectOntologyDeltaOption,
     RemoveAttributeOp,
     RemoveConceptOp,
@@ -122,6 +130,7 @@ from opendv_contracts.dtos.ontology import (
     ReviseDescriptionOp,
     SetConceptElmArchetypeOp,
     SetParentConceptOp,
+    SteeringRefineRequest,
     StewardHoldOption,
     StewardWaiverRecord,
     UpdateConceptUrnOp,
@@ -148,6 +157,14 @@ from opendv_contracts.dtos.platform_config import (
 )
 from opendv_contracts.dtos.profile import ProfileRequest, ProfileResponse
 from opendv_contracts.dtos.project import CreateProjectRequest, ProjectResponse
+from opendv_contracts.dtos.promotion import (
+    CandidatePromotionRequest,
+    PromoteCandidateRequest,
+    PromoteCandidateResponse,
+    PromotionResult,
+    StagedCandidateDTO,
+    StagedCandidatesQueryResponse,
+)
 from opendv_contracts.dtos.runs import CreateRunRequest, ProjectRunDTO
 from opendv_contracts.dtos.sandbox import (
     SandboxBatchResult,
@@ -155,6 +172,14 @@ from opendv_contracts.dtos.sandbox import (
     SandboxQueryRequest,
     SandboxQueryResponse,
     SandboxQueryType,
+)
+from opendv_contracts.dtos.starter_packs import (
+    ApplyStarterPackRequest,
+    ApplyStarterPackResponse,
+    AssetManagementPackId,
+    StarterPackListResponse,
+    StarterPackMetadata,
+    StarterPackSummaryDTO,
 )
 from opendv_contracts.dtos.verify import (
     GateRuleEvaluation,
@@ -312,5 +337,13 @@ __all__ = [  # noqa: RUF022
     "HarnessConfigDTO", "HarnessSandboxPolicyDTO", "PlatformConfigResponse",
     "PlatformConfigUpdateRequest", "PlatformConfigValidateRequest",
     "PlatformConfigValidationResponse", "ProviderReadinessDTO",
+    # Asset Management, CAS, Promotion & Steering DTOs
+    "AddTextSourceRequest", "ApplyStarterPackRequest", "ApplyStarterPackResponse",
+    "AssetManagementPackId", "CandidatePromotionRequest", "ConstructRequest",
+    "PromoteCandidateRequest", "PromoteCandidateResponse", "PromotionResult",
+    "RefineProposalRequest", "SourceUploadResponse", "StagedCandidateDTO",
+    "StagedCandidatesQueryResponse", "StarterPackListResponse", "StarterPackMetadata",
+    "StarterPackSummaryDTO", "SteeringRefineRequest", "TextSourceUploadRequest",
+    "TextSourceUploadResponse",
 ]
 # fmt: on

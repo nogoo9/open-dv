@@ -142,6 +142,94 @@ export function createDefaultPipelineDraft(): InteractivePipelineDraft {
 	};
 }
 
+export function createOntologyStudioPipelineDraft(params?: {
+	sessionId?: string | undefined;
+	source?: string | undefined;
+	domainNamespace?: string | undefined;
+	pipelineId?: string | undefined;
+	ontologyData?:
+		| {
+				canonical_business_concepts?: Array<{
+					concept_name?: string;
+					target_hub?: string;
+				}>;
+		  }
+		| undefined;
+}): InteractivePipelineDraft {
+	const domain = params?.domainNamespace?.trim() || "asset_management";
+	const pipelineId =
+		params?.pipelineId?.trim() ||
+		(params?.sessionId ? `pl_${params.sessionId}` : "pl_am_walkthrough");
+	const isAmDomain = domain === "asset_management" || domain.includes("am");
+
+	return {
+		pipelineId,
+		projectId: `proj_${domain}`,
+		displayName: isAmDomain
+			? "Asset Management Data Vault 2.0 Pipeline"
+			: `${domain} Data Vault 2.0 Pipeline`,
+		domainNamespace: domain,
+		graphAOntologyPath: isAmDomain
+			? "examples/asset_management/am_graph_a_ontology.yaml"
+			: `examples/${domain}/${domain}_graph_a_ontology.yaml`,
+		initialContractPath: "",
+		waveId: "",
+		stewardHoldPolicy: "pause",
+		ontologyPolicy: "recommend",
+		waves: [
+			{
+				waveIndex: 0,
+				waveName: "W0_Cold_Start",
+				waveType: "COLD_START",
+				description: isAmDomain
+					? "Initial Asset Management SEC EDGAR & FRED onboarding wave"
+					: `Initial ${domain} onboarding wave`,
+				sources: isAmDomain
+					? [
+							{
+								_key: "src-sec-master",
+								sourceSystem: "SEC_EDGAR",
+								tableName: "stg_sec_security_master",
+								dataPath:
+									"examples/asset_management/data/sec_security_master.csv",
+								targetHubName: "hub_security",
+								businessKeyColumns: "ticker, cik",
+							},
+							{
+								_key: "src-sec-13f",
+								sourceSystem: "SEC_EDGAR",
+								tableName: "stg_sec_13f_holdings",
+								dataPath: "examples/asset_management/data/sec_13f_holdings.csv",
+								targetHubName: "hub_investor",
+								businessKeyColumns: "cik",
+							},
+							{
+								_key: "src-fred-rates",
+								sourceSystem: "FRED",
+								tableName: "stg_fred_treasury_rates",
+								dataPath:
+									"examples/asset_management/data/fred_treasury_rates.csv",
+								targetHubName: "hub_rate_index",
+								businessKeyColumns: "series_id",
+							},
+						]
+					: [createEmptySourceDraft()],
+				unstructuredDocuments: isAmDomain
+					? [
+							{
+								_key: "doc-sec-filing",
+								docId: "doc_sec_filing_001",
+								documentPath:
+									"examples/asset_management/docs/sec_filing_sample.md",
+								targetHubName: "hub_document",
+							},
+						]
+					: [],
+			},
+		],
+	};
+}
+
 export function draftToInputSpecObject(
 	draft: InteractivePipelineDraft,
 ): Record<string, unknown> {

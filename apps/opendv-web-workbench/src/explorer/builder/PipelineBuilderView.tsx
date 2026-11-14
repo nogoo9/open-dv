@@ -23,7 +23,7 @@ import {
 	NewRunValidationSection,
 	type PipelineValidationReport,
 } from "../modals/NewRunValidationSection";
-import { safeUseState } from "../modals/safeHooks";
+import { safeUseEffect, safeUseState } from "../modals/safeHooks";
 import { executeSubmitRun, executeValidate } from "../modals/useNewRunActions";
 import { InteractiveSpecForm } from "./InteractiveSpecForm";
 import { YamlSpecUploadEditor } from "./YamlSpecUploadEditor";
@@ -31,6 +31,7 @@ import {
 	type InteractivePipelineDraft,
 	type StagedPipelineSpec,
 	createDefaultPipelineDraft,
+	createOntologyStudioPipelineDraft,
 	draftToStagedSpec,
 	draftToYamlOrJsonText,
 } from "./specBuilderUtils";
@@ -38,6 +39,10 @@ import {
 export type BuilderMode = "interactive" | "yaml_upload";
 
 export interface PipelineBuilderViewProps {
+	sessionId?: string | undefined;
+	source?: string | undefined;
+	initialDomainNamespace?: string | undefined;
+	initialPipelineId?: string | undefined;
 	initialMode?: BuilderMode | undefined;
 	initialDraft?: InteractivePipelineDraft | undefined;
 	initialYamlContent?: string | undefined;
@@ -119,6 +124,10 @@ export function buildCurrentStagedSpec(params: {
 }
 
 export function PipelineBuilderView({
+	sessionId,
+	source,
+	initialDomainNamespace,
+	initialPipelineId,
 	initialMode = "interactive",
 	initialDraft,
 	initialYamlContent,
@@ -138,7 +147,45 @@ export function PipelineBuilderView({
 	validatePipelineFn,
 	createRunFn,
 }: PipelineBuilderViewProps = {}) {
-	const starterDraft = initialDraft ?? createDefaultPipelineDraft();
+	const urlParams =
+		typeof globalThis !== "undefined" &&
+		"location" in globalThis &&
+		globalThis.location?.search
+			? new URLSearchParams(globalThis.location.search)
+			: null;
+	const effectiveSessionId =
+		sessionId ?? urlParams?.get("session_id") ?? undefined;
+	const effectiveSource = source ?? urlParams?.get("source") ?? undefined;
+	const effectiveDomain =
+		initialDomainNamespace ?? urlParams?.get("domain_namespace") ?? undefined;
+	const effectivePipelineId =
+		initialPipelineId ?? urlParams?.get("pipeline_id") ?? undefined;
+
+	const isFromOntologyStudio =
+		effectiveSource === "ontology_studio" || Boolean(effectiveSessionId);
+
+	const starterDraft =
+		initialDraft ??
+		(isFromOntologyStudio
+			? createOntologyStudioPipelineDraft({
+					sessionId: effectiveSessionId,
+					source: effectiveSource,
+					domainNamespace: effectiveDomain,
+					pipelineId: effectivePipelineId,
+				})
+			: createDefaultPipelineDraft());
+
+	safeUseEffect(() => {
+		if (isFromOntologyStudio && !stagedSpec) {
+			const initialStaged = draftToStagedSpec(starterDraft, false);
+			onStageSpec?.(initialStaged);
+		}
+	}, []);
+
+	if (isFromOntologyStudio && !stagedSpec && typeof window === "undefined") {
+		onStageSpec?.(draftToStagedSpec(starterDraft, false));
+	}
+
 	const [mode, setMode] = safeUseState<BuilderMode>(
 		stagedSpec?.mode ?? initialMode,
 	);

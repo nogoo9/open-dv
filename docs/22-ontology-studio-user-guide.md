@@ -44,11 +44,11 @@ Whether deployed as an embedded local developer tool or a multi-tenant platform 
 
 The Studio features a dual-mode construction architecture that gracefully balances generative AI reasoning with zero-credential deterministic guarantees:
 
-1. **Agent-First Mode (3-Persona LLM)**:
-   - Orchestrates three specialized cognitive personas:
+1. **Agent-First Mode (3-Persona LLM via `StudioAgentRunner`)**:
+   - Orchestrates three specialized cognitive personas wired via the `StudioAgentRunner` runtime (`packages/opendv-service/src/opendv_service/studio/agent_runner.py`) using the platform harness adapter (`AgyCliHarnessAdapter`, default `agy`):
      - `@term-scout`: Fast extraction of candidate business concepts, attributes, and domain terminology from parsed evidence chunks.
-     - `@domain-clarifier`: Detects ambiguous conceptual alignments against standard taxonomies and synthesizes targeted clarification questions.
-     - `@ontology-architect`: Reasoning-intensive synthesis of Canonical Business Concepts (CBCs), Links, Satellites, and formal OWL 2 axioms.
+     - `@domain-clarifier`: Detects ambiguous conceptual alignments against the normative Polysemy Catalog (`packages/opendv-contracts/src/opendv_contracts/catalogs/polysemy.py`) and synthesizes targeted clarification questions. The catalog disambiguates 18 financial terms across multiple industry meanings, including 8 core Asset Management terms (`portfolio`, `security`, `order`, `trade`, `fund`, `benchmark`, `mandate`, `instrument`) alongside cross-domain terms (`account`, `position`, `facility`, `party`, `yield`, `settlement`, `coupon`, `spread`, `collateral`, `nav`).
+     - `@ontology-architect`: Reasoning-intensive synthesis of Canonical Business Concepts (CBCs), Links, Satellites, and formal OWL 2 axioms, guided by natural-language steering prompts.
    - Operates with strict data isolation: PII and sensitive fields are masked using keyed HMAC-SHA256 pseudonymization (`K_pseudo`).
 
 2. **Deterministic Fallback Mode (Zero-Credential CI)**:
@@ -65,14 +65,14 @@ Every Studio session resides in an isolated directory structure under `.opendv/o
 .opendv/ontology_studio/<session_id>/
 ├── session.json                      # Authoritative session state & active version pointer
 ├── evidence/
-│   ├── manifest.json                 # Ingested sources index and SHA-256 digests
+│   ├── manifest.json                 # Ingested sources index (binary PDFs, Markdown, free-form CAS text notes) and SHA-256 digests
 │   ├── chunks.jsonl                  # Normalized text chunks and character offset spans
-│   └── staged_candidates.json        # Low-confidence concepts pending clarification
+│   └── staged_candidates.json        # Low-confidence concepts (< 0.65 BM25 match) held back for Path A/B promotion
 ├── clarifications/
 │   ├── questions.json                # Generated ambiguity questions
 │   └── answers.json                  # Steward responses and business rationales
 ├── proposals/
-│   └── <proposal_id>.json            # Pending candidate proposals with delta operations
+│   └── <proposal_id>.json            # Pending candidate proposals with delta operations and steering_history
 └── versions/
     ├── v0.0.0/                       # Genesis baseline draft
     │   └── ontology.json             # Default general namespace hash: 1916a5c6d501015984b8...
@@ -89,6 +89,69 @@ Ontology versioning is governed by the closed 24-operation delta calculus and th
 - **ONT-EVO-001 (Immutability & Additive Delta Evolution / Deployed Table Guard)**: Committed ontology snapshots (`versions/vX.Y.Z/`) and their canonical RFC 8785 JCS SHA-256 digests are cryptographically immutable. Standard modeling evolves strictly via additive `OntologyDelta` operations (`MINOR`/`PATCH` SemVer bumps); destructive structural revisions (`remove_concept`, `remove_relationship`, `remove_attribute`, `update_concept_urn`, or overwriting an existing `elm_archetype` / `parent_concept_uri`) require `admin` privileges, trigger a `MAJOR` SemVer bump, and are unconditionally blocked (`ONT_EVO_CONTRACT_VIOLATION`, exit code `4`) whenever targeting deployed Data Vault physical tables.
 - **ONT-EVO-002 (Path A FIBO Grounding & Waiver Integrity)**: Every newly added or mutated concept must either (a) carry at least one server-verified `FIBO` external mapping with predicate `skos:exactMatch` or `skos:closeMatch` (`skos:broadMatch` closure is strictly excluded) and numeric confidence $\ge 0.6500$, or (b) be covered by an explicit per-concept administrative waiver (`OPENDV_WAIVER_KEY`) with a $\ge 10$-character business rationale. Workspace-seeded concepts recorded in `grandfathered_concept_uris` are exempt while untouched, and immediately lose their grandfather exemption if touched by any of the 17 existing-concept-mutating operations (`18` total in `CONCEPT_MUTATING_OP_TYPES`, comprising `add_concept` plus `17` existing-concept-mutating ops including `update_relationship_endpoint`).
 - **ONT-EVO-003 (Optimistic Concurrency Control, 24-Op Rebase & Lock Hierarchy)**: Every state-mutating request enforces cryptographic OCC preconditions (`If-Match` / `base_sha256`), supports deterministic proposal rebasing across the 24-operation conflict matrix, and acquires filesystem locks strictly in canonical order (`L1 .local_token.lock -> L2 .job_<id>.lock -> L3 .journal_<id>.lock -> L4 graph_a.lock -> L5 .session.lock`).
+
+### 1.4 Asset Management Core Spine & Vertical Packs
+
+The Asset Management ontology architecture provides a modular, composable taxonomy structured around a **Unified Core Enterprise Spine** and **6 Vertical Packs**, selectable individually or collectively via a 1-click **"All Domains"** composite preset:
+
+1. **Unified Core Enterprise Spine (`core_spine`)**:
+   - Establishes the 6 foundational Core Business Concepts (CBCs): `Investor`, `Fund`, `Portfolio`, `Security`, `Transaction`, and `LegalEntity`.
+   - Defines primary ownership, custody, and holding relationship links common across all asset management lines of business.
+
+2. **6 Composable Vertical Packs**:
+   - **Public Equities & OMS (`public_equities_oms`)**: Models trade orders, market executions, broker routing, allocations, and settlement instructions.
+   - **Fixed Income & Rates (`fixed_income_rates`)**: Encompasses yield curves, Macaulay duration, coupon schedules, benchmark rate spreads, and debt collateral.
+   - **Multi-Asset IBOR (`multi_asset_ibor`)**: Covers Investment Book of Record positions, multi-asset valuations, cash flows, corporate actions, and accruals.
+   - **Private Equity & Buyout (`private_equity_buyout`)**: Spans Limited Partner (LP) commitments, General Partner (GP) carried interest, capital call notices, distributions, and portfolio company buyout structures.
+   - **Private Credit & Direct Lending (`private_credit_direct_lending`)**: Captures bespoke bilateral loan facilities, debt covenants, borrower compliance certificates, and variable interest margins.
+   - **Custody & Clearing (`custody_clearing`)**: Tracks safekeeping custody accounts, depository clearinghouse netting, omnibus accounts, and segregation controls.
+
+3. **1-Click "All Domains" Composite Preset (`all_domains`)**:
+   - Combines the Core Spine and all 6 vertical packs into an integrated, enterprise-scale ontology with:
+     - **31 Canonical Business Concepts (CBCs)**
+     - **29 Canonical Relationships**
+     - **7 Reference Enumerations**
+   - Evaluates to canonical RFC 8785 JCS SHA-256 digest: `6cdd5c7c084cecfc0de6b7b82599b3bc50a1767aa4e9910866116d276638ead2`.
+
+```python
+from opendv_contracts.dtos.starter_packs import AssetManagementPackId
+from opendv_core.ontology_hashing import compute_ontology_sha256
+from opendv_sources.asset_management.loader import AssetManagementStarterPackRegistry
+from opendv_sources.asset_management.presets import get_all_domains_pack
+
+# Inspect registered metadata
+registry_packs = AssetManagementStarterPackRegistry.list_packs()
+all_domains_meta = AssetManagementStarterPackRegistry.get_metadata(
+    AssetManagementPackId.ALL_DOMAINS
+)
+assert all_domains_meta.concept_count == 31
+assert all_domains_meta.relationship_count == 29
+
+# Instantiate the full composite ontology directly
+ontology = get_all_domains_pack()
+assert len(ontology.canonical_business_concepts) == 31
+assert len(ontology.canonical_relationships) == 29
+assert len(ontology.reference_enumerations) == 7
+
+# Canonical JCS SHA-256 digest verification
+digest = compute_ontology_sha256(ontology)
+assert len(digest) == 64
+```
+
+### 1.5 Wave 0 Unstructured-Only Architecture
+
+Enterprise data architectures frequently ingest unstructured market research, analyst commentary, and SEC regulatory filings in an initial exploratory or cold-start phase prior to connecting relational trading platforms or enterprise data warehouses.
+
+In standard Data Vault 2.0 pipelines, specifications lacking relational source tables trigger validation error `UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE`. To enable pure document ingestion without artificial dummy relational tables, Open-DV provides **Wave 0 Unstructured-Only Mode**:
+
+- Enabled by setting `unstructured_only: true` in the pipeline YAML specification or passing `--unstructured-only` to `opendv pipeline run` and `opendv pipeline validate`.
+- Relaxes the relational prerequisite (`seen_relational_sources == 0` allowed).
+- Automatically synthesizes the central document anchor:
+  - `hub_document`: Captures document business keys (SHA-256 digest, URI, filepath).
+  - `sat_document_metadata`: Stores filename, byte size, MIME type, author, and ingestion timestamp.
+  - `sat_document_extraction`: Houses full-text extracted paragraphs, token offsets, and AI extraction provenance.
+  - `lnk_document_extraction`: Connects document chunks to downstream conceptual entity hubs.
+- Ensures immediate compatibility with subsequent Wave 1 (OMS / IBOR) and Wave 2 (Private Credit / Custody) schema evolutions with zero breaking changes to existing tables.
 
 ---
 
@@ -132,6 +195,12 @@ opendvctl ontology studio list --api-url http://127.0.0.1:8420
 # Remote platform execution (non-loopback URLs ONLY read OPENDV_TOKEN to prevent leaking local tokens)
 export OPENDV_TOKEN="<your-platform-jwt-or-bearer-token>"
 opendvctl ontology studio list --api-url https://studio.enterprise.example
+
+# Inspect available Asset Management starter packs via opendv
+opendv ontology studio starter-pack list --session am-walkthrough
+
+# Inspect available Asset Management starter packs via opendvctl
+opendvctl ontology studio starter-pack list --session am-walkthrough --api-url http://127.0.0.1:8420
 ```
 
 ### 2.4 Representative Regulatory Sample PDFs & OCR Modes (`examples/sample_pdfs/`)
@@ -422,6 +491,174 @@ Administrative waivers require:
 
 ---
 
+### 3.5 Journey 5: End-to-End Asset Management Lifecycle (From Starter Pack to 4-Zone Pipeline)
+
+In this journey, an Asset Management Data Architect establishes an institutional Data Vault 2.0 architecture spanning public equities, fixed income rates, private credit lending covenants, and unstructured SEC filings:
+
+```
++───────────────────────────────────────────────────────────────────────────────────────────+
+| Journey 5: Starter Pack -> Text Ingestion -> Steering -> Promotion -> DV 2.0 Pipeline      |
++───────────────────────────────────────────────────────────────────────────────────────────+
+| 1. Apply Starter Pack: 1-Click 'all_domains' Preset (31 CBCs, 29 Rels, 7 Enums)           |
+| 2. Ingest Free-Form CAS Notes: Analyst Commentary & Covenant Summaries (SHA-256 CAS)      |
+| 3. Polysemy Disambiguation: 3-Persona Agent Runner resolves 'portfolio', 'security', etc.  |
+| 4. Iterative Steering Refinement: Refine proposal with natural language steering prompt    |
+| 5. Staged Candidate Promotion: Path A (synonyms >= 0.65) & Path B (admin signed waiver)    |
+| 6. DV 2.0 Blueprint Inspection: Preview & export Zone 2 Raw Vault DDL (final_four_zone_am) |
+| 7. 1-Click Hand-Off: Deep-link to Pipeline Builder with pre-populated Hub contracts       |
+| 8. Execute Wave 0 Pipeline: Ingest documents with --unstructured-only mode                |
+| 9. Parity Verification: Verify identical results across opendv and opendvctl              |
++───────────────────────────────────────────────────────────────────────────────────────────+
+```
+
+#### Step 1: Initialize Session & Apply 1-Click "All Domains" Starter Pack
+Create an asset management session and immediately apply the composite `all_domains` preset, bootstrapping 31 CBCs, 29 relationships, and 7 enums in a single operation:
+
+```bash
+# Initialize Asset Management studio session
+opendv ontology studio create \
+  --session am-fund \
+  --domain-namespace asset_management \
+  --enterprise-owner "Global Asset Management Architecture" \
+  --description "Comprehensive Asset Management enterprise model"
+
+# Apply 1-Click "All Domains" starter pack via opendv
+opendv ontology studio starter-pack apply --session am-fund --pack all_domains
+
+# Equivalent execution via opendvctl
+opendvctl ontology studio starter-pack apply --session am-fund --pack all_domains --api-url http://127.0.0.1:8420
+```
+
+The session instantly stages an initial delta resulting in canonical SHA-256 digest `6cdd5c7c084cecfc0de6b7b82599b3bc50a1767aa4e9910866116d276638ead2`.
+
+Over REST, this corresponds to:
+```bash
+curl -s -X POST "http://127.0.0.1:8420/api/v1/ontology/studio/sessions/am-fund/starter-packs/apply" \
+  -H "Authorization: Bearer dev-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pack_id": "all_domains"
+  }'
+```
+
+#### Step 2: Ingest Free-Form Analyst Notes into CAS
+Ingest unstructured analyst commentary and debt covenant notes directly into Content-Addressable Storage (CAS):
+
+```bash
+# Ingest inline analyst note (opendv)
+opendv ontology studio text add --session am-fund --text "Private Credit Direct Lending facility agreement with borrower covenant monitoring and variable SOFR spread." --source-name direct_lending_notes.txt
+
+# Ingest inline analyst note (opendvctl)
+opendvctl ontology studio text add --session am-fund --text "Private Credit Direct Lending facility agreement with borrower covenant monitoring and variable SOFR spread." --source-name direct_lending_notes.txt --api-url http://127.0.0.1:8420
+
+# Ingest multi-page research memo from file (opendv)
+opendv ontology studio text add --session am-fund --file examples/asset_management/docs/sec_filing_sample.md --source-name sec_filing.md
+
+# Ingest multi-page research memo from file (opendvctl)
+opendvctl ontology studio text add --session am-fund --file examples/asset_management/docs/sec_filing_sample.md --source-name sec_filing.md --api-url http://127.0.0.1:8420
+```
+
+CAS hashes the ingested payloads, generates cryptographic SHA-256 provenance identifiers (`cas:text`), and records source metadata in `.opendv/ontology_studio/am-fund/evidence/manifest.json`.
+
+#### Step 3: 3-Persona Agent Runtime & Polysemy Disambiguation
+Invoke `StudioAgentRunner` to orchestrate `@term-scout`, `@domain-clarifier`, and `@ontology-architect`:
+
+```bash
+# Execute 3-persona construction with steering guidance (opendv)
+opendv ontology studio construct --session am-fund --mode agent --steering-prompt "Ground all securities against FIBO SEC and link to CustodianAccount"
+
+# Equivalent execution via opendvctl
+opendvctl ontology studio construct --session am-fund --mode agent --steering-prompt "Ground all securities against FIBO SEC and link to CustodianAccount" --api-url http://127.0.0.1:8420
+```
+
+During execution, `@domain-clarifier` consults `KNOWN_POLYSEMIC_DEFINITIONS` to disambiguate overloaded industry terms:
+- `portfolio`: Disambiguates between *Securities Portfolio* (`fibo-fbc-pas-fpas:Portfolio`), *Fund Portfolio Account*, and *Structured Credit Collateral Pool*.
+- `security`: Disambiguates *Negotiable Financial Security* (`fibo-fnd-oac-cctl:Security`) from *Collateral Pledge* and *Information Security*.
+- `benchmark`: Disambiguates *Performance Index* from *Interest Rate Benchmark*.
+
+Clarification answers are submitted via `opendv ontology studio answer`, enabling `@ontology-architect` to synthesize proposal `prop-am-01`.
+
+#### Step 4: Iterative Natural-Language Steering Prompt Refinement
+Refine the pending proposal iteratively using natural language instructions without crafting raw delta JSON by hand:
+
+```bash
+# Refine proposal with steering prompt (opendv)
+opendv ontology studio proposal refine --session am-fund --proposal-id prop-am-01 --steering-prompt "Include ISIN and CUSIP attributes on Security and add link to CustodianAccount" --mode deterministic
+
+# Refine proposal with steering prompt (opendvctl)
+opendvctl ontology studio proposal refine --session am-fund --proposal-id prop-am-01 --steering-prompt "Include ISIN and CUSIP attributes on Security and add link to CustodianAccount" --mode deterministic --api-url http://127.0.0.1:8420
+```
+
+The refinement endpoint marks `prop-am-01` as `SUPERSEDED`, generates a fresh proposal `prop-refine-02`, and preserves the instruction in `steering_history`.
+
+#### Step 5: Held-Back Candidate Promotion (Path A & Path B)
+Candidate concepts whose initial FIBO BM25 similarity score is $< 0.6500$ are automatically segregated into `evidence/staged_candidates.json`. Stewards promote them via two governance paths:
+
+```bash
+# List staged candidate concepts held back due to low confidence (opendv)
+opendv ontology studio staged list --session am-fund
+
+# List staged candidate concepts (opendvctl)
+opendvctl ontology studio staged list --session am-fund --api-url http://127.0.0.1:8420
+
+# Path A: Promote via Synonym Re-Scoring (score must reach >= 0.6500)
+opendv ontology studio staged promote --session am-fund --candidate-id cand-holding-debt-001 --synonyms "NegotiableDebtSecurity, CorporateDebtBond"
+
+# Path A via opendvctl
+opendvctl ontology studio staged promote --session am-fund --candidate-id cand-holding-debt-001 --synonyms "NegotiableDebtSecurity, CorporateDebtBond" --api-url http://127.0.0.1:8420
+
+# Path B: Promote via Admin Signed Waiver (requires admin role & >=10 char rationale)
+export OPENDV_WAIVER_KEY="secret-admin-hmac-key"
+opendv ontology studio staged promote --session am-fund --candidate-id cand-bespoke-002 --waiver --rationale "Authorized proprietary credit facility per board charter"
+
+# Path B via opendvctl
+opendvctl ontology studio staged promote --session am-fund --candidate-id cand-bespoke-002 --waiver --rationale "Authorized proprietary credit facility per board charter" --api-url http://127.0.0.1:8420
+```
+
+#### Step 6: DV 2.0 Blueprint Inspection & DDL Export
+In the Web Workbench at `/ontology`, open the right drawer and select the **DV 2.0 Blueprint** tab (`data-testid="right-tab-blueprint"`):
+1. Review the generated Target Raw Vault tables:
+   - Hubs: `hub_security`, `hub_investor`, `hub_rate_index`, `hub_document`.
+   - Links: `lnk_portfolio_holding`, `lnk_document_extraction`.
+   - Satellites: `sat_security_details`, `sat_investor_details`, `sat_document_metadata`.
+2. Click **Copy DDL** (`btn-copy-blueprint-ddl`) or **Download DDL** (`btn-download-blueprint-ddl`) to obtain `final_four_zone_am.sql`, containing 16 validated tables spanning `staging`, `raw_vault`, `business_vault`, and `marts`.
+
+#### Step 7: 1-Click Hand-Off to Pipeline Builder
+Click **Open in Pipeline Builder ->** (`data-testid="btn-open-in-pipeline-builder"`). The Web Workbench automatically routes to:
+
+```
+/builder?session_id=am-fund&source=ontology_studio&domain_namespace=asset_management&pipeline_id=pl_am_fund
+```
+
+`PipelineBuilderView` parses the URL parameters, loads target Hubs from the session ontology, and auto-stages the draft contract via `onStageSpec`, requiring zero manual configuration to validate the pipeline.
+
+#### Step 8: Executing Wave 0 Unstructured-Only Pipeline
+Validate and execute the pipeline in pure document mode:
+
+```bash
+# Validate unstructured-only pipeline specification (opendv)
+opendv pipeline validate --input examples/asset_management/pipeline_spec.yaml --unstructured-only
+
+# Validate unstructured-only pipeline specification (opendvctl)
+opendvctl pipeline validate --input examples/asset_management/pipeline_spec.yaml --unstructured-only --api-url http://127.0.0.1:8420
+
+# Execute end-to-end Wave 0 pipeline run (opendv)
+opendv pipeline run --input examples/asset_management/pipeline_spec.yaml --unstructured-only
+
+# Execute end-to-end Wave 0 pipeline run (opendvctl)
+opendvctl pipeline run --input examples/asset_management/pipeline_spec.yaml --unstructured-only --api-url http://127.0.0.1:8420
+```
+
+#### Step 9: Verifying Dual-CLI Parity
+Verify identical execution and output parity across both CLI environments:
+- Identical JSON schemas and exit codes (`0` for success).
+- Shared canonical validation against `schemas/v1/cli-spec.json`.
+- Complete interoperability for local scripting (`opendv`) and containerized remote automation (`opendvctl`).
+
+---
+
+---
+
 ## 4. Interactive Web Workbench Walkthrough (`/ontology`)
 
 The Open-DV Web Workbench provides a visual, reactive single-page application at `/ontology`. The screenshots below walk step-by-step through a real live `1440x900` session (`regulatory-pdf-e2e-walkthrough`, domain `capital_markets`) built from all four PDFs in [`examples/sample_pdfs/`](../examples/sample_pdfs/README.md):
@@ -527,6 +764,35 @@ The Open-DV Web Workbench provides a visual, reactive single-page application at
 
 ![Stage 7 — Multi-Format Export Modal (W3C Turtle) & Workspace Promotion](assets/ontology-studio/07-export-and-promote.png)
 *Stage 7: Tabbed Export & Promotion dialog displaying `W3C Turtle (.ttl)` serialization for `v1.0.0 (Current Head)` with `Copy` and `Download File` actions alongside the `Workspace Promotion` tab.*
+
+### 4.8 DV 2.0 Blueprint Drawer Tab & DDL Generation (Stage 8)
+- **3rd Persistent Right Drawer Tab (`data-testid="right-tab-blueprint"`)**: Complementing `Ontology Viewer` and `Proposal Details`, the right workspace includes the dedicated **DV 2.0 Blueprint** view (`apps/opendv-web-workbench/src/ontology/components/BlueprintView.tsx`).
+- **Target Raw Vault Summary Badges**: Instantly aggregates physical Data Vault 2.0 tables derived from the active conceptual ontology:
+  - `pill-hub-*`: Conceptual CBCs mapped to Raw Vault Hubs (`hub_security`, `hub_investor`, `hub_rate_index`, `hub_document`).
+  - `pill-link-*`: Conceptual relationships mapped to Raw Vault Links (`lnk_portfolio_holding`, `lnk_document_extraction`).
+  - `pill-sat-*`: Attributes and metadata mapped to Satellites (`sat_security_details`, `sat_investor_details`, `sat_document_metadata`).
+- **Syntax-Highlighted SQL DDL Preview (`SqlSyntaxHighlighter`)**: Renders clean, copyable ANSI SQL DDL generated directly from conceptual models, with automatic data type mapping, hash key generation (`MD5`/`SHA256`), load date timestamps (`ldts`), and record source tracking (`rsrc`).
+- **Action Buttons**:
+  - **Copy DDL** (`data-testid="btn-copy-blueprint-ddl"`): Copies the entire DDL script to the system clipboard.
+  - **Download DDL** (`data-testid="btn-download-blueprint-ddl"`): Downloads the 4-zone SQL schema file as `final_four_zone_am.sql`.
+  - **Open in Pipeline Builder** (`data-testid="btn-open-in-pipeline-builder"`): Triggers direct deep-link navigation into the Pipeline Builder.
+- **4-Zone Reference DDL**: Evaluates 16 tables across the standard Data Vault 2.0 architecture layers:
+  - `staging`: Raw intake views (`stg_sec_security_master`, `stg_sec_13f_holdings`, `stg_fred_treasury_rates`, `stg_document_intake`).
+  - `raw_vault`: Auditable immutable hubs, links, and satellites (`hub_security`, `hub_investor`, `hub_fund`, `hub_document`, `lnk_portfolio_holding`, `sat_security_details`, `sat_investor_details`, `sat_document_metadata`).
+  - `business_vault`: Point-in-Time (PIT) and Bridge constructs (`bv_pit_security`, `bv_bridge_holdings`).
+  - `marts`: Analytics-ready Dimensional and Fact views (`dim_security`, `fct_portfolio_positions`).
+
+### 4.9 1-Click Hand-Off to Pipeline Builder & Spec Auto-Staging (Stage 9)
+- **Deep-Link Parameter Synchronization**: Clicking **`Open in Pipeline Builder ->`** (`btn-open-in-pipeline-builder`) navigates to:
+  ```
+  /builder?session_id=<session_id>&source=ontology_studio&domain_namespace=<domain>&pipeline_id=pl_<session_id>
+  ```
+- **State Pre-Population**:
+  `apps/opendv-web-workbench/src/explorer/builder/specBuilderUtils.ts` parses the URL parameters and instantiates an `InteractivePipelineDraft`:
+  - Pre-populates target Hubs (`hub_security`, `hub_investor`, `hub_rate_index`, `hub_document`) from active ontology CBCs.
+  - Automatically maps business keys (`ticker`, `cik`, `series_id`, `doc_id`).
+- **Zero-Click Automatic Staging (`onStageSpec`)**:
+  When `PipelineBuilderView.tsx` mounts, it detects incoming `ontology_studio` parameters and triggers `onStageSpec` automatically, staging a valid pipeline specification without requiring any manual clicks or schema re-entry. Stewards can immediately review source mappings, compile the schema, or run the pipeline.
 
 ---
 
@@ -820,6 +1086,150 @@ opendv ontology studio bundle clone \
 
 ---
 
+### 5.5 Starter Pack Commands
+
+#### `starter-pack list`
+List available starter packs for a session:
+
+```bash
+# List starter packs via opendv
+opendv ontology studio starter-pack list --session am-session-01
+
+# List starter packs via opendvctl
+opendvctl ontology studio starter-pack list --session am-session-01 --api-url http://127.0.0.1:8420
+```
+
+#### `starter-pack apply`
+Apply an individual or composite starter pack to an active session:
+
+```bash
+# Apply "all_domains" composite preset (opendv)
+opendv ontology studio starter-pack apply --session am-session-01 --pack all_domains
+
+# Apply "all_domains" composite preset (opendvctl)
+opendvctl ontology studio starter-pack apply --session am-session-01 --pack all_domains --api-url http://127.0.0.1:8420
+
+# Apply vertical pack: Public Equities OMS (opendv)
+opendv ontology studio starter-pack apply --session am-session-01 --pack public_equities_oms
+
+# Apply vertical pack: Fixed Income Rates (opendv)
+opendv ontology studio starter-pack apply --session am-session-01 --pack fixed_income_rates
+```
+
+---
+
+### 5.6 Free-Form Text Ingestion Commands
+
+#### `text add`
+Ingest raw text or markdown commentary into session Content-Addressable Storage (CAS):
+
+```bash
+# Ingest raw inline text string (opendv)
+opendv ontology studio text add --session am-session-01 --text "Private Credit Direct Lending facility agreement with borrower covenant monitoring." --source-name direct_lending_notes.txt
+
+# Ingest raw inline text string (opendvctl)
+opendvctl ontology studio text add --session am-session-01 --text "Private Credit Direct Lending facility agreement with borrower covenant monitoring." --source-name direct_lending_notes.txt --api-url http://127.0.0.1:8420
+
+# Ingest text file (opendv)
+opendv ontology studio text add --session am-session-01 --file examples/asset_management/docs/sec_filing_sample.md --source-name sec_filing.md
+
+# Ingest text file (opendvctl)
+opendvctl ontology studio text add --session am-session-01 --file examples/asset_management/docs/sec_filing_sample.md --source-name sec_filing.md --api-url http://127.0.0.1:8420
+```
+
+---
+
+### 5.7 Steering Refinement Commands
+
+#### `construct` with `--steering-prompt`
+Synthesize ontology proposals with natural-language steering instructions:
+
+```bash
+# Synthesize proposal with steering guidance (opendv)
+opendv ontology studio construct --session am-session-01 --mode agent --steering-prompt "Ground all securities against FIBO SEC and link to CustodianAccount"
+
+# Synthesize proposal with steering guidance (opendvctl)
+opendvctl ontology studio construct --session am-session-01 --mode agent --steering-prompt "Ground all securities against FIBO SEC and link to CustodianAccount" --api-url http://127.0.0.1:8420
+```
+
+#### `proposal refine`
+Iteratively refine an existing PENDING candidate proposal using natural-language feedback:
+
+```bash
+# Refine candidate proposal (opendv)
+opendv ontology studio proposal refine --session am-session-01 --proposal-id prop-genesis-01 --steering-prompt "Include ISIN and CUSIP attributes on Security and add link to CustodianAccount" --mode deterministic
+
+# Refine candidate proposal (opendvctl)
+opendvctl ontology studio proposal refine --session am-session-01 --proposal-id prop-genesis-01 --steering-prompt "Include ISIN and CUSIP attributes on Security and add link to CustodianAccount" --mode deterministic --api-url http://127.0.0.1:8420
+```
+
+---
+
+### 5.8 Staged Candidate Commands
+
+#### `staged list`
+List held-back candidate concepts scoring below the $0.6500$ FIBO BM25 grounding threshold:
+
+```bash
+# List staged low-confidence candidates (opendv)
+opendv ontology studio staged list --session am-session-01
+
+# List staged low-confidence candidates (opendvctl)
+opendvctl ontology studio staged list --session am-session-01 --api-url http://127.0.0.1:8420
+```
+
+#### `staged promote`
+Promote a staged candidate concept to an active ontology Hub:
+
+```bash
+# Path A: Promote via Synonym Re-Scoring (score must reach >= 0.6500)
+opendv ontology studio staged promote --session am-session-01 --candidate-id cand-holding-debt-001 --synonyms "NegotiableDebtSecurity, CorporateDebtBond"
+
+# Path A via opendvctl
+opendvctl ontology studio staged promote --session am-session-01 --candidate-id cand-holding-debt-001 --synonyms "NegotiableDebtSecurity, CorporateDebtBond" --api-url http://127.0.0.1:8420
+
+# Path B: Promote via Admin Signed Waiver (requires admin role & >=10 char rationale)
+export OPENDV_WAIVER_KEY="secret-admin-hmac-key"
+opendv ontology studio staged promote --session am-session-01 --candidate-id cand-bespoke-002 --waiver --rationale "Authorized proprietary credit facility per board charter"
+
+# Path B via opendvctl
+opendvctl ontology studio staged promote --session am-session-01 --candidate-id cand-bespoke-002 --waiver --rationale "Authorized proprietary credit facility per board charter" --api-url http://127.0.0.1:8420
+```
+
+---
+
+### 5.9 Pipeline Execution Commands
+
+#### `pipeline validate`
+Validate Data Vault pipeline specifications:
+
+```bash
+# Validate standard pipeline (opendv)
+opendv pipeline validate --input examples/asset_management/pipeline_spec.yaml
+
+# Validate standard pipeline (opendvctl)
+opendvctl pipeline validate --input examples/asset_management/pipeline_spec.yaml --api-url http://127.0.0.1:8420
+
+# Validate in Wave 0 Unstructured-Only Mode (opendv)
+opendv pipeline validate --input examples/asset_management/pipeline_spec.yaml --unstructured-only
+
+# Validate in Wave 0 Unstructured-Only Mode (opendvctl)
+opendvctl pipeline validate --input examples/asset_management/pipeline_spec.yaml --unstructured-only --api-url http://127.0.0.1:8420
+```
+
+#### `pipeline run`
+Execute end-to-end Data Vault pipeline runs:
+
+```bash
+# Execute Wave 0 Unstructured-Only pipeline run (opendv)
+opendv pipeline run --input examples/asset_management/pipeline_spec.yaml --unstructured-only
+
+# Execute Wave 0 Unstructured-Only pipeline run (opendvctl)
+opendvctl pipeline run --input examples/asset_management/pipeline_spec.yaml --unstructured-only --api-url http://127.0.0.1:8420
+```
+
+---
+
 ## 6. Troubleshooting & Error Recovery Catalog
 
 ### 6.1 Canonical 11-Step Error Precedence Order
@@ -918,3 +1328,19 @@ All Studio REST API errors return standard RFC 9457 `application/problem+json` p
 6. **Zero-Operation Candidate Proposal (`0 ops`) in Web Workbench**:
    - *Cause*: Running ontology construction before source documents are uploaded and parsed (or after resolving no extractable entities) emits an empty candidate proposal; the **Accept** button stays disabled.
    - *Fix*: Upload and parse your domain sources in the **Sources** tab first, re-run construction, and click **Reject** on the `0 ops` proposal to archive/clean it up.
+
+7. **`PROPOSAL_ALREADY_RESOLVED` (`HTTP 409` / Exit Code 6)**:
+   - *Cause*: Attempting to refine or accept a candidate proposal that has already reached a terminal state (`ACCEPTED`, `REJECTED`) or was `SUPERSEDED` by an iterative steering prompt refinement.
+   - *Fix*: Run `opendv ontology studio proposal list --session <session_id>` to find the active `PENDING` proposal (such as `prop-refine-...`), or run `construct` to generate a fresh proposal.
+
+8. **`UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE` (Exit Code 4)**:
+   - *Cause*: Running or validating a Data Vault pipeline containing document sources but zero relational tables without enabling Wave 0 cold-start mode.
+   - *Fix*: Supply `--unstructured-only` on the CLI (`opendv pipeline run --input <spec.yaml> --unstructured-only`) or set `unstructured_only: true` in your pipeline specification YAML.
+
+9. **`INVALID_GROUNDING_WAIVER` (Exit Code 4 / `HTTP 422`)**:
+   - *Cause*: Submitting an administrative grounding waiver with a rationale shorter than 10 characters or without verified admin privileges.
+   - *Fix*: Ensure the caller holds the `admin` role (via `OPENDV_TOKEN` or `OPENDV_WAIVER_KEY`) and provide a substantive `rationale` string of at least 10 characters explaining why the bespoke concept lacks a standard FIBO equivalent.
+
+10. **`ONT_EVO_CONTRACT_VIOLATION` in Path A Promotion (Exit Code 4 / `HTTP 422`)**:
+    - *Cause*: Attempting Path A candidate promotion with synonyms that fail to raise the FIBO BM25 similarity score to $\ge 0.6500$.
+    - *Fix*: Supply recognized financial synonyms (e.g. `"NegotiableDebtSecurity"`) to boost match confidence, or promote via Path B using an administrative signed waiver.

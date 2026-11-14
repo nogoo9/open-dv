@@ -2104,3 +2104,50 @@ OntologyDeltaOption = Annotated[
 def is_destructive_delta(delta: OntologyDelta, base_ontology: Any = None) -> bool:
     """Return True iff `delta` requires a MAJOR SemVer bump against `base_ontology`."""
     return delta.highest_semver_class(base_ontology) == "MAJOR"
+
+
+class ConstructRequest(BaseContractModel):
+    """Request payload to trigger ontology construction job."""
+
+    base_version: str | None = Field(default=None, description="Base ontology version")
+    base_sha256: str | None = Field(
+        default=None, pattern=r"^([a-f0-9]{64}|)$", description="Base ontology digest"
+    )
+    auto_commit: bool = Field(
+        default=False, description="Whether to automatically commit proposal if valid"
+    )
+    fibo_modules: list[str] = Field(
+        default_factory=lambda: ["FND", "BE", "FBC", "SEC", "LOAN", "IND"],
+        description="FIBO module codes included in search space",
+    )
+    mode: Literal["auto", "agent", "deterministic"] | str | None = Field(
+        default="auto", description="Construction execution engine mode"
+    )
+    steering_prompt: str | None = Field(
+        default=None,
+        max_length=5000,
+        description="Optional natural-language steering prompt guiding selection and hierarchy",
+    )
+
+
+class SteeringRefineRequest(BaseContractModel):
+    """Request payload to refine an existing proposal using natural-language steering prompts."""
+
+    steering_prompt: str = Field(
+        ...,
+        min_length=1,
+        max_length=5000,
+        description="Natural-language steering guidance for refining ontology proposal",
+    )
+    mode: Literal["auto", "agent", "deterministic"] | str = Field(
+        default="auto", description="Execution engine mode"
+    )
+    base_version: str | None = Field(default=None, description="Base ontology version precondition")
+    base_sha256: str | None = Field(
+        default=None,
+        pattern=r"^([a-f0-9]{64}|)$",
+        description="Base ontology SHA-256 digest precondition",
+    )
+
+
+RefineProposalRequest = SteeringRefineRequest

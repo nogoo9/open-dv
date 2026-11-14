@@ -4809,12 +4809,13 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						};
 					}
 					const hasConcept = state.selectedNodeId !== null;
+					const isBlueprint = state.layout.rightDrawerTab === "blueprint";
 					return {
 						selectedProposalId: null,
 						layout: {
 							...state.layout,
-							rightDrawerOpen: hasConcept,
-							rightDrawerTab: "concept",
+							rightDrawerOpen: hasConcept || isBlueprint,
+							rightDrawerTab: isBlueprint ? "blueprint" : "concept",
 						},
 					};
 				});
@@ -5208,12 +5209,13 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					const hasProposal =
 						state.selectedProposalId !== null &&
 						state.layout.rightDrawerTab === "proposal";
+					const isBlueprint = state.layout.rightDrawerTab === "blueprint";
 					return {
 						selectedNodeId: null,
 						selectedEdgeId: null,
 						layout: {
 							...state.layout,
-							rightDrawerOpen: hasProposal,
+							rightDrawerOpen: hasProposal || isBlueprint,
 						},
 					};
 				});

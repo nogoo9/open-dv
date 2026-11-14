@@ -6,6 +6,11 @@ from opendv_sources.adapters.filesystem import LocalFilesystemSourceAdapter
 from opendv_sources.adapters.inline import InlineSourceAdapter
 from opendv_sources.adapters.pdf_document import PdfDocumentSourceAdapter
 from opendv_sources.adapters.text_document import TextDocumentSourceAdapter
+from opendv_sources.asset_management import (
+    AssetManagementStarterPackRegistry,
+    get_all_domains_pack,
+    get_core_spine_pack,
+)
 from opendv_sources.config.graph_a_loader import LoadedGraphA, load_graph_a_source
 from opendv_sources.config.loader import load_structured_document
 from opendv_sources.conformance.document_suite import DocumentAdapterConformanceSuite
@@ -67,6 +72,7 @@ __all__ = [
     "FORMAT_PARSER_ENTRY_POINT_GROUP",
     "SOURCE_ADAPTER_ENTRY_POINT_GROUP",
     "ArchiveSecurityViolationError",
+    "AssetManagementStarterPackRegistry",
     "AuthenticationError",
     "BatchRead",
     "ColumnDescriptor",
@@ -110,6 +116,8 @@ __all__ = [
     "TabularSourceAdapter",
     "TextDocumentSourceAdapter",
     "UnsupportedFormatError",
+    "get_all_domains_pack",
+    "get_core_spine_pack",
     "get_format_registry",
     "get_source_registry",
     "load_graph_a_source",

@@ -262,7 +262,7 @@ def test_generate_questions_evidence_chunks_word_boundary(tmp_path: Path) -> Non
     chunk_pos = EvidenceChunk(
         chunk_id="chk-002",
         document_id="doc-001",
-        text="The fund established a significant position in foreign exchange.",
+        text="The desk established a significant position in foreign exchange.",
     )
     q_pos = harness.generate_questions(evidence_chunks=[chunk_pos])
     assert len(q_pos) == 1
