@@ -619,6 +619,8 @@ def _normalize_delta_operation(op: Any) -> Any:
     """Normalize operation dict from agent or wire representation to normative contract format."""
     if isinstance(op, dict):
         op_dict = dict(op)
+        if not str(op_dict.get("op_id") or "").strip():
+            op_dict["op_id"] = f"op-{uuid.uuid4().hex[:8]}"
         op_type = op_dict.get("op_type")
         if isinstance(op_type, str):
             if (

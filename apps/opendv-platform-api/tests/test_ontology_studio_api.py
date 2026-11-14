@@ -2613,3 +2613,43 @@ def test_iss09_upload_markdown_normalizes_octet_stream_mime(
     md_uploaded = markdown_upload.json()
     assert md_uploaded["filename"] == "wealth_appendix.markdown"
     assert md_uploaded["mime_type"] == "text/markdown"
+
+
+def test_create_proposal_synthesizes_missing_op_id(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """Flat delta operations submitted without op_id should get synthesized op- ids."""
+    create_resp = client.post(
+        "/api/v1/ontology/studio/sessions",
+        json={
+            "session_id": "proposal-op-id-test",
+            "domain_namespace": "wealth_mgmt",
+            "enterprise_owner": "Global Wealth",
+        },
+        headers=auth_headers,
+    )
+    assert create_resp.status_code == 201
+
+    prop_resp = client.post(
+        "/api/v1/ontology/studio/sessions/proposal-op-id-test/proposals",
+        json={
+            "rationale": "Draft proposal omitting op_id to verify backend defense-in-depth",
+            "operations": [
+                {
+                    "op_type": "add_concept",
+                    "concept_uri": "urn:ontology:entity:test_account",
+                    "concept_name": "TestAccount",
+                    "elm_archetype": "CoreBusinessConcept",
+                    "definition": "A client investment account tracked for regulatory suitability.",
+                    "target_hub": "hub_test_account",
+                }
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert prop_resp.status_code == 201
+    created = prop_resp.json()
+    ops = created["operations"]
+    assert len(ops) == 1
+    assert str(ops[0]["op_id"]).startswith("op-")
+

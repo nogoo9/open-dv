@@ -230,10 +230,12 @@ export interface QualityScorecard {
 
 export interface CandidateProposalSummary {
 	proposal_id: string;
+	session_id?: string | undefined;
 	status: string;
 	base_version: string;
 	base_sha256?: string | undefined;
 	target_version?: string | undefined;
+	proposer?: string | undefined;
 	rationale?: string | undefined;
 	operations_count?: number | undefined;
 	ops_count?: number | undefined;
@@ -261,6 +263,7 @@ export interface LayoutState {
 		| "quality";
 	leftDrawerOpen: boolean;
 	rightDrawerOpen: boolean;
+	rightDrawerTab?: "concept" | "proposal" | undefined;
 	bottomDockOpen: boolean;
 	activeModal: "export" | "promote" | "diff" | "new_session" | null;
 	lodTier: 1 | 2 | 3;

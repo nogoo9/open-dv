@@ -8,6 +8,7 @@
 import { useRef, useSyncExternalStore } from "react";
 import { createStore } from "zustand/vanilla";
 import {
+	GENESIS_SEMVER_VERSION,
 	GRID_LAYOUT_COLS,
 	GRID_LAYOUT_ORIGIN,
 	GRID_LAYOUT_X_STRIDE,
@@ -15,7 +16,9 @@ import {
 	GROUNDING_MIN_CONFIDENCE,
 	LOCAL_TOKEN_PATH_HINT,
 	MIN_RATIONALE_LENGTH,
+	NEW_PROPOSAL_DRAFT_KEY,
 } from "../constants";
+import { createDraftOpId } from "../utils/identifiers";
 import type {
 	CandidateProposalSummary,
 	ClarificationAnswer,
@@ -43,6 +46,77 @@ import type {
 } from "./types";
 
 export * from "./types";
+
+export interface ProposalDraftEdit {
+	rationale: string;
+	operations: Array<Record<string, unknown>>;
+}
+
+export function sortProposalsForStewardship(
+	proposals: ReadonlyArray<CandidateProposalSummary>,
+): CandidateProposalSummary[] {
+	return [...proposals].sort((a, b) => {
+		const aPending = !a.status || a.status === "PENDING" ? 0 : 1;
+		const bPending = !b.status || b.status === "PENDING" ? 0 : 1;
+		if (aPending !== bPending) return aPending - bPending;
+		const aTime = a.created_at ? Date.parse(a.created_at) : Number.NaN;
+		const bTime = b.created_at ? Date.parse(b.created_at) : Number.NaN;
+		if (!Number.isNaN(aTime) && !Number.isNaN(bTime) && aTime !== bTime) {
+			return bTime - aTime;
+		}
+		return 0;
+	});
+}
+
+export function resolveProposalBaseVersionAndSha(
+	activeSession: Pick<StudioSessionSummary, "active_version" | "head_sha256">,
+	existing?: CandidateProposalSummary,
+): { base_version: string; base_sha256?: string } {
+	const useExistingPair =
+		Boolean(existing) &&
+		existing?.status === "PENDING" &&
+		Boolean(existing.base_version) &&
+		(Boolean(existing.base_sha256) ||
+			existing.base_version === GENESIS_SEMVER_VERSION);
+	if (useExistingPair && existing) {
+		return {
+			base_version: existing.base_version,
+			...(existing.base_sha256 ? { base_sha256: existing.base_sha256 } : {}),
+		};
+	}
+	return {
+		base_version: activeSession.active_version || GENESIS_SEMVER_VERSION,
+		...(activeSession.head_sha256
+			? { base_sha256: activeSession.head_sha256 }
+			: {}),
+	};
+}
+
+export function normalizeProposalOperationsForSubmission(
+	operations: ReadonlyArray<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+	return operations.map((op) => {
+		const copy: Record<string, unknown> = { ...op };
+		if (typeof copy.op_id !== "string" || !copy.op_id.trim()) {
+			copy.op_id = createDraftOpId();
+		}
+		if (copy.op_type === "add_external_mapping") {
+			const numericConf =
+				typeof copy.mapping_confidence === "number" &&
+				Number.isFinite(copy.mapping_confidence)
+					? copy.mapping_confidence
+					: typeof copy.confidence === "number" &&
+							Number.isFinite(copy.confidence)
+						? copy.confidence
+						: undefined;
+			if (numericConf !== undefined) {
+				copy.mapping_confidence = numericConf;
+				copy.confidence = numericConf;
+			}
+		}
+		return copy;
+	});
+}
 
 export const EMPTY_ANSWERS_SHA256 =
 	"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945";
@@ -325,6 +399,8 @@ export interface StudioStoreState {
 	isClarifying: boolean;
 	isConstructing: boolean;
 	proposals: CandidateProposalSummary[];
+	selectedProposalId: string | null;
+	proposalDrafts: Record<string, ProposalDraftEdit>;
 	isLoadingProposals: boolean;
 
 	// Graph Canvas
@@ -447,12 +523,17 @@ export interface StudioStoreState {
 	loadProposals: (
 		fetchImpl?: typeof fetch,
 		targetSessionId?: string,
+		loadOptions?: { selectNewestPending?: boolean },
 	) => Promise<void>;
 	acceptProposal: (
 		proposalId: string,
 		rationale?: string,
 		fetchImpl?: typeof fetch,
-		options?: { force?: boolean; selfAcceptanceOverride?: boolean },
+		options?: {
+			force?: boolean;
+			selfAcceptanceOverride?: boolean;
+			lowConfidenceWaiver?: boolean;
+		},
 	) => Promise<boolean>;
 	rejectProposal: (
 		proposalId: string,
@@ -463,6 +544,17 @@ export interface StudioStoreState {
 		proposalId: string,
 		fetchImpl?: typeof fetch,
 	) => Promise<boolean>;
+	saveEditedProposal: (
+		proposalId: string,
+		updates: {
+			rationale?: string | undefined;
+			operations: Array<Record<string, unknown>>;
+		},
+		fetchImpl?: typeof fetch,
+	) => Promise<CandidateProposalSummary | null>;
+	selectProposal: (proposalId: string | null) => void;
+	setProposalDraft: (proposalKey: string, draft: ProposalDraftEdit) => void;
+	clearProposalDraft: (proposalKey: string) => void;
 
 	// Graph actions
 	loadGraph: (
@@ -537,6 +629,7 @@ export interface StudioStoreState {
 
 	// Layout actions
 	setLeftDrawerTab: (tab: LayoutState["leftDrawerTab"]) => void;
+	setRightDrawerTab: (tab: NonNullable<LayoutState["rightDrawerTab"]>) => void;
 	toggleLeftDrawer: (open?: boolean) => void;
 	toggleRightDrawer: (open?: boolean) => void;
 	toggleBottomDock: (open?: boolean) => void;
@@ -1073,6 +1166,7 @@ export function createDefaultLayoutState(): LayoutState {
 		leftDrawerTab: "sessions",
 		leftDrawerOpen: true,
 		rightDrawerOpen: false,
+		rightDrawerTab: "concept",
 		bottomDockOpen: false,
 		activeModal: null,
 		lodTier: 2,
@@ -2297,7 +2391,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						if (opts?.autoCommit || Boolean(resultObj.auto_committed)) {
 							await handleAutoCommittedCompletion(sid, fetchImpl);
 						} else {
-							await get().loadProposals(fetchImpl, sid);
+							await get().loadProposals(fetchImpl, sid, {
+								selectNewestPending: true,
+							});
 						}
 					}
 					return true;
@@ -2694,6 +2790,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			isClarifying: false,
 			isConstructing: false,
 			proposals: [],
+			selectedProposalId: null,
+			proposalDrafts: {},
 			isLoadingProposals: false,
 
 			nodes: [],
@@ -3072,6 +3170,17 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					committedEdges: [],
 					clarifications: [],
 					proposals: [],
+					selectedProposalId: null,
+					...(sessionId !== prevSessionId
+						? {
+								proposalDrafts: {},
+								layout: {
+									...get().layout,
+									rightDrawerTab: "concept",
+									rightDrawerOpen: false,
+								},
+							}
+						: {}),
 					sources: [],
 					answers: {},
 					answers_sha256: undefined,
@@ -4346,7 +4455,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						if (didAutoCommit) {
 							await handleAutoCommittedCompletion(sid, fetchImpl);
 						} else {
-							await get().loadProposals(fetchImpl, sid);
+							await get().loadProposals(fetchImpl, sid, {
+								selectNewestPending: true,
+							});
 						}
 					} else if (job.job_id) {
 						monitorStudioJob(sid, job.job_id, "construct", fetchImpl, {
@@ -4375,7 +4486,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				}
 			},
 
-			loadProposals: async (fetchImpl = fetch, targetSessionId?: string) => {
+			loadProposals: async (
+				fetchImpl = fetch,
+				targetSessionId?: string,
+				loadOptions?: { selectNewestPending?: boolean },
+			) => {
 				const activeSession = get().activeSession;
 				if (!activeSession) return;
 				const expectedId = targetSessionId ?? activeSession.session_id;
@@ -4406,7 +4521,30 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					)
 						return;
 					const list = Array.isArray(data) ? data : data.proposals || [];
-					set({ proposals: list, isLoadingProposals: false });
+					const sorted = sortProposalsForStewardship(list);
+					set((state) => {
+						let nextSelected = state.selectedProposalId;
+						if (loadOptions?.selectNewestPending) {
+							const newestPending = sorted.find(
+								(p) => !p.status || p.status === "PENDING",
+							);
+							nextSelected =
+								newestPending?.proposal_id ??
+								sorted[0]?.proposal_id ??
+								state.selectedProposalId;
+						} else if (
+							nextSelected &&
+							nextSelected !== NEW_PROPOSAL_DRAFT_KEY &&
+							!sorted.some((p) => p.proposal_id === nextSelected)
+						) {
+							nextSelected = null;
+						}
+						return {
+							proposals: sorted,
+							selectedProposalId: nextSelected,
+							isLoadingProposals: false,
+						};
+					});
 				} catch {
 					if (
 						reqId === activeProposalsRequestId &&
@@ -4472,6 +4610,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 								...(acceptOptions?.selfAcceptanceOverride
 									? { self_acceptance_override: true }
 									: {}),
+								...(acceptOptions?.lowConfidenceWaiver
+									? { low_confidence_waiver: true }
+									: {}),
 							}),
 						},
 					);
@@ -4490,6 +4631,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						});
 						return false;
 					}
+					set((state) => {
+						const nextDrafts = { ...state.proposalDrafts };
+						delete nextDrafts[proposalId];
+						return { proposalDrafts: nextDrafts };
+					});
 					await get().selectSession(sid, fetchImpl, true);
 					get().addToast({
 						type: "urn:opendv:notice:proposal-accepted",
@@ -4516,6 +4662,17 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			rejectProposal: async (proposalId, reason, fetchImpl = fetch) => {
 				const activeSession = get().activeSession;
 				if (!activeSession) return false;
+				const role = get().userRole;
+				if (role === "viewer" || role === "automated") {
+					get().addToast({
+						type: "urn:opendv:error:forbidden-role",
+						title: "Human Steward Role Required",
+						status: 403,
+						detail: `Role '${role}' cannot manually reject candidate proposals. Switch to an authenticated Editor or Admin steward session.`,
+						code: "FORBIDDEN_ROLE",
+					});
+					return false;
+				}
 				const sid = activeSession.session_id;
 				try {
 					const res = await studioFetch(
@@ -4544,6 +4701,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						});
 						return false;
 					}
+					set((state) => {
+						const nextDrafts = { ...state.proposalDrafts };
+						delete nextDrafts[proposalId];
+						return { proposalDrafts: nextDrafts };
+					});
 					await get().loadProposals(fetchImpl, sid);
 					return true;
 				} catch (err) {
@@ -4563,6 +4725,17 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			rebaseProposal: async (proposalId, fetchImpl = fetch) => {
 				const activeSession = get().activeSession;
 				if (!activeSession) return false;
+				const role = get().userRole;
+				if (role === "viewer" || role === "automated") {
+					get().addToast({
+						type: "urn:opendv:error:forbidden-role",
+						title: "Human Steward Role Required",
+						status: 403,
+						detail: `Role '${role}' cannot manually rebase candidate proposals. Switch to an authenticated Editor or Admin steward session.`,
+						code: "FORBIDDEN_ROLE",
+					});
+					return false;
+				}
 				const sid = activeSession.session_id;
 				const headers: Record<string, string> = {
 					"Content-Type": "application/json",
@@ -4595,6 +4768,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						});
 						return false;
 					}
+					set((state) => {
+						const nextDrafts = { ...state.proposalDrafts };
+						delete nextDrafts[proposalId];
+						return { proposalDrafts: nextDrafts };
+					});
 					await get().loadProposals(fetchImpl, sid);
 					get().addToast({
 						type: "urn:opendv:notice:proposal-rebased",
@@ -4615,6 +4793,167 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						});
 					}
 					return false;
+				}
+			},
+
+			selectProposal: (proposalId) => {
+				set((state) => {
+					if (proposalId !== null) {
+						return {
+							selectedProposalId: proposalId,
+							layout: {
+								...state.layout,
+								rightDrawerOpen: true,
+								rightDrawerTab: "proposal",
+							},
+						};
+					}
+					const hasConcept = state.selectedNodeId !== null;
+					return {
+						selectedProposalId: null,
+						layout: {
+							...state.layout,
+							rightDrawerOpen: hasConcept,
+							rightDrawerTab: "concept",
+						},
+					};
+				});
+			},
+
+			setProposalDraft: (proposalKey, draft) => {
+				set((state) => ({
+					proposalDrafts: {
+						...state.proposalDrafts,
+						[proposalKey]: {
+							rationale: draft.rationale,
+							operations: draft.operations.map((op) => ({ ...op })),
+						},
+					},
+				}));
+			},
+
+			clearProposalDraft: (proposalKey) => {
+				set((state) => {
+					const nextDrafts = { ...state.proposalDrafts };
+					delete nextDrafts[proposalKey];
+					return { proposalDrafts: nextDrafts };
+				});
+			},
+
+			saveEditedProposal: async (proposalId, updates, fetchImpl = fetch) => {
+				const activeSession = get().activeSession;
+				if (!activeSession) return null;
+				const role = get().userRole;
+				if (role === "viewer") {
+					get().addToast({
+						type: "urn:opendv:error:forbidden-role",
+						title: "Read-Only Role",
+						status: 403,
+						detail: "Viewer role cannot create or edit candidate proposals.",
+						code: "FORBIDDEN_ROLE",
+					});
+					return null;
+				}
+				const sid = activeSession.session_id;
+				const existing = get().proposals.find(
+					(p) => p.proposal_id === proposalId,
+				);
+				const rationale =
+					updates.rationale !== undefined
+						? updates.rationale
+						: existing?.rationale || `Steward revision based on ${proposalId}`;
+				const normalizedOperations = normalizeProposalOperationsForSubmission(
+					updates.operations,
+				);
+				const basePair = resolveProposalBaseVersionAndSha(
+					activeSession,
+					existing,
+				);
+				try {
+					const res = await studioFetch(
+						fetchImpl,
+						`/api/v1/ontology/studio/sessions/${encodeURIComponent(sid)}/proposals`,
+						{
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								base_version: basePair.base_version,
+								...(basePair.base_sha256
+									? { base_sha256: basePair.base_sha256 }
+									: {}),
+								rationale,
+								operations: normalizedOperations,
+							}),
+						},
+					);
+					if (get().activeSession?.session_id !== sid) return null;
+					if (!res.ok) {
+						const err = (await res.json().catch(() => ({}))) as {
+							detail?: string;
+							code?: string;
+						};
+						get().addToast({
+							type: "urn:opendv:error:proposal-save-failed",
+							title: "Proposal Save Failed",
+							status: res.status,
+							detail: err.detail || `Server returned HTTP ${res.status}`,
+							code: err.code || "PROPOSAL_SAVE_FAILED",
+						});
+						return null;
+					}
+					const saved = (await res.json()) as CandidateProposalSummary;
+					const normalizedSaved: CandidateProposalSummary = {
+						...saved,
+						operations: Array.isArray(saved.operations)
+							? saved.operations
+							: normalizedOperations,
+						operations_count: Array.isArray(saved.operations)
+							? saved.operations.length
+							: normalizedOperations.length,
+						ops_count: Array.isArray(saved.operations)
+							? saved.operations.length
+							: normalizedOperations.length,
+					};
+					set((state) => {
+						const nextDrafts = { ...state.proposalDrafts };
+						delete nextDrafts[proposalId];
+						delete nextDrafts[normalizedSaved.proposal_id];
+						delete nextDrafts[NEW_PROPOSAL_DRAFT_KEY];
+						return {
+							proposals: sortProposalsForStewardship([
+								normalizedSaved,
+								...state.proposals.filter(
+									(p) => p.proposal_id !== normalizedSaved.proposal_id,
+								),
+							]),
+							selectedProposalId: normalizedSaved.proposal_id,
+							proposalDrafts: nextDrafts,
+							layout: {
+								...state.layout,
+								rightDrawerOpen: true,
+								rightDrawerTab: "proposal",
+							},
+						};
+					});
+					get().addToast({
+						type: "urn:opendv:notice:proposal-saved",
+						title: "Proposal Saved",
+						status: 201,
+						detail: `Saved pending candidate proposal ${normalizedSaved.proposal_id} (${normalizedSaved.operations_count} ops).`,
+						code: "OK",
+					});
+					return normalizedSaved;
+				} catch (err) {
+					if (get().activeSession?.session_id === sid) {
+						get().addToast({
+							type: "urn:opendv:error:network",
+							title: "Network Error",
+							status: 503,
+							detail: String(err),
+							code: "NETWORK_ERROR",
+						});
+					}
+					return null;
 				}
 			},
 
@@ -4854,14 +5193,30 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			},
 
 			selectNode: (nodeId) => {
-				set((state) => ({
-					selectedNodeId: nodeId,
-					selectedEdgeId: null,
-					layout: {
-						...state.layout,
-						rightDrawerOpen: nodeId !== null,
-					},
-				}));
+				set((state) => {
+					if (nodeId !== null) {
+						return {
+							selectedNodeId: nodeId,
+							selectedEdgeId: null,
+							layout: {
+								...state.layout,
+								rightDrawerOpen: true,
+								rightDrawerTab: "concept",
+							},
+						};
+					}
+					const hasProposal =
+						state.selectedProposalId !== null &&
+						state.layout.rightDrawerTab === "proposal";
+					return {
+						selectedNodeId: null,
+						selectedEdgeId: null,
+						layout: {
+							...state.layout,
+							rightDrawerOpen: hasProposal,
+						},
+					};
+				});
 			},
 
 			selectEdge: (edgeId) => {
@@ -7631,6 +7986,21 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					layout: { ...state.layout, leftDrawerTab: tab, leftDrawerOpen: true },
 				})),
 
+			setRightDrawerTab: (tab) =>
+				set((state) => ({
+					selectedProposalId:
+						tab === "proposal" &&
+						!state.selectedProposalId &&
+						state.proposals.length > 0
+							? (state.proposals[0]?.proposal_id ?? null)
+							: state.selectedProposalId,
+					layout: {
+						...state.layout,
+						rightDrawerTab: tab,
+						rightDrawerOpen: true,
+					},
+				})),
+
 			toggleLeftDrawer: (open) =>
 				set((state) => ({
 					layout: {
@@ -7743,6 +8113,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					isClarifying: false,
 					isConstructing: false,
 					proposals: [],
+					selectedProposalId: null,
+					proposalDrafts: {},
 					isLoadingProposals: false,
 					nodes: [],
 					edges: [],
