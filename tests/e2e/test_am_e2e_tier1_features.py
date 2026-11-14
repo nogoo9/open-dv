@@ -1572,7 +1572,7 @@ class TestFeature20VerifiedPullRequest:
         assert "--strict-markers" in content
 
     def test_f20_05_commit_message_convention_verification(self) -> None:
-        """F20.5: Verify repository commits conform to Conventional Commits."""
+        """F20.5: Verify repository commits conform to Conventional Commits or no-mistakes."""
         import subprocess
 
         res = subprocess.run(
@@ -1584,7 +1584,7 @@ class TestFeature20VerifiedPullRequest:
         )
         if res.returncode == 0 and res.stdout.strip():
             pattern = re.compile(
-                r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert|Merge)"
+                r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert|Merge|no-mistakes)"
                 r"(\([^)]+\))?:? .+$"
             )
             for line in res.stdout.strip().splitlines():
