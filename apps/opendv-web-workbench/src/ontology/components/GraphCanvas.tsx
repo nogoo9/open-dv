@@ -38,6 +38,7 @@ import {
 } from "../constants";
 import { useStudioStore } from "../store/studio-store";
 import type { ConceptNode, RelationshipEdge } from "../store/types";
+import { extractIriTerminalLabel } from "../utils/identifiers";
 import { layoutGraph } from "./graph-layout";
 
 export interface GraphCanvasProps {
@@ -162,11 +163,7 @@ export const ConceptNodeComponent: React.FC<
 							<span className="preview-heading">Mappings:</span>
 							<div className="mappings-tags">
 								{concept.external_mappings.map((m, idx) => {
-									const shortTarget =
-										m.target_uri
-											.split(/[\/#:]/)
-											.filter(Boolean)
-											.pop() || m.target_uri;
+									const shortTarget = extractIriTerminalLabel(m.target_uri);
 									return (
 										<span
 											key={`${m.target_uri}-${idx}`}
