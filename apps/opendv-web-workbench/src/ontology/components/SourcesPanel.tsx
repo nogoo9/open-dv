@@ -380,9 +380,8 @@ export const SourcesPanel: React.FC<SourcesPanelProps> = ({
 						data-testid="parse-success-badge"
 					>
 						✓ Parsing complete (
-						{parsingState.evidence_chunks.length ||
-							parsingState.chunks_count ||
-							0}{" "}
+						{parsingState.chunks_count ??
+							(parsingState.evidence_chunks.length || 0)}{" "}
 						chunks extracted)
 					</div>
 				)}

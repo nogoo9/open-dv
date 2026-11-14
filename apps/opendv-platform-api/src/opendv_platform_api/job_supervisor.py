@@ -30,6 +30,7 @@ from opendv_contracts.errors import ErrorCode, OpenDVError
 from opendv_platform_api.security.error_catalog import StudioAPIError
 from opendv_service.studio.atomic_commit import SourceNotFoundError
 from opendv_service.studio.job_runners import (
+    load_active_session_evidence,
     run_clarify_session,
     run_construct_session,
     run_parse_session_sources,
@@ -58,6 +59,9 @@ from opendv_sources.exceptions import (
 logger = logging.getLogger(__name__)
 
 MAX_IN_MEMORY_JOBS: Final[int] = 256
+DEFAULT_PREVIEW_CHUNKS_PER_SOURCE: Final[int] = 6
+DEFAULT_MAX_PREVIEW_CHUNKS: Final[int] = 24
+DEFAULT_PREVIEW_SNIPPET_MAX_CHARS: Final[int] = 240
 _TERMINAL_JOB_STATUSES: Final[frozenset[str]] = frozenset({"completed", "failed", "cancelled"})
 _VALID_ERROR_CODES: Final[frozenset[str]] = frozenset(e.value for e in ErrorCode)
 
@@ -983,7 +987,7 @@ def run_parse_job(
             get_job_supervisor()._persist_job_status(session_mgr, ctx.session_id, ctx)
 
     try:
-        return run_parse_session_sources(
+        result = run_parse_session_sources(
             session_manager=session_mgr,
             session_id=ctx.session_id,
             job_id=ctx.job_id,
@@ -994,6 +998,68 @@ def run_parse_job(
             is_cancelled=lambda: ctx.is_cancelled(session_mgr),
             on_progress=_on_progress,
         )
+        # Attach balanced preview evidence_chunks across sources for Chunk Inspector (ISS-11)
+        active_chunks, active_tables = load_active_session_evidence(
+            session_mgr.get_session_dir(ctx.session_id)
+        )
+        tabular_pages_by_src: set[tuple[str, int]] = {
+            (str((t.metadata or {}).get("source_id") or ""), int(t.page_number))
+            for t in active_tables
+            if getattr(t, "page_number", None) is not None
+        }
+        grouped: dict[str, list[Any]] = {}
+        for chk in active_chunks:
+            meta = chk.metadata or {}
+            sid = str(meta.get("source_id") or chk.document_id or "unknown")
+            grouped.setdefault(sid, []).append(chk)
+
+        preview_chunks: list[dict[str, Any]] = []
+        max_per_source = DEFAULT_PREVIEW_CHUNKS_PER_SOURCE
+        max_total_preview = DEFAULT_MAX_PREVIEW_CHUNKS
+        # Interleave across sources so every uploaded document is visible in preview
+        bucket_lists = list(grouped.values())
+        for slot in range(max_per_source):
+            for bucket in bucket_lists:
+                if len(preview_chunks) >= max_total_preview:
+                    break
+                if slot >= len(bucket):
+                    continue
+                chk = bucket[slot]
+                meta = chk.metadata or {}
+                sid = str(meta.get("source_id") or chk.document_id or "")
+                fname = str(meta.get("filename") or chk.document_id or "document")
+                page_num = getattr(chk, "page_number", None)
+                source_label = f"{fname} (p. {page_num})" if page_num else fname
+                complexity = str(meta.get("layout_complexity") or "").upper()
+                if complexity not in {"SIMPLE", "TABULAR", "MULTI_COLUMN", "COMPLEX"}:
+                    is_tabular_page = (
+                        page_num is not None and (sid, int(page_num)) in tabular_pages_by_src
+                    )
+                    if is_tabular_page or "|" in (chk.text or ""):
+                        complexity = "TABULAR"
+                    else:
+                        complexity = "SIMPLE"
+                raw_text = chk.text or ""
+                if len(raw_text) > DEFAULT_PREVIEW_SNIPPET_MAX_CHARS:
+                    snippet = f"{raw_text[:DEFAULT_PREVIEW_SNIPPET_MAX_CHARS]}…"
+                else:
+                    snippet = raw_text
+                preview_chunks.append(
+                    {
+                        "chunk_id": chk.chunk_id,
+                        "source_id": sid,
+                        "source_file": source_label,
+                        "text_snippet": snippet,
+                        "token_count": max(1, len(raw_text.split())),
+                        "layout_complexity": complexity,
+                        "start_char": chk.start_offset,
+                        "end_char": chk.end_offset,
+                    }
+                )
+            if len(preview_chunks) >= max_total_preview:
+                break
+        result["evidence_chunks"] = preview_chunks
+        return result
     except Exception as exc:
         raise _translate_runner_error(exc) from exc
 

@@ -65,6 +65,7 @@ logger = logging.getLogger(__name__)
 
 MAX_PHYSICAL_SLUG_CHARS: int = 55
 MAX_ENUM_CARDINALITY: int = 20
+DEFAULT_MAX_PROSE_HUBS: int = 24
 
 
 def _to_slug(name: str) -> str:
@@ -551,11 +552,17 @@ class DeterministicConstructionPipeline:
                     staged_candidates=staged_candidates,
                 )
 
-        # Step 2: Also evaluate evidence text chunks for explicit candidate entities if no tables
-        if not table_list and evidence_chunks:
+        # Step 2: Also evaluate evidence text chunks for explicit candidate entities
+        # when no structured table surrogate keys were discovered (ISS-13)
+        max_prose_hubs = DEFAULT_MAX_PROSE_HUBS
+        if (not table_list or not discovered_table_keys) and evidence_chunks:
             for chk in evidence_chunks:
+                if len(accepted_hubs) >= max_prose_hubs:
+                    break
                 phrases = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b", chk.text)
                 for phrase in phrases:
+                    if len(accepted_hubs) >= max_prose_hubs:
+                        break
                     phrase_clean = phrase[4:].strip() if phrase.startswith("The ") else phrase
                     words = phrase_clean.split()
                     if len(words) == 1 and words[0].lower() in STOPWORDS:
@@ -917,7 +924,12 @@ class DeterministicConstructionPipeline:
 
         author = (
             f"{opts.actor}:{opts.principal}"
-            if (opts.actor and opts.principal and opts.principal != "system:deterministic")
+            if (
+                opts.actor
+                and opts.principal
+                and opts.principal != opts.actor
+                and opts.principal != "system:deterministic"
+            )
             else (opts.actor if opts.actor else "deterministic:pipeline")
         )
 
