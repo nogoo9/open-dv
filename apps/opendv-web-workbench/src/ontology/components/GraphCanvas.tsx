@@ -26,8 +26,19 @@ import {
 } from "@xyflow/react";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	CANVAS_FALLBACK_GRID_COLS,
+	ELK_LAYER_SPACING,
+	ELK_NODE_HEIGHT,
+	ELK_NODE_SPACING,
+	ELK_NODE_WIDTH,
+	GRID_LAYOUT_ORIGIN,
+	GRID_LAYOUT_X_STRIDE,
+	GRID_LAYOUT_Y_STRIDE,
+} from "../constants";
 import { useStudioStore } from "../store/studio-store";
 import type { ConceptNode, RelationshipEdge } from "../store/types";
+import { extractIriTerminalLabel } from "../utils/identifiers";
 import { layoutGraph } from "./graph-layout";
 
 export interface GraphCanvasProps {
@@ -151,11 +162,18 @@ export const ConceptNodeComponent: React.FC<
 						<div className="mappings-preview">
 							<span className="preview-heading">Mappings:</span>
 							<div className="mappings-tags">
-								{concept.external_mappings.map((m, idx) => (
-									<span key={`${m.target_uri}-${idx}`} className="mapping-tag">
-										{m.scheme}: {m.target_uri.split(":").pop()}
-									</span>
-								))}
+								{concept.external_mappings.map((m, idx) => {
+									const shortTarget = extractIriTerminalLabel(m.target_uri);
+									return (
+										<span
+											key={`${m.target_uri}-${idx}`}
+											className="mapping-tag"
+											title={`${m.scheme}: ${m.target_uri}`}
+										>
+											{m.scheme}: {shortTarget}
+										</span>
+									);
+								})}
 							</div>
 						</div>
 					)}
@@ -300,8 +318,13 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 				return {
 					...fn,
 					position: {
-						x: 100 + (idx % 5) * 260,
-						y: 100 + Math.floor(idx / 5) * 160,
+						x:
+							GRID_LAYOUT_ORIGIN +
+							(idx % CANVAS_FALLBACK_GRID_COLS) * GRID_LAYOUT_X_STRIDE,
+						y:
+							GRID_LAYOUT_ORIGIN +
+							Math.floor(idx / CANVAS_FALLBACK_GRID_COLS) *
+								GRID_LAYOUT_Y_STRIDE,
 					},
 				};
 			});
@@ -321,8 +344,10 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 		try {
 			const result = await layoutGraph(rawNodes, rawEdges, {
 				direction: "RIGHT",
-				nodeSpacing: 70,
-				layerSpacing: 120,
+				nodeWidth: ELK_NODE_WIDTH,
+				nodeHeight: ELK_NODE_HEIGHT,
+				nodeSpacing: ELK_NODE_SPACING,
+				layerSpacing: ELK_LAYER_SPACING,
 			});
 
 			if (layoutGenRef.current !== currentGen) {
@@ -556,12 +581,13 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 					deleteKeyCode={null}
 					fitView
 				>
-					<Background color="#374151" gap={24} size={1} />
+					<Background color="var(--dv-border-strong)" gap={24} size={1} />
 					<Controls showInteractive={false} />
 					{layoutState.minimapVisible && (
 						<MiniMap
-							nodeStrokeColor="#1D4ED8"
-							nodeColor="#1F2937"
+							nodeStrokeColor="var(--dv-hub-accent)"
+							nodeColor="var(--dv-minimap-node-bg)"
+							maskColor="var(--dv-minimap-mask-bg)"
 							nodeBorderRadius={4}
 							ariaLabel="Ontology graph overview minimap"
 						/>

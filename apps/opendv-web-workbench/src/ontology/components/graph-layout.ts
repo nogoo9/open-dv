@@ -7,6 +7,7 @@
  */
 
 import ELK from "elkjs/lib/elk.bundled.js";
+import { ELK_LAYOUT_DEFAULT_TIMEOUT_MS } from "../constants";
 import type { ConceptNode, RelationshipEdge } from "../store/types";
 
 export interface LayoutOptions {
@@ -238,7 +239,7 @@ export async function layoutGraph(
 			})),
 		};
 
-		const timeoutMs = options.timeoutMs ?? 250;
+		const timeoutMs = options.timeoutMs ?? ELK_LAYOUT_DEFAULT_TIMEOUT_MS;
 		let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 		const timeoutPromise = new Promise<never>((_, reject) => {
 			timeoutHandle = setTimeout(

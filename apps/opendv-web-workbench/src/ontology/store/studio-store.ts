@@ -7,6 +7,18 @@
 
 import { useRef, useSyncExternalStore } from "react";
 import { createStore } from "zustand/vanilla";
+import {
+	GENESIS_SEMVER_VERSION,
+	GRID_LAYOUT_COLS,
+	GRID_LAYOUT_ORIGIN,
+	GRID_LAYOUT_X_STRIDE,
+	GRID_LAYOUT_Y_STRIDE,
+	GROUNDING_MIN_CONFIDENCE,
+	LOCAL_TOKEN_PATH_HINT,
+	MIN_RATIONALE_LENGTH,
+	NEW_PROPOSAL_DRAFT_KEY,
+} from "../constants";
+import { createDraftOpId } from "../utils/identifiers";
 import type {
 	CandidateProposalSummary,
 	ClarificationAnswer,
@@ -34,6 +46,77 @@ import type {
 } from "./types";
 
 export * from "./types";
+
+export interface ProposalDraftEdit {
+	rationale: string;
+	operations: Array<Record<string, unknown>>;
+}
+
+export function sortProposalsForStewardship(
+	proposals: ReadonlyArray<CandidateProposalSummary>,
+): CandidateProposalSummary[] {
+	return [...proposals].sort((a, b) => {
+		const aPending = !a.status || a.status === "PENDING" ? 0 : 1;
+		const bPending = !b.status || b.status === "PENDING" ? 0 : 1;
+		if (aPending !== bPending) return aPending - bPending;
+		const aTime = a.created_at ? Date.parse(a.created_at) : Number.NaN;
+		const bTime = b.created_at ? Date.parse(b.created_at) : Number.NaN;
+		if (!Number.isNaN(aTime) && !Number.isNaN(bTime) && aTime !== bTime) {
+			return bTime - aTime;
+		}
+		return 0;
+	});
+}
+
+export function resolveProposalBaseVersionAndSha(
+	activeSession: Pick<StudioSessionSummary, "active_version" | "head_sha256">,
+	existing?: CandidateProposalSummary,
+): { base_version: string; base_sha256?: string } {
+	const useExistingPair =
+		Boolean(existing) &&
+		existing?.status === "PENDING" &&
+		Boolean(existing.base_version) &&
+		(Boolean(existing.base_sha256) ||
+			existing.base_version === GENESIS_SEMVER_VERSION);
+	if (useExistingPair && existing) {
+		return {
+			base_version: existing.base_version,
+			...(existing.base_sha256 ? { base_sha256: existing.base_sha256 } : {}),
+		};
+	}
+	return {
+		base_version: activeSession.active_version || GENESIS_SEMVER_VERSION,
+		...(activeSession.head_sha256
+			? { base_sha256: activeSession.head_sha256 }
+			: {}),
+	};
+}
+
+export function normalizeProposalOperationsForSubmission(
+	operations: ReadonlyArray<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+	return operations.map((op) => {
+		const copy: Record<string, unknown> = { ...op };
+		if (typeof copy.op_id !== "string" || !copy.op_id.trim()) {
+			copy.op_id = createDraftOpId();
+		}
+		if (copy.op_type === "add_external_mapping") {
+			const numericConf =
+				typeof copy.mapping_confidence === "number" &&
+				Number.isFinite(copy.mapping_confidence)
+					? copy.mapping_confidence
+					: typeof copy.confidence === "number" &&
+							Number.isFinite(copy.confidence)
+						? copy.confidence
+						: undefined;
+			if (numericConf !== undefined) {
+				copy.mapping_confidence = numericConf;
+				copy.confidence = numericConf;
+			}
+		}
+		return copy;
+	});
+}
 
 export const EMPTY_ANSWERS_SHA256 =
 	"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945";
@@ -80,7 +163,7 @@ export function extractAndScrubLaunchNonce(
 		const hashRaw = newHash.slice(1);
 		const hashParams = new URLSearchParams(hashRaw);
 		const hToken = hashParams.get("token") || hashParams.get("nonce");
-		if (hToken && hToken.trim()) {
+		if (hToken?.trim()) {
 			extracted = hToken.trim();
 			hashParams.delete("token");
 			hashParams.delete("nonce");
@@ -92,7 +175,7 @@ export function extractAndScrubLaunchNonce(
 	if (newSearch.startsWith("?") && newSearch.length > 1) {
 		const searchParams = new URLSearchParams(newSearch.slice(1));
 		const sNonce = searchParams.get("nonce") || searchParams.get("token");
-		if (sNonce && sNonce.trim()) {
+		if (sNonce?.trim()) {
 			if (!extracted) extracted = sNonce.trim();
 			searchParams.delete("nonce");
 			searchParams.delete("token");
@@ -279,8 +362,7 @@ export function hasGraphChangesFromBaseline(
 				? 1
 				: 0,
 	);
-	for (let i = 0; i < sortedEdges.length; i++) {
-		const currEdge = sortedEdges[i]!;
+	for (const [i, currEdge] of sortedEdges.entries()) {
 		const commEdge = sortedCommittedEdges[i];
 		if (!commEdge || isRelationshipMutatedFromBaseline(currEdge, commEdge)) {
 			return true;
@@ -295,6 +377,8 @@ export interface StudioStoreState {
 	userRole: StudioUserRole;
 	authToken: string | null;
 	authRequired: boolean;
+	authInitConflict: boolean;
+	authHint: string | null;
 	isBootstrappingAuth: boolean;
 
 	// Sessions
@@ -315,6 +399,8 @@ export interface StudioStoreState {
 	isClarifying: boolean;
 	isConstructing: boolean;
 	proposals: CandidateProposalSummary[];
+	selectedProposalId: string | null;
+	proposalDrafts: Record<string, ProposalDraftEdit>;
 	isLoadingProposals: boolean;
 
 	// Graph Canvas
@@ -437,12 +523,17 @@ export interface StudioStoreState {
 	loadProposals: (
 		fetchImpl?: typeof fetch,
 		targetSessionId?: string,
+		loadOptions?: { selectNewestPending?: boolean },
 	) => Promise<void>;
 	acceptProposal: (
 		proposalId: string,
 		rationale?: string,
 		fetchImpl?: typeof fetch,
-		options?: { force?: boolean; selfAcceptanceOverride?: boolean },
+		options?: {
+			force?: boolean;
+			selfAcceptanceOverride?: boolean;
+			lowConfidenceWaiver?: boolean;
+		},
 	) => Promise<boolean>;
 	rejectProposal: (
 		proposalId: string,
@@ -453,6 +544,17 @@ export interface StudioStoreState {
 		proposalId: string,
 		fetchImpl?: typeof fetch,
 	) => Promise<boolean>;
+	saveEditedProposal: (
+		proposalId: string,
+		updates: {
+			rationale?: string | undefined;
+			operations: Array<Record<string, unknown>>;
+		},
+		fetchImpl?: typeof fetch,
+	) => Promise<CandidateProposalSummary | null>;
+	selectProposal: (proposalId: string | null) => void;
+	setProposalDraft: (proposalKey: string, draft: ProposalDraftEdit) => void;
+	clearProposalDraft: (proposalKey: string) => void;
 
 	// Graph actions
 	loadGraph: (
@@ -527,6 +629,7 @@ export interface StudioStoreState {
 
 	// Layout actions
 	setLeftDrawerTab: (tab: LayoutState["leftDrawerTab"]) => void;
+	setRightDrawerTab: (tab: NonNullable<LayoutState["rightDrawerTab"]>) => void;
 	toggleLeftDrawer: (open?: boolean) => void;
 	toggleRightDrawer: (open?: boolean) => void;
 	toggleBottomDock: (open?: boolean) => void;
@@ -569,6 +672,7 @@ const EXTENSION_TO_MIMES: Record<string, string[]> = {
 	".json": ["application/json"],
 	".csv": ["text/csv"],
 	".md": ["text/markdown", "text/plain"],
+	".markdown": ["text/markdown", "text/plain"],
 	".txt": ["text/plain"],
 };
 
@@ -621,6 +725,28 @@ export function escapeIri(iri?: string | null): string {
 	return trimmed.replace(/[<>"{}|^`\\\s\x00-\x20]/g, (c) =>
 		encodeURIComponent(c),
 	);
+}
+
+function resolveCleanHeadSnapshot(state: {
+	hasUnsavedChanges: boolean;
+	committedNodes: ConceptNode[];
+	committedEdges: RelationshipEdge[];
+	nodes: ConceptNode[];
+	edges: RelationshipEdge[];
+}): { nodes: ConceptNode[]; edges: RelationshipEdge[] } {
+	// Return authoritative committed baseline whenever changes exist or committed state is populated;
+	// fallback to clean in-memory state when a caller initializes nodes without committedNodes.
+	if (
+		state.hasUnsavedChanges ||
+		state.committedNodes.length > 0 ||
+		state.committedEdges.length > 0
+	) {
+		return {
+			nodes: state.committedNodes,
+			edges: state.committedEdges,
+		};
+	}
+	return { nodes: state.nodes, edges: state.edges };
 }
 
 export function createDefaultQualityScorecard(): QualityScorecard {
@@ -686,7 +812,7 @@ export function deriveGroundingStatus(
 
 	if (qualifyingFiboConfs.length > 0) {
 		const maxQualifying = Math.max(...qualifyingFiboConfs);
-		if (maxQualifying >= 0.65) {
+		if (maxQualifying >= GROUNDING_MIN_CONFIDENCE) {
 			return {
 				grounding_status: "GROUNDED",
 				confidence: maxQualifying,
@@ -1040,6 +1166,7 @@ export function createDefaultLayoutState(): LayoutState {
 		leftDrawerTab: "sessions",
 		leftDrawerOpen: true,
 		rightDrawerOpen: false,
+		rightDrawerTab: "concept",
 		bottomDockOpen: false,
 		activeModal: null,
 		lodTier: 2,
@@ -1748,7 +1875,6 @@ export function generateLocalExport(
 			lines.push("</rdf:RDF>");
 			return lines.join("\n");
 		}
-		case "yaml":
 		default: {
 			const canonical = canonicalizeGraphADict(nodes, edges, {
 				...session,
@@ -1890,8 +2016,10 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						| Record<string, unknown>
 						| null
 						| undefined) ?? null,
-				x: 100 + (idx % 4) * 260,
-				y: 100 + Math.floor(idx / 4) * 180,
+				x: GRID_LAYOUT_ORIGIN + (idx % GRID_LAYOUT_COLS) * GRID_LAYOUT_X_STRIDE,
+				y:
+					GRID_LAYOUT_ORIGIN +
+					Math.floor(idx / GRID_LAYOUT_COLS) * GRID_LAYOUT_Y_STRIDE,
 			};
 		});
 
@@ -1901,13 +2029,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				? (r.endpoints as string[])
 				: undefined;
 			const src =
-				(r.source_concept_uri as string | undefined) ||
-				(endpoints && endpoints[0]) ||
-				"";
+				(r.source_concept_uri as string | undefined) || endpoints?.[0] || "";
 			const tgt =
-				(r.target_concept_uri as string | undefined) ||
-				(endpoints && endpoints[1]) ||
-				"";
+				(r.target_concept_uri as string | undefined) || endpoints?.[1] || "";
 			return {
 				id: relUri,
 				relationship_uri: relUri,
@@ -1989,8 +2113,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			}
 
 			const token = get().authToken;
-			if (token && !headers["Authorization"] && !headers["authorization"]) {
-				headers["Authorization"] = `Bearer ${token}`;
+			if (token && !headers.Authorization && !headers.authorization) {
+				headers.Authorization = `Bearer ${token}`;
 			}
 
 			const nextInit: RequestInit = {
@@ -2010,7 +2134,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			}
 			if (res && res.status === 401) {
 				set({ authRequired: true });
-			} else if (res && res.ok && get().authRequired) {
+			} else if (res?.ok && get().authRequired) {
 				set({ authRequired: false });
 			}
 			return res;
@@ -2205,9 +2329,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							progress_pct: 100,
 							stage: "completed",
 							evidence_chunks: chunks ?? state.parsingState.evidence_chunks,
-							chunks_count: chunks
-								? chunks.length
-								: (chunksCountRaw ?? state.parsingState.chunks_count),
+							chunks_count:
+								chunksCountRaw ??
+								(chunks ? chunks.length : state.parsingState.chunks_count),
 							error: null,
 						},
 					}));
@@ -2267,7 +2391,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						if (opts?.autoCommit || Boolean(resultObj.auto_committed)) {
 							await handleAutoCommittedCompletion(sid, fetchImpl);
 						} else {
-							await get().loadProposals(fetchImpl, sid);
+							await get().loadProposals(fetchImpl, sid, {
+								selectNewestPending: true,
+							});
 						}
 					}
 					return true;
@@ -2645,6 +2771,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			userRole: options.userRole ?? "editor",
 			authToken: null,
 			authRequired: false,
+			authInitConflict: false,
+			authHint: null,
 			isBootstrappingAuth: false,
 
 			activeSession: options.initialSession ?? null,
@@ -2662,6 +2790,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			isClarifying: false,
 			isConstructing: false,
 			proposals: [],
+			selectedProposalId: null,
+			proposalDrafts: {},
 			isLoadingProposals: false,
 
 			nodes: [],
@@ -2695,6 +2825,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				set({
 					authToken: trimmed || null,
 					authRequired: false,
+					authInitConflict: false,
+					authHint: null,
 					...(jwtRole ? { userRole: jwtRole } : {}),
 				});
 			},
@@ -2719,6 +2851,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						const err = (await res.json().catch(() => ({}))) as {
 							detail?: string;
 							code?: string;
+							error_code?: string;
 							title?: string;
 						};
 						get().addToast({
@@ -2726,7 +2859,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							title: err.title || "Launch Token Exchange Failed",
 							status: res.status,
 							detail: err.detail || `Server returned HTTP ${res.status}`,
-							code: err.code || "AUTH_INVALID_LAUNCH_NONCE",
+							code: err.code || err.error_code || "AUTH_INVALID_LAUNCH_NONCE",
 						});
 						set({
 							isBootstrappingAuth: false,
@@ -2748,6 +2881,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					set((state) => ({
 						authToken: nextToken || state.authToken,
 						authRequired: false,
+						authInitConflict: false,
+						authHint: null,
 						isBootstrappingAuth: false,
 						...(hydratedRole ? { userRole: hydratedRole } : {}),
 					}));
@@ -2766,7 +2901,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			},
 
 			bootstrapLoopbackAuth: async (fetchImpl = fetch) => {
-				set({ isBootstrappingAuth: true });
+				set({
+					isBootstrappingAuth: true,
+					authInitConflict: false,
+					authHint: null,
+				});
 				try {
 					const res = await studioFetch(
 						fetchImpl,
@@ -2781,14 +2920,33 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						const err = (await res.json().catch(() => ({}))) as {
 							detail?: string;
 							code?: string;
+							error_code?: string;
 							title?: string;
 						};
+						if (res.status === 409) {
+							const conflictHint = `Local token is already initialized. Paste the existing token from ${LOCAL_TOKEN_PATH_HINT} above or run \`uv run opendv serve --open\`.`;
+							get().addToast({
+								type: "urn:opendv:error:auth-init-conflict",
+								title: "Loopback Token Already Initialized",
+								status: 409,
+								detail: conflictHint,
+								code:
+									err.code || err.error_code || "STUDIO_ALREADY_INITIALIZED",
+							});
+							set({
+								isBootstrappingAuth: false,
+								authRequired: true,
+								authInitConflict: true,
+								authHint: conflictHint,
+							});
+							return false;
+						}
 						get().addToast({
 							type: "urn:opendv:error:auth-init-failed",
 							title: err.title || "Loopback Initialization Failed",
 							status: res.status,
 							detail: err.detail || `Server returned HTTP ${res.status}`,
-							code: err.code || "AUTH_BOOTSTRAP_FAILED",
+							code: err.code || err.error_code || "AUTH_BOOTSTRAP_FAILED",
 						});
 						set({ isBootstrappingAuth: false });
 						return false;
@@ -2813,6 +2971,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					set((state) => ({
 						authToken: issuedToken || state.authToken,
 						authRequired: false,
+						authInitConflict: false,
+						authHint: null,
 						isBootstrappingAuth: false,
 						...(hydratedRole ? { userRole: hydratedRole } : {}),
 					}));
@@ -3010,6 +3170,17 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					committedEdges: [],
 					clarifications: [],
 					proposals: [],
+					selectedProposalId: null,
+					...(sessionId !== prevSessionId
+						? {
+								proposalDrafts: {},
+								layout: {
+									...get().layout,
+									rightDrawerTab: "concept",
+									rightDrawerOpen: false,
+								},
+							}
+						: {}),
 					sources: [],
 					answers: {},
 					answers_sha256: undefined,
@@ -3513,9 +3684,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						job.result?.pct_complete ??
 						job.result?.progress_pct;
 					const initialChunksCount =
-						initialChunks.length > 0
-							? initialChunks.length
-							: (job.chunks_count ?? job.result?.chunks_count);
+						job.chunks_count ??
+						job.result?.chunks_count ??
+						(initialChunks.length > 0 ? initialChunks.length : undefined);
 					const isAlreadyDone =
 						String(job.status || "").toUpperCase() === "COMPLETED" ||
 						String(job.status || "").toUpperCase() === "SUCCEEDED";
@@ -3725,7 +3896,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						  };
 
 					let rawAnswersPayload: unknown = null;
-					if (answersRes && answersRes.ok) {
+					if (answersRes?.ok) {
 						rawAnswersPayload = await answersRes.json().catch(() => null);
 					}
 
@@ -4284,7 +4455,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						if (didAutoCommit) {
 							await handleAutoCommittedCompletion(sid, fetchImpl);
 						} else {
-							await get().loadProposals(fetchImpl, sid);
+							await get().loadProposals(fetchImpl, sid, {
+								selectNewestPending: true,
+							});
 						}
 					} else if (job.job_id) {
 						monitorStudioJob(sid, job.job_id, "construct", fetchImpl, {
@@ -4313,7 +4486,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				}
 			},
 
-			loadProposals: async (fetchImpl = fetch, targetSessionId?: string) => {
+			loadProposals: async (
+				fetchImpl = fetch,
+				targetSessionId?: string,
+				loadOptions?: { selectNewestPending?: boolean },
+			) => {
 				const activeSession = get().activeSession;
 				if (!activeSession) return;
 				const expectedId = targetSessionId ?? activeSession.session_id;
@@ -4344,7 +4521,30 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					)
 						return;
 					const list = Array.isArray(data) ? data : data.proposals || [];
-					set({ proposals: list, isLoadingProposals: false });
+					const sorted = sortProposalsForStewardship(list);
+					set((state) => {
+						let nextSelected = state.selectedProposalId;
+						if (loadOptions?.selectNewestPending) {
+							const newestPending = sorted.find(
+								(p) => !p.status || p.status === "PENDING",
+							);
+							nextSelected =
+								newestPending?.proposal_id ??
+								sorted[0]?.proposal_id ??
+								state.selectedProposalId;
+						} else if (
+							nextSelected &&
+							nextSelected !== NEW_PROPOSAL_DRAFT_KEY &&
+							!sorted.some((p) => p.proposal_id === nextSelected)
+						) {
+							nextSelected = null;
+						}
+						return {
+							proposals: sorted,
+							selectedProposalId: nextSelected,
+							isLoadingProposals: false,
+						};
+					});
 				} catch {
 					if (
 						reqId === activeProposalsRequestId &&
@@ -4358,9 +4558,10 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			acceptProposal: async (
 				proposalId,
 				rationale,
-				fetchImpl = fetch,
+				maybeFetchImpl,
 				acceptOptions,
 			) => {
+				const fetchImpl = maybeFetchImpl ?? fetch;
 				const activeSession = get().activeSession;
 				if (!activeSession) return false;
 				const role = get().userRole;
@@ -4409,6 +4610,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 								...(acceptOptions?.selfAcceptanceOverride
 									? { self_acceptance_override: true }
 									: {}),
+								...(acceptOptions?.lowConfidenceWaiver
+									? { low_confidence_waiver: true }
+									: {}),
 							}),
 						},
 					);
@@ -4427,6 +4631,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						});
 						return false;
 					}
+					set((state) => {
+						const nextDrafts = { ...state.proposalDrafts };
+						delete nextDrafts[proposalId];
+						return { proposalDrafts: nextDrafts };
+					});
 					await get().selectSession(sid, fetchImpl, true);
 					get().addToast({
 						type: "urn:opendv:notice:proposal-accepted",
@@ -4453,6 +4662,17 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			rejectProposal: async (proposalId, reason, fetchImpl = fetch) => {
 				const activeSession = get().activeSession;
 				if (!activeSession) return false;
+				const role = get().userRole;
+				if (role === "viewer" || role === "automated") {
+					get().addToast({
+						type: "urn:opendv:error:forbidden-role",
+						title: "Human Steward Role Required",
+						status: 403,
+						detail: `Role '${role}' cannot manually reject candidate proposals. Switch to an authenticated Editor or Admin steward session.`,
+						code: "FORBIDDEN_ROLE",
+					});
+					return false;
+				}
 				const sid = activeSession.session_id;
 				try {
 					const res = await studioFetch(
@@ -4481,6 +4701,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						});
 						return false;
 					}
+					set((state) => {
+						const nextDrafts = { ...state.proposalDrafts };
+						delete nextDrafts[proposalId];
+						return { proposalDrafts: nextDrafts };
+					});
 					await get().loadProposals(fetchImpl, sid);
 					return true;
 				} catch (err) {
@@ -4500,6 +4725,17 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			rebaseProposal: async (proposalId, fetchImpl = fetch) => {
 				const activeSession = get().activeSession;
 				if (!activeSession) return false;
+				const role = get().userRole;
+				if (role === "viewer" || role === "automated") {
+					get().addToast({
+						type: "urn:opendv:error:forbidden-role",
+						title: "Human Steward Role Required",
+						status: 403,
+						detail: `Role '${role}' cannot manually rebase candidate proposals. Switch to an authenticated Editor or Admin steward session.`,
+						code: "FORBIDDEN_ROLE",
+					});
+					return false;
+				}
 				const sid = activeSession.session_id;
 				const headers: Record<string, string> = {
 					"Content-Type": "application/json",
@@ -4532,6 +4768,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						});
 						return false;
 					}
+					set((state) => {
+						const nextDrafts = { ...state.proposalDrafts };
+						delete nextDrafts[proposalId];
+						return { proposalDrafts: nextDrafts };
+					});
 					await get().loadProposals(fetchImpl, sid);
 					get().addToast({
 						type: "urn:opendv:notice:proposal-rebased",
@@ -4552,6 +4793,167 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						});
 					}
 					return false;
+				}
+			},
+
+			selectProposal: (proposalId) => {
+				set((state) => {
+					if (proposalId !== null) {
+						return {
+							selectedProposalId: proposalId,
+							layout: {
+								...state.layout,
+								rightDrawerOpen: true,
+								rightDrawerTab: "proposal",
+							},
+						};
+					}
+					const hasConcept = state.selectedNodeId !== null;
+					return {
+						selectedProposalId: null,
+						layout: {
+							...state.layout,
+							rightDrawerOpen: hasConcept,
+							rightDrawerTab: "concept",
+						},
+					};
+				});
+			},
+
+			setProposalDraft: (proposalKey, draft) => {
+				set((state) => ({
+					proposalDrafts: {
+						...state.proposalDrafts,
+						[proposalKey]: {
+							rationale: draft.rationale,
+							operations: draft.operations.map((op) => ({ ...op })),
+						},
+					},
+				}));
+			},
+
+			clearProposalDraft: (proposalKey) => {
+				set((state) => {
+					const nextDrafts = { ...state.proposalDrafts };
+					delete nextDrafts[proposalKey];
+					return { proposalDrafts: nextDrafts };
+				});
+			},
+
+			saveEditedProposal: async (proposalId, updates, fetchImpl = fetch) => {
+				const activeSession = get().activeSession;
+				if (!activeSession) return null;
+				const role = get().userRole;
+				if (role === "viewer") {
+					get().addToast({
+						type: "urn:opendv:error:forbidden-role",
+						title: "Read-Only Role",
+						status: 403,
+						detail: "Viewer role cannot create or edit candidate proposals.",
+						code: "FORBIDDEN_ROLE",
+					});
+					return null;
+				}
+				const sid = activeSession.session_id;
+				const existing = get().proposals.find(
+					(p) => p.proposal_id === proposalId,
+				);
+				const rationale =
+					updates.rationale !== undefined
+						? updates.rationale
+						: existing?.rationale || `Steward revision based on ${proposalId}`;
+				const normalizedOperations = normalizeProposalOperationsForSubmission(
+					updates.operations,
+				);
+				const basePair = resolveProposalBaseVersionAndSha(
+					activeSession,
+					existing,
+				);
+				try {
+					const res = await studioFetch(
+						fetchImpl,
+						`/api/v1/ontology/studio/sessions/${encodeURIComponent(sid)}/proposals`,
+						{
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								base_version: basePair.base_version,
+								...(basePair.base_sha256
+									? { base_sha256: basePair.base_sha256 }
+									: {}),
+								rationale,
+								operations: normalizedOperations,
+							}),
+						},
+					);
+					if (get().activeSession?.session_id !== sid) return null;
+					if (!res.ok) {
+						const err = (await res.json().catch(() => ({}))) as {
+							detail?: string;
+							code?: string;
+						};
+						get().addToast({
+							type: "urn:opendv:error:proposal-save-failed",
+							title: "Proposal Save Failed",
+							status: res.status,
+							detail: err.detail || `Server returned HTTP ${res.status}`,
+							code: err.code || "PROPOSAL_SAVE_FAILED",
+						});
+						return null;
+					}
+					const saved = (await res.json()) as CandidateProposalSummary;
+					const normalizedSaved: CandidateProposalSummary = {
+						...saved,
+						operations: Array.isArray(saved.operations)
+							? saved.operations
+							: normalizedOperations,
+						operations_count: Array.isArray(saved.operations)
+							? saved.operations.length
+							: normalizedOperations.length,
+						ops_count: Array.isArray(saved.operations)
+							? saved.operations.length
+							: normalizedOperations.length,
+					};
+					set((state) => {
+						const nextDrafts = { ...state.proposalDrafts };
+						delete nextDrafts[proposalId];
+						delete nextDrafts[normalizedSaved.proposal_id];
+						delete nextDrafts[NEW_PROPOSAL_DRAFT_KEY];
+						return {
+							proposals: sortProposalsForStewardship([
+								normalizedSaved,
+								...state.proposals.filter(
+									(p) => p.proposal_id !== normalizedSaved.proposal_id,
+								),
+							]),
+							selectedProposalId: normalizedSaved.proposal_id,
+							proposalDrafts: nextDrafts,
+							layout: {
+								...state.layout,
+								rightDrawerOpen: true,
+								rightDrawerTab: "proposal",
+							},
+						};
+					});
+					get().addToast({
+						type: "urn:opendv:notice:proposal-saved",
+						title: "Proposal Saved",
+						status: 201,
+						detail: `Saved pending candidate proposal ${normalizedSaved.proposal_id} (${normalizedSaved.operations_count} ops).`,
+						code: "OK",
+					});
+					return normalizedSaved;
+				} catch (err) {
+					if (get().activeSession?.session_id === sid) {
+						get().addToast({
+							type: "urn:opendv:error:network",
+							title: "Network Error",
+							status: 503,
+							detail: String(err),
+							code: "NETWORK_ERROR",
+						});
+					}
+					return null;
 				}
 			},
 
@@ -4791,14 +5193,30 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			},
 
 			selectNode: (nodeId) => {
-				set((state) => ({
-					selectedNodeId: nodeId,
-					selectedEdgeId: null,
-					layout: {
-						...state.layout,
-						rightDrawerOpen: nodeId !== null,
-					},
-				}));
+				set((state) => {
+					if (nodeId !== null) {
+						return {
+							selectedNodeId: nodeId,
+							selectedEdgeId: null,
+							layout: {
+								...state.layout,
+								rightDrawerOpen: true,
+								rightDrawerTab: "concept",
+							},
+						};
+					}
+					const hasProposal =
+						state.selectedProposalId !== null &&
+						state.layout.rightDrawerTab === "proposal";
+					return {
+						selectedNodeId: null,
+						selectedEdgeId: null,
+						layout: {
+							...state.layout,
+							rightDrawerOpen: hasProposal,
+						},
+					};
+				});
 			},
 
 			selectEdge: (edgeId) => {
@@ -5222,7 +5640,13 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						return { nodes: [], edges: [] };
 					}
 					const state = get();
+					if (ver === "draft") {
+						return { nodes: state.nodes, edges: state.edges };
+					}
 					const headVersion = state.activeSession?.active_version;
+					if (!state.isHistoricalView && headVersion && ver === headVersion) {
+						return resolveCleanHeadSnapshot(state);
+					}
 					if (state.isHistoricalView) {
 						if (
 							state.viewedVersion &&
@@ -5272,7 +5696,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							is_breaking: false,
 						});
 					} else {
-						const baseNode = baseNodeMap.get(uri)!;
+						const baseNode = baseNodeMap.get(uri);
+						if (!baseNode) continue;
 						const baseAttrMap = new Map(
 							(baseNode.attributes || []).map((a) => [a.attribute_name, a]),
 						);
@@ -5289,6 +5714,22 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						const modifiedTypeAttrs = (node.attributes || []).filter((a) => {
 							const b = baseAttrMap.get(a.attribute_name);
 							return b && b.data_type !== a.data_type;
+						});
+						const tightenedOptionalityAttrs = (node.attributes || []).filter(
+							(a) => {
+								const b = baseAttrMap.get(a.attribute_name);
+								return b && Boolean(b.is_optional) && !a.is_optional;
+							},
+						);
+						const widenedOptionalityAttrs = (node.attributes || []).filter(
+							(a) => {
+								const b = baseAttrMap.get(a.attribute_name);
+								return b && !b.is_optional && Boolean(a.is_optional);
+							},
+						);
+						const modifiedDescAttrs = (node.attributes || []).filter((a) => {
+							const b = baseAttrMap.get(a.attribute_name);
+							return b && (b.description || "") !== (a.description || "");
 						});
 
 						if (removedAttrs.length > 0) {
@@ -5313,20 +5754,44 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							});
 						}
 
-						const baseMappingUris = new Set(
-							(baseNode.external_mappings || []).map((m) => m.target_uri),
+						if (tightenedOptionalityAttrs.length > 0) {
+							records.push({
+								item_type: "attribute",
+								change_type: "modified",
+								identifier: `${uri}#attribute-optionality`,
+								label: `${node.concept_name} attribute optionality`,
+								details: `Attribute made mandatory: ${tightenedOptionalityAttrs.map((a) => `${a.attribute_name} (optional -> mandatory)`).join(", ")} (breaking change under ONT-EVO-001)`,
+								is_breaking: true,
+							});
+						}
+
+						const baseMappingMap = new Map(
+							(baseNode.external_mappings || []).map((m) => [m.target_uri, m]),
 						);
-						const targetMappingUris = new Set(
-							(node.external_mappings || []).map((m) => m.target_uri),
+						const targetMappingMap = new Map(
+							(node.external_mappings || []).map((m) => [m.target_uri, m]),
 						);
-						const mappingAdded = [...targetMappingUris].filter(
-							(u) => !baseMappingUris.has(u),
+						const mappingAdded = [...targetMappingMap.keys()].filter(
+							(u) => !baseMappingMap.has(u),
 						);
-						const mappingRemoved = [...baseMappingUris].filter(
-							(u) => !targetMappingUris.has(u),
+						const mappingRemoved = [...baseMappingMap.keys()].filter(
+							(u) => !targetMappingMap.has(u),
+						);
+						const mappingModified = [...targetMappingMap.entries()].filter(
+							([u, m]) => {
+								const b = baseMappingMap.get(u);
+								if (!b) return false;
+								return (
+									(b.scheme || "") !== (m.scheme || "") ||
+									(b.predicate || "") !== (m.predicate || "") ||
+									(b.confidence ?? null) !== (m.confidence ?? null)
+								);
+							},
 						);
 						const mappingsChanged =
-							mappingAdded.length > 0 || mappingRemoved.length > 0;
+							mappingAdded.length > 0 ||
+							mappingRemoved.length > 0 ||
+							mappingModified.length > 0;
 
 						const nameChanged = node.concept_name !== baseNode.concept_name;
 						const archetypeChanged =
@@ -5343,12 +5808,16 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							(baseNode.parent_concept_uri ?? null);
 						const targetHubChanged =
 							(node.target_hub ?? null) !== (baseNode.target_hub ?? null);
+						const attrMetaChanged =
+							widenedOptionalityAttrs.length > 0 ||
+							modifiedDescAttrs.length > 0;
 
 						if (
 							nameChanged ||
 							archetypeChanged ||
 							synsChanged ||
 							addedAttrs.length > 0 ||
+							attrMetaChanged ||
 							mappingsChanged ||
 							defChanged ||
 							descChanged ||
@@ -5369,9 +5838,17 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							if (descChanged) detailsParts.push("description updated");
 							if (addedAttrs.length > 0)
 								detailsParts.push(`+${addedAttrs.length} attrs`);
+							if (widenedOptionalityAttrs.length > 0)
+								detailsParts.push(
+									`attrs made optional: ${widenedOptionalityAttrs.map((a) => a.attribute_name).join(", ")}`,
+								);
+							if (modifiedDescAttrs.length > 0)
+								detailsParts.push(
+									`attr descriptions updated: ${modifiedDescAttrs.map((a) => a.attribute_name).join(", ")}`,
+								);
 							if (mappingsChanged)
 								detailsParts.push(
-									`mappings changed (+${mappingAdded.length}, -${mappingRemoved.length})`,
+									`mappings changed (+${mappingAdded.length}, -${mappingRemoved.length}${mappingModified.length > 0 ? `, ~${mappingModified.length}` : ""})`,
 								);
 							if (parentChanged) detailsParts.push("parent updated");
 							if (targetHubChanged) detailsParts.push("target hub updated");
@@ -5557,7 +6034,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 
 				const fetchSnapshot = async (
 					ver: string,
-					role: "base" | "target",
+					_role: "base" | "target",
 				): Promise<{
 					nodes: ConceptNode[];
 					edges: RelationshipEdge[];
@@ -5565,14 +6042,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					if (ver === "0.0.0") {
 						return { nodes: [], edges: [] };
 					}
+					if (ver === "draft") {
+						return { nodes: get().nodes, edges: get().edges };
+					}
 					if (!get().isHistoricalView && ver === activeSession.active_version) {
-						if (role === "target") {
-							return { nodes: get().nodes, edges: get().edges };
-						}
-						return {
-							nodes: get().committedNodes,
-							edges: get().committedEdges,
-						};
+						return resolveCleanHeadSnapshot(get());
 					}
 					const isHeadInHistoricalMode =
 						get().isHistoricalView && ver === activeSession.active_version;
@@ -5677,7 +6151,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				}));
 			},
 
-			commitChanges: async (rationale, fetchImpl = fetch, commitOptions) => {
+			commitChanges: async (rationale, maybeFetchImpl, commitOptions) => {
+				const fetchImpl = maybeFetchImpl ?? fetch;
 				if (get().isCommitting) return false;
 				const activeSession = get().activeSession;
 				if (!activeSession) return false;
@@ -6138,7 +6613,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						return (
 							typeof rawConf === "number" &&
 							Number.isFinite(rawConf) &&
-							rawConf >= 0.65
+							rawConf >= GROUNDING_MIN_CONFIDENCE
 						);
 					});
 				};
@@ -6206,8 +6681,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							type: "urn:opendv:error:grounding-invariant-failed",
 							title: "Regulatory Grounding Invariant Failed",
 							status: 400,
-							detail:
-								"Cannot commit changes while ONT-EVO-002 is failing. Ground all concepts with FIBO skos:exactMatch/closeMatch >= 0.65 or obtain an authorized steward administrative waiver.",
+							detail: `Cannot commit changes while ONT-EVO-002 is failing. Ground all concepts with FIBO skos:exactMatch/closeMatch >= ${GROUNDING_MIN_CONFIDENCE} or obtain an authorized steward administrative waiver.`,
 							code: "ONT_EVO_002_FAILED",
 						});
 						return false;
@@ -6554,9 +7028,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					return false;
 				}
 
-				const major = Number.parseInt(semverMatch[1]!, 10);
-				const minor = Number.parseInt(semverMatch[2]!, 10);
-				const patch = Number.parseInt(semverMatch[3]!, 10);
+				const major = Number.parseInt(semverMatch[1] ?? "0", 10);
+				const minor = Number.parseInt(semverMatch[2] ?? "0", 10);
+				const patch = Number.parseInt(semverMatch[3] ?? "0", 10);
 
 				let targetVersion: string;
 				if (major === 0) {
@@ -6890,13 +7364,12 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					return false;
 				}
 
-				if (!rationale || rationale.trim().length < 10) {
+				if (!rationale || rationale.trim().length < MIN_RATIONALE_LENGTH) {
 					get().addToast({
 						type: "urn:opendv:error:waiver-rationale-short",
 						title: "Waiver Rationale Too Short",
 						status: 400,
-						detail:
-							"Steward administrative waiver rationale must be at least 10 characters.",
+						detail: `Steward administrative waiver rationale must be at least ${MIN_RATIONALE_LENGTH} characters.`,
 						code: "INVALID_GROUNDING_WAIVER",
 					});
 					return false;
@@ -7314,12 +7787,15 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				const activeSession = get().activeSession;
 				if (!activeSession) return false;
 
-				if (!req.rationale || req.rationale.trim().length < 10) {
+				if (
+					!req.rationale ||
+					req.rationale.trim().length < MIN_RATIONALE_LENGTH
+				) {
 					get().addToast({
 						type: "urn:opendv:error:promotion-rationale-short",
 						title: "Promotion Rationale Too Short",
 						status: 400,
-						detail: "Promotion rationale must be at least 10 characters.",
+						detail: `Promotion rationale must be at least ${MIN_RATIONALE_LENGTH} characters.`,
 						code: "PROMOTION_RATIONALE_REQUIRED",
 					});
 					return false;
@@ -7510,6 +7986,21 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					layout: { ...state.layout, leftDrawerTab: tab, leftDrawerOpen: true },
 				})),
 
+			setRightDrawerTab: (tab) =>
+				set((state) => ({
+					selectedProposalId:
+						tab === "proposal" &&
+						!state.selectedProposalId &&
+						state.proposals.length > 0
+							? (state.proposals[0]?.proposal_id ?? null)
+							: state.selectedProposalId,
+					layout: {
+						...state.layout,
+						rightDrawerTab: tab,
+						rightDrawerOpen: true,
+					},
+				})),
+
 			toggleLeftDrawer: (open) =>
 				set((state) => ({
 					layout: {
@@ -7606,6 +8097,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					userRole: options.userRole ?? "editor",
 					authToken: null,
 					authRequired: false,
+					authInitConflict: false,
+					authHint: null,
 					isBootstrappingAuth: false,
 					activeSession: options.initialSession ?? null,
 					sessions: options.initialSession ? [options.initialSession] : [],
@@ -7620,6 +8113,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					isClarifying: false,
 					isConstructing: false,
 					proposals: [],
+					selectedProposalId: null,
+					proposalDrafts: {},
 					isLoadingProposals: false,
 					nodes: [],
 					edges: [],

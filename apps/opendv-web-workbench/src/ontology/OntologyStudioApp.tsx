@@ -10,115 +10,34 @@
  */
 
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ClarificationPanel } from "./components/ClarificationPanel";
 import { DiffOverlay } from "./components/DiffOverlay";
 import { ExportPromoteModal } from "./components/ExportPromoteModal";
 import { GraphCanvas } from "./components/GraphCanvas";
+import { ProposalDetailsView } from "./components/ProposalDetailsView";
 import { QualityFeedbackPanel } from "./components/QualityFeedbackPanel";
 import { SourcesPanel } from "./components/SourcesPanel";
 import { VisualEditorDrawer } from "./components/VisualEditorDrawer";
+import {
+	CONCEPT_ARCHETYPES,
+	GENESIS_SEMVER_VERSION,
+	NEW_PROPOSAL_DRAFT_KEY,
+} from "./constants";
 import {
 	extractAndScrubLaunchNonce,
 	studioStore,
 	useStudioStore,
 } from "./store/studio-store";
+import {
+	buildUniqueConceptIdentifiers,
+	buildUniqueRelationshipIdentifiers,
+} from "./utils/identifiers";
+
+export { buildUniqueConceptIdentifiers, buildUniqueRelationshipIdentifiers };
 
 export interface OntologyStudioAppProps {
 	className?: string;
-}
-
-function slugifyIdentifier(raw: string, fallback: string): string {
-	const cleaned = raw
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "_")
-		.replace(/^_+|_+$/g, "");
-	return cleaned || fallback;
-}
-
-function extractConceptTerminalSlug(
-	conceptUri: string,
-	fallback: string,
-): string {
-	const tail = conceptUri.split(/[:/#]/).filter(Boolean).pop() || "";
-	return slugifyIdentifier(tail, fallback);
-}
-
-export function buildUniqueConceptIdentifiers(
-	rawName: string,
-	nodes: ReadonlyArray<{
-		concept_uri: string;
-		target_hub?: string | null | undefined;
-	}>,
-	committedNodes: ReadonlyArray<{
-		concept_uri: string;
-		target_hub?: string | null | undefined;
-	}>,
-): { slug: string; conceptUri: string; targetHub: string } {
-	const baseSlug = slugifyIdentifier(rawName, "concept");
-	const existingUris = new Set<string>();
-	const existingHubs = new Set<string>();
-	for (const n of [...nodes, ...committedNodes]) {
-		if (n.concept_uri) existingUris.add(n.concept_uri.toLowerCase());
-		if (n.target_hub) existingHubs.add(n.target_hub.toLowerCase());
-	}
-
-	let candidate = baseSlug;
-	let suffix = 2;
-	while (
-		existingUris.has(`urn:ontology:entity:${candidate}`.toLowerCase()) ||
-		existingHubs.has(`hub_${candidate}`.toLowerCase())
-	) {
-		candidate = `${baseSlug}_${suffix}`;
-		suffix += 1;
-	}
-	return {
-		slug: candidate,
-		conceptUri: `urn:ontology:entity:${candidate}`,
-		targetHub: `hub_${candidate}`,
-	};
-}
-
-export function buildUniqueRelationshipIdentifiers(
-	rawVerb: string,
-	sourceConceptUri: string,
-	targetConceptUri: string,
-	edges: ReadonlyArray<{
-		relationship_uri: string;
-		target_link?: string | null | undefined;
-	}>,
-	committedEdges: ReadonlyArray<{
-		relationship_uri: string;
-		target_link?: string | null | undefined;
-	}>,
-): { slug: string; relationshipUri: string; targetLink: string } {
-	const srcSlug = extractConceptTerminalSlug(sourceConceptUri, "src");
-	const verbSlug = slugifyIdentifier(rawVerb, "relates_to");
-	const tgtSlug = extractConceptTerminalSlug(targetConceptUri, "tgt");
-	const baseSlug = `${srcSlug}_${verbSlug}_${tgtSlug}`;
-
-	const existingUris = new Set<string>();
-	const existingLinks = new Set<string>();
-	for (const e of [...edges, ...committedEdges]) {
-		if (e.relationship_uri) existingUris.add(e.relationship_uri.toLowerCase());
-		if (e.target_link) existingLinks.add(e.target_link.toLowerCase());
-	}
-
-	let candidate = baseSlug;
-	let suffix = 2;
-	while (
-		existingUris.has(`urn:ontology:relationship:${candidate}`.toLowerCase()) ||
-		existingLinks.has(`lnk_${candidate}`.toLowerCase())
-	) {
-		candidate = `${baseSlug}_${suffix}`;
-		suffix += 1;
-	}
-	return {
-		slug: candidate,
-		relationshipUri: `urn:ontology:relationship:${candidate}`,
-		targetLink: `lnk_${candidate}`,
-	};
 }
 
 export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
@@ -129,6 +48,8 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 	const activeMode = useStudioStore((s) => s.activeMode);
 	const userRole = useStudioStore((s) => s.userRole);
 	const authRequired = useStudioStore((s) => s.authRequired);
+	const authInitConflict = useStudioStore((s) => s.authInitConflict);
+	const authHint = useStudioStore((s) => s.authHint);
 	const isBootstrappingAuth = useStudioStore((s) => s.isBootstrappingAuth);
 	const layout = useStudioStore((s) => s.layout);
 	const toasts = useStudioStore((s) => s.toasts);
@@ -155,6 +76,10 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 	const commitChanges = useStudioStore((s) => s.commitChanges);
 	const discardChanges = useStudioStore((s) => s.discardChanges);
 	const setLeftDrawerTab = useStudioStore((s) => s.setLeftDrawerTab);
+	const setRightDrawerTab = useStudioStore((s) => s.setRightDrawerTab);
+	const proposals = useStudioStore((s) => s.proposals);
+	const selectedProposalId = useStudioStore((s) => s.selectedProposalId);
+	const selectProposal = useStudioStore((s) => s.selectProposal);
 	const toggleLeftDrawer = useStudioStore((s) => s.toggleLeftDrawer);
 	const toggleBottomDock = useStudioStore((s) => s.toggleBottomDock);
 	const setActiveModal = useStudioStore((s) => s.setActiveModal);
@@ -165,6 +90,32 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 
 	// Auth bootstrap token state
 	const [tokenInput, setTokenInput] = useState("");
+	const [proposalOpFilter, setProposalOpFilter] = useState("");
+	const tokenInputRef = useRef<HTMLInputElement | null>(null);
+
+	const isProposalPanelActive =
+		layout.rightDrawerTab === "proposal" && layout.rightDrawerOpen !== false;
+	const activeProposal =
+		selectedProposalId === NEW_PROPOSAL_DRAFT_KEY
+			? undefined
+			: (proposals.find((p) => p.proposal_id === selectedProposalId) ??
+				proposals[0]);
+
+	const prevSessionIdRef = useRef<string | undefined>(
+		activeSession?.session_id,
+	);
+	useEffect(() => {
+		if (prevSessionIdRef.current !== activeSession?.session_id) {
+			prevSessionIdRef.current = activeSession?.session_id;
+			setProposalOpFilter("");
+		}
+	}, [activeSession?.session_id]);
+
+	useEffect(() => {
+		if (authRequired && authInitConflict) {
+			tokenInputRef.current?.focus();
+		}
+	}, [authRequired, authInitConflict]);
 
 	// Quick-create & commit toolbar state
 	const [quickCreateMode, setQuickCreateMode] = useState<
@@ -340,18 +291,30 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 
 	const handleOpenDiff = () => {
 		if (!activeSession) return;
+		if (hasUnsavedChanges) {
+			const baseVersion =
+				activeSession.active_version || GENESIS_SEMVER_VERSION;
+			void loadAndComputeDiff(baseVersion, "draft");
+			setLeftDrawerTab("history");
+			if (!layout.leftDrawerOpen) {
+				toggleLeftDrawer();
+			}
+			return;
+		}
 		const commits = activeSession.commits || [];
 		const targetVersion = activeSession.active_version;
 		const activeCommitIdx = commits.findIndex(
 			(c) => c.version === targetVersion,
 		);
-		let baseVersion = "0.0.0";
+		let baseVersion = GENESIS_SEMVER_VERSION;
 		if (activeCommitIdx > 0) {
-			baseVersion = commits[activeCommitIdx - 1]?.version || "0.0.0";
+			baseVersion =
+				commits[activeCommitIdx - 1]?.version || GENESIS_SEMVER_VERSION;
 		} else if (activeCommitIdx === -1 && commits.length >= 2) {
-			baseVersion = commits[commits.length - 2]?.version || "0.0.0";
+			baseVersion =
+				commits[commits.length - 2]?.version || GENESIS_SEMVER_VERSION;
 		} else if (commits.length === 1 && commits[0]?.version !== targetVersion) {
-			baseVersion = commits[0]?.version || "0.0.0";
+			baseVersion = commits[0]?.version || GENESIS_SEMVER_VERSION;
 		}
 		void loadAndComputeDiff(baseVersion, targetVersion);
 		setLeftDrawerTab("history");
@@ -545,6 +508,16 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 					<button
 						type="button"
 						className="btn-toolbar"
+						onClick={() => setRightDrawerTab("proposal")}
+						disabled={!activeSession}
+						data-testid="header-proposals-btn"
+						title="Open Right-Panel Candidate Proposal Workspace"
+					>
+						Proposals{proposals.length > 0 ? ` (${proposals.length})` : ""}
+					</button>
+					<button
+						type="button"
+						className="btn-toolbar"
 						onClick={handleOpenDiff}
 						disabled={!activeSession}
 						data-testid="header-diff-btn"
@@ -589,9 +562,10 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 					>
 						<strong>Studio Authentication Required:</strong>
 						<input
+							ref={tokenInputRef}
 							type="password"
 							className="form-input auth-token-input"
-							placeholder="Enter Studio API Bearer Token (OPENDV_STUDIO_TOKEN)..."
+							placeholder="Enter Studio API Bearer Token (OPENDV_TOKEN or .local_token)..."
 							value={tokenInput}
 							onChange={(e) => setTokenInput(e.target.value)}
 							data-testid="auth-token-input"
@@ -616,6 +590,14 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 								: "Initialize Local Loopback Session"}
 						</button>
 					</form>
+					{authHint && (
+						<output
+							className="auth-conflict-hint"
+							data-testid="auth-conflict-hint"
+						>
+							{authHint}
+						</output>
+					)}
 				</div>
 			)}
 
@@ -642,13 +624,11 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 						onChange={(e) => setNewConceptArchetype(e.target.value)}
 						data-testid="quick-concept-archetype-select"
 					>
-						<option value="CORE_BUSINESS_CONCEPT">CORE_BUSINESS_CONCEPT</option>
-						<option value="EVENT">EVENT</option>
-						<option value="PARTY">PARTY</option>
-						<option value="AGREEMENT">AGREEMENT</option>
-						<option value="PRODUCT">PRODUCT</option>
-						<option value="ACCOUNT">ACCOUNT</option>
-						<option value="LOCATION">LOCATION</option>
+						{CONCEPT_ARCHETYPES.map((arch) => (
+							<option key={arch} value={arch}>
+								{arch}
+							</option>
+						))}
 					</select>
 					<input
 						type="text"
@@ -936,13 +916,57 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 					</button>
 				</aside>
 
-				{/* 3. Center Canvas (React Flow + elkjs) */}
+				{/* 3. Right Panel Workspace (Ontology Viewer / Proposal Details Tabs) */}
 				<main className="studio-canvas-zone" data-testid="studio-canvas-zone">
-					<GraphCanvas />
+					<div
+						className="right-panel-tabs"
+						role="tablist"
+						aria-label="Right Panel Workspace Views"
+						data-testid="right-panel-tabs"
+					>
+						<button
+							type="button"
+							role="tab"
+							aria-selected={!isProposalPanelActive}
+							className={`right-panel-tab-btn${!isProposalPanelActive ? " active" : ""}`}
+							onClick={() => setRightDrawerTab("concept")}
+							data-testid="right-panel-tab-ontology"
+						>
+							Ontology Viewer ({nodes.length})
+						</button>
+						<button
+							type="button"
+							role="tab"
+							aria-selected={isProposalPanelActive}
+							className={`right-panel-tab-btn${isProposalPanelActive ? " active" : ""}`}
+							onClick={() => setRightDrawerTab("proposal")}
+							data-testid="right-panel-tab-proposal"
+						>
+							Proposal Details
+							{proposals.length > 0 ? ` (${proposals.length})` : ""}
+						</button>
+					</div>
+					{isProposalPanelActive ? (
+						<div
+							className="right-panel-proposal-view"
+							data-testid="right-panel-proposal-view"
+						>
+							<ProposalDetailsView
+								proposal={activeProposal}
+								opFilter={proposalOpFilter}
+								onOpFilterChange={setProposalOpFilter}
+								onSelectProposal={(pid) => selectProposal(pid)}
+								onInspectConcept={(uri) => selectNode(uri)}
+								onClose={() => setRightDrawerTab("concept")}
+							/>
+						</div>
+					) : (
+						<GraphCanvas />
+					)}
 				</main>
 
-				{/* 4. Right Context Drawer (Visual Editor) */}
-				<VisualEditorDrawer />
+				{/* 4. Right Context Drawer (Concept Editor alongside Ontology Viewer) */}
+				<VisualEditorDrawer hideProposalTab />
 			</div>
 
 			{/* 5. Bottom Dock: Diagnostics & Event Log */}
