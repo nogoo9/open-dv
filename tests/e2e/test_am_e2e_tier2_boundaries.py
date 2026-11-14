@@ -1414,7 +1414,7 @@ class TestFeature20VerifiedPullRequestBoundaries:
                 assert len(files) == 0
 
     def test_t2_f20_03_conventional_commit_header_format(self) -> None:
-        """T2-F20.03: Validates conventional commit regex pattern against git log."""
+        """T2-F20.03: Validates conventional commit and no-mistakes regex against git log."""
         import subprocess
 
         res = subprocess.run(
@@ -1426,7 +1426,7 @@ class TestFeature20VerifiedPullRequestBoundaries:
         )
         if res.returncode == 0 and res.stdout.strip():
             pattern = re.compile(
-                r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert|Merge)"
+                r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert|Merge|no-mistakes)"
                 r"(\([^)]+\))?:? .+$"
             )
             for line in res.stdout.strip().splitlines():
