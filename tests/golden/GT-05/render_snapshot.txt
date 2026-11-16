@@ -5,7 +5,7 @@ Project:     Global Commerce Vault — Wave 0 Cold Start (CRM & ERP)
 Run ID:      <NORMALIZED_RUN_ID>
 Spec File:   pipeline_input.yaml
 Status:      Sealed · 6/6 gates PASS
-Waves:       4
+Waves:       
 RBAC Role:   DATA_STEWARD
 Gates:       6/6 passed
 ------------------------------------------------------------

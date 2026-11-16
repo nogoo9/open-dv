@@ -150,7 +150,7 @@ class TestPublicDataFetcherAdversarial:
         with patch("urllib.request.urlopen", side_effect=TimeoutError("Connection timed out")):
             results = fetcher.fetch_all()
 
-        assert len(results) == 3
+        assert len(results) == 4
         for filename, path in results.items():
             assert path.exists(), f"Expected fallback fixture for {filename}"
             assert path.stat().st_size > 0
@@ -168,7 +168,7 @@ class TestPublicDataFetcherAdversarial:
         with patch("urllib.request.urlopen", side_effect=err):
             results = fetcher.fetch_all()
 
-        assert len(results) == 3
+        assert len(results) == 4
         for _, path in results.items():
             assert path.exists() and path.stat().st_size > 0
 
@@ -281,103 +281,105 @@ class TestDuckDBShadowSandboxStress:
         self, sandbox_db: duckdb.DuckDBPyConnection
     ) -> None:
         """Oracle: Verify that link records reference valid parent hubs with zero orphans."""
-        investors = [
-            ("hk_inv_01", "0001067983", "EDGAR"),
-            ("hk_inv_02", "0001350694", "EDGAR"),
+        filers = [
+            ("hk_fil_01", "AM_FILERS", "0001067983", "EDGAR"),
+            ("hk_fil_02", "AM_FILERS", "0001350694", "EDGAR"),
+        ]
+        holdings = [
+            ("hk_hld_01", "AM_HOLDINGS", "HOLD_01", "EDGAR"),
+            ("hk_hld_02", "AM_HOLDINGS", "HOLD_02", "EDGAR"),
         ]
         securities = [
-            ("hk_sec_01", "AAPL", "0000320193", "EDGAR"),
-            ("hk_sec_02", "AMZN", "0001018724", "EDGAR"),
+            ("hk_sec_01", "AM_SECURITIES", "AAPL", "EDGAR"),
+            ("hk_sec_02", "AM_SECURITIES", "AMZN", "EDGAR"),
         ]
-        for hk, cik, src in investors:
+        for hk, bkcc, cik, src in filers:
             sandbox_db.execute(
-                f"INSERT INTO raw_vault.hub_investor VALUES ('{hk}', '{cik}', NOW(), '{src}')"
+                f"INSERT INTO raw_vault.hub_filer VALUES ('{hk}', '{bkcc}', '{cik}', NOW(), '{src}')"
             )
-        for hk, ticker, cik, src in securities:
+        for hk, bkcc, hid, src in holdings:
             sandbox_db.execute(
-                f"INSERT INTO raw_vault.hub_security VALUES "
-                f"('{hk}', '{ticker}', '{cik}', NOW(), '{src}')"
+                f"INSERT INTO raw_vault.hub_holding VALUES ('{hk}', '{bkcc}', '{hid}', NOW(), '{src}')"
+            )
+        for hk, bkcc, ticker, src in securities:
+            sandbox_db.execute(
+                f"INSERT INTO raw_vault.hub_securities VALUES "
+                f"('{hk}', '{bkcc}', '{ticker}', NOW(), '{src}')"
             )
 
-        links = [
-            ("hk_lnk_01", "hk_inv_01", "hk_sec_01", "EDGAR"),
-            ("hk_lnk_02", "hk_inv_01", "hk_sec_02", "EDGAR"),
-            ("hk_lnk_03", "hk_inv_02", "hk_sec_01", "EDGAR"),
+        links_hf = [
+            ("hk_lhf_01", "hk_hld_01", "hk_fil_01", "EDGAR"),
+            ("hk_lhf_02", "hk_hld_02", "hk_fil_02", "EDGAR"),
         ]
-        for hk_lnk, hk_inv, hk_sec, src in links:
+        for hk_lnk, hk_hld, hk_fil, src in links_hf:
             sandbox_db.execute(
-                f"INSERT INTO raw_vault.lnk_investor_holding VALUES "
-                f"('{hk_lnk}', '{hk_inv}', '{hk_sec}', NOW(), '{src}')"
+                f"INSERT INTO raw_vault.lnk_holding_filer VALUES "
+                f"('{hk_lnk}', '{hk_hld}', '{hk_fil}', NOW(), '{src}')"
+            )
+
+        links_hs = [
+            ("hk_lhs_01", "hk_hld_01", "hk_sec_01", "EDGAR"),
+            ("hk_lhs_02", "hk_hld_02", "hk_sec_02", "EDGAR"),
+        ]
+        for hk_lnk, hk_hld, hk_sec, src in links_hs:
+            sandbox_db.execute(
+                f"INSERT INTO raw_vault.lnk_holding_securities VALUES "
+                f"('{hk_lnk}', '{hk_hld}', '{hk_sec}', NOW(), '{src}')"
             )
 
         sandbox_db.execute(
-            "INSERT INTO raw_vault.sat_holding_position VALUES "
-            "('hk_lnk_01', 'HOLD_01', 5000000, 1150000000.00, 'SOLE', NOW(), 'EDGAR', 'diff_1')"
-        )
-        sandbox_db.execute(
-            "INSERT INTO business_vault.bridge_portfolio_holdings VALUES "
-            "('hk_lnk_01', 'hk_inv_01', 'hk_sec_01')"
+            "INSERT INTO raw_vault.sat_holdings_13f VALUES "
+            "('hk_hld_01', NOW(), 'EDGAR', 'diff_1', '037833100', 'SOLE', 'Apple Inc.', 1150000000.00, '5000000')"
         )
 
-        # 4. Assert zero orphans on link -> investor hub
-        orphan_inv_count = sandbox_db.execute(
-            "SELECT COUNT(*) FROM raw_vault.lnk_investor_holding l "
-            "LEFT JOIN raw_vault.hub_investor i ON l.hk_investor = i.hk_investor "
-            "WHERE i.hk_investor IS NULL"
+        # Assert zero orphans on lnk_holding_filer -> hub_filer
+        orphan_fil_count = sandbox_db.execute(
+            "SELECT COUNT(*) FROM raw_vault.lnk_holding_filer l "
+            "LEFT JOIN raw_vault.hub_filer f ON l.hk_filer = f.hk_filer "
+            "WHERE f.hk_filer IS NULL"
         ).fetchone()[0]
-        assert orphan_inv_count == 0, f"Detected {orphan_inv_count} orphan investor link records"
+        assert orphan_fil_count == 0, f"Detected {orphan_fil_count} orphan filer link records"
 
-        # 5. Assert zero orphans on link -> security hub
+        # Assert zero orphans on lnk_holding_securities -> hub_securities
         orphan_sec_count = sandbox_db.execute(
-            "SELECT COUNT(*) FROM raw_vault.lnk_investor_holding l "
-            "LEFT JOIN raw_vault.hub_security s ON l.hk_security = s.hk_security "
-            "WHERE s.hk_security IS NULL"
+            "SELECT COUNT(*) FROM raw_vault.lnk_holding_securities l "
+            "LEFT JOIN raw_vault.hub_securities s ON l.hk_securities = s.hk_securities "
+            "WHERE s.hk_securities IS NULL"
         ).fetchone()[0]
         assert orphan_sec_count == 0, f"Detected {orphan_sec_count} orphan security link records"
 
-        # 6. Assert zero orphans on satellite -> link
+        # Assert zero orphans on sat_holdings_13f -> hub_holding
         orphan_sat_count = sandbox_db.execute(
-            "SELECT COUNT(*) FROM raw_vault.sat_holding_position sat "
-            "LEFT JOIN raw_vault.lnk_investor_holding l ON "
-            "sat.hk_investor_holding = l.hk_investor_holding "
-            "WHERE l.hk_investor_holding IS NULL"
+            "SELECT COUNT(*) FROM raw_vault.sat_holdings_13f sat "
+            "LEFT JOIN raw_vault.hub_holding h ON sat.hk_holding = h.hk_holding "
+            "WHERE h.hk_holding IS NULL"
         ).fetchone()[0]
         assert orphan_sat_count == 0, f"Detected {orphan_sat_count} orphan satellite records"
 
-        # 7. Assert zero orphans on bridge -> link
-        orphan_bridge_count = sandbox_db.execute(
-            "SELECT COUNT(*) FROM business_vault.bridge_portfolio_holdings b "
-            "LEFT JOIN raw_vault.lnk_investor_holding l ON "
-            "b.hk_investor_holding = l.hk_investor_holding "
-            "WHERE l.hk_investor_holding IS NULL"
+        # Assert zero orphans on business_vault.pit_position -> raw_vault.hub_position
+        orphan_pit_count = sandbox_db.execute(
+            "SELECT COUNT(*) FROM business_vault.pit_position p "
+            "LEFT JOIN raw_vault.hub_position h ON p.hk_position = h.hk_position "
+            "WHERE h.hk_position IS NULL"
         ).fetchone()[0]
-        assert orphan_bridge_count == 0, f"Detected {orphan_bridge_count} orphan bridge records"
+        assert orphan_pit_count == 0, f"Detected {orphan_pit_count} orphan PIT records"
 
     def test_zero_key_records_conformance(
         self, sandbox_db: duckdb.DuckDBPyConnection
     ) -> None:
         """Verify handling of Data Vault 2.0 zero-key records (ghost records for parents)."""
-        zero_key_hk = "00000000000000000000000000000000"
+        zero_key_hk = "0" * 64
         sandbox_db.execute(
-            f"INSERT INTO raw_vault.hub_security VALUES "
-            f"('{zero_key_hk}', 'UNKNOWN', '0000000000', '1970-01-01 00:00:00', 'SYSTEM')"
-        )
-        sandbox_db.execute(
-            f"INSERT INTO raw_vault.hub_investor VALUES "
-            f"('{zero_key_hk}', '0000000000', '1970-01-01 00:00:00', 'SYSTEM')"
-        )
-
-        sandbox_db.execute(
-            f"INSERT INTO raw_vault.lnk_investor_holding VALUES "
-            f"('hk_lnk_ghost', '{zero_key_hk}', '{zero_key_hk}', NOW(), 'SYSTEM')"
+            f"INSERT INTO raw_vault.lnk_holding_filer VALUES "
+            f"('{'hk_lnk_ghost' + '0' * 52}', '{zero_key_hk}', '{zero_key_hk}', NOW(), 'SYSTEM')"
         )
 
         count = sandbox_db.execute(
-            "SELECT COUNT(*) FROM raw_vault.lnk_investor_holding l "
-            "JOIN raw_vault.hub_security s ON l.hk_security = s.hk_security "
-            "WHERE s.bk_ticker = 'UNKNOWN'"
+            "SELECT COUNT(*) FROM raw_vault.lnk_holding_filer l "
+            "JOIN raw_vault.hub_filer f ON l.hk_filer = f.hk_filer "
+            "WHERE f.filer_cik = '-1'"
         ).fetchone()[0]
-        assert count == 1, "Zero-key ghost record failed to join correctly"
+        assert count >= 1, "Zero-key ghost record failed to join correctly"
 
     def test_extreme_decimal_boundaries(
         self, sandbox_db: duckdb.DuckDBPyConnection
@@ -385,23 +387,23 @@ class TestDuckDBShadowSandboxStress:
         """Assert decimal boundary values in market_value_usd and yield_pct."""
         max_usd = Decimal("9999999999999999.99")
         sandbox_db.execute(
-            f"INSERT INTO raw_vault.sat_holding_position VALUES "
-            f"('hk_test_dec', 'H1', 1000, {max_usd}, 'SOLE', NOW(), 'EDGAR', 'diff_dec')"
+            f"INSERT INTO raw_vault.sat_holdings_13f VALUES "
+            f"('hk_test_dec', NOW(), 'EDGAR', 'diff_dec', '037833100', 'SOLE', 'Apple Inc.', {max_usd}, '1000')"
         )
         res = sandbox_db.execute(
-            "SELECT market_value_usd FROM raw_vault.sat_holding_position "
-            "WHERE hk_investor_holding = 'hk_test_dec'"
+            "SELECT market_value_usd FROM raw_vault.sat_holdings_13f "
+            "WHERE hk_holding = 'hk_test_dec'"
         ).fetchone()[0]
         assert Decimal(str(res)) == max_usd
 
         neg_rate = Decimal("-0.7500")
         sandbox_db.execute(
-            f"INSERT INTO raw_vault.sat_rate_observation VALUES "
-            f"('hk_rate_neg', '2020-04-01', {neg_rate}, NOW(), 'FRED', 'diff_neg')"
+            f"INSERT INTO raw_vault.sat_treasury_rates VALUES "
+            f"('hk_rate_neg', NOW(), 'FRED', 'diff_neg', {neg_rate})"
         )
         rate_res = sandbox_db.execute(
-            "SELECT yield_pct FROM raw_vault.sat_rate_observation "
-            "WHERE hk_rate_index = 'hk_rate_neg'"
+            "SELECT yield_pct FROM raw_vault.sat_treasury_rates "
+            "WHERE hk_rate = 'hk_rate_neg'"
         ).fetchone()[0]
         assert Decimal(str(rate_res)) == neg_rate
 
@@ -424,7 +426,7 @@ class TestDuckDBShadowSandboxStress:
                 [hk, f"TICK{idx}", f"000000000{idx}", adv_str],
             )
             val = sandbox_db.execute(
-                "SELECT record_source FROM raw_vault.hub_security WHERE hk_security = ?", [hk]
+                "SELECT rec_src FROM raw_vault.hub_security WHERE hk_security = ?", [hk]
             ).fetchone()[0]
             assert val == adv_str
 

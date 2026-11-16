@@ -194,6 +194,8 @@ def test_dynamic_git_diff_token_budget() -> None:
         "packages/opendv-sources/src/opendv_sources/ingestion/layout_evaluator.py",
         "packages/opendv-service/src/opendv_service/cli_spec/studio_commands.py",
         "packages/opendv-service/src/opendv_service/service.py",
+        "packages/opendv-service/src/opendv_service/studio/session_manager.py",
+        "packages/opendv-service/src/opendv_service/studio/workspace_security.py",
         "packages/opendv-axi-verifier/src/opendv_axi_verifier/codemods/alg_a4_cold_start.py",
         "packages/opendv-duckdb-sandbox/src/opendv_duckdb_sandbox/adversarial_batches.py",
         "packages/opendv-duckdb-sandbox/src/opendv_duckdb_sandbox/ir_lowerer.py",

@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.0",
-  "generated_at": "2026-11-16T05:43:22.027323+00:00",
+  "generated_at": "2026-11-16T18:12:37.460027+00:00",
   "generator_transport": "STANDALONE_CLI",
   "entries": [
     {
@@ -14,10 +14,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/explorer_bundle.json",
-      "sha256": "8551326c157cf53512ce79aee881983cf20b8ee9983f7a869feb57f788a9c5fa",
-      "byte_size": 64668,
+      "sha256": "e4fe12ee708bb083f1a91add43681d9de0028ee9075ade2ee93646d753a974c4",
+      "byte_size": 62462,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
     },
     {
       "golden_id": "GT-01",
@@ -46,10 +46,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/pipeline_report.json",
-      "sha256": "9da5c18b504da51f2234586f71a3d944e6441c65fc1434879c74b586ff7d1a70",
-      "byte_size": 227674,
+      "sha256": "bbdd211c58e9c00c839ddbca4d8177a17c9be389408d8006be76bd8e6a353e9e",
+      "byte_size": 226075,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#234] Update golden for Round 3 single-run pipeline report parity"
+      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
     },
     {
       "golden_id": "GT-01",
@@ -62,10 +62,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/explorer_bundle.json",
-      "sha256": "2c59885801fb8fd175841e6696e6c0b67530be832cacf7ea7f92349c3403f409",
-      "byte_size": 64668,
+      "sha256": "16e3cd3867dda169fd2400fb5f4bebb96dd96a42d4dea4c4ff8b3fd3ef8d5f78",
+      "byte_size": 62462,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
     },
     {
       "golden_id": "GT-01",
@@ -94,10 +94,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/pipeline_report.json",
-      "sha256": "b98c6721a119d6f2cfa2553c81ea43257c52d97f5c8a15de97d4910875e509c4",
-      "byte_size": 254110,
+      "sha256": "7c28554ed5a3315cb563b69921a29ec21acfed6b3ec32103c88bfd039bbb5478",
+      "byte_size": 253942,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#234] Update golden for Round 3 single-run pipeline report parity"
+      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
     },
     {
       "golden_id": "GT-01",
@@ -110,10 +110,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/explorer_bundle.json",
-      "sha256": "47b05daaf13255cf4d0259d68df7030e5172aae3dc699506571425b10d1d77d0",
-      "byte_size": 64668,
+      "sha256": "198aca472ac0dd211dbbd6a55012d003f746913ab67bbb7f662111c42cf61239",
+      "byte_size": 62462,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
     },
     {
       "golden_id": "GT-01",
@@ -142,10 +142,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/pipeline_report.json",
-      "sha256": "b6dd1c814b17e4aeebe676a381f6b96d0a443d98a89eb54a1320b687a2cbe9c8",
-      "byte_size": 278301,
+      "sha256": "57eb404b6d6b347f72e636be1e8fdbe5f8f3443360018c3cd6d0cb0beafdd52b",
+      "byte_size": 278344,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#234] Update golden for Round 3 single-run pipeline report parity"
+      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
     },
     {
       "golden_id": "GT-01",
@@ -158,10 +158,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/explorer_bundle.json",
-      "sha256": "c4938a16c93d91b93102a4bb6915054cf9dae49c6f5b4a615b45792e79a68e03",
-      "byte_size": 64668,
+      "sha256": "3231b3d1e65ea3c24121446a70f1ab34d4d48d72bc4640c7176772a713419917",
+      "byte_size": 62462,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
     },
     {
       "golden_id": "GT-01",
@@ -198,10 +198,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/pipeline_report.json",
-      "sha256": "622f6e881e43875c7d9c458bbbe44bc21a999ba21f9d6e3a6854a9fff2d4b225",
-      "byte_size": 355312,
+      "sha256": "eff7f542446bcd925115d91e6e4b05a91962a89dc33c201a3da2c687f614161f",
+      "byte_size": 354965,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#234] Update golden for Round 3 single-run pipeline report parity"
+      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
     },
     {
       "golden_id": "GT-02",
@@ -334,10 +334,10 @@
     {
       "golden_id": "GT-05",
       "file": "GT-05/render_snapshot.txt",
-      "sha256": "05e8f9c7fee9d44a7fa60a2333d00756749c41ce11be26f94e2c2317495d111b",
-      "byte_size": 2855,
+      "sha256": "e89f2e332b5d5a838b6c36804b2d4a5b440a152e61819b9a24f07d80e71560ca",
+      "byte_size": 2854,
       "generated_from": "PAR-S8-W3: opendv explorer render snapshot",
-      "last_justified_change": "[#114] Fix GT-05 renderer reading genuine stage tag and artifact fmt"
+      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
     },
     {
       "golden_id": "GT-06",

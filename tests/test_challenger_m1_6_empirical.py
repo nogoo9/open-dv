@@ -756,7 +756,9 @@ class TestDualCliStarterPackParityRemediation:
         with pytest.raises(ValidationError):
             ApplyStarterPackRequest.model_validate({"pack": "core_spine", "unknown_field": True})
 
-    def test_live_opendvctl_binary_starter_pack_apply_against_live_server(self) -> None:
+    def test_live_opendvctl_binary_starter_pack_apply_against_live_server(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Verify compiled native opendvctl binary applies starter pack against live server."""
         with tempfile.TemporaryDirectory() as td:
             tpath = Path(td)
@@ -765,10 +767,10 @@ class TestDualCliStarterPackParityRemediation:
             ws_dir = tpath / "ws"
             ws_dir.mkdir(parents=True, exist_ok=True)
 
-            os.environ["OPENDV_STUDIO_ROOT"] = str(studio_root)
-            os.environ["OPENDV_TOKEN"] = "token-challenger-m1-6"
-            os.environ["OPENDV_STUDIO_TOKEN"] = "token-challenger-m1-6"
-            os.environ["OPENDV_SERVER_MODE"] = "local_standalone"
+            monkeypatch.setenv("OPENDV_STUDIO_ROOT", str(studio_root))
+            monkeypatch.setenv("OPENDV_TOKEN", "token-challenger-m1-6")
+            monkeypatch.setenv("OPENDV_STUDIO_TOKEN", "token-challenger-m1-6")
+            monkeypatch.setenv("OPENDV_SERVER_MODE", "local_standalone")
 
             state = PlatformStateContainer(workspace_root=Path("."))
             app = create_app(platform_state=state)

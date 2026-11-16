@@ -26,6 +26,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from tests.fixtures.public_am.fetch_public_datasets import (
+    AM_SQLITE_FILENAME,
     FRED_TREASURY_RATES_FILENAME,
     MAX_FRED_OBSERVATION_COUNT,
     MAX_SEC_EQUITIES_COUNT,
@@ -58,15 +59,18 @@ class TestFetchModesEmpirical:
             results = fetcher.fetch_all()
             mock_url.assert_not_called()
 
-        assert len(results) == 3
+        assert len(results) == 4
         for name, path in results.items():
             assert path.exists()
             assert path.parent == out_dir
-            golden = FIXTURES_DIR / name
-            assert (
-                path.read_text(encoding="utf-8").splitlines()
-                == golden.read_text(encoding="utf-8").splitlines()
-            ), f"Mismatch in {name}"
+            if name.endswith(".csv"):
+                golden = FIXTURES_DIR / name
+                assert (
+                    path.read_text(encoding="utf-8").splitlines()
+                    == golden.read_text(encoding="utf-8").splitlines()
+                ), f"Mismatch in {name}"
+            else:
+                assert path.stat().st_size > 0, f"Expected non-empty binary fixture {name}"
 
     def test_mode_fixture_missing_source_raises(self, tmp_path: Path) -> None:
         """Verify mode='fixture' raises FileNotFoundError when source fixture is missing."""
@@ -112,7 +116,7 @@ class TestFetchModesEmpirical:
         with patch("urllib.request.urlopen", side_effect=[mock_sec_resp, mock_fred_resp]):
             results = fetcher.fetch_all()
 
-        assert len(results) == 3
+        assert len(results) == 4
         # Verify SEC parsed output
         sec_path = results[SEC_SECURITY_MASTER_FILENAME]
         with open(sec_path, encoding="utf-8") as f:
@@ -160,13 +164,16 @@ class TestFetchModesEmpirical:
         with patch("urllib.request.urlopen", side_effect=ConnectionResetError("Connection lost")):
             results = fetcher.fetch_all()
 
-        assert len(results) == 3
+        assert len(results) == 4
         for name, path in results.items():
             assert path.exists()
-            assert (
-                path.read_text(encoding="utf-8").splitlines()
-                == (FIXTURES_DIR / name).read_text(encoding="utf-8").splitlines()
-            )
+            if name.endswith(".csv"):
+                assert (
+                    path.read_text(encoding="utf-8").splitlines()
+                    == (FIXTURES_DIR / name).read_text(encoding="utf-8").splitlines()
+                )
+            else:
+                assert path.stat().st_size > 0
 
     def test_fetch_public_am_datasets_helper_signature(self, tmp_path: Path) -> None:
         """Verify top-level fetch_public_am_datasets wrapper matches SCOPE.md Contract 1."""
@@ -177,6 +184,7 @@ class TestFetchModesEmpirical:
             SEC_SECURITY_MASTER_FILENAME,
             SEC_13F_HOLDINGS_FILENAME,
             FRED_TREASURY_RATES_FILENAME,
+            AM_SQLITE_FILENAME,
         }
         for p in res.values():
             assert p.exists()
@@ -199,7 +207,7 @@ class TestDirectoryAndPermissionStress:
         results = fetcher.fetch_all()
 
         assert deep_dir.exists()
-        assert len(results) == 3
+        assert len(results) == 4
         for path in results.values():
             assert path.exists()
 

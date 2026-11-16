@@ -440,11 +440,11 @@ def test_validate_host_ssrf_and_dns(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # 3. DNS resolution resolving to private or loopback IP rejected
     def _mock_getaddrinfo(host: str, port: Any) -> list[Any]:
-        if "evil.local" in host:
+        if host == "evil.local":
             return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("10.0.0.99", 0))]
-        if "imds.attacker.com" in host:
+        if host == "imds.attacker.com":
             return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("169.254.169.254", 0))]
-        if "valid.cloud.databricks.com" in host:
+        if host == "valid.cloud.databricks.com":
             return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("54.230.1.1", 0))]
         raise socket.gaierror("Name or service not known")
 

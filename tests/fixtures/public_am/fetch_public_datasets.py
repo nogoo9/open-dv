@@ -38,12 +38,21 @@ def load_dataset_manifest(fixture_dir: Path | str | None = None) -> dict[str, An
     base_dir = Path(fixture_dir or Path(__file__).resolve().parent)
     manifest_path = base_dir / MANIFEST_FILENAME
     if not manifest_path.is_file():
-        raise FileNotFoundError(f"Missing dataset manifest: {manifest_path}")
+        default_manifest = Path(__file__).resolve().parent / MANIFEST_FILENAME
+        if default_manifest.is_file():
+            manifest_path = default_manifest
+        else:
+            raise FileNotFoundError(f"Missing dataset manifest: {manifest_path}")
     raw_content = manifest_path.read_text(encoding="utf-8")
     parsed: Any = yaml.safe_load(raw_content)
     if not isinstance(parsed, dict) or "suites" not in parsed:
         raise ValueError(f"Invalid dataset manifest schema at {manifest_path}")
     return parsed
+
+
+_DEFAULT_FETCH_CONFIG = load_dataset_manifest().get("fetch_config", {})
+MAX_SEC_EQUITIES_COUNT: int = int(_DEFAULT_FETCH_CONFIG.get("max_sec_equities_count", 0))
+MAX_FRED_OBSERVATION_COUNT: int = int(_DEFAULT_FETCH_CONFIG.get("max_fred_observations_count", 0))
 
 
 class PublicDataFetcher:
@@ -72,11 +81,19 @@ class PublicDataFetcher:
     def fetch_all(self) -> dict[str, Path]:
         """Fetch all public datasets including individual CSVs and the unified SQLite database."""
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        sec_path = self.fetch_sec_security_master()
+        holdings_path = self.fetch_sec_13f_holdings()
+        treasury_path = self.fetch_fred_treasury_rates()
+        sqlite_path = self.fetch_am_sqlite(
+            sec_master_path=sec_path,
+            holdings_path=holdings_path,
+            treasury_path=treasury_path,
+        )
         results: dict[str, Path] = {
-            SEC_SECURITY_MASTER_FILENAME: self.fetch_sec_security_master(),
-            SEC_13F_HOLDINGS_FILENAME: self.fetch_sec_13f_holdings(),
-            FRED_TREASURY_RATES_FILENAME: self.fetch_fred_treasury_rates(),
-            AM_SQLITE_FILENAME: self.fetch_am_sqlite(),
+            SEC_SECURITY_MASTER_FILENAME: sec_path,
+            SEC_13F_HOLDINGS_FILENAME: holdings_path,
+            FRED_TREASURY_RATES_FILENAME: treasury_path,
+            AM_SQLITE_FILENAME: sqlite_path,
         }
         return results
 
@@ -154,14 +171,19 @@ class PublicDataFetcher:
         out_path = self.output_dir / SEC_13F_HOLDINGS_FILENAME
         return self._copy_fixture(SEC_13F_HOLDINGS_FILENAME, out_path)
 
-    def fetch_am_sqlite(self) -> Path:
+    def fetch_am_sqlite(
+        self,
+        sec_master_path: Path | None = None,
+        holdings_path: Path | None = None,
+        treasury_path: Path | None = None,
+    ) -> Path:
         """Construct normalized Asset Management SQLite database with PK/FK constraints."""
         out_path = self.output_dir / AM_SQLITE_FILENAME
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        sec_master_path = self.fetch_sec_security_master()
-        holdings_path = self.fetch_sec_13f_holdings()
-        treasury_path = self.fetch_fred_treasury_rates()
+        sec_master_path = sec_master_path or self.fetch_sec_security_master()
+        holdings_path = holdings_path or self.fetch_sec_13f_holdings()
+        treasury_path = treasury_path or self.fetch_fred_treasury_rates()
 
         if out_path.exists():
             out_path.unlink()
@@ -485,6 +507,8 @@ __all__ = [
     "CHINOOK_FILENAME",
     "FRED_TREASURY_RATES_FILENAME",
     "MANIFEST_FILENAME",
+    "MAX_FRED_OBSERVATION_COUNT",
+    "MAX_SEC_EQUITIES_COUNT",
     "NORTHWIND_FILENAME",
     "SEC_13F_HOLDINGS_FILENAME",
     "SEC_SECURITY_MASTER_FILENAME",

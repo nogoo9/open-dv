@@ -104,10 +104,18 @@ class ContentAddressableStore:
         tmp_path.replace(target_path)
         return digest
 
+    def _resolve_key_path(self, sha256: str) -> tuple[str, Path]:
+        key = self._validate_key(sha256)
+        root_real = os.path.realpath(self.base_dir)
+        root_pfx = root_real if root_real.endswith(os.sep) else root_real + os.sep
+        cand_real = os.path.realpath(os.path.join(root_real, key))
+        if not cand_real.startswith(root_pfx):
+            raise ValueError(f"CAS key escapes store root: {key}")
+        return key, Path(cand_real)
+
     def get_bytes(self, sha256: str) -> bytes:
         """Retrieve artifact raw bytes and verify cryptographic integrity."""
-        key = self._validate_key(sha256)
-        path = self.base_dir / key
+        key, path = self._resolve_key_path(sha256)
         if not path.is_file():
             msg = f"Artifact not found in CAS: {key} (looked in {path})"
             raise ArtifactNotFoundError(msg)
@@ -130,9 +138,14 @@ class ContentAddressableStore:
         """Check if an artifact exists in the CAS by address."""
         try:
             key = self._validate_key(sha256)
+            root_real = os.path.realpath(self.base_dir)
+            root_pfx = root_real if root_real.endswith(os.sep) else root_real + os.sep
+            cand_real = os.path.realpath(os.path.join(root_real, key))
+            if not cand_real.startswith(root_pfx):
+                return False
         except ValueError:
             return False
-        return (self.base_dir / key).is_file()
+        return os.path.isfile(cand_real)
 
     def verify(self, sha256: str) -> bool:
         """Verify that an artifact exists and matches its cryptographic digest."""

@@ -41,7 +41,11 @@ export class RemoteHttpClient {
 			);
 		}
 
-		this.baseUrl = rawUrl.replace(/\/+$/, "");
+		let end = rawUrl.length;
+		while (end > 0 && rawUrl.charCodeAt(end - 1) === 47) {
+			end--;
+		}
+		this.baseUrl = rawUrl.slice(0, end);
 		const envRole =
 			typeof process !== "undefined" && process.env.OPENDV_ROLE
 				? process.env.OPENDV_ROLE

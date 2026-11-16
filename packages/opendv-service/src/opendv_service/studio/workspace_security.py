@@ -726,14 +726,18 @@ def validate_workspace_containment(
 
     cand_norm = os.path.normcase(str(resolved))
     for root in effective_roots:
-        root_norm = os.path.normcase(str(root))
+        root_str = str(root)
+        root_pfx = root_str if root_str.endswith(os.sep) else root_str + os.sep
+        if resolved_str == root_str or resolved_str.startswith(root_pfx):
+            return Path(resolved_str)
+        root_norm = os.path.normcase(root_str)
         try:
             common = os.path.commonpath([cand_norm, root_norm])
         except ValueError:
             # Different drives on Windows
             continue
         if common == root_norm:
-            return resolved
+            return Path(resolved_str)
 
     raise InvalidWorkspacePathError(
         f"Workspace path '{workspace_path}' escapes configured OPENDV_WORKSPACE_ROOTS boundary."

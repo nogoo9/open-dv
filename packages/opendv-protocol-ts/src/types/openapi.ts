@@ -1442,6 +1442,8 @@ export interface paths {
 		/**
 		 * Get 3-Level Explorer bundle for a run
 		 * @description Retrieve 3-level explorer bundle (Phases, Stages, Artifacts) for an execution run.
+		 *
+		 *     Supports optional wave subset filtering (`?wave_id=W1` or `?wave_id=1`).
 		 */
 		get: operations["get_explorer_bundle_api_v1_runs__run_id__explorer_get"];
 		put?: never;
@@ -11202,7 +11204,10 @@ export interface operations {
 	};
 	get_explorer_bundle_api_v1_runs__run_id__explorer_get: {
 		parameters: {
-			query?: never;
+			query?: {
+				/** @description Optional wave identifier filter (e.g. 'W1' or '1'). When provided, filters artifacts to those matching the specified wave. */
+				wave_id?: string | null;
+			};
 			header?: {
 				"X-OpenDV-Role"?: string | null;
 			};

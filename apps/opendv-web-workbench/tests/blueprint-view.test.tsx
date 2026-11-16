@@ -218,7 +218,13 @@ describe("Feature 9: DV 2.0 Blueprint & Schema Preview", () => {
 			const html = renderToStaticMarkup(element);
 
 			// Strip all HTML tags to verify innerText equivalence
-			const plainText = html.replace(/<[^>]+>/g, "");
+			let plainText = "";
+			let inTag = false;
+			for (const ch of html) {
+				if (ch === "<") inTag = true;
+				else if (ch === ">") inTag = false;
+				else if (!inTag) plainText += ch;
+			}
 			// Verify key DDL constructs are present verbatim
 			expect(plainText).toContain("CREATE SCHEMA IF NOT EXISTS raw_vault;");
 			expect(plainText).toContain("hk_security VARCHAR PRIMARY KEY,");

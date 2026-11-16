@@ -376,7 +376,7 @@ export function ExplorerTopBar({
 										</span>
 									</div>
 									<div style={{ fontSize: "11px", color: "#6B7280" }}>
-										{run.project_id} {run.wave_id ? `· ${run.wave_id}` : ""}{" "}
+										{run.project_id}{" "}
 										{run.event_count ? `· ${run.event_count} events` : ""}
 									</div>
 								</button>

@@ -8,8 +8,10 @@ cryptographic RFC 8785 JCS SHA-256 lineage tracking.
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -49,27 +51,25 @@ def export_vault_blueprint(
     norm_tag = normalize_version_tag(raw_version)
 
     session_dir = mgr.get_session_dir(sid)
-    versions_root = session_dir / "versions"
-    versions_root_res = versions_root.resolve()
+    vroot_real = os.path.realpath(session_dir / "versions")
+    vpfx = vroot_real if vroot_real.endswith(os.sep) else vroot_real + os.sep
 
-    vdir = (versions_root / norm_tag).resolve()
-    if not vdir.is_relative_to(versions_root_res):
+    vdir: Path | None = None
+    for candidate_tag in (norm_tag, raw_version, f"v{raw_version.lstrip('v')}"):
+        creal = os.path.realpath(os.path.join(vroot_real, candidate_tag))
+        if not creal.startswith(vpfx):
+            raise SessionNotFoundError(
+                f"Path traversal detected in version tag '{raw_version}' "
+                f"for Studio session '{sid}'."
+            )
+        if os.path.isdir(creal):
+            vdir = Path(creal)
+            break
+
+    if vdir is None:
         raise SessionNotFoundError(
-            f"Path traversal detected in version tag '{raw_version}' for Studio session '{sid}'."
+            f"Version '{norm_tag}' not found for Studio session '{sid}'."
         )
-
-    if not vdir.is_dir():
-        cand_alt = (versions_root / raw_version).resolve()
-        if cand_alt.is_relative_to(versions_root_res) and cand_alt.is_dir():
-            vdir = cand_alt
-        else:
-            cand_stripped = (versions_root / f"v{raw_version.lstrip('v')}").resolve()
-            if cand_stripped.is_relative_to(versions_root_res) and cand_stripped.is_dir():
-                vdir = cand_stripped
-            else:
-                raise SessionNotFoundError(
-                    f"Version '{norm_tag}' not found for Studio session '{sid}'."
-                )
 
     # 1. Load ontology
     ont_json = vdir / "ontology.json"

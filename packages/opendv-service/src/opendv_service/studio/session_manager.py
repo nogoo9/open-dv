@@ -792,7 +792,12 @@ class StudioSessionManager:
     def get_session_dir(self, session_id: str) -> Path:
         """Resolve and validate the absolute directory for a session."""
         valid_id = validate_session_id(session_id)
-        return self.studio_root / valid_id
+        root_real = os.path.realpath(self.studio_root)
+        root_pfx = root_real if root_real.endswith(os.sep) else root_real + os.sep
+        cand_real = os.path.realpath(os.path.join(root_real, valid_id))
+        if not cand_real.startswith(root_pfx):
+            raise SessionNotFoundError(f"Session '{valid_id}' escapes studio root")
+        return Path(cand_real)
 
     def create_session(
         self,
@@ -803,7 +808,12 @@ class StudioSessionManager:
     ) -> SessionMetadata:
         """Create a new CAS studio session with full directory layout."""
         sid = f"s-{secrets.token_hex(8)}" if session_id is None else validate_session_id(session_id)
-        session_dir = self.studio_root / sid
+        root_real = os.path.realpath(self.studio_root)
+        root_pfx = root_real if root_real.endswith(os.sep) else root_real + os.sep
+        cand_real = os.path.realpath(os.path.join(root_real, sid))
+        if not cand_real.startswith(root_pfx):
+            raise SessionNotFoundError(f"Session '{sid}' escapes studio root")
+        session_dir = Path(cand_real)
 
         try:
             session_dir.mkdir(parents=True, exist_ok=False)

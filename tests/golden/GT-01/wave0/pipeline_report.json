@@ -1017,54 +1017,6 @@
     "drift_events": [],
     "ontology_deltas_applied": [
       {
-        "concept_name": "Customer",
-        "concept_uri": "urn:ontology:entity:customer",
-        "op_id": "op-hub-customer",
-        "op_type": "add_concept",
-        "target_hub": "hub_customer"
-      },
-      {
-        "concept_name": "Promotion",
-        "concept_uri": "urn:ontology:entity:promotion",
-        "op_id": "op-hub-promotion",
-        "op_type": "add_concept",
-        "target_hub": "hub_promotion"
-      },
-      {
-        "endpoints": [
-          "urn:ontology:entity:order",
-          "urn:ontology:entity:customer",
-          "urn:ontology:entity:promotion"
-        ],
-        "op_id": "op-lnk-order_customer_promotion",
-        "op_type": "add_relationship",
-        "relationship_name": "Order Customer Promotion",
-        "relationship_uri": "urn:ontology:relationship:order_customer_promotion",
-        "target_link": "lnk_order_customer_promotion"
-      },
-      {
-        "endpoints": [
-          "urn:ontology:entity:order",
-          "urn:ontology:entity:customer"
-        ],
-        "op_id": "op-lnk-order_customer",
-        "op_type": "add_relationship",
-        "relationship_name": "Order Customer",
-        "relationship_uri": "urn:ontology:relationship:order_customer",
-        "target_link": "lnk_order_customer"
-      },
-      {
-        "endpoints": [
-          "urn:ontology:entity:order",
-          "urn:ontology:entity:customer"
-        ],
-        "op_id": "op-lnk-order_customer",
-        "op_type": "add_relationship",
-        "relationship_name": "Order Customer",
-        "relationship_uri": "urn:ontology:relationship:order_customer",
-        "target_link": "lnk_order_customer"
-      },
-      {
         "attribute_name": "customer_core",
         "concept_uri": "urn:ontology:entity:customer",
         "data_type": "string",
@@ -1230,9 +1182,11 @@
   },
   "has_initial_contract": false,
   "inference_plan": {
+    "diagnostics": [],
     "doc_actions": [],
     "explanation": "Row 2: Greenfield Structured-Only design across 2 source tables.",
     "inferred_at_utc": "<TIMESTAMP>",
+    "passed": true,
     "plan_id": "<PLAN_ID_1>",
     "primary_action": "COLD_START_N1",
     "table_actions": [

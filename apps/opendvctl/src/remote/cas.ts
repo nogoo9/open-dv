@@ -73,7 +73,7 @@ export async function stageCasBlob(
 				"X-CAS-SHA256": hash,
 				...client.getHeaders(),
 			},
-			body: buf,
+			body: new Uint8Array(buf),
 		});
 	} catch (netErr) {
 		throw new CliDomainError(

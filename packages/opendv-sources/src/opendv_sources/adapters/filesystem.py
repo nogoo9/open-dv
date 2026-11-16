@@ -202,8 +202,10 @@ class LocalFilesystemSourceAdapter(SourceAdapter, TabularSourceAdapter):
             suffix = first_path.suffix.lower().lstrip(".")
             fmt = "parquet" if suffix == "pq" else suffix
 
-        if fmt not in _SUPPORTED_FORMATS and first_path.is_file():
-            fmt = self._sniff_format(first_path)
+        if not spec.format and fmt not in _SUPPORTED_FORMATS and first_path.is_file():
+            sniffed = self._sniff_format(first_path)
+            if sniffed:
+                fmt = sniffed
 
         if fmt not in _SUPPORTED_FORMATS:
             raise UnsupportedFormatError(

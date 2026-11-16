@@ -1376,9 +1376,11 @@
   },
   "has_initial_contract": false,
   "inference_plan": {
+    "diagnostics": [],
     "doc_actions": [],
     "explanation": "Existing contract verified with zero schema drift across inspected tables.",
     "inferred_at_utc": "<TIMESTAMP>",
+    "passed": true,
     "plan_id": "<PLAN_ID_1>",
     "primary_action": "VERIFIED_NO_OP",
     "table_actions": [

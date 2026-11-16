@@ -311,7 +311,11 @@ export async function executeConfigCommand(
 	headers: Record<string, string>,
 	fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis),
 ): Promise<[number, Record<string, unknown>]> {
-	const normalizedBase = baseUrl.replace(/\/+$/, "");
+	let end = baseUrl.length;
+	while (end > 0 && baseUrl.charCodeAt(end - 1) === 47) {
+		end--;
+	}
+	const normalizedBase = baseUrl.slice(0, end);
 	const sub = (subcommand ?? "show").toLowerCase();
 	const jsonHeaders: Record<string, string> = {
 		"Content-Type": "application/json",

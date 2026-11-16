@@ -1147,13 +1147,6 @@
     "drift_events": [],
     "ontology_deltas_applied": [
       {
-        "concept_name": "Invoice",
-        "concept_uri": "urn:ontology:entity:invoice",
-        "op_id": "op-hub-invoice",
-        "op_type": "add_concept",
-        "target_hub": "hub_invoice"
-      },
-      {
         "endpoints": [
           "urn:ontology:entity:invoice",
           "urn:ontology:entity:order"
@@ -1303,9 +1296,11 @@
   },
   "has_initial_contract": false,
   "inference_plan": {
+    "diagnostics": [],
     "doc_actions": [],
     "explanation": "Row 6 (Incremental): Multi-Source Expansion (Alg A.7) preserving deployed vault entities.",
     "inferred_at_utc": "<TIMESTAMP>",
+    "passed": true,
     "plan_id": "<PLAN_ID_1>",
     "primary_action": "MULTI_SOURCE_EXPANSION",
     "table_actions": [

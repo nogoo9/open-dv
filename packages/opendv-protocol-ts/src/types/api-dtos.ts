@@ -20,12 +20,19 @@ export type SandboxQueryResponse =
 export type RawExplorerBundleDTO = components["schemas"]["ExplorerBundleDTO"];
 export type RunArtifactDTO = components["schemas"]["RunArtifactDTO"];
 export type PipelineRunHandle = components["schemas"]["PipelineRunHandle"];
-export type PipelineValidateRequest =
-	components["schemas"]["PipelineValidateRequest"] & {
-		input_spec_content?: string | null | undefined;
-	};
-export type PipelineRunRequest = components["schemas"]["PipelineRunRequest"] & {
+export type PipelineValidateRequest = Omit<
+	components["schemas"]["PipelineValidateRequest"],
+	"unstructured_only"
+> & {
 	input_spec_content?: string | null | undefined;
+	unstructured_only?: boolean | undefined;
+};
+export type PipelineRunRequest = Omit<
+	components["schemas"]["PipelineRunRequest"],
+	"unstructured_only"
+> & {
+	input_spec_content?: string | null | undefined;
+	unstructured_only?: boolean | undefined;
 };
 export type CreateProjectRequest =
 	components["schemas"]["CreateProjectRequest"];
@@ -100,7 +107,6 @@ export type GeneralHoldOption = components["schemas"]["GeneralHoldOption"];
 export type StageDTO = components["schemas"]["StageDTO"];
 export type StepDTO = components["schemas"]["StepDTO"];
 export type PhaseSpecDTO = components["schemas"]["PhaseSpecDTO"];
-export type WaveMetadataSpecDTO = components["schemas"]["WaveMetadataSpecDTO"];
 export type RuleEvaluationDTO = components["schemas"]["RuleEvaluationDTO"];
 export type DvVizDTO = components["schemas"]["DvVizDTO"];
 export type OntologyVizDTO = components["schemas"]["OntologyVizDTO"];

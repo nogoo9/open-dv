@@ -1364,17 +1364,6 @@
     "drift_events": [],
     "ontology_deltas_applied": [
       {
-        "endpoints": [
-          "urn:ontology:entity:document",
-          "urn:ontology:entity:customer"
-        ],
-        "op_id": "op-lnk-document_customer",
-        "op_type": "add_relationship",
-        "relationship_name": "Document Customer",
-        "relationship_uri": "urn:ontology:relationship:document_customer",
-        "target_link": "lnk_document_customer"
-      },
-      {
         "attribute_name": "mas_document_extractions",
         "concept_uri": "urn:ontology:entity:document",
         "data_type": "string",
@@ -1513,6 +1502,7 @@
   },
   "has_initial_contract": false,
   "inference_plan": {
+    "diagnostics": [],
     "doc_actions": [
       {
         "action": "EXTRACT_SPANS_AND_LINKS",
@@ -1522,6 +1512,7 @@
     ],
     "explanation": "Row 7: Hybrid Per-Source Plan combining multi-connector onboarding, drift triage, and docs.",
     "inferred_at_utc": "<TIMESTAMP>",
+    "passed": true,
     "plan_id": "<PLAN_ID_1>",
     "primary_action": "HYBRID_PER_SOURCE",
     "table_actions": []

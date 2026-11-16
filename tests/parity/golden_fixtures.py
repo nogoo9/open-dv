@@ -98,6 +98,11 @@ def build_gt03_06_schema_invalid() -> dict[str, Any]:
 
 def render_explorer_text_snapshot(bundle: dict[str, Any]) -> str:
     """Render a deterministic, human-readable text snapshot of an Explorer bundle (GT-05)."""
+    waves_val = (
+        bundle.get("waves_count")
+        if bundle.get("waves_count") is not None
+        else bundle.get("wavesCount")
+    )
     lines = [
         "============================================================",
         "OPEN-DV PIPELINE EXPLORER SNAPSHOT",
@@ -106,7 +111,7 @@ def render_explorer_text_snapshot(bundle: dict[str, Any]) -> str:
         "Run ID:      <NORMALIZED_RUN_ID>",
         f"Spec File:   {bundle.get('spec_file') or bundle.get('specFile')}",
         f"Status:      {bundle.get('status_label') or bundle.get('statusLabel')}",
-        f"Waves:       {bundle.get('waves_count') if bundle.get('waves_count') is not None else bundle.get('wavesCount')}",
+        f"Waves:       {waves_val if waves_val is not None else ''}",
         f"RBAC Role:   {bundle.get('rbac_role') or bundle.get('rbacRole')}",
         f"Gates:       {bundle.get('gates_passed', bundle.get('gatesPassed', 0))}/{bundle.get('gates_total', bundle.get('gatesTotal', 6))} passed",
     ]
@@ -193,14 +198,13 @@ def run_gt01_lifecycle_waves(
     prior_contract: Path | None = None
     wave3_bundle_dict: dict[str, Any] = {}
 
-    for w_idx, w_spec, w_id in waves:
+    for w_idx, w_spec, _w_id in waves:
         out_dir = workspace_dir / f"wave{w_idx}"
         req = PipelineRunRequest(
             input_spec_path=str(w_spec),
             harness_config_path=str(harness_cfg),
             output_dir=str(out_dir),
             initial_contract_path=str(prior_contract) if prior_contract else None,
-            wave_id=w_id,
             provider_override="agy",
         )
         res = service.execute_pipeline_run_sync(req)

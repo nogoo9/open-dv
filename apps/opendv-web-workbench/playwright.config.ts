@@ -32,6 +32,48 @@ function discoverChromium(): string {
 			}
 		}
 	}
+	const homeDir = process.env.HOME;
+	if (homeDir) {
+		const cacheDirs = [
+			{ dir: path.join(homeDir, ".cache", "ms-playwright"), rels: ["chrome-linux64/chrome", "chrome-linux/chrome"] },
+			{ dir: path.join(homeDir, "Library", "Caches", "ms-playwright"), rels: ["chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium", "chrome-mac/Chromium.app/Contents/MacOS/Chromium"] },
+		];
+		for (const { dir, rels } of cacheDirs) {
+			if (fs.existsSync(dir)) {
+				try {
+					const chromiumDirs = fs
+						.readdirSync(dir, { withFileTypes: true })
+						.filter((e) => e.isDirectory() && e.name.startsWith("chromium-"))
+						.map((e) => e.name)
+						.sort();
+					if (chromiumDirs.length > 0) {
+						const latest = chromiumDirs[chromiumDirs.length - 1];
+						for (const rel of rels) {
+							const candidate = path.join(dir, latest, rel);
+							if (fs.existsSync(candidate)) {
+								return candidate;
+							}
+						}
+					}
+				} catch {
+					// ignore
+				}
+			}
+		}
+	}
+	for (const binName of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"]) {
+		if (typeof Bun !== "undefined" && typeof Bun.which === "function") {
+			const resolved = Bun.which(binName);
+			if (resolved) {
+				return resolved;
+			}
+		}
+	}
+	for (const candidate of ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/usr/bin/chromium", "/usr/bin/chromium-browser"]) {
+		if (fs.existsSync(candidate)) {
+			return candidate;
+		}
+	}
 	return "chrome";
 }
 

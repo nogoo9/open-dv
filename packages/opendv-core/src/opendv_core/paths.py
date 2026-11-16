@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -60,29 +61,52 @@ def resolve_workspace_path(
     if allow_temp:
         permitted.add(Path(tempfile.gettempdir()).resolve())
 
+    permitted_reals = [os.path.realpath(str(p)) for p in permitted]
+
+    def _is_within_permitted(cand_real: str) -> bool:
+        c_norm = os.path.normcase(cand_real)
+        for p_real in permitted_reals:
+            p_pfx = p_real if p_real.endswith(os.sep) else p_real + os.sep
+            p_norm = os.path.normcase(p_real)
+            p_norm_pfx = p_norm if p_norm.endswith(os.sep) else p_norm + os.sep
+            if (
+                cand_real == p_real
+                or cand_real.startswith(p_pfx)
+                or c_norm == p_norm
+                or c_norm.startswith(p_norm_pfx)
+            ):
+                return True
+        return False
+
     if candidate.is_absolute():
-        resolved = candidate.resolve()
+        resolved_str = os.path.realpath(str(candidate))
     else:
         cand_list: list[Path] = []
         if base_dir is not None:
-            cand_list.append((base_dir / candidate).resolve())
+            cand_list.append(base_dir / candidate)
         if workspace_root is not None:
-            cand_list.append((workspace_root / candidate).resolve())
+            cand_list.append(workspace_root / candidate)
         if allowed_roots:
             for extra_root in allowed_roots:
-                cand_list.append((extra_root / candidate).resolve())
+                cand_list.append(extra_root / candidate)
 
-        resolved_match = None
+        resolved_match: str | None = None
         for cand in cand_list:
-            if cand.exists():
-                resolved_match = cand
+            cand_real = os.path.realpath(str(cand))
+            if _is_within_permitted(cand_real) and os.path.exists(cand_real):
+                resolved_match = cand_real
                 break
-        resolved = resolved_match if resolved_match is not None else cand_list[0]
+        resolved_str = (
+            resolved_match
+            if resolved_match is not None
+            else os.path.realpath(str(cand_list[0]))
+        )
 
-    if not any(resolved.is_relative_to(p) for p in permitted):
+    if not _is_within_permitted(resolved_str):
         raise PathContainmentError(
-            f"Path '{raw_str}' is outside allowed workspace directories: resolves to '{resolved}', "
+            f"Path '{raw_str}' is outside allowed workspace directories: "
+            f"resolves to '{resolved_str}', "
             f"escaping permitted workspace roots: {[str(p) for p in sorted(permitted)]}"
         )
 
-    return resolved
+    return Path(resolved_str)

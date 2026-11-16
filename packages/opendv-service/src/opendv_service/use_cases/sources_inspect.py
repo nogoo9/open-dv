@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import tempfile
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -190,48 +191,26 @@ def inspect_source(
         if cas_store is None:
             raise ValueError(f"Cannot resolve cas_hash '{clean_hash}': no cas_store provided.")
 
-        cas_root = Path(cas_store.base_dir).resolve() if hasattr(cas_store, "base_dir") else None
+        cas_base_real = (
+            os.path.realpath(cas_store.base_dir) if hasattr(cas_store, "base_dir") else None
+        )
         staged_path: Path | None = None
-        if cas_root:
-            p_upper = (cas_root / clean_hash.upper()).resolve()
-            p_lower = (cas_root / clean_hash.lower()).resolve()
-            if p_upper.is_relative_to(cas_root) and p_upper.is_file():
-                staged_path = p_upper
-            elif p_lower.is_relative_to(cas_root) and p_lower.is_file():
-                staged_path = p_lower
+        if cas_base_real:
+            cas_pfx = cas_base_real if cas_base_real.endswith(os.sep) else cas_base_real + os.sep
+            for name in (clean_hash.upper(), clean_hash.lower()):
+                creal = os.path.realpath(os.path.join(cas_base_real, name))
+                if creal.startswith(cas_pfx) and os.path.isfile(creal):
+                    staged_path = Path(creal)
+                    break
+            if staged_path is None and hasattr(cas_store, "has") and cas_store.has(clean_hash):
+                creal = os.path.realpath(os.path.join(cas_base_real, clean_hash.upper()))
+                if creal.startswith(cas_pfx) and os.path.isfile(creal):
+                    staged_path = Path(creal)
 
-        if (
-            staged_path is None
-            and hasattr(cas_store, "has")
-            and cas_store.has(clean_hash)
-            and cas_root
-        ):
-            cand = (cas_root / clean_hash.upper()).resolve()
-            if cand.is_relative_to(cas_root) and cand.is_file():
-                staged_path = cand
-
-        if staged_path is None or not staged_path.is_file():
+        if staged_path is None:
             raise SourceNotFoundError(f"CAS artifact '{clean_hash}' not found in store.")
 
         eff_uri = str(staged_path)
-
-    # Fail closed on internal .opendv path inspection unless staged in CAS
-    if not cas_hash and eff_uri:
-        try:
-            cand_eff = Path(eff_uri).resolve()
-            if ".opendv" in cand_eff.parts:
-                cas_base = (
-                    Path(cas_store.base_dir).resolve()
-                    if cas_store and hasattr(cas_store, "base_dir")
-                    else None
-                )
-                if not (cas_base and cand_eff.is_relative_to(cas_base)):
-                    raise PathContainmentError(
-                        f"Access to internal '.opendv' directory is forbidden: '{eff_uri}'"
-                    )
-        except (ValueError, OSError) as exc:
-            if isinstance(exc, PathContainmentError):
-                raise
 
     # 3. Resolve source adapter identifier and format
     registry = get_scheme_registry()
@@ -329,13 +308,19 @@ def inspect_source(
             eff_allowed_roots.append(Path(workspace_root).resolve())
     elif roots:
         eff_allowed_roots = roots
-    elif workspace_root is None:
-        try:
-            cand_p = Path(eff_uri).resolve()
-            if cand_p.is_file():
-                eff_allowed_roots = [cand_p.parent]
-        except (ValueError, OSError):
-            pass
+    elif workspace_root is None and eff_uri and not eff_uri.startswith(
+        ("cas://", "databricks://", "https://", "http://")
+    ):
+        cand_real = os.path.realpath(eff_uri)
+        cand_norm = os.path.normcase(cand_real)
+        safe_bases = (os.path.realpath(tempfile.gettempdir()), os.path.realpath(os.getcwd()))
+        in_safe_base = any(
+            cand_real.startswith(b if b.endswith(os.sep) else b + os.sep)
+            or cand_norm.startswith(os.path.normcase(b).rstrip(os.sep) + os.sep)
+            for b in safe_bases
+        )
+        if in_safe_base and os.path.isfile(cand_real):
+            eff_allowed_roots = [Path(cand_real).parent]
 
     if eff_allowed_roots:
         eff_allowed_roots = [
@@ -345,18 +330,13 @@ def inspect_source(
         ]
 
     if eff_uri and not eff_uri.startswith(("cas://", "databricks://", "https://", "http://")):
-        try:
-            cand_p = Path(eff_uri).resolve()
-            is_cas_staged = False
-            if cas_base is not None and cand_p.is_relative_to(cas_base):
-                is_cas_staged = True
-            if not is_cas_staged and ".opendv" in cand_p.parts:
-                raise PathContainmentError(
-                    f"Path '{cand_p}' inside '.opendv' is not an allowed inspect root."
-                )
-        except (ValueError, OSError) as exc:
-            if isinstance(exc, PathContainmentError):
-                raise
+        cand_real = os.path.realpath(eff_uri)
+        cand_parts = Path(cand_real).parts
+        in_cas = cas_base is not None and Path(cand_real).is_relative_to(cas_base)
+        if ".opendv" in cand_parts and not in_cas:
+            raise PathContainmentError(
+                f"Path '{cand_real}' inside '.opendv' is not an allowed inspect root."
+            )
 
     server_allowed_hosts = allowed_hosts
     if server_allowed_hosts is None:

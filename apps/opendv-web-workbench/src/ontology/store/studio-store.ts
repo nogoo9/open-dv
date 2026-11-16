@@ -1888,12 +1888,16 @@ export function generateLocalExport(
 }
 
 export function createStudioStore(options: StudioStoreOptions = {}) {
-	const baseApiUrl = (
+	const rawBaseApiUrl =
 		options.apiUrl ??
 		(typeof process !== "undefined" && process.env?.OPENDV_API_URL
 			? process.env.OPENDV_API_URL
-			: "")
-	).replace(/\/+$/, "");
+			: "");
+	let urlEnd = rawBaseApiUrl.length;
+	while (urlEnd > 0 && rawBaseApiUrl.charCodeAt(urlEnd - 1) === 47) {
+		urlEnd--;
+	}
+	const baseApiUrl = rawBaseApiUrl.slice(0, urlEnd);
 
 	const resolveUrl = (path: string) => {
 		const cleanPath = path.startsWith("/") ? path : `/${path}`;

@@ -26,13 +26,21 @@ import type {
 
 // Helper to extract text from HTML markup rendered by React
 function extractPlainText(html: string): string {
-	return html
-		.replace(/<[^>]+>/g, "")
-		.replace(/&#x27;/g, "'")
-		.replace(/&quot;/g, '"')
-		.replace(/&amp;/g, "&")
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">");
+	let out = "";
+	let inTag = false;
+	for (const ch of html) {
+		if (ch === "<") inTag = true;
+		else if (ch === ">") inTag = false;
+		else if (!inTag) out += ch;
+	}
+	const entities: Record<string, string> = {
+		"&#x27;": "'",
+		"&quot;": '"',
+		"&amp;": "&",
+		"&lt;": "<",
+		"&gt;": ">",
+	};
+	return out.replace(/&(?:quot|#x27|lt|gt|amp);/g, (m) => entities[m] ?? m);
 }
 
 describe("Feature 9 Empirical Stress Test Harness", () => {

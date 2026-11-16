@@ -41,9 +41,28 @@ def _discover_chromium() -> Path:
             candidates_alt = sorted(pw_dir.glob("chromium-*/chrome-win*/chrome.exe"))
             if candidates_alt:
                 return candidates_alt[-1]
-    which = shutil.which("chrome") or shutil.which("chromium")
-    if which:
-        return Path(which)
+    linux_pw = Path.home() / ".cache" / "ms-playwright"
+    if linux_pw.is_dir():
+        candidates_linux = sorted(linux_pw.glob("chromium-*/chrome-linux*/chrome"))
+        if candidates_linux:
+            return candidates_linux[-1]
+    mac_pw = Path.home() / "Library" / "Caches" / "ms-playwright"
+    if mac_pw.is_dir():
+        candidates_mac = sorted(
+            mac_pw.glob("chromium-*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium")
+        )
+        if candidates_mac:
+            return candidates_mac[-1]
+    for bin_name in (
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "chrome",
+    ):
+        which = shutil.which(bin_name)
+        if which:
+            return Path(which)
     return Path("chrome")
 
 

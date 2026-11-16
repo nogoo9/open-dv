@@ -1,12 +1,14 @@
 [test]
-# Ignore worktrees, build dist artifacts, and node_modules so root `bun test` runs cleanly out of the box
+# Ignore worktrees, build dist artifacts, node_modules, and Playwright E2E specs so root `bun test` runs cleanly out of the box
 pathIgnorePatterns = [
   "**/worktrees/**",
   "**/dist/**",
-  "**/node_modules/**"
+  "**/node_modules/**",
+  "**/tests/e2e/**"
 ]
 ignore = [
   "**/worktrees/**",
   "**/dist/**",
-  "**/node_modules/**"
+  "**/node_modules/**",
+  "**/tests/e2e/**"
 ]

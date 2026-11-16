@@ -48,7 +48,6 @@ export async function executeValidate(
 		inputSpec,
 		contractPath,
 		contractFileContent,
-		waveId,
 		holdPolicy,
 		apiUrl,
 		fetchImpl,
@@ -63,7 +62,6 @@ export async function executeValidate(
 		initial_contract_path: contractPath.trim() || null,
 		initial_contract_content: contractFileContent || null,
 		initial_contract: contractFileContent || null,
-		wave_id: waveId || null,
 		steward_hold_policy: holdPolicy,
 	};
 
@@ -155,7 +153,6 @@ export async function executeSubmitRun(
 		inputSpec,
 		contractPath,
 		contractFileContent,
-		waveId,
 		holdPolicy,
 		apiUrl,
 		fetchImpl,
@@ -171,7 +168,6 @@ export async function executeSubmitRun(
 		initial_contract_path: contractPath.trim() || null,
 		initial_contract_content: contractFileContent || null,
 		initial_contract: contractFileContent || null,
-		wave_id: waveId || null,
 		steward_hold_policy: holdPolicy,
 	};
 
