@@ -1800,7 +1800,7 @@ def _persist_uploaded_source_sync(
     raw_bytes = tmp_blob_path.read_bytes()
 
     lock_path = sdir / ".session.lock"
-    with reentrant_session_lock(lock_path, session_id=session_id):
+    with reentrant_session_lock(lock_path, session_id=sdir.name):
         cas = session_mgr.get_cas(session_id)
         source_sha256 = cas.put(raw_bytes)
         source_id = f"src-{source_sha256[:16]}"
@@ -3244,7 +3244,7 @@ def create_proposal(
         "delta": candidate_delta.model_dump(mode="json", exclude_none=True),
     }
 
-    with reentrant_session_lock(sdir / ".session.lock", session_id=session_id):
+    with reentrant_session_lock(sdir / ".session.lock", session_id=sdir.name):
         proposals_dir = sdir / "proposals"
         proposals_dir.mkdir(parents=True, exist_ok=True)
         prop_file = _resolve_proposal_file(sdir, proposal_id)
@@ -3546,7 +3546,7 @@ def reject_proposal(
     if not prop_file.is_file():
         raise StudioAPIError("PROPOSAL_NOT_FOUND", f"Proposal '{proposal_id}' not found.")
 
-    with reentrant_session_lock(sdir / ".session.lock", session_id=session_id):
+    with reentrant_session_lock(sdir / ".session.lock", session_id=sdir.name):
         try:
             raw_prop = json.loads(prop_file.read_text(encoding="utf-8"))
             if not isinstance(raw_prop, dict):
@@ -3923,7 +3923,7 @@ def rebase_proposal(
     if not prop_file.is_file():
         raise StudioAPIError("PROPOSAL_NOT_FOUND", f"Proposal '{proposal_id}' not found.")
 
-    with reentrant_session_lock(sdir / ".session.lock", session_id=session_id):
+    with reentrant_session_lock(sdir / ".session.lock", session_id=sdir.name):
         try:
             raw_prop = json.loads(prop_file.read_text(encoding="utf-8"))
             if not isinstance(raw_prop, dict):
@@ -4151,7 +4151,7 @@ def refine_proposal_endpoint(
     if not prop_file.is_file():
         raise StudioAPIError("PROPOSAL_NOT_FOUND", f"Proposal '{proposal_id}' not found.")
 
-    with reentrant_session_lock(sdir / ".session.lock", session_id=session_id):
+    with reentrant_session_lock(sdir / ".session.lock", session_id=sdir.name):
         try:
             raw_prop = json.loads(prop_file.read_text(encoding="utf-8"))
             if not isinstance(raw_prop, dict):
@@ -4359,7 +4359,7 @@ def apply_starter_pack_endpoint(
         domain_namespace=payload.domain_namespace or meta.domain_namespace,
     )
 
-    with reentrant_session_lock(sdir / ".session.lock", session_id=session_id):
+    with reentrant_session_lock(sdir / ".session.lock", session_id=sdir.name):
         b_maj, b_min, _ = parse_semver(meta.head_version)
         if b_maj == 0:
             next_ver = (
@@ -4565,7 +4565,7 @@ def submit_waiver(
     }
     envelope_sig = sec_mgr.sign_waiver(dumps_jcs_bytes(envelope))
 
-    with reentrant_session_lock(sdir / ".session.lock", session_id=session_id):
+    with reentrant_session_lock(sdir / ".session.lock", session_id=sdir.name):
         waivers_file = sdir / "waivers.json"
         existing_waivers: list[dict[str, Any]] = []
         if waivers_file.is_file():
@@ -4648,7 +4648,7 @@ def submit_feedback(
         "head_sha256": meta.head_sha256,
     }
 
-    with reentrant_session_lock(sdir / ".session.lock", session_id=session_id):
+    with reentrant_session_lock(sdir / ".session.lock", session_id=sdir.name):
         fb_file = sdir / "feedback.jsonl"
         line_bytes = (json.dumps(record, sort_keys=True) + "\n").encode("utf-8")
         flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_BINARY", 0)

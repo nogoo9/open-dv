@@ -230,7 +230,7 @@ jobs:
 
       - name: Ensure Chromium available for Playwright E2E
         run: |
-          bun --cwd apps/opendv-web-workbench x playwright install chromium
+          cd apps/opendv-web-workbench && bun x playwright install chromium
 
       - name: Run normative pytest test suite
         run: |
