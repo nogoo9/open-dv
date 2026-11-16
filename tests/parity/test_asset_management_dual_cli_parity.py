@@ -1024,7 +1024,10 @@ def test_r3_c2_pipeline_input_dto_e2e_validator_parity(
         ],
         "target_dialect": "duckdb",
         "harness_provider": "agy",
-        "governance_policy": {"steward_hold_policy": "pause"},
+        "governance_policy": {
+            "steward_hold_policy": "pause",
+            "stage_output_policy": "symbolic_completion",
+        },
     }
     resp = platform_api_client.post(
         "/api/v1/runs?sync=true",

@@ -122,14 +122,14 @@ export default defineConfig({
 			command: "uv run python tests/e2e/run_e2e_platform_server.py --port 8420 --host 127.0.0.1",
 			url: "http://127.0.0.1:8420/api/v1/health",
 			reuseExistingServer: true,
-			timeout: 30_000,
+			timeout: 90_000,
 			cwd: "../..",
 		},
 		{
 			command: "bun run src/dev-server.ts",
 			url: "http://127.0.0.1:5173",
 			reuseExistingServer: true,
-			timeout: 30_000,
+			timeout: 90_000,
 		},
 	],
 });

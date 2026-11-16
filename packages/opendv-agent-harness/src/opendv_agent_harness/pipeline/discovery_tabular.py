@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 from collections.abc import Sequence
@@ -124,6 +125,14 @@ def discover_tabular_feeds(
             if p_cand.exists():
                 spec = spec.model_copy(update={"uri": str(p_cand)})
 
+        if u and spec.adapter in (None, "", "file"):
+            with contextlib.suppress(Exception):
+                from opendv_sources.registry.scheme_registry import get_scheme_registry
+
+                inferred_ad = get_scheme_registry().resolve_adapter(u)
+                if inferred_ad and inferred_ad != spec.adapter:
+                    spec = spec.model_copy(update={"adapter": inferred_ad})
+
         cat_adapter: CatalogSourceAdapter | None = None
         s1_allowed = _collect_roots(
             eff_base,
@@ -197,7 +206,16 @@ def discover_tabular_feeds(
             eff_uri = src.data_path or (
                 spec.uri if spec and spec.uri else (src.uri if src.uri else None)
             )
-            target_p = _to_source_target(spec, Path(eff_uri) if eff_uri else None)
+            is_scheme_uri = bool(
+                eff_uri
+                and (
+                    "://" in eff_uri
+                    or eff_uri.startswith(("sqlite:", "duckdb:", "uc:", "databricks:", "cas:"))
+                )
+            )
+            target_p = _to_source_target(
+                spec, None if (not eff_uri or is_scheme_uri) else Path(eff_uri)
+            )
             bks = list(
                 getattr(src, "business_key_columns", []) or getattr(src, "business_keys", [])
             )

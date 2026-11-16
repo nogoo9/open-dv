@@ -701,7 +701,9 @@ class JobSupervisor:
                     self._write_job_data_atomic(session_mgr, session_id, job_id, data)
                     with contextlib.suppress(Exception):
                         writer = SSEJournalWriter(
-                            session_dir=session_dir, job_id=job_id, session_id=session_id
+                            session_dir=session_dir,
+                            job_id=job_file.stem,
+                            session_id=session_dir.name,
                         )
                         writer.buffer_event(
                             "job_failed",
@@ -872,7 +874,9 @@ class JobSupervisor:
 
                     with contextlib.suppress(Exception):
                         writer = SSEJournalWriter(
-                            session_dir=session_dir, job_id=job_id, session_id=session_id
+                            session_dir=session_dir,
+                            job_id=job_file.stem,
+                            session_id=session_dir.name,
                         )
                         writer.buffer_event(
                             "job_cancelled",

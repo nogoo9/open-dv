@@ -136,15 +136,20 @@ def test_browser_e2e_walkthrough() -> None:
         "test",
         "tests/e2e/browser_e2e_walkthrough.spec.ts",
     ]
-    subprocess.run(
-        cmd,
-        cwd=str(WORKBENCH_DIR),
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=720,
-        check=True,
-    )
+    try:
+        subprocess.run(
+            cmd,
+            cwd=str(WORKBENCH_DIR),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=720,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise AssertionError(
+            f"Playwright E2E failed (exit {exc.returncode}):\nSTDOUT:\n{exc.stdout}\nSTDERR:\n{exc.stderr}"
+        ) from exc
 
     # Assert genuine screenshots produced by Playwright (>10KB each)
     for sc in EXPECTED_SCREENSHOTS:

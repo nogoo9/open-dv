@@ -3034,7 +3034,7 @@ def apply_delta_endpoint(
     grandfathered_uris = _load_grandfathered_concept_uris(sdir)
     try:
         commit_res = atomic_svc.commit_delta(
-            session_id=session_id,
+            session_id=sdir.name,
             delta=delta,
             proposal_id=None,
             author=principal.principal,
@@ -3492,7 +3492,7 @@ def accept_proposal(
     grandfathered_uris = _load_grandfathered_concept_uris(sdir)
     try:
         commit_res = atomic_svc.commit_delta(
-            session_id=session_id,
+            session_id=sdir.name,
             delta=delta,
             proposal_id=proposal_id,
             author=principal.principal,

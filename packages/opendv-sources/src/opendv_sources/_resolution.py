@@ -9,29 +9,23 @@ from typing import Any
 from opendv_core.paths import resolve_workspace_path
 
 
-def _redact_token(tok: str) -> str:
-    if "@" not in tok or ":" not in tok:
-        return tok
-    scheme_idx = tok.find("://")
-    prefix = tok[: scheme_idx + 3] if scheme_idx >= 0 else ""
-    rest = tok[scheme_idx + 3 :] if scheme_idx >= 0 else tok
-    at_idx = rest.find("@")
-    if at_idx < 0:
-        return tok
-    userinfo = rest[:at_idx]
-    if "/" in userinfo or ":" not in userinfo:
-        return tok
-    user, _ = userinfo.split(":", 1)
-    return f"{prefix}{user}:***@{rest[at_idx + 1 :]}"
+def _redact_segment(seg: str) -> str:
+    at_idx = seg.rfind("@")
+    if at_idx <= 0:
+        return seg
+    colon_idx = seg.find(":", 0, at_idx)
+    if colon_idx <= 0:
+        return seg
+    return f"{seg[:colon_idx]}:***@{seg[at_idx + 1 :]}"
 
 
 def redact_credentials(text: str) -> str:
-    """Mask userinfo password/token segments in URIs and error strings."""
-    if not text or "@" not in text:
+    """Mask userinfo password/token segments in URIs, filesystem paths, and error strings."""
+    if not text or "@" not in text or ":" not in text:
         return text
     return "".join(
-        _redact_token(part) if not part.isspace() else part
-        for part in re.split(r"(\s+)", text)
+        _redact_segment(part) if idx % 2 == 0 else part
+        for idx, part in enumerate(re.split(r"([/\\'\"\s]+)", text))
     )
 
 

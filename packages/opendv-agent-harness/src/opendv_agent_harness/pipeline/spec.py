@@ -19,11 +19,11 @@ class PipelineForeignKeyMapping(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     fk_columns: list[str] = Field(default_factory=list)
-    fk_column: str | None = Field(default=None)
+    fk_column: str | None = None
     target_hub: str
     target_table: str | None = None
     target_columns: list[str] = Field(default_factory=list)
-    target_column: str | None = Field(default=None)
+    target_column: str | None = None
     relationship_name: str | None = None
 
 
@@ -111,51 +111,44 @@ class PipelineSourceFeedInput(BaseModel):
             for fk in self.foreign_keys:
                 for col in fk.fk_columns or ([fk.fk_column] if fk.fk_column else []):
                     self.foreign_key_mappings[col] = fk.target_hub
-        self.adapter = self.adapter or "file"
         self.uri = self.uri or self.data_path or self.file_path or self.source_path
+        if not self.adapter and self.uri:
+            with contextlib.suppress(Exception):
+                from opendv_sources.registry.scheme_registry import get_scheme_registry
+
+                self.adapter = get_scheme_registry().resolve_adapter(self.uri)
+        self.adapter = self.adapter or "file"
         self.data_path = self.data_path or self.uri
         self.file_path = self.file_path or self.uri
         self.source_name = (
             self.source_name or self.table_name or (Path(self.uri).stem if self.uri else "source")
         )
-        if self.source is None and self.uri:
-            with contextlib.suppress(Exception):
-                from opendv_sources.models.specs import NamespaceRef, SourceSpec, TableSelectionSpec
-
-                ns = (
-                    self.namespace
-                    if isinstance(self.namespace, NamespaceRef)
-                    else (
-                        NamespaceRef.model_validate(self.namespace)
-                        if self.namespace
-                        else None
-                    )
-                )
-                ts = (
-                    self.table_selection
-                    if isinstance(self.table_selection, TableSelectionSpec)
-                    else (
-                        TableSelectionSpec.model_validate(self.table_selection)
-                        if self.table_selection
-                        else None
-                    )
-                )
-                self.source = SourceSpec(
-                    uri=self.uri,
-                    adapter=self.adapter,
-                    table_selection=ts,
-                    namespace=ns,
-                    options=dict(self.options),
-                    credentials_ref=self.credentials_ref,
-                )
         self.table_name = self.table_name or self.source_name
         self.source_system = self.source_system or self.table_name or "default_source"
         if self.source is None and self.uri:
+            ns, ts = None, None
+            with contextlib.suppress(ImportError, ValueError, TypeError):
+                from opendv_sources.models.specs import NamespaceRef, TableSelectionSpec
+
+                if self.namespace:
+                    ns = (
+                        self.namespace
+                        if isinstance(self.namespace, NamespaceRef)
+                        else NamespaceRef.model_validate(self.namespace)
+                    )
+                if self.table_selection:
+                    ts = (
+                        self.table_selection
+                        if isinstance(self.table_selection, TableSelectionSpec)
+                        else TableSelectionSpec.model_validate(self.table_selection)
+                    )
             self.source = SourceSpec(
                 uri=self.uri,
                 adapter=self.adapter,
                 format=self.format,
-                options=self.options,
+                table_selection=ts,
+                namespace=ns,
+                options=dict(self.options),
                 credentials_ref=self.credentials_ref,
             )
         return self
