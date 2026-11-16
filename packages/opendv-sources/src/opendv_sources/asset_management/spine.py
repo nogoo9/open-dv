@@ -165,42 +165,50 @@ def get_core_spine_relationships() -> list[CanonicalRelationship]:
             relationship_name="AccountHolder",
             target_link="lnk_account_holder",
             endpoints=["urn:opendv:concept:account", "urn:opendv:concept:legal_entity"],
-            grain_semantics="Legal entity holds or owns customer account.",
+            grain_semantics="Legal entity officially holds or owns customer portfolio account.",
         ),
         CanonicalRelationship(
             relationship_uri="urn:opendv:relationship:contract_party",
             relationship_name="ContractParty",
             target_link="lnk_contract_party",
             endpoints=["urn:opendv:concept:agreement", "urn:opendv:concept:legal_entity"],
-            grain_semantics="Legal entity is a party to agreement.",
+            grain_semantics="Legal entity participates as official contracting party to agreement.",
         ),
         CanonicalRelationship(
             relationship_uri="urn:opendv:relationship:account_agreement",
             relationship_name="AccountAgreement",
             target_link="lnk_account_agreement",
             endpoints=["urn:opendv:concept:account", "urn:opendv:concept:agreement"],
-            grain_semantics="Account is governed by agreement.",
+            grain_semantics="Customer account is formally governed by legal agreement contract.",
         ),
         CanonicalRelationship(
             relationship_uri="urn:opendv:relationship:transaction_instrument",
             relationship_name="TransactionInstrument",
             target_link="lnk_transaction_instrument",
-            endpoints=["urn:opendv:concept:transaction", "urn:opendv:concept:financial_instrument"],
-            grain_semantics="Transaction executes trade for financial instrument.",
+            endpoints=[
+                "urn:opendv:concept:transaction",
+                "urn:opendv:concept:financial_instrument",
+            ],
+            grain_semantics=(
+                "Financial transaction executes trade allocation for designated "
+                "financial instrument."
+            ),
         ),
         CanonicalRelationship(
             relationship_uri="urn:opendv:relationship:transaction_account",
             relationship_name="TransactionAccount",
             target_link="lnk_transaction_account",
             endpoints=["urn:opendv:concept:transaction", "urn:opendv:concept:account"],
-            grain_semantics="Transaction debits or credits account.",
+            grain_semantics=(
+                "Financial transaction movement debits or credits designated client account."
+            ),
         ),
         CanonicalRelationship(
             relationship_uri="urn:opendv:relationship:agreement_document",
             relationship_name="AgreementDocument",
             target_link="lnk_agreement_document",
             endpoints=["urn:opendv:concept:agreement", "urn:opendv:concept:document"],
-            grain_semantics="Agreement is evidenced or recorded by document.",
+            grain_semantics="Agreement is formally evidenced or recorded by executed document.",
         ),
     ]
 

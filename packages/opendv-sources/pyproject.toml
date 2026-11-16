@@ -19,6 +19,7 @@ inline = []
 db = []
 text = []
 pdf = ["pypdf>=5.0.0"]
+databricks = ["databricks-sql-connector>=3.0.0"]
 standard = [
     "opendv-sources[file,inline,db,text,pdf]",
 ]
@@ -30,6 +31,8 @@ inline = "opendv_sources.adapters.inline:InlineSourceAdapter"
 duckdb_attach = "opendv_sources.adapters.duckdb_attach:DuckdbAttachSourceAdapter"
 sqlite = "opendv_sources.adapters.duckdb_attach:DuckdbAttachSourceAdapter"
 duckdb = "opendv_sources.adapters.duckdb_attach:DuckdbAttachSourceAdapter"
+databricks = "opendv_sources.adapters.databricks_uc:DatabricksUnityCatalogAdapter"
+uc = "opendv_sources.adapters.databricks_uc:DatabricksUnityCatalogAdapter"
 text = "opendv_sources.adapters.text_document:TextDocumentSourceAdapter"
 txt = "opendv_sources.adapters.text_document:TextDocumentSourceAdapter"
 md = "opendv_sources.adapters.text_document:TextDocumentSourceAdapter"
@@ -43,6 +46,9 @@ parquet = "opendv_sources.parsers.parquet:ParquetFormatParser"
 json = "opendv_sources.parsers.json:JsonFormatParser"
 jsonl = "opendv_sources.parsers.json:JsonFormatParser"
 ndjson = "opendv_sources.parsers.json:JsonFormatParser"
+
+[project.entry-points.pytest11]
+opendv_sources_databricks = "opendv_sources.adapters.databricks_uc"
 
 [build-system]
 requires = ["hatchling"]

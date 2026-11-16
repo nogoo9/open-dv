@@ -93,6 +93,16 @@ def normalize_for_parity(
                 result[key] = re.sub(r"evt-[a-zA-Z0-9_\-]+-[0-9a-f]{6,12}", "<EVENT_ID>", val)
                 continue
 
+            # 2e. Plan IDs
+            if (
+                (key in ("plan_id",) or key.endswith(("_plan_id",)))
+                and isinstance(val, str)
+                and val
+            ):
+                placeholder = run_id_map.setdefault(val, f"<PLAN_ID_{len(run_id_map) + 1}>")
+                result[key] = placeholder
+                continue
+
             # 3. Run ID rewriting with consistent cross-referencing
             if (key == "run_id" or key.endswith("_run_id")) and isinstance(val, str) and val:
                 placeholder = run_id_map.setdefault(val, f"<RUN_ID_{len(run_id_map) + 1}>")

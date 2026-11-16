@@ -85,6 +85,10 @@ class OpenDVSettings(BaseModel):
         default=DEFAULT_MAX_INLINE_BYTES,
         description="Maximum allowed byte size for inline uploads or request payloads.",
     )
+    allowed_hosts: list[str] | None = Field(
+        default=None,
+        description="Allowed external hostnames for outbound connectors (SSRF protection).",
+    )
 
     @classmethod
     def load(
@@ -184,6 +188,16 @@ class OpenDVSettings(BaseModel):
         if cors_val is not None:
             init_kwargs["cors_origins"] = cors_val
 
+        # 6. Allowed hosts (SSRF protection)
+        allowed_hosts_val = cfg_data.get("allowed_hosts")
+        env_allowed = os.environ.get("OPENDV_ALLOWED_HOSTS") or os.environ.get(
+            "OPENDV_ALLOWED_DATABRICKS_HOSTS"
+        )
+        if env_allowed:
+            allowed_hosts_val = [h.strip().lower() for h in env_allowed.split(",") if h.strip()]
+        if allowed_hosts_val is not None:
+            init_kwargs["allowed_hosts"] = allowed_hosts_val
+
         return cls(**init_kwargs)
 
     def to_redacted_dict(self) -> dict[str, Any]:
@@ -196,6 +210,7 @@ class OpenDVSettings(BaseModel):
             "artifacts_dir": str(self.artifacts_dir) if self.artifacts_dir else None,
             "api_url": self.api_url,
             "cors_origins": self.cors_origins,
+            "allowed_hosts": self.allowed_hosts,
             "config_file_path": str(self.config_file_path) if self.config_file_path else None,
         }
 

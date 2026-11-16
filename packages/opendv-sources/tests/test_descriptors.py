@@ -50,3 +50,30 @@ def test_source_descriptor_construction() -> None:
     assert desc.row_count_estimate == 15000
     assert desc.fingerprint == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     assert desc.capabilities.supports_streaming is True
+
+
+def test_foreign_key_hint_model_and_reexports() -> None:
+    """Verify M3: ForeignKeyHint supports composite keys and column list synchronization."""
+    from opendv_sources.models.descriptors import ForeignKeyHint
+
+    # Composite foreign key with source_columns and target_columns
+    hint_comp = ForeignKeyHint(
+        target_table="dim_accounts",
+        source_columns=["acc_type", "acc_id"],
+        target_columns=["type", "id"],
+        constraint_name="fk_accounts_composite",
+    )
+    assert hint_comp.target_table == "dim_accounts"
+    assert hint_comp.source_columns == ["acc_type", "acc_id"]
+    assert hint_comp.target_columns == ["type", "id"]
+    assert hint_comp.source_column == "acc_type"
+    assert hint_comp.target_column == "type"
+
+    # Single column legacy initialization automatically populates list fields
+    hint_single = ForeignKeyHint(
+        target_table="dim_customers",
+        source_column="cust_id",
+        target_column="customer_id",
+    )
+    assert hint_single.source_columns == ["cust_id"]
+    assert hint_single.target_columns == ["customer_id"]

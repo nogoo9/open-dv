@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import duckdb
 
@@ -17,16 +19,54 @@ from opendv_sources.exceptions import (
     SourceTableEmptyError,
     UnsupportedFormatError,
 )
-from opendv_sources.models.descriptors import ColumnDescriptor, SourceCapabilities, SourceDescriptor
-from opendv_sources.models.specs import SourceSpec
+from opendv_sources.models.descriptors import (
+    ColumnDescriptor,
+    NamespaceDescriptor,
+    ResolvedTableSource,
+    SourceCapabilities,
+    SourceDescriptor,
+    TableSchemaDescriptor,
+    TableSummary,
+    TabularProfileSummary,
+)
+from opendv_sources.models.specs import NamespaceRef, SamplingPolicy, SourceSpec, TableRef
 from opendv_sources.models.streams import SourceMetadata, StreamChunk
 from opendv_sources.spi.adapter import SourceAdapter
+from opendv_sources.spi.catalog import CatalogSourceAdapter
 from opendv_sources.spi.tabular import TabularSourceAdapter
 
 _KNOWN_SCHEMES = ("duckdb_attach", "sqlite", "duckdb")
+_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 
 
-class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
+def validate_identifier(name: str) -> str:
+    """Validate that a table/view identifier contains only safe alphanumeric characters."""
+    clean = name.strip('`" ')
+    if not _IDENTIFIER_PATTERN.match(clean):
+        raise ValueError(f"Unsafe SQL identifier rejected: {name!r}")
+    return clean
+
+
+def quote_ident(ident: str) -> str:
+    """Safely quote a SQL identifier, escaping internal double quotes by doubling them."""
+    clean = ident.strip()
+    if clean.startswith('"') and clean.endswith('"') and len(clean) >= 2:
+        inner = clean[1:-1]
+        if re.fullmatch(r'(?:[^"]|"")*', inner):
+            return clean
+        clean = inner
+    escaped = clean.replace('"', '""')
+    return f'"{escaped}"'
+
+
+def qualify_bronze_view_name(source: str, table: str) -> str:
+    """Construct collision-safe qualified bronze view name: bronze_{source}_{table}."""
+    clean_src = re.sub(r"[^A-Za-z0-9_]", "_", source).strip("_") or "src"
+    clean_tbl = re.sub(r"[^A-Za-z0-9_]", "_", table).strip("_") or "tbl"
+    return f"bronze_{clean_src}_{clean_tbl}"
+
+
+class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter, CatalogSourceAdapter):
     """Source adapter exposing tables from local SQLite or DuckDB database files via ATTACH."""
 
     schemes: tuple[str, ...] = ("duckdb_attach", "sqlite", "duckdb")
@@ -37,12 +77,12 @@ class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
         adapter_name: str = "duckdb_attach",
         workspace_root: Path | None = None,
         allowed_roots: Sequence[Path] | None = None,
-        allow_temp: bool = False,
+        allow_temp: bool | None = None,
     ) -> None:
         self._adapter_name = adapter_name
         self.workspace_root = workspace_root
         self.allowed_roots = allowed_roots
-        self.allow_temp = allow_temp
+        self.allow_temp = (workspace_root is None) if allow_temp is None else allow_temp
 
     @property
     def adapter_name(self) -> str:
@@ -83,7 +123,7 @@ class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
         return resolved, tbl, scheme
 
     def _detect_db_type(self, spec: SourceSpec, scheme: str | None, path: Path) -> str:
-        fmt = (spec.format or "").lower().strip(".")
+        fmt = (getattr(spec, "format", None) or "").lower().strip(".")
         cand = (scheme or spec.adapter or self.adapter_name).lower()
         if fmt in {"sqlite", "sqlite3"} or cand in {"sqlite", "sqlite3"}:
             return "sqlite"
@@ -127,7 +167,7 @@ class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
         alias = f"attach_{db_type}_{hashlib.md5(esc.encode()).hexdigest()[:8]}"
         att = "(TYPE SQLITE, READ_ONLY)" if db_type == "sqlite" else "(READ_ONLY)"
         try:
-            conn.execute(f"ATTACH IF NOT EXISTS '{esc}' AS \"{alias}\" {att}")
+            conn.execute(f"ATTACH IF NOT EXISTS '{esc}' AS {quote_ident(alias)} {att}")
         except duckdb.Error as exc:
             raise SourceLoadError(f"Failed to attach {db_type} db '{path.name}': {exc}") from exc
         return alias
@@ -135,10 +175,12 @@ class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
     def register(
         self, spec: SourceSpec, conn: duckdb.DuckDBPyConnection, relation_name: str
     ) -> None:
+        validate_identifier(relation_name)
         db_path, tbl, scheme = self._parse_spec(spec)
         alias = self._get_or_attach_db(conn, db_path, self._detect_db_type(spec, scheme, db_path))
         try:
-            tables = [r[0] for r in conn.execute(f'SHOW TABLES FROM "{alias}"').fetchall()]
+            q_alias = quote_ident(alias)
+            tables = [r[0] for r in conn.execute(f"SHOW TABLES FROM {q_alias}").fetchall()]
         except duckdb.Error as exc:
             raise SourceLoadError(f"Failed to inspect tables in '{db_path.name}': {exc}") from exc
 
@@ -156,10 +198,12 @@ class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
                 f"Table '{tbl}' not found in '{db_path.name}'. Available: {tables}"
             )
 
-        t_esc, r_esc = tbl.replace('"', '""'), relation_name.replace('"', '""')
+        validate_identifier(tbl)
+        q_rel = quote_ident(relation_name)
+        q_target = f"{quote_ident(alias)}.{quote_ident(tbl)}"
         try:
-            conn.execute(f'CREATE OR REPLACE VIEW "{r_esc}" AS SELECT * FROM "{alias}"."{t_esc}"')
-            res = conn.execute(f'SELECT count(*) FROM "{r_esc}"').fetchall()
+            conn.execute(f"CREATE OR REPLACE VIEW {q_rel} AS SELECT * FROM {q_target}")
+            res = conn.execute(f"SELECT count(*) FROM {q_rel}").fetchall()
             count = int(res[0][0]) if res and res[0] else 0
         except duckdb.Error as exc:
             raise SourceLoadError(f"Failed to register '{relation_name}': {exc}") from exc
@@ -224,14 +268,163 @@ class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
                 h.update(b)
         return h.hexdigest()
 
-    def capabilities(self, spec: SourceSpec) -> SourceCapabilities:
+    def _get_sqlite_inspector(self) -> Any:
+        from opendv_sources.adapters.sqlite_inspector import SqliteCatalogInspector
+
+        return SqliteCatalogInspector(
+            adapter_name=self.adapter_name,
+            workspace_root=self.workspace_root,
+            allowed_roots=self.allowed_roots,
+            allow_temp=self.allow_temp or (self.workspace_root is None),
+        )
+
+    def list_namespaces(self, spec: SourceSpec) -> list[NamespaceDescriptor]:
+        db_path, _, scheme = self._parse_spec(spec)
+        db_type = self._detect_db_type(spec, scheme, db_path)
+        if db_type == "sqlite":
+            return self._get_sqlite_inspector().list_namespaces(spec)
+        return [
+            NamespaceDescriptor(
+                catalog=None,
+                schema_name="main",
+                description=f"Default schema for DuckDB database {db_path.name}",
+            )
+        ]
+
+    def list_tables(
+        self,
+        spec: SourceSpec,
+        namespace: NamespaceRef | None = None,
+    ) -> list[TableSummary]:
+        db_path, _, scheme = self._parse_spec(spec)
+        db_type = self._detect_db_type(spec, scheme, db_path)
+        if db_type == "sqlite":
+            return self._get_sqlite_inspector().list_tables(spec, namespace)
+
+        tmp = duckdb.connect(":memory:")
+        try:
+            alias = self._get_or_attach_db(tmp, db_path, db_type)
+            q_alias = quote_ident(alias)
+            tables = [r[0] for r in tmp.execute(f"SHOW TABLES FROM {q_alias}").fetchall()]
+            summaries: list[TableSummary] = []
+            for t in tables:
+                cnt_row = tmp.execute(
+                    f"SELECT count(*) FROM {quote_ident(alias)}.{quote_ident(t)}"
+                ).fetchone()
+                row_cnt = int(cnt_row[0]) if cnt_row else None
+                summaries.append(
+                    TableSummary(
+                        table_name=t,
+                        namespace=namespace or NamespaceRef(schema_name="main"),
+                        table_type="BASE_TABLE",
+                        row_count_estimate=row_cnt,
+                    )
+                )
+            return summaries
+        finally:
+            tmp.close()
+
+    def inspect_table(self, spec: SourceSpec, table: TableRef) -> TableSchemaDescriptor:
+        validate_identifier(table.table_name)
+        db_path, _, scheme = self._parse_spec(spec)
+        db_type = self._detect_db_type(spec, scheme, db_path)
+        if db_type == "sqlite":
+            return self._get_sqlite_inspector().inspect_table(spec, table)
+
+        sub_spec = spec.model_copy(update={"options": {**spec.options, "table": table.table_name}})
+        desc = self.describe(sub_spec)
+        return TableSchemaDescriptor(
+            table_name=table.table_name,
+            namespace=table.namespace or NamespaceRef(schema_name="main"),
+            columns=desc.columns,
+            row_count_estimate=desc.row_count_estimate,
+            fingerprint=desc.fingerprint,
+        )
+
+    def expand_feed(
+        self,
+        spec: SourceSpec,
+        table: TableRef | None = None,
+    ) -> list[ResolvedTableSource]:
+        db_path, _, scheme = self._parse_spec(spec)
+        db_type = self._detect_db_type(spec, scheme, db_path)
+        if db_type == "sqlite":
+            return self._get_sqlite_inspector().expand_feed(spec, table)
+
+        source_sys = str(spec.options.get("source_system") or db_path.stem)
+        tbl_names = [table.table_name] if table else [s.table_name for s in self.list_tables(spec)]
+        expanded: list[ResolvedTableSource] = []
+        for name in tbl_names:
+            t_ref = TableRef(table_name=name)
+            schema = self.inspect_table(spec, t_ref)
+            sub_spec = spec.model_copy(update={"options": {**spec.options, "table": name}})
+            expanded.append(
+                ResolvedTableSource(
+                    source_system=source_sys,
+                    table_name=name,
+                    qualified_name=f"{source_sys}.{name}",
+                    schema_descriptor=schema,
+                    spec=sub_spec,
+                    physical_location=str(db_path),
+                    execution_mode="DIRECT_DUCKDB_ATTACH",
+                )
+            )
+        return expanded
+
+    def profile_pushdown(
+        self,
+        spec: SourceSpec,
+        table: TableRef,
+        policy: SamplingPolicy,
+    ) -> TabularProfileSummary:
+        db_path, _, scheme = self._parse_spec(spec)
+        db_type = self._detect_db_type(spec, scheme, db_path)
+        if db_type == "sqlite":
+            return self._get_sqlite_inspector().profile_pushdown(spec, table, policy)
+
+        sub_spec = spec.model_copy(update={"options": {**spec.options, "table": table.table_name}})
+        desc = self.describe(sub_spec)
+        return TabularProfileSummary(
+            table_name=table.table_name,
+            namespace=table.namespace,
+            total_row_count=desc.row_count_estimate or 0,
+        )
+
+    def capabilities(self, spec: SourceSpec | None = None) -> SourceCapabilities:
+        is_sqlite = False
+        if spec and spec.uri:
+            try:
+                db_path, _, scheme = self._parse_spec(spec)
+                is_sqlite = self._detect_db_type(spec, scheme, db_path) == "sqlite"
+            except (
+                SourceLoadError,
+                SourceNotFoundError,
+                SourceTableEmptyError,
+                UnsupportedFormatError,
+                OSError,
+                ValueError,
+            ):
+                is_sqlite = False
+
         return SourceCapabilities(
+            execution_mode="DIRECT_DUCKDB_ATTACH",
+            supports_multi_table=True,
+            supports_catalog_hierarchy=False,
+            supports_foreign_keys=is_sqlite,
+            supports_governance_tags=False,
+            supports_time_travel=False,
             supports_streaming=True,
             supports_pushdown=True,
             supports_drift_detection=True,
-            client_uploadable=False,
+            client_uploadable=is_sqlite,
             server_resolved=True,
         )
 
 
-__all__ = ["DuckdbAttachSourceAdapter", "PathContainmentError"]
+__all__ = [
+    "DuckdbAttachSourceAdapter",
+    "PathContainmentError",
+    "qualify_bronze_view_name",
+    "quote_ident",
+    "validate_identifier",
+]

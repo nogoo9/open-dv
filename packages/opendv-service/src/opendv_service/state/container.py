@@ -37,6 +37,8 @@ class PlatformStateContainer(
         state_dir: Path | None = None,
         pipeline_runner: PipelineRunner | None = None,
         settings: Any | None = None,
+        is_server: bool = False,
+        allowed_hosts: list[str] | None = None,
     ) -> None:
         super().__init__(
             workspace_root=workspace_root,
@@ -44,7 +46,11 @@ class PlatformStateContainer(
             repo_root=repo_root,
             state_dir=state_dir,
             settings=settings,
+            is_server=is_server,
+            allowed_hosts=allowed_hosts,
         )
+        self.is_server = is_server
+        self.allowed_hosts = allowed_hosts
         self._custom_pipeline_runner = pipeline_runner
 
 

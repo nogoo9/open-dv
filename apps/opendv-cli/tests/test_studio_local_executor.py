@@ -163,9 +163,16 @@ def test_studio_upload_parse_clarify_answer(studio_env: tuple[Path, Path]) -> No
     assert code_clarify == 0
 
     # Answer
+    questions_path = _studio_root / "s1" / "clarifications" / "questions.json"
+    if questions_path.is_file():
+        q_data = json.loads(questions_path.read_text(encoding="utf-8"))
+        q_id = q_data[0]["question_id"]
+        opt_id = q_data[0]["options"][0]["option_id"]
+    else:
+        q_id, opt_id = "q1", "opt1"
     ans_file = ws / "answers.json"
     ans_file.write_text(
-        json.dumps([{"question_id": "q1", "selected_option_id": "opt1"}]), encoding="utf-8"
+        json.dumps([{"question_id": q_id, "selected_option_id": opt_id}]), encoding="utf-8"
     )
     code_ans = app_main(["ontology", "studio", "answer", "-s", "s1", "-f", str(ans_file), "--json"])
     assert code_ans == 0

@@ -469,7 +469,6 @@ def compute_ontology_coverage(
     return OntologyCoverageArtifact(
         artifact_id=art_id,
         run_id=run_id,
-        wave_id=norm_wave_id,
         domain_namespace=ontology.domain_namespace,
         graph_a_version=getattr(ontology, "ontology_version", "1.0.0"),
         graph_a_sha256=graph_a_sha256,

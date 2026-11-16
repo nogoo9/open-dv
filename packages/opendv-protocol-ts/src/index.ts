@@ -9,6 +9,7 @@ export * from "./types/canonical-ir";
 export * from "./types/contract-v5";
 export * from "./types/api-dtos";
 export * from "./types/workbench-explorer";
+export * from "./types/vault-blueprint";
 
 export * from "./client/platform-client";
 export * from "./client/sse-client";

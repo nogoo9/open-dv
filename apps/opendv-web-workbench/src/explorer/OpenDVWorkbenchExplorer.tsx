@@ -24,7 +24,7 @@ import { ExplorerTopBar } from "./ExplorerTopBar";
 import { NewRunModal, type PipelineValidationReport } from "./NewRunModal";
 import { PipelineOverviewView } from "./PipelineOverviewView";
 import { StageDrillDownView } from "./StageDrillDownView";
-import { PipelineBuilderView } from "./builder/PipelineBuilderView";
+import { WizardShell } from "./builder/WizardShell";
 import type { StagedPipelineSpec } from "./builder/specBuilderUtils";
 import type { ExplorerDataSource } from "./data-source";
 import { EXPLORER_COLORS, EXPLORER_FONTS } from "./design-tokens";
@@ -277,28 +277,8 @@ export function OpenDVWorkbenchExplorer({
 		}
 	};
 
-	// Filter stage artifacts by active wave
-	const displayedStages =
-		activeWave === "all"
-			? bundle.stages
-			: bundle.stages.map((st) => ({
-					...st,
-					ins: filterArtifactIdsByWave(st.ins, bundle.artifacts, activeWave),
-					outs: filterArtifactIdsByWave(st.outs, bundle.artifacts, activeWave),
-					steps: st.steps.map((sp) => ({
-						...sp,
-						reads: filterArtifactIdsByWave(
-							sp.reads,
-							bundle.artifacts,
-							activeWave,
-						),
-						writes: filterArtifactIdsByWave(
-							sp.writes,
-							bundle.artifacts,
-							activeWave,
-						),
-					})),
-				}));
+	// Display all stages unconditionally for single-run architecture (ADR-017, ADR-019)
+	const displayedStages = bundle.stages;
 
 	const statusDotColor =
 		runState === "running" || runState === "hold" ? "#B45309" : "#16181D";
@@ -359,23 +339,17 @@ export function OpenDVWorkbenchExplorer({
 						</div>
 					)}
 					{view === "builder" ? (
-						<PipelineBuilderView
+						<WizardShell
 							sessionId={builderSessionId ?? undefined}
 							source={builderSource ?? undefined}
 							initialDomainNamespace={builderDomain ?? undefined}
 							initialPipelineId={builderPipelineId ?? undefined}
-							stagedSpec={stagedSpec}
-							onStageSpec={setStagedSpec}
 							onRunStarted={(handle) => {
 								handleRunStarted(handle);
-								goPipeline();
 							}}
+							onBackToExplorer={goPipeline}
 							fetchImpl={fetchImpl}
 							apiUrl={apiUrl}
-							validatePipelineFn={dataSource?.validatePipeline?.bind(
-								dataSource,
-							)}
-							createRunFn={dataSource?.createPipelineRun?.bind(dataSource)}
 						/>
 					) : view === "settings" ? (
 						<PlatformSettingsView

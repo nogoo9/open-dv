@@ -87,8 +87,12 @@ describe("tree (--dump-cli-tree)", () => {
 		if (uvBin) {
 			const pyCode = [
 				"import json",
+				"from pathlib import Path",
+				"from opendv_contracts.spec import load_cli_spec",
 				"from opendv_cli_common.tree import build_cli_tree, dump_cli_tree",
-				"print(json.dumps({'client': build_cli_tree(prog='opendvctl', mode='client'), 'standalone': build_cli_tree(prog='opendv', mode='standalone'), 'client_jcs': dump_cli_tree(prog='opendvctl', mode='client')}))",
+				"spec_p = Path('schemas/v1/cli-spec.json').resolve()",
+				"spec = load_cli_spec(spec_p) if spec_p.is_file() else load_cli_spec()",
+				"print(json.dumps({'client': build_cli_tree(spec, prog='opendvctl', mode='client'), 'standalone': build_cli_tree(spec, prog='opendv', mode='standalone'), 'client_jcs': dump_cli_tree(spec, prog='opendvctl', mode='client')}))",
 			].join("; ");
 
 			const proc = Bun.spawnSync(

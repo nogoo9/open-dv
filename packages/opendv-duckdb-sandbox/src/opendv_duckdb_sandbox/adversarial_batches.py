@@ -150,6 +150,7 @@ def run_batch_1_baseline_and_ghost_completeness(
     )
 
     links_loaded_ok = link_rows > 0 if link_pk_map else link_rows == 0
+    sats_loaded_ok = sat_rows > 0 if satellite_pk_map else sat_rows == 0
     passed = (
         ref_check.passed
         and ghost_check.passed
@@ -157,7 +158,7 @@ def run_batch_1_baseline_and_ghost_completeness(
         and ghosts_verified
         and hub_rows > 0
         and links_loaded_ok
-        and sat_rows > 0
+        and sats_loaded_ok
     )
 
     return AdversarialBatchResult(
@@ -289,6 +290,19 @@ def run_batch_3_delta_and_boundary_shift(
 
         ir = DuckDbShadowSandbox.load_default_pe_canonical_ir()
 
+    if not getattr(ir, "satellites", None):
+        return AdversarialBatchResult(
+            batch_number=3,
+            batch_name="Delta Ingestion & Boundary-Shift Collision Invariance",
+            passed=True,
+            hub_delta_rows=0,
+            link_delta_rows=0,
+            satellite_delta_rows=0,
+            total_delta_rows=0,
+            metrics={"skipped": True, "reason": "No satellites defined in Canonical IR"},
+            detail="Skipped Batch 3: No satellites defined in Canonical IR.",
+        )
+
     target_sat = next(
         (
             s
@@ -415,6 +429,19 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
         from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
 
         ir = DuckDbShadowSandbox.load_default_pe_canonical_ir()
+
+    if not getattr(ir, "hubs", None) or not getattr(ir, "satellites", None):
+        return AdversarialBatchResult(
+            batch_number=4,
+            batch_name="Cross-Source BKCC Collision Isolation & Bi-Temporal Restatement",
+            passed=True,
+            hub_delta_rows=0,
+            link_delta_rows=0,
+            satellite_delta_rows=0,
+            total_delta_rows=0,
+            metrics={"skipped": True, "reason": "No hubs or satellites defined in Canonical IR"},
+            detail="Skipped Batch 4: No hubs or satellites defined in Canonical IR.",
+        )
 
     before_hubs, before_links, before_sats = _snapshot_vault_counts(conn, ir)
 

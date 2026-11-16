@@ -32,6 +32,15 @@ from opendv_duckdb_sandbox.compiler_4zone.staging_registry import (
 )
 
 
+def _make_table_and_insert(table_name: str, col_defs: list[str], insert_rows: list[str]) -> str:
+    cols = "\n".join(col_defs)
+    vals = ",\n".join(insert_rows)
+    return (
+        f"CREATE OR REPLACE TABLE bronze.{table_name} (\n{cols}\n);\n"
+        f"INSERT INTO bronze.{table_name} VALUES\n{vals};"
+    )
+
+
 def compile_generic_bronze_tables_sql(
     ir_obj: CanonicalIR,
     *,
@@ -47,10 +56,7 @@ def compile_generic_bronze_tables_sql(
     bkcc_registry = build_staging_bkcc_registry(ir_obj)
     hub_bk_rows: dict[str, list[list[str]]] = {
         hub.name: _resolve_hub_bk_rows_from_bronze(
-            hub,
-            loaded_bronze,
-            ir_obj=ir_obj,
-            bkcc_registry=bkcc_registry,
+            hub, loaded_bronze, ir_obj=ir_obj, bkcc_registry=bkcc_registry
         )
         for hub in ir_obj.hubs
     }
@@ -74,14 +80,20 @@ def compile_generic_bronze_tables_sql(
                 raw_bronze_hub_pairs.setdefault(raw_short, []).append((hub, sm))
 
         bkcc_col_expr = _effective_hub_bkcc_column_expr(hub)
-        bk_names = {bk.name for bk in hub.business_keys}
+        seen_hub_bks: set[str] = set()
+        bk_defs = []
+        for bk in hub.business_keys:
+            clean_bk = _validate_ident(bk.name)
+            if clean_bk not in seen_hub_bks:
+                seen_hub_bks.add(clean_bk)
+                bk_defs.append(f"    {clean_bk} VARCHAR,")
         extra_bkcc_col = (
             _validate_ident(bkcc_col_expr)
-            if bkcc_col_expr and bkcc_col_expr not in bk_names
+            if bkcc_col_expr and bkcc_col_expr not in seen_hub_bks
             else None
         )
-        bk_defs = [f"    {_validate_ident(bk.name)} VARCHAR," for bk in hub.business_keys]
         if extra_bkcc_col:
+            seen_hub_bks.add(extra_bkcc_col)
             bk_defs.append(f"    {extra_bkcc_col} VARCHAR,")
         bk_rows = hub_bk_rows[hub.name]
         bkcc_idx = next((i for i, bk in enumerate(hub.business_keys) if bk.is_bkcc), None)
@@ -101,16 +113,10 @@ def compile_generic_bronze_tables_sql(
                 f"    ({lit_vals}, TIMESTAMP '2026-10-01 06:00:00', '{_sql_lit(row_rec_src)}')"
             )
         parts.append(
-            "\n".join(
-                [
-                    f"CREATE OR REPLACE TABLE bronze.src_{tbl} (",
-                    *bk_defs,
-                    "    load_dts TIMESTAMP,",
-                    "    rec_src VARCHAR",
-                    ");",
-                    f"INSERT INTO bronze.src_{tbl} VALUES",
-                    ",\n".join(hub_insert_rows) + ";",
-                ]
+            _make_table_and_insert(
+                f"src_{tbl}",
+                [*bk_defs, "    load_dts TIMESTAMP,", "    rec_src VARCHAR"],
+                hub_insert_rows,
             )
         )
 
@@ -166,16 +172,10 @@ def compile_generic_bronze_tables_sql(
                     f"'{_sql_lit(comp_rec_src)}')"
                 )
             parts.append(
-                "\n".join(
-                    [
-                        f"CREATE OR REPLACE TABLE bronze.{raw_short} (",
-                        *col_defs,
-                        "    load_dts TIMESTAMP,",
-                        "    rec_src VARCHAR",
-                        ");",
-                        f"INSERT INTO bronze.{raw_short} VALUES",
-                        ",\n".join(comp_insert_rows) + ";",
-                    ]
+                _make_table_and_insert(
+                    raw_short,
+                    [*col_defs, "    load_dts TIMESTAMP,", "    rec_src VARCHAR"],
+                    comp_insert_rows,
                 )
             )
 
@@ -218,11 +218,7 @@ def compile_generic_bronze_tables_sql(
                 role_name=ref.role_name,
                 registry=bkcc_registry,
             )
-            scoped_rows = _filter_hub_rows_for_bkcc(
-                t_hub,
-                hub_bk_rows[t_hub.name],
-                ref_bkcc_lit,
-            )
+            scoped_rows = _filter_hub_rows_for_bkcc(t_hub, hub_bk_rows[t_hub.name], ref_bkcc_lit)
             h_r1 = scoped_rows[0]
             h_r2 = scoped_rows[1] if len(scoped_rows) > 1 else scoped_rows[0]
             r1_bks = h_r1 if (occ == 0 or scoped_rows != hub_bk_rows[t_hub.name]) else h_r2
@@ -230,10 +226,8 @@ def compile_generic_bronze_tables_sql(
             for bk, val1, val2 in zip(t_hub.business_keys, r1_bks, r2_bks, strict=True):
                 raw_col = _validate_ident(f"{fk_col}__{bk.name}")
                 col_defs.append(f"    {raw_col} VARCHAR,")
-                eff_v1 = (ref_bkcc_lit or val1) if bk.is_bkcc else val1
-                eff_v2 = (ref_bkcc_lit or val2) if bk.is_bkcc else val2
-                esc1 = eff_v1.replace("'", "''")
-                esc2 = eff_v2.replace("'", "''")
+                esc1 = ((ref_bkcc_lit or val1) if bk.is_bkcc else val1).replace("'", "''")
+                esc2 = ((ref_bkcc_lit or val2) if bk.is_bkcc else val2).replace("'", "''")
                 row1_tokens.append(f"'{esc1}'")
                 if ref_idx == 0:
                     row2_tokens.append(f"'{esc2}'")
@@ -269,22 +263,18 @@ def compile_generic_bronze_tables_sql(
             col_defs.append("    rec_src VARCHAR")
             steward_r1 = steward_r2 = steward_r3 = steward_r4 = ""
 
+        l_ts = "TIMESTAMP '2026-10-01 06:00:00'"
+        esc_rec = _sql_lit(rec_src)
         parts.append(
-            "\n".join(
+            _make_table_and_insert(
+                f"src_{tbl}",
+                col_defs,
                 [
-                    f"CREATE OR REPLACE TABLE bronze.src_{tbl} (",
-                    *col_defs,
-                    ");",
-                    f"INSERT INTO bronze.src_{tbl} VALUES",
-                    f"    ({', '.join(row1_tokens)}, TIMESTAMP '2026-10-01 06:00:00', "
-                    f"'{_sql_lit(rec_src)}'{steward_r1}),",
-                    f"    ({', '.join(row2_tokens)}, TIMESTAMP '2026-10-01 06:00:00', "
-                    f"'{_sql_lit(rec_src)}'{steward_r2}),",
-                    f"    ({', '.join(row3_tokens)}, TIMESTAMP '2026-10-01 06:00:00', "
-                    f"'{_sql_lit(rec_src)}'{steward_r3}),",
-                    f"    ({', '.join(row4_tokens)}, TIMESTAMP '2026-10-01 06:00:00', "
-                    f"'{_sql_lit(rec_src)}'{steward_r4});",
-                ]
+                    f"    ({', '.join(row1_tokens)}, {l_ts}, '{esc_rec}'{steward_r1})",
+                    f"    ({', '.join(row2_tokens)}, {l_ts}, '{esc_rec}'{steward_r2})",
+                    f"    ({', '.join(row3_tokens)}, {l_ts}, '{esc_rec}'{steward_r3})",
+                    f"    ({', '.join(row4_tokens)}, {l_ts}, '{esc_rec}'{steward_r4})",
+                ],
             )
         )
 
@@ -389,14 +379,30 @@ def compile_generic_bronze_tables_sql(
         add_steward_col = is_unstructured_link_sat and not has_steward_col
         col_defs.append("    rec_src VARCHAR" + ("," if (data_cols or add_steward_col) else ""))
 
-        for idx_c, col in enumerate(data_cols):
+        seen_sat_col_names: set[str] = set()
+        clean_col_defs: list[str] = []
+        for def_line in col_defs:
+            col_part = def_line.strip().split()[0]
+            if col_part not in seen_sat_col_names:
+                seen_sat_col_names.add(col_part)
+                clean_col_defs.append(def_line)
+
+        deduped_data_cols: list[Any] = []
+        for col in data_cols:
+            c_name = _validate_ident(col.name)
+            if c_name not in seen_sat_col_names:
+                seen_sat_col_names.add(c_name)
+                deduped_data_cols.append(col)
+
+        for idx_c, col in enumerate(deduped_data_cols):
             c_name = _validate_ident(col.name)
             c_type = _normalize_duckdb_type(col.data_type)
-            comma = "," if (idx_c < len(data_cols) - 1 or add_steward_col) else ""
-            col_defs.append(f"    {c_name} {c_type}{comma}")
+            comma = "," if (idx_c < len(deduped_data_cols) - 1 or add_steward_col) else ""
+            clean_col_defs.append(f"    {c_name} {c_type}{comma}")
 
-        if add_steward_col:
-            col_defs.append("    steward_gate_status VARCHAR DEFAULT 'APPROVED'")
+        if add_steward_col and "steward_gate_status" not in seen_sat_col_names:
+            seen_sat_col_names.add("steward_gate_status")
+            clean_col_defs.append("    steward_gate_status VARCHAR DEFAULT 'APPROVED'")
 
         app_lit = "TIMESTAMP '2026-09-30 00:00:00', " if has_applied else ""
         insert_rows: list[str] = []
@@ -414,7 +420,7 @@ def compile_generic_bronze_tables_sql(
             )
             row_app_lit = f"TIMESTAMP '{row_app_dts}', " if has_applied else ""
             r_payload = [
-                _format_bronze_payload_sql_literal(c, src_row, idx_r + 1) for c in data_cols
+                _format_bronze_payload_sql_literal(c, src_row, idx_r + 1) for c in deduped_data_cols
             ]
             r_pay_sql = f", {', '.join(r_payload)}" if r_payload else ""
             steward_lit = ""
@@ -428,7 +434,7 @@ def compile_generic_bronze_tables_sql(
 
         if include_batch4_restatement_in_seed and sat.name == bitemp_sat_name and parent_val_rows:
             r3_payload = [
-                _satellite_seed_sql_literal(c, len(parent_val_rows) + 1) for c in data_cols
+                _satellite_seed_sql_literal(c, len(parent_val_rows) + 1) for c in deduped_data_cols
             ]
             r3_pay_sql = f", {', '.join(r3_payload)}" if r3_payload else ""
             steward_lit_r3 = ", 'APPROVED'" if add_steward_col else ""
@@ -437,17 +443,7 @@ def compile_generic_bronze_tables_sql(
                 f"{app_lit}'{rec_src}'{r3_pay_sql}{steward_lit_r3})"
             )
 
-        parts.append(
-            "\n".join(
-                [
-                    f"CREATE OR REPLACE TABLE bronze.src_{tbl} (",
-                    *col_defs,
-                    ");",
-                    f"INSERT INTO bronze.src_{tbl} VALUES",
-                    ",\n".join(insert_rows) + ";",
-                ]
-            )
-        )
+        parts.append(_make_table_and_insert(f"src_{tbl}", clean_col_defs, insert_rows))
 
     return parts
 

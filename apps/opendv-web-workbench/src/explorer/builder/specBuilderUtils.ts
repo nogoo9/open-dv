@@ -6,6 +6,18 @@
  */
 
 import type { StewardHoldPolicyOption } from "../modals/NewRunFormFields";
+import { parse as parseYaml } from "yaml";
+import { EXPLORER_COLORS as C, EXPLORER_FONTS as F } from "../design-tokens";
+
+export const S_STEP4 = {
+	sec: { backgroundColor: C.bgSurface, borderRadius: 8, border: `1px solid ${C.borderLine}`, padding: 16 },
+	box: { backgroundColor: C.bgPage, borderRadius: 6, border: `1px solid ${C.borderLine}`, padding: 12, marginBottom: 12 },
+	between: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
+	btnRun: (exec: boolean) => ({ padding: "8px 16px", backgroundColor: exec ? "#94A3B8" : C.borderSelected, color: "#FFF", borderRadius: 5, fontSize: 13, fontWeight: 600, border: "none", cursor: exec ? "not-allowed" : "pointer" }),
+	chip: (c: string, bg: string, b: string) => ({ padding: "2px 7px", borderRadius: 10, fontSize: 11, fontFamily: F.mono, fontWeight: 600, color: c, backgroundColor: bg, border: `1px solid ${b}`, display: "inline-flex", alignItems: "center" }),
+	diag: (err: boolean) => ({ padding: "2px 7px", borderRadius: 10, fontSize: 11, fontFamily: F.mono, fontWeight: 600, color: err ? "#991B1B" : "#0369A1", backgroundColor: err ? "#FEF2F2" : "#F0F9FF", border: `1px solid ${err ? "#FECACA" : "#BAE6FD"}`, display: "inline-flex", alignItems: "center" }),
+	step: (curr: boolean, done: boolean) => ({ padding: "4px 6px", borderRadius: 4, fontSize: 11, backgroundColor: curr ? "#EFF6FF" : done ? "#F0FDF4" : C.bgPage, border: `1px solid ${curr ? "#3B82F6" : done ? "#BBF7D0" : C.borderLine}`, color: curr ? "#1D4ED8" : done ? "#166534" : C.inkMuted }),
+};
 
 export type WaveTypeOption =
 	| "COLD_START"
@@ -36,6 +48,8 @@ function nextDraftKey(prefix: string): string {
 	draftItemCounter += 1;
 	return `${prefix}-${draftItemCounter}`;
 }
+
+export const toHubName = (slug: string): string => `hub_${slug.toLowerCase().trim()}`;
 
 export interface InteractiveWaveDraft {
 	waveIndex: number;
@@ -91,7 +105,7 @@ export function createEmptyDocDraft(): InteractiveWaveDocDraft {
 		docId: "doc_msa_001",
 		documentPath:
 			"examples/pipeline_samples/global_commerce_vault/docs/master_service_agreement.md",
-		targetHubName: "hub_customer",
+		targetHubName: toHubName("customer"),
 	};
 }
 
@@ -132,7 +146,7 @@ export function createDefaultPipelineDraft(): InteractivePipelineDraft {
 						tableName: "bronze_customers",
 						dataPath:
 							"examples/pipeline_samples/global_commerce_vault/data/w0_crm_customers.csv",
-						targetHubName: "hub_customer",
+						targetHubName: toHubName("customer"),
 						businessKeyColumns: "customer_id",
 					},
 				],
@@ -192,7 +206,7 @@ export function createOntologyStudioPipelineDraft(params?: {
 								tableName: "stg_sec_security_master",
 								dataPath:
 									"examples/asset_management/data/sec_security_master.csv",
-								targetHubName: "hub_security",
+								targetHubName: toHubName("security"),
 								businessKeyColumns: "ticker, cik",
 							},
 							{
@@ -301,3 +315,121 @@ export function draftToStagedSpec(
 		validated,
 	};
 }
+
+export const PIPELINE_STAGES = [
+	{ id: "STAGE_00", label: "Orchestration" },
+	{ id: "STAGE_01", label: "Scout Sources" },
+	{ id: "STAGE_02", label: "Scout Docs" },
+	{ id: "STAGE_03", label: "Ship Vault P1" },
+	{ id: "STAGE_04", label: "Ship Vault P2" },
+	{ id: "STAGE_05", label: "Static Gates" },
+	{ id: "STAGE_06", label: "Dynamic Sandbox" },
+	{ id: "STAGE_07", label: "Compiler" },
+] as const;
+
+export const INFERRED_ACTION_DESC: Record<string, string> = {
+	COLD_START_N1: "Greenfield synthesis from ontology concepts.",
+	VERIFIED_NO_OP: "Zero-Data deterministic verification of existing contract.",
+	UNSTRUCTURED_FIRST: "Unstructured entity extraction.",
+	SCHEMA_DRIFT: "Schema Drift repair & companion satellite synthesis.",
+	HYBRID_PER_SOURCE: "Hybrid multi-source structured and unstructured ingestion.",
+};
+
+export interface RunArtifactsResult {
+	duckdbSql: string;
+	databricksSql: string;
+	contractContent: string;
+	outputBlueprint?: any;
+}
+
+export async function fetchRunArtifacts(
+	fetcher: typeof fetch,
+	apiUrl: string,
+	rId: string,
+	headers: Record<string, string>,
+): Promise<RunArtifactsResult> {
+	let duckdbSql = "", databricksSql = "", contractContent = "", outputBlueprint: any;
+	try {
+		const artRes = await fetcher(`${apiUrl}/runs/${encodeURIComponent(rId)}/artifacts`, { credentials: "include", headers });
+		if (artRes.ok) {
+			const arts: Array<{ artifact_id?: string; filename?: string; content?: string }> = await artRes.json();
+			const fArt = (pat: string) => arts.find((a) => a.artifact_id?.includes(pat) || a.filename?.includes(pat))?.content ?? "";
+			duckdbSql = fArt("four_zone") || fArt("final_sql");
+			databricksSql = fArt("databricks");
+			contractContent = fArt("final_contract") || fArt(".yaml");
+			const bpArt = fArt("blueprint");
+			if (bpArt) {
+				try {
+					outputBlueprint = parseYaml(bpArt);
+				} catch {}
+			}
+		}
+	} catch {}
+	return { duckdbSql, databricksSql, contractContent, outputBlueprint };
+}
+
+export async function pollPipelineRun(
+	fetcher: typeof fetch,
+	apiUrl: string,
+	rId: string,
+	headers: Record<string, string>,
+	onStageChange: (stageId: string) => void,
+): Promise<Record<string, unknown> | null> {
+	let pollAttempts = 0;
+	while (pollAttempts < 600) {
+		pollAttempts++;
+		await new Promise((resolve) => setTimeout(resolve, 800));
+		try {
+			const sRes = await fetcher(`${apiUrl}/runs/${encodeURIComponent(rId)}`, { credentials: "include", headers });
+			if (sRes.ok) {
+				const statusData = (await sRes.json()) as Record<string, unknown>;
+				const stageId = String(statusData.current_stage_id ?? "");
+				if (stageId) onStageChange(stageId);
+				const st = String(statusData.status ?? "");
+				if (["COMPLETED", "FAILED", "PAUSED_HOLD", "ABORTED"].includes(st)) return statusData;
+			}
+		} catch {}
+	}
+	return null;
+}
+
+export const extractSqlString = (r: unknown): string =>
+	typeof r === "string" ? r : (r && typeof r === "object") ? ((r as any).all_zones || (r as any).full_sql || Object.values(r as any).filter((v) => typeof v === "string").join("\n\n")) : "";
+
+export function downloadBlob(content: string, filename: string, mime: string) {
+	if (typeof window === "undefined" || !window.document || !content) return;
+	const url = URL.createObjectURL(new Blob([content], { type: mime })), a = document.createElement("a");
+	a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+export function resolveHubKeyTier(hubName: string, bp?: any): string {
+	const hub = (bp?.contract?.hubs as Array<{ name?: string; business_key_tier?: string; business_key_sources?: Array<{ key_authority_tier?: string }> }> | undefined)
+		?.find((h) => h.name === hubName);
+	if (hub?.business_key_tier) return hub.business_key_tier;
+	if (hub?.business_key_sources?.[0]?.key_authority_tier) return hub.business_key_sources[0].key_authority_tier;
+	const lower = hubName.toLowerCase();
+	if (lower.includes("instrument") || lower.includes("security") || lower.includes("party") || lower.includes("customer")) return "TIER_1";
+	if (lower.includes("portfolio") || lower.includes("account") || lower.includes("holding") || lower.includes("rate")) return "TIER_2";
+	return "TIER_3";
+}
+
+export function resolveDiffFallback(repData: any, outContract: any, outBp: any): any {
+	const diff = repData?.evolution_diff;
+	if (diff && (diff.added_hubs?.length || diff.added_links?.length || diff.added_satellites?.length)) return diff;
+	const c = (outContract || outBp?.contract) as Record<string, unknown> | undefined;
+	if (!c) return diff;
+	const hubs = Array.isArray(c.hubs) ? c.hubs.map((h: any) => h.name || h.hub_name || String(h)).filter(Boolean) : [];
+	const links = Array.isArray(c.links) ? c.links.map((l: any) => l.name || l.link_name || String(l)).filter(Boolean) : [];
+	const sats = Array.isArray(c.satellites) ? c.satellites.map((s: any) => s.name || s.satellite_name || String(s)).filter(Boolean) : [];
+	if (!hubs.length && !links.length && !sats.length) return diff;
+	return {
+		...(diff ?? {}),
+		added_hubs: diff?.added_hubs?.length ? diff.added_hubs : hubs,
+		added_links: diff?.added_links?.length ? diff.added_links : links,
+		added_satellites: diff?.added_satellites?.length ? diff.added_satellites : sats,
+		companion_satellites: diff?.companion_satellites ?? [],
+		widened_columns: diff?.widened_columns ?? [],
+		ontology_deltas_applied: diff?.ontology_deltas_applied ?? [],
+	};
+}
+

@@ -1486,6 +1486,156 @@
         "title": "AnnotateConceptMetadataOp",
         "type": "object"
       },
+      "ApplyStarterPackRequest": {
+        "additionalProperties": false,
+        "description": "Request payload to apply one or more starter packs to a Studio session.",
+        "properties": {
+          "base_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Expected base ontology SHA-256 for OCC",
+            "title": "Base Sha256"
+          },
+          "base_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Expected base ontology version",
+            "title": "Base Version"
+          },
+          "domain_namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional namespace override",
+            "title": "Domain Namespace"
+          },
+          "enterprise_owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional enterprise owner override",
+            "title": "Enterprise Owner"
+          },
+          "pack": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssetManagementPackId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pack identifier alias"
+          },
+          "pack_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssetManagementPackId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Single pack identifier alias (normalized into pack_ids)"
+          },
+          "pack_ids": {
+            "description": "Pack identifiers to compose and apply",
+            "items": {
+              "$ref": "#/components/schemas/AssetManagementPackId"
+            },
+            "title": "Pack Ids",
+            "type": "array"
+          }
+        },
+        "title": "ApplyStarterPackRequest",
+        "type": "object"
+      },
+      "ApplyStarterPackResponse": {
+        "additionalProperties": false,
+        "description": "Response payload returned upon applying starter packs.",
+        "properties": {
+          "applied": {
+            "default": true,
+            "description": "Whether applying starter pack succeeded",
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "applied_delta_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ID of generated and applied delta if committed",
+            "title": "Applied Delta Id"
+          },
+          "applied_pack_ids": {
+            "description": "List of successfully applied pack identifiers",
+            "items": {
+              "$ref": "#/components/schemas/AssetManagementPackId"
+            },
+            "title": "Applied Pack Ids",
+            "type": "array"
+          },
+          "concept_count": {
+            "description": "Total active CBCs in session ontology",
+            "minimum": 1.0,
+            "title": "Concept Count",
+            "type": "integer"
+          },
+          "ontology_sha256": {
+            "description": "Canonical JCS SHA-256 of updated ontology",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Ontology Sha256",
+            "type": "string"
+          },
+          "ontology_version": {
+            "description": "Version of the updated ontology",
+            "title": "Ontology Version",
+            "type": "string"
+          },
+          "relationship_count": {
+            "description": "Total active relationships",
+            "minimum": 0.0,
+            "title": "Relationship Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "applied_pack_ids",
+          "ontology_version",
+          "ontology_sha256",
+          "concept_count",
+          "relationship_count"
+        ],
+        "title": "ApplyStarterPackResponse",
+        "type": "object"
+      },
       "ArtifactDTO": {
         "additionalProperties": false,
         "description": "Comprehensive artifact descriptor for Explorer workbench.",
@@ -1759,21 +1909,6 @@
             ],
             "description": "Primary wave integer index",
             "title": "Wave Index"
-          },
-          "waves": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Associated wave filter identifiers",
-            "title": "Waves"
           }
         },
         "required": [
@@ -1873,6 +2008,133 @@
           "content"
         ],
         "title": "ArtifactUploadRequest",
+        "type": "object"
+      },
+      "AssetManagementPackId": {
+        "description": "Authoritative identifier for Asset Management starter packs.",
+        "enum": [
+          "core_spine",
+          "public_equities_oms",
+          "fixed_income_rates",
+          "multi_asset_ibor",
+          "private_equity_buyout",
+          "private_credit_direct_lending",
+          "custody_clearing",
+          "all_domains"
+        ],
+        "title": "AssetManagementPackId",
+        "type": "string"
+      },
+      "BlueprintExportResponseDTO": {
+        "additionalProperties": false,
+        "description": "Response DTO for Studio blueprint export endpoints (/export-blueprint).",
+        "properties": {
+          "blueprint": {
+            "$ref": "#/components/schemas/VaultBlueprintDTO",
+            "description": "Exported VaultBlueprint envelope"
+          },
+          "exported_at_utc": {
+            "description": "ISO 8601 UTC export timestamp",
+            "title": "Exported At Utc",
+            "type": "string"
+          },
+          "raw_vault_ddl": {
+            "default": "",
+            "description": "Zone 2 Raw Vault DDL preview",
+            "title": "Raw Vault Ddl",
+            "type": "string"
+          },
+          "target_tables": {
+            "description": "Summary of target Hubs, Links, and Satellites in the blueprint",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Target Tables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "blueprint",
+          "exported_at_utc"
+        ],
+        "title": "BlueprintExportResponseDTO",
+        "type": "object"
+      },
+      "BlueprintLineageDTO": {
+        "additionalProperties": false,
+        "description": "Lineage provenance metadata for a VaultBlueprint (ADR-017).",
+        "properties": {
+          "blueprint_revision": {
+            "default": 1,
+            "description": "Sequential blueprint revision counter across pipeline runs",
+            "minimum": 1.0,
+            "title": "Blueprint Revision",
+            "type": "integer"
+          },
+          "contract_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deterministic RFC 8785 JCS SHA-256 of NoMistakeDataVault2ContractV5",
+            "title": "Contract Sha256"
+          },
+          "domain_namespace": {
+            "description": "Target business domain namespace matching ontology",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Domain Namespace",
+            "type": "string"
+          },
+          "lineage_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable provenance or evolution note",
+            "title": "Lineage Notes"
+          },
+          "ontology_sha256": {
+            "description": "Deterministic RFC 8785 JCS SHA-256 of the GraphAOntology",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Ontology Sha256",
+            "type": "string"
+          },
+          "parent_blueprint_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 digest of immediate parent VaultBlueprint (null on genesis)",
+            "title": "Parent Blueprint Sha256"
+          },
+          "schema_version": {
+            "const": "1.0.0",
+            "default": "1.0.0",
+            "description": "Lineage schema version",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain_namespace",
+          "ontology_sha256"
+        ],
+        "title": "BlueprintLineageDTO",
         "type": "object"
       },
       "Body_import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post": {
@@ -2638,6 +2900,118 @@
         "title": "ConfigValidationDiagnosticDTO",
         "type": "object"
       },
+      "ConnectorUIManifestDTO": {
+        "additionalProperties": false,
+        "description": "Declarative UI descriptor for a source connector adapter.",
+        "properties": {
+          "adapter_id": {
+            "description": "Unique adapter identifier (e.g. 'sqlite', 'databricks')",
+            "title": "Adapter Id",
+            "type": "string"
+          },
+          "client_uploadable": {
+            "default": false,
+            "description": "Whether this source type supports direct file upload via CAS",
+            "title": "Client Uploadable",
+            "type": "boolean"
+          },
+          "connection_fields": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Connection Fields",
+            "type": "array"
+          },
+          "description": {
+            "description": "Connector description and capabilities summary",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "Human-readable connector name",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "execution_mode": {
+            "description": "Execution mode within the Open-DV engine",
+            "enum": [
+              "DIRECT_DUCKDB_ATTACH",
+              "REMOTE_PUSHDOWN_PLUS_ARROW_SAMPLE",
+              "INLINE_CAS_STAGED"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "sample_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Uri"
+          },
+          "schemes": {
+            "description": "Supported URI schemes",
+            "items": {
+              "type": "string"
+            },
+            "title": "Schemes",
+            "type": "array"
+          },
+          "secret_ref_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Secret Ref Fields",
+            "type": "array"
+          },
+          "supported_file_extensions": {
+            "description": "Supported file extensions (e.g. ['.sqlite', '.db'])",
+            "items": {
+              "type": "string"
+            },
+            "title": "Supported File Extensions",
+            "type": "array"
+          },
+          "supports_catalog_hierarchy": {
+            "default": false,
+            "title": "Supports Catalog Hierarchy",
+            "type": "boolean"
+          },
+          "supports_foreign_keys": {
+            "default": false,
+            "title": "Supports Foreign Keys",
+            "type": "boolean"
+          },
+          "supports_governance_tags": {
+            "default": false,
+            "title": "Supports Governance Tags",
+            "type": "boolean"
+          },
+          "supports_multi_table": {
+            "default": false,
+            "title": "Supports Multi Table",
+            "type": "boolean"
+          },
+          "supports_time_travel": {
+            "default": false,
+            "title": "Supports Time Travel",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "adapter_id",
+          "display_name",
+          "description",
+          "execution_mode"
+        ],
+        "title": "ConnectorUIManifestDTO",
+        "type": "object"
+      },
       "ConstructRequest": {
         "properties": {
           "auto_commit": {
@@ -2684,6 +3058,17 @@
               }
             ],
             "title": "Mode"
+          },
+          "steering_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steering Prompt"
           }
         },
         "title": "ConstructRequest",
@@ -2813,6 +3198,31 @@
             "description": "Temporal cutoff timestamp for deterministic assertions",
             "title": "Assertion Cutoff Ts",
             "type": "string"
+          },
+          "blueprint_content": {
+            "anyOf": [
+              {
+                "maxLength": 5000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline VaultBlueprint YAML or JSON string (ADR-017)",
+            "title": "Blueprint Content"
+          },
+          "blueprint_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to VaultBlueprint YAML or JSON file (ADR-017)",
+            "title": "Blueprint Path"
           },
           "contract_path": {
             "anyOf": [
@@ -2953,18 +3363,6 @@
             "description": "Whether to run 4-batch adversarial sandbox tests",
             "title": "Run Sandbox Batches",
             "type": "boolean"
-          },
-          "wave_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Target wave identifier (e.g. W0, W1, W2) (GAP-07)",
-            "title": "Wave Id"
           }
         },
         "title": "CreateRunRequest",
@@ -3273,6 +3671,36 @@
           "score"
         ],
         "title": "DocCandidateOption",
+        "type": "object"
+      },
+      "DocExecutionActionDTO": {
+        "additionalProperties": false,
+        "description": "Inferred per-document action within a single-run execution plan.",
+        "properties": {
+          "action": {
+            "default": "EXTRACT_SPANS_AND_LINKS",
+            "enum": [
+              "GROUND_ONTOLOGY_CONCEPT",
+              "EXTRACT_SPANS_AND_LINKS"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "doc_id": {
+            "description": "Unique document identifier",
+            "title": "Doc Id",
+            "type": "string"
+          },
+          "target_hub": {
+            "default": "hub_document",
+            "title": "Target Hub",
+            "type": "string"
+          }
+        },
+        "required": [
+          "doc_id"
+        ],
+        "title": "DocExecutionActionDTO",
         "type": "object"
       },
       "DocExtractionSpec": {
@@ -3768,20 +4196,6 @@
             "description": "Summary status label",
             "title": "Statuslabel",
             "type": "string"
-          },
-          "waves": {
-            "description": "Wave metadata list",
-            "items": {
-              "$ref": "#/components/schemas/WaveMetadataSpecDTO"
-            },
-            "title": "Waves",
-            "type": "array"
-          },
-          "wavesCount": {
-            "description": "Number of waves",
-            "minimum": 0.0,
-            "title": "Wavescount",
-            "type": "integer"
           }
         },
         "required": [
@@ -3789,10 +4203,28 @@
           "displayName",
           "runId",
           "specFile",
-          "wavesCount",
           "statusLabel"
         ],
         "title": "ExplorerBundleDTO",
+        "type": "object"
+      },
+      "ExportBlueprintRequest": {
+        "description": "Optional payload specifying target ontology version tag.",
+        "properties": {
+          "version_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional semantic version tag of ontology snapshot to export (e.g. 'v1.0.0')",
+            "title": "Version Tag"
+          }
+        },
+        "title": "ExportBlueprintRequest",
         "type": "object"
       },
       "FeedbackSubmissionRequest": {
@@ -4287,6 +4719,79 @@
         "title": "HarnessSandboxPolicyDTO",
         "type": "object"
       },
+      "InferredExecutionPlanDTO": {
+        "additionalProperties": false,
+        "description": "Data-driven per-table & per-document execution plan (ADR-018 / doc 25 \u00a71.2).",
+        "properties": {
+          "diagnostics": {
+            "description": "Diagnostic messages or issues identified during pre-flight validation",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "doc_actions": {
+            "description": "Per-document extraction actions",
+            "items": {
+              "$ref": "#/components/schemas/DocExecutionActionDTO"
+            },
+            "title": "Doc Actions",
+            "type": "array"
+          },
+          "explanation": {
+            "default": "",
+            "description": "Human-readable explanation of why this plan was inferred",
+            "title": "Explanation",
+            "type": "string"
+          },
+          "inferred_at_utc": {
+            "description": "ISO 8601 UTC inference timestamp",
+            "title": "Inferred At Utc",
+            "type": "string"
+          },
+          "passed": {
+            "default": true,
+            "description": "Whether pre-flight validation passed",
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "plan_id": {
+            "description": "Unique plan identifier",
+            "title": "Plan Id",
+            "type": "string"
+          },
+          "primary_action": {
+            "description": "Primary classification across the 7-row matrix",
+            "enum": [
+              "COLD_START_N1",
+              "VERIFIED_NO_OP",
+              "MULTI_SOURCE_EXPANSION",
+              "SCHEMA_DRIFT",
+              "UNSTRUCTURED_FIRST",
+              "HYBRID_PER_SOURCE"
+            ],
+            "title": "Primary Action",
+            "type": "string"
+          },
+          "table_actions": {
+            "description": "Per-table actions derived without user wave_type",
+            "items": {
+              "$ref": "#/components/schemas/TableExecutionActionDTO"
+            },
+            "title": "Table Actions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "plan_id",
+          "primary_action",
+          "inferred_at_utc"
+        ],
+        "title": "InferredExecutionPlanDTO",
+        "type": "object"
+      },
       "InitStudioRequest": {
         "properties": {
           "domain_namespace": {
@@ -4535,6 +5040,38 @@
           "total_bytes"
         ],
         "title": "ManifestDTO",
+        "type": "object"
+      },
+      "NamespaceSpecDTO": {
+        "additionalProperties": false,
+        "description": "Specification of catalog/schema hierarchy (e.g. Databricks catalog.schema).",
+        "properties": {
+          "catalog": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Catalog name (for 3-level catalogs)",
+            "title": "Catalog"
+          },
+          "schema_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Schema / database name",
+            "title": "Schema Name"
+          }
+        },
+        "title": "NamespaceSpecDTO",
         "type": "object"
       },
       "OntologyConceptSpec": {
@@ -6392,9 +6929,131 @@
         "title": "PhaseSpecDTO",
         "type": "object"
       },
+      "PipelineInputDTO": {
+        "additionalProperties": false,
+        "description": "Normative single-run pipeline input specification (ADR-019).",
+        "properties": {
+          "blueprint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VaultBlueprintDTO"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "VaultBlueprint envelope (containing ontology + optional contract)",
+            "title": "Blueprint"
+          },
+          "blueprint_content": {
+            "anyOf": [
+              {
+                "maxLength": 5000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline YAML or JSON string for VaultBlueprint",
+            "title": "Blueprint Content"
+          },
+          "blueprint_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to vault_blueprint.yaml",
+            "title": "Blueprint Path"
+          },
+          "governance_policy": {
+            "additionalProperties": true,
+            "description": "Governance settings (ontology delta policy, hold policy, model routing)",
+            "title": "Governance Policy",
+            "type": "object"
+          },
+          "harness_provider": {
+            "default": "antigravity",
+            "description": "Execution harness provider ('agy', 'claude', etc.)",
+            "title": "Harness Provider",
+            "type": "string"
+          },
+          "initial_contract_content": {
+            "anyOf": [
+              {
+                "maxLength": 5000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fallback initial contract content",
+            "title": "Initial Contract Content"
+          },
+          "initial_contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fallback initial contract path if blueprint is omitted",
+            "title": "Initial Contract Path"
+          },
+          "ontology_source": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fallback ontology mapping if blueprint is omitted",
+            "title": "Ontology Source"
+          },
+          "sources": {
+            "description": "Universal multi-connector source feeds",
+            "items": {
+              "$ref": "#/components/schemas/SourceFeedDTO"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "target_dialect": {
+            "default": "duckdb",
+            "description": "Target SQL dialect ('duckdb', 'databricks', etc.)",
+            "title": "Target Dialect",
+            "type": "string"
+          },
+          "unstructured_documents": {
+            "description": "Optional unstructured materials (PDF, Markdown, text, notes)",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Unstructured Documents",
+            "type": "array"
+          }
+        },
+        "title": "PipelineInputDTO",
+        "type": "object"
+      },
       "PipelineRunHandle": {
         "additionalProperties": false,
-        "description": "Handle returned immediately upon submitting a pipeline run\n(HTTP 202 Accepted, Decision D2).",
+        "description": "Handle returned immediately upon submitting a pipeline run (HTTP 202 Accepted).",
         "properties": {
           "created_at": {
             "anyOf": [
@@ -6427,7 +7086,7 @@
                 "type": "null"
               }
             ],
-            "description": "Alias for event_stream_url (Decision D2)",
+            "description": "Alias for event_stream_url",
             "title": "Events Sse Url"
           },
           "harness_provider": {
@@ -6444,7 +7103,7 @@
           },
           "has_initial_contract": {
             "default": false,
-            "description": "Whether an initial contract was provided (GAP-07)",
+            "description": "Whether an initial contract was provided",
             "title": "Has Initial Contract",
             "type": "boolean"
           },
@@ -6457,12 +7116,12 @@
                 "type": "null"
               }
             ],
-            "description": "Path to initial contract if file-backed (GAP-07)",
+            "description": "Path to initial contract if file-backed",
             "title": "Initial Contract Path"
           },
           "lifecycle_stage": {
             "default": "COLD_START_N1",
-            "description": "Lifecycle stage of the run (COLD_START_N1 or MULTI_SOURCE_EXPANSION)",
+            "description": "Lifecycle stage of the run",
             "title": "Lifecycle Stage",
             "type": "string"
           },
@@ -6492,18 +7151,6 @@
             "description": "REST endpoint URL to query current run status",
             "title": "Status Url",
             "type": "string"
-          },
-          "wave_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Target wave identifier if restricted (GAP-07)",
-            "title": "Wave Id"
           }
         },
         "required": [
@@ -6519,6 +7166,44 @@
         "additionalProperties": false,
         "description": "Request DTO to initiate an asynchronous end-to-end pipeline run (Decision D2).",
         "properties": {
+          "blueprint": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline VaultBlueprint payload (ADR-017)",
+            "title": "Blueprint"
+          },
+          "blueprint_content": {
+            "anyOf": [
+              {
+                "maxLength": 5000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline YAML or JSON string for VaultBlueprint",
+            "title": "Blueprint Content"
+          },
+          "blueprint_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to VaultBlueprint file",
+            "title": "Blueprint Path"
+          },
           "config": {
             "additionalProperties": true,
             "description": "Extended execution config",
@@ -6541,7 +7226,7 @@
                 "type": "null"
               }
             ],
-            "description": "Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)",
+            "description": "Legacy pluggable SourceSpec for Graph A ontology",
             "title": "Graph A Source"
           },
           "harness_config": {
@@ -6579,7 +7264,7 @@
                 "type": "null"
               }
             ],
-            "description": "Inline starting contract YAML (Decision D1 / GAP-07)",
+            "description": "Inline starting contract YAML alias",
             "title": "Initial Contract"
           },
           "initial_contract_content": {
@@ -6617,7 +7302,7 @@
                 "type": "null"
               }
             ],
-            "description": "Inline input specification (Decision D1)",
+            "description": "Legacy inline input specification",
             "title": "Input Spec"
           },
           "input_spec_content": {
@@ -6630,7 +7315,7 @@
                 "type": "null"
               }
             ],
-            "description": "Inline YAML or JSON string for pipeline input specification",
+            "description": "Legacy inline YAML or JSON string for pipeline input specification",
             "title": "Input Spec Content"
           },
           "input_spec_path": {
@@ -6642,7 +7327,7 @@
                 "type": "null"
               }
             ],
-            "description": "Path to input spec file",
+            "description": "Legacy path to input spec file",
             "title": "Input Spec Path"
           },
           "output_dir": {
@@ -6693,6 +7378,25 @@
             "description": "Optional predetermined run identifier",
             "title": "Run Id"
           },
+          "sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SourceFeedDTO"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "Universal source feeds",
+            "title": "Sources"
+          },
           "steward_hold_policy": {
             "anyOf": [
               {
@@ -6705,7 +7409,7 @@
             "description": "Steward hold policy",
             "title": "Steward Hold Policy"
           },
-          "wave_id": {
+          "target_dialect": {
             "anyOf": [
               {
                 "type": "string"
@@ -6714,8 +7418,23 @@
                 "type": "null"
               }
             ],
-            "description": "Target wave identifier (e.g. W0, W1, W2) (GAP-07)",
-            "title": "Wave Id"
+            "description": "Target SQL dialect override",
+            "title": "Target Dialect"
+          },
+          "unstructured_documents": {
+            "description": "Unstructured documents",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Unstructured Documents",
+            "type": "array"
+          },
+          "unstructured_only": {
+            "default": false,
+            "description": "Enable unstructured-only mode",
+            "title": "Unstructured Only",
+            "type": "boolean"
           }
         },
         "title": "PipelineRunRequest",
@@ -6723,8 +7442,46 @@
       },
       "PipelineValidateRequest": {
         "additionalProperties": false,
-        "description": "Request DTO for static pipeline configuration validation (Decision D1).",
+        "description": "Request DTO for static pipeline configuration validation (Decision D1 / Single-Run).",
         "properties": {
+          "blueprint": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline VaultBlueprint payload (ADR-017)",
+            "title": "Blueprint"
+          },
+          "blueprint_content": {
+            "anyOf": [
+              {
+                "maxLength": 5000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline YAML or JSON string for VaultBlueprint",
+            "title": "Blueprint Content"
+          },
+          "blueprint_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to VaultBlueprint file",
+            "title": "Blueprint Path"
+          },
           "graph_a_source": {
             "anyOf": [
               {
@@ -6735,7 +7492,7 @@
                 "type": "null"
               }
             ],
-            "description": "Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)",
+            "description": "Legacy pluggable SourceSpec for Graph A ontology",
             "title": "Graph A Source"
           },
           "harness_config": {
@@ -6773,7 +7530,7 @@
                 "type": "null"
               }
             ],
-            "description": "Inline starting contract YAML (Decision D1 / GAP-07)",
+            "description": "Inline starting contract YAML alias",
             "title": "Initial Contract"
           },
           "initial_contract_content": {
@@ -6811,7 +7568,7 @@
                 "type": "null"
               }
             ],
-            "description": "Inline input specification (Decision D1)",
+            "description": "Legacy inline input specification",
             "title": "Input Spec"
           },
           "input_spec_content": {
@@ -6824,7 +7581,7 @@
                 "type": "null"
               }
             ],
-            "description": "Inline YAML or JSON string for pipeline input specification",
+            "description": "Legacy inline YAML or JSON string for pipeline input specification",
             "title": "Input Spec Content"
           },
           "input_spec_path": {
@@ -6836,7 +7593,7 @@
                 "type": "null"
               }
             ],
-            "description": "Path to input spec file",
+            "description": "Legacy path to input spec file",
             "title": "Input Spec Path"
           },
           "provider_override": {
@@ -6851,6 +7608,25 @@
             "description": "Target harness provider override",
             "title": "Provider Override"
           },
+          "sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SourceFeedDTO"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "Universal source feeds",
+            "title": "Sources"
+          },
           "steward_hold_policy": {
             "anyOf": [
               {
@@ -6863,7 +7639,7 @@
             "description": "Steward hold policy",
             "title": "Steward Hold Policy"
           },
-          "wave_id": {
+          "target_dialect": {
             "anyOf": [
               {
                 "type": "string"
@@ -6872,8 +7648,23 @@
                 "type": "null"
               }
             ],
-            "description": "Target wave identifier (e.g. W0, W1, W2) (GAP-07)",
-            "title": "Wave Id"
+            "description": "Target SQL dialect override",
+            "title": "Target Dialect"
+          },
+          "unstructured_documents": {
+            "description": "Unstructured documents",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Unstructured Documents",
+            "type": "array"
+          },
+          "unstructured_only": {
+            "default": false,
+            "description": "Enable unstructured-only mode",
+            "title": "Unstructured Only",
+            "type": "boolean"
           }
         },
         "title": "PipelineValidateRequest",
@@ -7534,18 +8325,6 @@
             "$ref": "#/components/schemas/RunStatus",
             "default": "PENDING",
             "description": "Current lifecycle status of the run"
-          },
-          "wave_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Target wave identifier if restricted (GAP-07)",
-            "title": "Wave Id"
           }
         },
         "required": [
@@ -7558,6 +8337,235 @@
           "decisions_url"
         ],
         "title": "ProjectRunDTO",
+        "type": "object"
+      },
+      "PromoteCandidateRequest": {
+        "additionalProperties": false,
+        "description": "Request payload to promote a held-back candidate via Path A or Path B.",
+        "properties": {
+          "admin_signature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional cryptographic signature or token of authorizing admin",
+            "title": "Admin Signature"
+          },
+          "path": {
+            "default": "path_a",
+            "description": "Promotion path: Path A (synonym re-scoring) or Path B (signed waiver)",
+            "enum": [
+              "path_a",
+              "path_b"
+            ],
+            "title": "Path",
+            "type": "string"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alias for waiver_rationale",
+            "title": "Rationale"
+          },
+          "synonyms": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path A: Additional synonyms to elevate BM25 score >= 0.65",
+            "title": "Synonyms"
+          },
+          "waiver": {
+            "default": false,
+            "description": "CLI flag indicating Path B waiver",
+            "title": "Waiver",
+            "type": "boolean"
+          },
+          "waiver_rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path B: Architectural justification for ungrounded waiver (>= 10 chars)",
+            "title": "Waiver Rationale"
+          }
+        },
+        "title": "PromoteCandidateRequest",
+        "type": "object"
+      },
+      "PromoteCandidateResponse": {
+        "additionalProperties": false,
+        "description": "Response emitted upon executing candidate promotion.",
+        "properties": {
+          "applied_operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ID of generated additive delta operation",
+            "title": "Applied Operation Id"
+          },
+          "candidate_id": {
+            "description": "Identifier of the evaluated candidate",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "concept_uri": {
+            "description": "Assigned canonical concept URN",
+            "title": "Concept Uri",
+            "type": "string"
+          },
+          "confidence_score": {
+            "default": 0.0,
+            "description": "Resulting match confidence",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence Score",
+            "type": "number"
+          },
+          "fibo_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Grounded FIBO class URI",
+            "title": "Fibo Uri"
+          },
+          "new_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alias for confidence_score",
+            "title": "New Confidence"
+          },
+          "operations": {
+            "description": "Additive delta operations emitted",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "operations_count": {
+            "default": 0,
+            "description": "Count of operations emitted",
+            "minimum": 0.0,
+            "title": "Operations Count",
+            "type": "integer"
+          },
+          "path": {
+            "default": "path_a",
+            "description": "Path executed",
+            "enum": [
+              "path_a",
+              "path_b"
+            ],
+            "title": "Path",
+            "type": "string"
+          },
+          "path_used": {
+            "anyOf": [
+              {
+                "enum": [
+                  "path_a",
+                  "path_b"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alias for path",
+            "title": "Path Used"
+          },
+          "promoted": {
+            "default": true,
+            "description": "Whether promotion succeeded",
+            "title": "Promoted",
+            "type": "boolean"
+          },
+          "proposal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ID of staged or created proposal",
+            "title": "Proposal Id"
+          },
+          "status": {
+            "default": "PROMOTED",
+            "description": "Promotion status code",
+            "enum": [
+              "PROMOTED",
+              "REJECTED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_hub": {
+            "default": "",
+            "description": "Assigned target physical hub",
+            "title": "Target Hub",
+            "type": "string"
+          },
+          "waiver_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ID of generated StewardWaiverRecord if Path B",
+            "title": "Waiver Id"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "concept_uri"
+        ],
+        "title": "PromoteCandidateResponse",
         "type": "object"
       },
       "PromoteRequest": {
@@ -8026,6 +9034,28 @@
           "op_id"
         ],
         "title": "RefineDefinitionOp",
+        "type": "object"
+      },
+      "RefineProposalRequest": {
+        "properties": {
+          "mode": {
+            "default": "auto",
+            "description": "Execution mode: auto, agent, deterministic",
+            "title": "Mode",
+            "type": "string"
+          },
+          "steering_prompt": {
+            "description": "Natural-language steering guidance",
+            "maxLength": 5000,
+            "minLength": 1,
+            "title": "Steering Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "steering_prompt"
+        ],
+        "title": "RefineProposalRequest",
         "type": "object"
       },
       "RejectOntologyDeltaOption": {
@@ -8798,6 +9828,45 @@
         "title": "RunStatus",
         "type": "string"
       },
+      "SamplingPolicyDTO": {
+        "additionalProperties": false,
+        "description": "Policy governing sandbox row bounds and profiling sampling strategy.",
+        "properties": {
+          "max_sandbox_rows": {
+            "default": 10000,
+            "description": "Maximum rows streamed into DuckDB shadow sandbox",
+            "minimum": 1.0,
+            "title": "Max Sandbox Rows",
+            "type": "integer"
+          },
+          "sample_ratio": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional sampling ratio for Bernoulli sampling",
+            "title": "Sample Ratio"
+          },
+          "strategy": {
+            "default": "DETERMINISTIC_LIMIT",
+            "description": "Sampling strategy for remote pushdown profilers",
+            "enum": [
+              "DETERMINISTIC_LIMIT",
+              "TABLESAMPLE_BERNOULLI"
+            ],
+            "title": "Strategy",
+            "type": "string"
+          }
+        },
+        "title": "SamplingPolicyDTO",
+        "type": "object"
+      },
       "SandboxBatchResult": {
         "additionalProperties": false,
         "description": "Execution result for an individual sandbox batch.",
@@ -9439,6 +10508,229 @@
         "title": "SourceDocumentDTO",
         "type": "object"
       },
+      "SourceFeedDTO": {
+        "additionalProperties": false,
+        "description": "Universal source feed contract supporting single files and multi-table catalogs.",
+        "properties": {
+          "adapter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional adapter identifier override (inferred from URI scheme if omitted)",
+            "title": "Adapter"
+          },
+          "credentials_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Safe reference to credentials formatted strictly as 'env:VAR' or 'secret:NAME'",
+            "title": "Credentials Ref"
+          },
+          "feed_id": {
+            "description": "Unique feed identifier within the pipeline run",
+            "title": "Feed Id",
+            "type": "string"
+          },
+          "namespace": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NamespaceSpecDTO"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional 2- or 3-level catalog/schema namespace"
+          },
+          "options": {
+            "additionalProperties": true,
+            "description": "Adapter-specific configuration options (e.g. http_path, time travel)",
+            "title": "Options",
+            "type": "object"
+          },
+          "sampling_policy": {
+            "$ref": "#/components/schemas/SamplingPolicyDTO",
+            "description": "Sandbox row bounds and profiling sampling policy"
+          },
+          "source_system": {
+            "description": "Normalized source system identifier",
+            "title": "Source System",
+            "type": "string"
+          },
+          "table_selection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TableSelectionDTO"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Table selection rules for multi-table sources"
+          },
+          "target_dialect": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional target SQL output dialect alongside canonical DuckDB",
+            "title": "Target Dialect"
+          },
+          "uri": {
+            "description": "Source path, URI, or connection string",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "feed_id",
+          "source_system",
+          "uri"
+        ],
+        "title": "SourceFeedDTO",
+        "type": "object"
+      },
+      "SourceInspectRequestDTO": {
+        "additionalProperties": false,
+        "description": "Request payload to inspect and enumerate tables from a data source.",
+        "properties": {
+          "adapter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional adapter scheme override",
+            "title": "Adapter"
+          },
+          "cas_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional CAS hash for staged uploads",
+            "title": "Cas Hash"
+          },
+          "credentials_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Credentials reference (env: / secret:)",
+            "title": "Credentials Ref"
+          },
+          "namespace": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NamespaceSpecDTO"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional namespace filter"
+          },
+          "options": {
+            "additionalProperties": true,
+            "description": "Adapter connection options",
+            "title": "Options",
+            "type": "object"
+          },
+          "uri": {
+            "description": "Source path, URI, or upload handle",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri"
+        ],
+        "title": "SourceInspectRequestDTO",
+        "type": "object"
+      },
+      "SourceInspectResponseDTO": {
+        "additionalProperties": false,
+        "description": "Response payload returning discovered tables, columns, constraints, and tags.",
+        "properties": {
+          "adapter_id": {
+            "description": "Resolved adapter identifier",
+            "title": "Adapter Id",
+            "type": "string"
+          },
+          "capabilities": {
+            "additionalProperties": true,
+            "description": "Source capabilities map",
+            "title": "Capabilities",
+            "type": "object"
+          },
+          "fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deterministic source snapshot digest",
+            "title": "Fingerprint"
+          },
+          "inspected_at_utc": {
+            "description": "ISO 8601 UTC inspection timestamp",
+            "title": "Inspected At Utc",
+            "type": "string"
+          },
+          "namespaces": {
+            "description": "Available namespaces",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Namespaces",
+            "type": "array"
+          },
+          "tables": {
+            "description": "Discovered tables and metadata",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Tables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "adapter_id",
+          "inspected_at_utc"
+        ],
+        "title": "SourceInspectResponseDTO",
+        "type": "object"
+      },
       "SourceUploadResponse": {
         "properties": {
           "byte_count": {
@@ -9618,6 +10910,238 @@
           "desc"
         ],
         "title": "StageDTO",
+        "type": "object"
+      },
+      "StagedCandidateDTO": {
+        "additionalProperties": false,
+        "description": "Held-back candidate concept in the staging holding area.",
+        "properties": {
+          "attributes": {
+            "description": "Candidate conceptual attributes",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Attributes",
+            "type": "array"
+          },
+          "candidate_id": {
+            "description": "Unique staging identifier",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "concept_name": {
+            "description": "Proposed business concept name",
+            "title": "Concept Name",
+            "type": "string"
+          },
+          "dependent_links": {
+            "description": "Associated candidate link relationships",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Dependent Links",
+            "type": "array"
+          },
+          "evidence_refs": {
+            "description": "Citations to source evidence chunks",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "reason_held_back": {
+            "default": "GROUNDING_THRESHOLD_UNMET",
+            "description": "Reason candidate was withheld",
+            "title": "Reason Held Back",
+            "type": "string"
+          },
+          "status": {
+            "default": "held_back",
+            "description": "Staging lifecycle status",
+            "enum": [
+              "held_back",
+              "promoted",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "suggested_hub": {
+            "description": "Suggested physical hub slug (e.g. hub_slug)",
+            "title": "Suggested Hub",
+            "type": "string"
+          },
+          "top_match_score": {
+            "default": 0.0,
+            "description": "Highest BM25 match score",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Top Match Score",
+            "type": "number"
+          },
+          "top_match_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Top reference URI",
+            "title": "Top Match Uri"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "concept_name",
+          "suggested_hub"
+        ],
+        "title": "StagedCandidateDTO",
+        "type": "object"
+      },
+      "StagedCandidatesQueryResponse": {
+        "additionalProperties": false,
+        "description": "Response payload querying all currently staged candidates for a session.",
+        "properties": {
+          "candidates": {
+            "description": "Backwards-compatibility alias for staged_candidates",
+            "items": {
+              "$ref": "#/components/schemas/StagedCandidateDTO"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "session_id": {
+            "description": "Session identifier",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "staged_candidates": {
+            "description": "Collection of staged candidates",
+            "items": {
+              "$ref": "#/components/schemas/StagedCandidateDTO"
+            },
+            "title": "Staged Candidates",
+            "type": "array"
+          },
+          "total_count": {
+            "default": 0,
+            "description": "Total count of held-back candidates",
+            "minimum": 0.0,
+            "title": "Total Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "StagedCandidatesQueryResponse",
+        "type": "object"
+      },
+      "StarterPackListResponse": {
+        "additionalProperties": false,
+        "description": "Response payload listing all available starter packs.",
+        "properties": {
+          "default_preset": {
+            "$ref": "#/components/schemas/AssetManagementPackId",
+            "default": "all_domains",
+            "description": "Recommended starter pack preset"
+          },
+          "packs": {
+            "description": "Collection of registered starter packs",
+            "items": {
+              "$ref": "#/components/schemas/StarterPackMetadata"
+            },
+            "title": "Packs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "packs"
+        ],
+        "title": "StarterPackListResponse",
+        "type": "object"
+      },
+      "StarterPackMetadata": {
+        "additionalProperties": false,
+        "description": "Metadata summary describing a composable starter pack.",
+        "properties": {
+          "concept_count": {
+            "description": "Count of Canonical Business Concepts",
+            "minimum": 1.0,
+            "title": "Concept Count",
+            "type": "integer"
+          },
+          "concepts": {
+            "description": "List of concept names or URNs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Concepts",
+            "type": "array"
+          },
+          "dependencies": {
+            "description": "Required prerequisite packs",
+            "items": {
+              "$ref": "#/components/schemas/AssetManagementPackId"
+            },
+            "title": "Dependencies",
+            "type": "array"
+          },
+          "description": {
+            "description": "Detailed description of pack domain",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "Human-readable title for UI display",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "domain_namespace": {
+            "description": "Domain namespace key",
+            "title": "Domain Namespace",
+            "type": "string"
+          },
+          "pack_id": {
+            "$ref": "#/components/schemas/AssetManagementPackId",
+            "description": "Unique pack identifier"
+          },
+          "relationship_count": {
+            "description": "Count of Canonical Relationships",
+            "minimum": 0.0,
+            "title": "Relationship Count",
+            "type": "integer"
+          },
+          "standards_references": {
+            "description": "Authoritative industry standards referenced",
+            "items": {
+              "type": "string"
+            },
+            "title": "Standards References",
+            "type": "array"
+          },
+          "version": {
+            "default": "1.0.0",
+            "description": "Pack semver version",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pack_id",
+          "display_name",
+          "description",
+          "domain_namespace",
+          "concept_count",
+          "relationship_count"
+        ],
+        "title": "StarterPackMetadata",
         "type": "object"
       },
       "StepDTO": {
@@ -9991,6 +11515,166 @@
         "title": "StudioSessionSummaryDTO",
         "type": "object"
       },
+      "TableExecutionActionDTO": {
+        "additionalProperties": false,
+        "description": "Inferred per-table action within a single-run execution plan.",
+        "properties": {
+          "action": {
+            "description": "Inferred action per 7-row matrix",
+            "enum": [
+              "GREENFIELD_SYNTHESIS",
+              "INCREMENTAL_ONBOARDING",
+              "INTRA_SOURCE_DRIFT",
+              "NO_OP"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "drift_findings": {
+            "description": "Alg A.9a schema drift findings if table is in existing contract",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Drift Findings",
+            "type": "array"
+          },
+          "matched_existing_entity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target Hub or Satellite if already deployed in contract",
+            "title": "Matched Existing Entity"
+          },
+          "source_system": {
+            "description": "Source system identifier",
+            "title": "Source System",
+            "type": "string"
+          },
+          "table_name": {
+            "description": "Table name within source system",
+            "title": "Table Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_system",
+          "table_name",
+          "action"
+        ],
+        "title": "TableExecutionActionDTO",
+        "type": "object"
+      },
+      "TableSelectionDTO": {
+        "additionalProperties": false,
+        "description": "Policy for selecting user tables within a multi-table catalog or database.",
+        "properties": {
+          "exclude_pattern": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Regex pattern to filter excluded tables",
+            "title": "Exclude Pattern"
+          },
+          "include_pattern": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Regex pattern to filter included tables when mode=PATTERN",
+            "title": "Include Pattern"
+          },
+          "mode": {
+            "default": "ALL_USER_TABLES",
+            "description": "Table selection mode",
+            "enum": [
+              "ALL_USER_TABLES",
+              "EXPLICIT",
+              "PATTERN"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "tables": {
+            "description": "Explicit table names to include when mode=EXPLICIT",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tables",
+            "type": "array"
+          }
+        },
+        "title": "TableSelectionDTO",
+        "type": "object"
+      },
+      "TextSourceUploadRequest": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional description",
+            "title": "Description"
+          },
+          "do_not_send_to_agent": {
+            "default": false,
+            "description": "Confidentiality taint flag",
+            "title": "Do Not Send To Agent",
+            "type": "boolean"
+          },
+          "format": {
+            "default": "text",
+            "description": "Text format encoding: 'text' or 'markdown'",
+            "title": "Format",
+            "type": "string"
+          },
+          "source_name": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Descriptive document filename or label",
+            "title": "Source Name"
+          },
+          "text": {
+            "description": "Raw text or markdown document content",
+            "maxLength": 10000000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "TextSourceUploadRequest",
+        "type": "object"
+      },
       "TokenExchangeRequest": {
         "properties": {
           "launch_nonce": {
@@ -10162,6 +11846,55 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VaultBlueprintDTO": {
+        "additionalProperties": false,
+        "description": "Unified envelope packaging ontology, contract, and lineage (ADR-017).",
+        "properties": {
+          "blueprint_version": {
+            "const": "1.0.0",
+            "default": "1.0.0",
+            "description": "Normative VaultBlueprint specification version",
+            "title": "Blueprint Version",
+            "type": "string"
+          },
+          "contract": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Physical Data Vault 2.0 model contract (or null for zero-data greenfield seed)",
+            "title": "Contract"
+          },
+          "domain_namespace": {
+            "description": "Target business domain namespace",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Domain Namespace",
+            "type": "string"
+          },
+          "lineage": {
+            "$ref": "#/components/schemas/BlueprintLineageDTO",
+            "description": "Cryptographic lineage metadata chaining parent revisions"
+          },
+          "ontology": {
+            "additionalProperties": true,
+            "description": "Semantic oracle: GraphAOntology v1.0 payload",
+            "title": "Ontology",
+            "type": "object"
+          }
+        },
+        "required": [
+          "domain_namespace",
+          "lineage",
+          "ontology"
+        ],
+        "title": "VaultBlueprintDTO",
         "type": "object"
       },
       "VerifyRequest": {
@@ -10664,34 +12397,6 @@
         },
         "title": "WaiverSubmissionRequest",
         "type": "object"
-      },
-      "WaveMetadataSpecDTO": {
-        "additionalProperties": false,
-        "description": "Wave metadata specification.",
-        "properties": {
-          "description": {
-            "description": "Wave description",
-            "title": "Description",
-            "type": "string"
-          },
-          "id": {
-            "description": "Wave identifier (e.g. W0, W1)",
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "description": "Wave name",
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "description"
-        ],
-        "title": "WaveMetadataSpecDTO",
-        "type": "object"
       }
     }
   },
@@ -10785,6 +12490,131 @@
         "summary": "Get Artifact",
         "tags": [
           "artifacts"
+        ]
+      }
+    },
+    "/api/v1/cas/blobs": {
+      "post": {
+        "description": "Store an immutable binary blob into the Content-Addressable Store.\n\nValidates optional X-CAS-SHA256 header, enforces max upload size, computes\nSHA-256 digest, and persists into the CAS store.",
+        "operationId": "upload_cas_blob_api_v1_cas_blobs_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CAS-SHA256",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Cas-Sha256"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Upload Cas Blob Api V1 Cas Blobs Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Cas Blob",
+        "tags": [
+          "cas"
+        ]
+      }
+    },
+    "/api/v1/cas/blobs/{sha256}": {
+      "get": {
+        "description": "Retrieve raw immutable binary blob by its 64-character hex digest.",
+        "operationId": "get_cas_blob_api_v1_cas_blobs__sha256__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "title": "Sha256",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Cas Blob",
+        "tags": [
+          "cas"
         ]
       }
     },
@@ -12105,6 +13935,139 @@
         ]
       }
     },
+    "/api/v1/ontology/studio/sessions/{session_id}/export-blueprint": {
+      "get": {
+        "description": "Export the active or specified version of a Studio session as a VaultBlueprintDTO (GET).",
+        "operationId": "export_session_blueprint_get_api_v1_ontology_studio_sessions__session_id__export_blueprint_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version_tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version Tag"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlueprintExportResponseDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Session Blueprint Get",
+        "tags": [
+          "ontology-studio"
+        ]
+      },
+      "post": {
+        "description": "Export the active or specified version of a Studio session as a VaultBlueprintDTO (POST).",
+        "operationId": "export_session_blueprint_post_api_v1_ontology_studio_sessions__session_id__export_blueprint_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version_tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version Tag"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ExportBlueprintRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlueprintExportResponseDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Session Blueprint Post",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
     "/api/v1/ontology/studio/sessions/{session_id}/feedback": {
       "post": {
         "description": "Persist steward/user feedback record to feedback.jsonl under L5 session lock.",
@@ -12854,6 +14817,68 @@
         ]
       }
     },
+    "/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/refine": {
+      "post": {
+        "description": "Refine a pending ontology proposal with natural-language steering guidance.",
+        "operationId": "refine_proposal_endpoint_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__refine_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefineProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposalRecordDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refine Proposal Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
     "/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/reject": {
       "post": {
         "description": "Mark proposal REJECTED while preserving in CAS for audit trace (human editor/admin).",
@@ -13068,6 +15093,59 @@
         ]
       }
     },
+    "/api/v1/ontology/studio/sessions/{session_id}/sources/text": {
+      "post": {
+        "description": "Ingest free-form text or analyst notes directly into session CAS storage.",
+        "operationId": "upload_text_source_api_v1_ontology_studio_sessions__session_id__sources_text_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TextSourceUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceUploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Text Source",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
     "/api/v1/ontology/studio/sessions/{session_id}/sources/{source_id}": {
       "delete": {
         "description": "Tombstone and purge unreferenced source document (human editor/admin required).",
@@ -13208,6 +15286,180 @@
           }
         },
         "summary": "Get Source Content",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/staged-candidates": {
+      "get": {
+        "description": "Query held-back candidate concepts (< 0.65 BM25 match score) for session.",
+        "operationId": "list_staged_candidates_api_v1_ontology_studio_sessions__session_id__staged_candidates_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StagedCandidatesQueryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Staged Candidates",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/staged-candidates/{candidate_id}/promote": {
+      "post": {
+        "description": "Promote a held-back candidate concept via Path A or Path B (admin waiver).",
+        "operationId": "promote_candidate_endpoint_api_v1_ontology_studio_sessions__session_id__staged_candidates__candidate_id__promote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteCandidateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoteCandidateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Promote Candidate Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/starter-packs/apply": {
+      "post": {
+        "description": "Apply one or more Asset Management starter packs to the active session.",
+        "operationId": "apply_starter_pack_endpoint_api_v1_ontology_studio_sessions__session_id__starter_packs_apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyStarterPackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyStarterPackResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Starter Pack Endpoint",
         "tags": [
           "ontology-studio"
         ]
@@ -13364,6 +15616,28 @@
         ]
       }
     },
+    "/api/v1/ontology/studio/starter-packs": {
+      "get": {
+        "description": "List available Asset Management vertical starter packs.",
+        "operationId": "list_starter_packs_endpoint_api_v1_ontology_studio_starter_packs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StarterPackListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Starter Packs Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
     "/api/v1/ontology/suggestions": {
       "post": {
         "description": "Suggest ontology extensions and mappings from candidate sources.",
@@ -13450,13 +15724,49 @@
     },
     "/api/v1/pipelines/runs": {
       "post": {
-        "description": "Initiate an asynchronous end-to-end 8-stage agentic pipeline run (Decision D2).",
+        "description": "Execute or submit an agentic pipeline run returning HTTP 202 handle.",
         "operationId": "run_pipeline_api_v1_pipelines_runs_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "sync",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Sync",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PipelineRunRequest"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PipelineInputDTO"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PipelineRunRequest"
+                  }
+                ],
+                "title": "Req"
               }
             }
           },
@@ -13486,19 +15796,27 @@
         },
         "summary": "Run Pipeline",
         "tags": [
-          "runs"
+          "pipelines"
         ]
       }
     },
     "/api/v1/pipelines/validate": {
       "post": {
-        "description": "Deterministically validate an agentic pipeline input spec and harness config.",
+        "description": "Deterministically validate an agentic pipeline input spec or single-run blueprint.",
         "operationId": "validate_pipeline_api_v1_pipelines_validate_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PipelineValidateRequest"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PipelineValidateRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PipelineInputDTO"
+                  }
+                ],
+                "title": "Req"
               }
             }
           },
@@ -13509,9 +15827,16 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Validate Pipeline Api V1 Pipelines Validate Post",
-                  "type": "object"
+                  "anyOf": [
+                    {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InferredExecutionPlanDTO"
+                    }
+                  ],
+                  "title": "Response Validate Pipeline Api V1 Pipelines Validate Post"
                 }
               }
             },
@@ -13530,7 +15855,7 @@
         },
         "summary": "Validate Pipeline",
         "tags": [
-          "runs"
+          "pipelines"
         ]
       }
     },
@@ -13945,13 +16270,49 @@
         ]
       },
       "post": {
-        "description": "Start an asynchronous verification, compilation, and sandbox execution run (Decision D2).",
+        "description": "Start an asynchronous verification run or execute a single-run pipeline.",
         "operationId": "start_run_api_v1_runs_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "sync",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Sync",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateRunRequest"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PipelineInputDTO"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CreateRunRequest"
+                  }
+                ],
+                "title": "Req"
               }
             }
           },
@@ -13962,7 +16323,16 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PipelineRunHandle"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PipelineRunHandle"
+                    },
+                    {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  ],
+                  "title": "Response Start Run Api V1 Runs Post"
                 }
               }
             },
@@ -13982,6 +16352,57 @@
         "summary": "Start Run",
         "tags": [
           "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/validate": {
+      "post": {
+        "description": "Pre-flight validate single-run PipelineInputDTO and derive InferredExecutionPlanDTO.",
+        "operationId": "validate_single_run_api_v1_runs_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PipelineInputDTO"
+                  },
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  }
+                ],
+                "title": "Req"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InferredExecutionPlanDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Single Run",
+        "tags": [
+          "pipelines"
         ]
       }
     },
@@ -14300,7 +16721,7 @@
     },
     "/api/v1/runs/{run_id}/events": {
       "get": {
-        "description": "Server-Sent Events (`text/event-stream`) stream of RBAC-redacted VaultObservabilityEvents.",
+        "description": "Server-Sent Events (`text/event-stream`) stream of RBAC-redacted events.",
         "operationId": "stream_run_events_api_v1_runs__run_id__events_get",
         "parameters": [
           {
@@ -14389,7 +16810,7 @@
     },
     "/api/v1/runs/{run_id}/explorer": {
       "get": {
-        "description": "Retrieve 3-level explorer bundle (Phases, Stages, Artifacts) for an execution run.\n\nSupports optional wave subset filtering (`?wave_id=W1` or `?wave_id=1`).",
+        "description": "Retrieve 3-level explorer bundle (Phases, Stages, Artifacts) for an execution run.",
         "operationId": "get_explorer_bundle_api_v1_runs__run_id__explorer_get",
         "parameters": [
           {
@@ -14399,24 +16820,6 @@
             "schema": {
               "title": "Run Id",
               "type": "string"
-            }
-          },
-          {
-            "description": "Optional wave identifier filter (e.g. 'W1' or '1'). When provided, filters artifacts to those matching the specified wave.",
-            "in": "query",
-            "name": "wave_id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Optional wave identifier filter (e.g. 'W1' or '1'). When provided, filters artifacts to those matching the specified wave.",
-              "title": "Wave Id"
             }
           },
           {
@@ -14766,6 +17169,92 @@
         "summary": "Execute Standalone Sandbox",
         "tags": [
           "sandbox"
+        ]
+      }
+    },
+    "/api/v1/sources/adapters": {
+      "get": {
+        "description": "Return declarative UI manifests for all registered connectors.",
+        "operationId": "get_source_adapters_api_v1_sources_adapters_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectorUIManifestDTO"
+                  },
+                  "title": "Response Get Source Adapters Api V1 Sources Adapters Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Source Adapters",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/sources/inspect": {
+      "post": {
+        "description": "Inspect and enumerate namespaces, tables, columns, PKs, FKs, and tags from a data source.",
+        "operationId": "inspect_data_source_api_v1_sources_inspect_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceInspectRequestDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceInspectResponseDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Inspect Data Source",
+        "tags": [
+          "sources"
         ]
       }
     },

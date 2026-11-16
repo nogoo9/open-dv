@@ -1,7 +1,12 @@
 """Open-DV Pluggable Data Source & Format Adapter SPI, Registries, and Conformance Kit."""
 
 from opendv_sources._resolution import redact_credentials, resolve_adapter_path
-from opendv_sources.adapters.duckdb_attach import DuckdbAttachSourceAdapter
+from opendv_sources.adapters.duckdb_attach import (
+    DuckdbAttachSourceAdapter,
+    qualify_bronze_view_name,
+    quote_ident,
+    validate_identifier,
+)
 from opendv_sources.adapters.filesystem import LocalFilesystemSourceAdapter
 from opendv_sources.adapters.inline import InlineSourceAdapter
 from opendv_sources.adapters.pdf_document import PdfDocumentSourceAdapter
@@ -111,6 +116,7 @@ __all__ = [
     "SourceNotFoundError",
     "SourceSpec",
     "SourceTableEmptyError",
+    "SourcesConfig",
     "StreamChunk",
     "TabularAdapterConformanceSuite",
     "TabularSourceAdapter",
@@ -122,6 +128,9 @@ __all__ = [
     "get_source_registry",
     "load_graph_a_source",
     "load_structured_document",
+    "qualify_bronze_view_name",
+    "quote_ident",
     "redact_credentials",
     "resolve_adapter_path",
+    "validate_identifier",
 ]

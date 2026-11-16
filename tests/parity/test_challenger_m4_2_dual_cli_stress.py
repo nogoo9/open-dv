@@ -833,19 +833,12 @@ class TestDualCliUnstructuredOnlyPipelineValidation:
             "domain_namespace": "asset_management",
             "graph_a_ontology_path": str(COMMERCE_ONTOLOGY_PATH),
             "unstructured_only": True,
-            "waves": [
+            "sources": [],
+            "unstructured_documents": [
                 {
-                    "wave_index": 0,
-                    "wave_name": "Wave 0 Genesis",
-                    "wave_type": "UNSTRUCTURED_ONBOARDING",
-                    "description": "Cold start unstructured onboarding",
-                    "unstructured_documents": [
-                        {
-                            "doc_id": "DOC-PC-01",
-                            "document_path": str(doc_file),
-                            "record_source": "CAS_INGESTION",
-                        }
-                    ],
+                    "doc_id": "DOC-PC-01",
+                    "document_path": str(doc_file),
+                    "record_source": "CAS_INGESTION",
                 }
             ],
         }
@@ -860,19 +853,12 @@ class TestDualCliUnstructuredOnlyPipelineValidation:
             "display_name": "Unstructured Invalid Parity Test",
             "domain_namespace": "asset_management",
             "graph_a_ontology_path": str(COMMERCE_ONTOLOGY_PATH),
-            "waves": [
+            "sources": [],
+            "unstructured_documents": [
                 {
-                    "wave_index": 0,
-                    "wave_name": "Wave 0 Genesis Missing Source",
-                    "wave_type": "UNSTRUCTURED_ONBOARDING",
-                    "description": "Cold start unstructured onboarding without flag",
-                    "unstructured_documents": [
-                        {
-                            "doc_id": "DOC-PC-02",
-                            "document_path": str(doc_file),
-                            "record_source": "CAS_INGESTION",
-                        }
-                    ],
+                    "doc_id": "DOC-PC-02",
+                    "document_path": str(doc_file),
+                    "record_source": "CAS_INGESTION",
                 }
             ],
         }

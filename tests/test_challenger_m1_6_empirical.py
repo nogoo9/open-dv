@@ -44,10 +44,11 @@ from opendv_agent_harness.pipeline import (
     PipelineInputSpec,
     PipelineUnstructuredCandidateInput,
     PipelineUnstructuredDocInput,
-    PipelineWaveInput,
     _synthesize_cumulative_contract,
+    evolve_contract_single_run,
     validate_pipeline_inputs,
 )
+from opendv_core.models.graph_a import CanonicalBusinessConcept, GraphAOntology
 from opendv_contracts.dtos.ingestion import EvidenceChunk, TableStructure
 from opendv_contracts.dtos.starter_packs import ApplyStarterPackRequest
 from opendv_platform_api import PlatformStateContainer
@@ -534,16 +535,12 @@ class TestUnstructuredOnlyPipelineModeEmpirical:
             ]
         }
 
-        # Case A: Synthesize with deployed contract containing hub_agreement
-        contract = _synthesize_cumulative_contract(
-            ontology=spine,
-            cumulative_sources={},
-            cumulative_source_systems={},
-            cumulative_unstructured_docs=[(unstr_doc, "sha256dummycredit")],
-            added_drift_cols_by_table={},
-            wave_index=0,
-            domain_namespace="asset_management",
+        # Case A: Evolve deployed contract containing hub_agreement
+        contract, _ = evolve_contract_single_run(
             deployed_contract=deployed_contract,
+            ontology=spine,
+            discovered_feeds=[],
+            cumulative_unstructured_docs=[unstr_doc],
         )
 
         hub_names = [h["name"] for h in contract.get("hubs", [])]
@@ -584,17 +581,28 @@ class TestUnstructuredOnlyPipelineModeEmpirical:
             extracted_business_key="MEMO-01",
             verbatim_quote="Memorandum",
             confidence_score=0.90,
+            char_start=21,
+            char_end=31,
         )
         unstr_doc = PipelineUnstructuredDocInput(
             document_path=str(doc_path),
             doc_id="doc-memo-001",
             extracted_candidates=[cand],
         )
-        wave = PipelineWaveInput(
-            wave_index=0,
-            wave_name="Wave 0 Memo",
-            unstructured_documents=[unstr_doc],
+
+        ont = GraphAOntology(
+            domain_namespace="asset_management",
+            canonical_business_concepts=[
+                CanonicalBusinessConcept(
+                    concept_uri="urn:ontology:entity:document",
+                    concept_name="Document",
+                    definition="Document concept",
+                    target_hub="hub_document",
+                )
+            ],
         )
+        ont_file = tmp_path / "ont.json"
+        ont_file.write_text(ont.model_dump_json(), encoding="utf-8")
 
         # Case 1: unstructured_only=False -> diagnostic emitted
         spec_false = PipelineInputSpec(
@@ -602,8 +610,8 @@ class TestUnstructuredOnlyPipelineModeEmpirical:
             project_id="proj-am",
             domain_namespace="asset_management",
             unstructured_only=False,
-            graph_a_source=str(doc_path),
-            waves=[wave],
+            graph_a_ontology_path=str(ont_file),
+            unstructured_documents=[unstr_doc],
         )
         rep_false = validate_pipeline_inputs(
             spec_false, base_dir=tmp_path, workspace_root=tmp_path
@@ -617,7 +625,8 @@ class TestUnstructuredOnlyPipelineModeEmpirical:
             project_id="proj-am",
             domain_namespace="asset_management",
             unstructured_only=True,
-            waves=[wave],
+            graph_a_ontology_path=str(ont_file),
+            unstructured_documents=[unstr_doc],
         )
         rep_true = validate_pipeline_inputs(spec_true, base_dir=tmp_path, workspace_root=tmp_path)
         codes_true = [d.get("code") for d in rep_true.diagnostics]

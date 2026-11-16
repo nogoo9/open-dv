@@ -8,14 +8,6 @@ import type { CSSProperties } from "react";
 import { EXPLORER_FONTS } from "./design-tokens";
 import type { ExplorerRunState, ExplorerViewLevel } from "./types";
 
-const WAVE_SEGMENTS: readonly { label: string; id: WaveFilterId }[] = [
-	{ label: "All", id: "all" },
-	{ label: "W0", id: "W0" },
-	{ label: "W1", id: "W1" },
-	{ label: "W2", id: "W2" },
-	{ label: "W3", id: "W3" },
-] as const;
-
 const RESET_BUTTON_STYLE: CSSProperties = {
 	background: "transparent",
 	border: "none",
@@ -40,7 +32,7 @@ export interface ExplorerTopBarProps {
 	view: ExplorerViewLevel;
 	currentStage?: Stage | undefined;
 	stageShortCode: string;
-	activeWave: WaveFilterId;
+	activeWave?: WaveFilterId | undefined;
 	runState: ExplorerRunState;
 	statusBannerText: string;
 	statusDotColor: string;
@@ -54,7 +46,7 @@ export interface ExplorerTopBarProps {
 	onGoPipeline: () => void;
 	onGoBuilder?: (() => void) | undefined;
 	onGoSettings?: (() => void) | undefined;
-	onSetWaveFilter: (wave: WaveFilterId) => void;
+	onSetWaveFilter?: ((wave: WaveFilterId) => void) | undefined;
 }
 
 export function ExplorerTopBar({
@@ -408,45 +400,6 @@ export function ExplorerTopBar({
 							</button>
 						</div>
 					)}
-				</div>
-
-				{/* Wave Segmented Control */}
-				<div
-					role="group"
-					aria-label="Wave filter"
-					data-testid="wave-filter-control"
-					style={{
-						display: "flex",
-						alignItems: "center",
-						border: "1px solid #E3E5E8",
-						borderRadius: "6px",
-						overflow: "hidden",
-						fontFamily: EXPLORER_FONTS.mono,
-						fontSize: "11.5px",
-					}}
-				>
-					{WAVE_SEGMENTS.map((seg, idx) => {
-						const isActive = activeWave === seg.id;
-						return (
-							<button
-								key={seg.id}
-								type="button"
-								data-testid={`btn-wave-${seg.id}`}
-								aria-pressed={isActive}
-								onClick={() => onSetWaveFilter(seg.id)}
-								style={{
-									...RESET_BUTTON_STYLE,
-									padding: "5px 9px",
-									background: isActive ? "#16181D" : "#FFFFFF",
-									color: isActive ? "#FFFFFF" : "#545A66",
-									borderLeft:
-										idx > 0 && !isActive ? "1px solid #E3E5E8" : "none",
-								}}
-							>
-								{seg.label}
-							</button>
-						);
-					})}
 				</div>
 			</div>
 

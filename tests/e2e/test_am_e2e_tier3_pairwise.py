@@ -598,14 +598,11 @@ def test_pairwise_unstructured_empty_relational_cross_check(tmp_path: Path) -> N
 project_id: "proj-am-genesis"
 graph_a_ontology_path: "{ont_file.as_posix()}"
 unstructured_only: true
-waves:
-  - wave_index: 0
-    wave_name: "wave_0_unstructured_genesis"
-    sources: []
-    unstructured_documents:
-      - doc_id: "DOC-SEC-001"
-        document_path: "{doc_file.as_posix()}"
-        record_source: "UNSTRUCTURED_DOC"
+sources: []
+unstructured_documents:
+  - doc_id: "DOC-SEC-001"
+    document_path: "{doc_file.as_posix()}"
+    record_source: "UNSTRUCTURED_DOC"
 """,
         encoding="utf-8",
     )

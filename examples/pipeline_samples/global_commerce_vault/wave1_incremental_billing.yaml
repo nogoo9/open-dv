@@ -6,15 +6,10 @@ domain_namespace: "global_commerce"
 graph_a_ontology_path: "ontology/commerce_graph_a_ontology.yaml"
 assertion_cutoff_ts: "2026-12-31 23:59:59"
 
-waves:
-  - wave_index: 1
-    wave_name: "Wave 1 — Incremental Source Onboarding (Stripe Billing)"
-    wave_type: "INCREMENTAL_SOURCE"
-    description: "Incremental onboarding of regional Stripe EU billing invoices using TIER_3_LOCAL_SCOPED BKCC namespace STRIPE_EU."
-    sources:
-      - source_system: "billing_stripe"
-        table_name: "stripe_invoices"
-        source:
-          adapter: "file"
-          uri: "sources/wave1_incremental_billing/stripe_invoices.csv"
-        data_path: "sources/wave1_incremental_billing/stripe_invoices.csv"
+sources:
+  - source_system: "billing_stripe"
+    table_name: "stripe_invoices"
+    source:
+      adapter: "file"
+      uri: "sources/wave1_incremental_billing/stripe_invoices.csv"
+    data_path: "sources/wave1_incremental_billing/stripe_invoices.csv"

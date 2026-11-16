@@ -254,13 +254,13 @@ def build_bundle_artifacts(
             "JSON",
             "code",
             "Deterministic Canonical Intermediate Representation.",
-            json.dumps({"hubs": ["hub_customer", "hub_order"]}, indent=2),
+            json.dumps({"hubs": ["hub_party", "hub_order"]}, indent=2),
             all_w,
             0,
             outline=[
-                ("Hubs", "hub_customer, hub_order"),
-                ("Links", "lnk_order_customer"),
-                ("Satellites", "sat_customer_core, sat_customer_pii"),
+                ("Hubs", "hub_party, hub_order"),
+                ("Links", "lnk_order_party"),
+                ("Satellites", "sat_party_core, sat_party_pii"),
             ],
         ),
         "final_sql": _art(

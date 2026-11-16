@@ -679,14 +679,11 @@ def test_scenario_04_wave0_unstructured_only_genesis(tmp_path: Path) -> None:
 project_id: "proj-am-unstructured"
 graph_a_ontology_path: "{ont_path.as_posix()}"
 unstructured_only: true
-waves:
-  - wave_index: 0
-    wave_name: "wave_0_unstructured_genesis"
-    sources: []
-    unstructured_documents:
-      - doc_id: "DOC-SEC-10K-001"
-        document_path: "{doc_path.as_posix()}"
-        record_source: "UNSTRUCTURED_DOC"
+sources: []
+unstructured_documents:
+  - doc_id: "DOC-SEC-10K-001"
+    document_path: "{doc_path.as_posix()}"
+    record_source: "UNSTRUCTURED_DOC"
 """,
         encoding="utf-8",
     )

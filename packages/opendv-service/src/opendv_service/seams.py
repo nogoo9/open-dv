@@ -32,6 +32,8 @@ class PipelineRunner(Protocol):
         on_stage_start: Callable[[int, str, str, str], None] | None = None,
         on_stage_complete: Callable[[int, PipelineStepReport], None] | None = None,
         on_stream_event: Callable[[HarnessStreamEvent], None] | None = None,
+        is_server: bool = False,
+        allowed_hosts: list[str] | None = None,
         **kwargs: Any,
     ) -> AgenticPipelineReport: ...
 

@@ -427,6 +427,24 @@ def test_docs_23_python_spi_implementations() -> None:
     exporter = exporter_cls()
     assert hasattr(exporter, "export_cypher"), "CypherDDLExporter must provide export_cypher."
 
+    # Extension Point 6: Custom CatalogSourceAdapter implementation (WS-1 SPI)
+    from opendv_sources.spi.catalog import CatalogSourceAdapter
+
+    assert hasattr(mod, "CustomRdbmsCatalogAdapter"), (
+        "Expected CustomRdbmsCatalogAdapter in docs/23."
+    )
+    rdbms_adapter_cls = mod.CustomRdbmsCatalogAdapter
+    assert issubclass(rdbms_adapter_cls, CatalogSourceAdapter), (
+        "CustomRdbmsCatalogAdapter must subclass CatalogSourceAdapter SPI."
+    )
+    rdbms_adapter = rdbms_adapter_cls()
+    assert hasattr(rdbms_adapter, "adapter_name")
+    assert hasattr(rdbms_adapter, "list_namespaces")
+    assert hasattr(rdbms_adapter, "list_tables")
+    assert hasattr(rdbms_adapter, "inspect_table")
+    assert hasattr(rdbms_adapter, "expand_feed")
+    assert hasattr(rdbms_adapter, "profile_pushdown")
+
 
 def test_docs_23_json_yaml_snippets() -> None:
     """Validate all JSON and YAML code blocks in docs/23 parse cleanly."""

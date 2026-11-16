@@ -182,6 +182,8 @@ CREATE TABLE IF NOT EXISTS marts.fct_institutional_holding (
 `;
 }
 
+const deriveHubTableName = (concept: string) => `hub_${concept.toLowerCase().trim()}`;
+
 function getFallbackRawVaultTables(): {
 	hubs: HubTable[];
 	links: LinkTable[];
@@ -190,7 +192,7 @@ function getFallbackRawVaultTables(): {
 	const hubs: HubTable[] = [
 		{
 			type: "hub",
-			tableName: "hub_security",
+			tableName: deriveHubTableName("security"),
 			conceptUri: "urn:opendv:concept:security",
 			conceptName: "Security",
 			hkColumn: "hk_security",
@@ -260,7 +262,7 @@ function getFallbackRawVaultTables(): {
 			hkColumn: "hk_investor_holding",
 			foreignKeys: [
 				{ name: "hk_investor", targetHub: "hub_investor" },
-				{ name: "hk_security", targetHub: "hub_security" },
+				{ name: "hk_security", targetHub: deriveHubTableName("security") },
 			],
 			columns: [
 				{
@@ -281,7 +283,7 @@ function getFallbackRawVaultTables(): {
 		{
 			type: "satellite",
 			tableName: "sat_security_details",
-			parentTable: "hub_security",
+			parentTable: deriveHubTableName("security"),
 			parentHkColumn: "hk_security",
 			columns: [
 				{ name: "hk_security", dataType: "VARCHAR", isForeignKey: true },
@@ -417,16 +419,18 @@ export function deriveRawVaultBlueprint(
 
 		const hubDdl = `CREATE TABLE IF NOT EXISTS raw_vault.${tableName} (\n    ${hkColumn} VARCHAR PRIMARY KEY,\n    ${businessKeys.map((bk) => `${bk} VARCHAR NOT NULL`).join(",\n    ")},\n    load_dts TIMESTAMP NOT NULL,\n    record_source VARCHAR NOT NULL\n);`;
 
-		hubs.push({
-			type: "hub",
-			tableName,
-			conceptUri: node.concept_uri,
-			conceptName: node.concept_name,
-			hkColumn,
-			businessKeys,
-			columns: hubCols,
-			ddl: hubDdl,
-		});
+		if (!hubs.some((h) => h.tableName === tableName)) {
+			hubs.push({
+				type: "hub",
+				tableName,
+				conceptUri: node.concept_uri,
+				conceptName: node.concept_name,
+				hkColumn,
+				businessKeys,
+				columns: hubCols,
+				ddl: hubDdl,
+			});
+		}
 
 		// Concept satellite
 		const satName =
@@ -436,34 +440,36 @@ export function deriveRawVaultBlueprint(
 					? "sat_rate_observation"
 					: `sat_${coreName}_details`;
 
-		const descriptiveAttrs = (node.attributes || []).filter(
-			(attr) => !bkAttrs.includes(attr),
-		);
-		const satCols: RawVaultColumn[] = [
-			{ name: hkColumn, dataType: "VARCHAR", isForeignKey: true },
-			...descriptiveAttrs.map((attr) => ({
-				name: toSnakeCase(attr.attribute_name),
-				dataType: mapDataTypeToSql(attr.data_type),
-			})),
-			{ name: "load_dts", dataType: "TIMESTAMP", isAuditColumn: true },
-			{ name: "record_source", dataType: "VARCHAR", isAuditColumn: true },
-			{ name: "hash_diff", dataType: "VARCHAR", isAuditColumn: true },
-		];
+		if (!satellites.some((s) => s.tableName === satName)) {
+			const descriptiveAttrs = (node.attributes || []).filter(
+				(attr) => !bkAttrs.includes(attr),
+			);
+			const satCols: RawVaultColumn[] = [
+				{ name: hkColumn, dataType: "VARCHAR", isForeignKey: true },
+				...descriptiveAttrs.map((attr) => ({
+					name: toSnakeCase(attr.attribute_name),
+					dataType: mapDataTypeToSql(attr.data_type),
+				})),
+				{ name: "load_dts", dataType: "TIMESTAMP", isAuditColumn: true },
+				{ name: "record_source", dataType: "VARCHAR", isAuditColumn: true },
+				{ name: "hash_diff", dataType: "VARCHAR", isAuditColumn: true },
+			];
 
-		const satFieldLines = descriptiveAttrs.map(
-			(attr) =>
-				`${toSnakeCase(attr.attribute_name)} ${mapDataTypeToSql(attr.data_type)}`,
-		);
-		const satDdl = `CREATE TABLE IF NOT EXISTS raw_vault.${satName} (\n    ${hkColumn} VARCHAR NOT NULL,\n    ${satFieldLines.length > 0 ? `${satFieldLines.join(",\n    ")},\n    ` : ""}load_dts TIMESTAMP NOT NULL,\n    record_source VARCHAR NOT NULL,\n    hash_diff VARCHAR NOT NULL\n);`;
+			const satFieldLines = descriptiveAttrs.map(
+				(attr) =>
+					`${toSnakeCase(attr.attribute_name)} ${mapDataTypeToSql(attr.data_type)}`,
+			);
+			const satDdl = `CREATE TABLE IF NOT EXISTS raw_vault.${satName} (\n    ${hkColumn} VARCHAR NOT NULL,\n    ${satFieldLines.length > 0 ? `${satFieldLines.join(",\n    ")},\n    ` : ""}load_dts TIMESTAMP NOT NULL,\n    record_source VARCHAR NOT NULL,\n    hash_diff VARCHAR NOT NULL\n);`;
 
-		satellites.push({
-			type: "satellite",
-			tableName: satName,
-			parentTable: tableName,
-			parentHkColumn: hkColumn,
-			columns: satCols,
-			ddl: satDdl,
-		});
+			satellites.push({
+				type: "satellite",
+				tableName: satName,
+				parentTable: tableName,
+				parentHkColumn: hkColumn,
+				columns: satCols,
+				ddl: satDdl,
+			});
+		}
 	}
 
 	// Synthesize Document Hub and Satellite if absent
@@ -540,16 +546,18 @@ export function deriveRawVaultBlueprint(
 
 		const linkDdl = `CREATE TABLE IF NOT EXISTS raw_vault.${tableName} (\n    ${hkColumn} VARCHAR PRIMARY KEY,\n    ${foreignKeys.map((fk) => `${fk.name} VARCHAR NOT NULL`).join(",\n    ")},\n    load_dts TIMESTAMP NOT NULL,\n    record_source VARCHAR NOT NULL\n);`;
 
-		links.push({
-			type: "link",
-			tableName,
-			relationshipUri: edge.relationship_uri,
-			relationshipName: edge.relationship_name,
-			hkColumn,
-			foreignKeys,
-			columns: linkCols,
-			ddl: linkDdl,
-		});
+		if (!links.some((l) => l.tableName === tableName)) {
+			links.push({
+				type: "link",
+				tableName,
+				relationshipUri: edge.relationship_uri,
+				relationshipName: edge.relationship_name,
+				hkColumn,
+				foreignKeys,
+				columns: linkCols,
+				ddl: linkDdl,
+			});
+		}
 
 		// Link satellite
 		const satLinkName =
@@ -567,14 +575,16 @@ export function deriveRawVaultBlueprint(
 				? "CREATE TABLE IF NOT EXISTS raw_vault.sat_holding_position (\n    hk_investor_holding VARCHAR NOT NULL,\n    holding_id VARCHAR,\n    shares BIGINT,\n    market_value_usd DECIMAL(18,2),\n    investment_discretion VARCHAR,\n    load_dts TIMESTAMP NOT NULL,\n    record_source VARCHAR NOT NULL,\n    hash_diff VARCHAR NOT NULL\n);"
 				: `CREATE TABLE IF NOT EXISTS raw_vault.${satLinkName} (\n    ${hkColumn} VARCHAR NOT NULL,\n    load_dts TIMESTAMP NOT NULL,\n    record_source VARCHAR NOT NULL,\n    hash_diff VARCHAR NOT NULL\n);`;
 
-		satellites.push({
-			type: "satellite",
-			tableName: satLinkName,
-			parentTable: tableName,
-			parentHkColumn: hkColumn,
-			columns: satLinkCols,
-			ddl: satLinkDdl,
-		});
+		if (!satellites.some((s) => s.tableName === satLinkName)) {
+			satellites.push({
+				type: "satellite",
+				tableName: satLinkName,
+				parentTable: tableName,
+				parentHkColumn: hkColumn,
+				columns: satLinkCols,
+				ddl: satLinkDdl,
+			});
+		}
 	}
 
 	// Always synthesize lnk_investor_holding if no link was provided but hubs contain security and investor
@@ -582,7 +592,7 @@ export function deriveRawVaultBlueprint(
 		l.tableName.includes("investor_holding"),
 	);
 	const hasInvestorHub = hubs.some((h) => h.tableName === "hub_investor");
-	const hasSecurityHub = hubs.some((h) => h.tableName === "hub_security");
+	const hasSecurityHub = hubs.some((h) => h.tableName === deriveHubTableName("security"));
 	if (!hasHoldingLink && hasInvestorHub && hasSecurityHub) {
 		links.push({
 			type: "link",
@@ -592,7 +602,7 @@ export function deriveRawVaultBlueprint(
 			hkColumn: "hk_investor_holding",
 			foreignKeys: [
 				{ name: "hk_investor", targetHub: "hub_investor" },
-				{ name: "hk_security", targetHub: "hub_security" },
+				{ name: "hk_security", targetHub: deriveHubTableName("security") },
 			],
 			columns: [
 				{
@@ -890,7 +900,8 @@ export const BlueprintView: React.FC = () => {
 	const handleHandoff = () => {
 		const targetUrl = `/builder?session_id=${activeSession?.session_id || "am-walkthrough"}&source=ontology_studio&domain_namespace=${activeSession?.domain_namespace || "asset_management"}&pipeline_id=pl_am_walkthrough`;
 		if (typeof window !== "undefined") {
-			window.location.href = targetUrl;
+			window.history.pushState({}, "", targetUrl);
+			window.dispatchEvent(new PopStateEvent("popstate"));
 		}
 	};
 

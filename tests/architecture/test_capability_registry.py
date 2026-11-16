@@ -73,14 +73,17 @@ def test_spec_and_service_capability_registry_equality() -> None:
     """Assert that cli-spec.json command tree equals OpenDVService capabilities."""
     spec = load_cli_spec()
     spec_commands = {c["name"] for c in spec.get("commands", [])}
+    # ADR-020: 'source' command is a standalone multi-source inspection CLI command
+    spec_adr020_exemptions = {"source"}
+    effective_spec_commands = spec_commands - spec_adr020_exemptions
 
     service = OpenDVService()
     service_capabilities = set(service.list_capabilities())
 
-    assert spec_commands == service_capabilities, (
+    assert effective_spec_commands == service_capabilities, (
         f"Spec commands and Service capabilities diverge:\n"
-        f"In spec only: {spec_commands - service_capabilities}\n"
-        f"In service only: {service_capabilities - spec_commands}"
+        f"In spec only: {effective_spec_commands - service_capabilities}\n"
+        f"In service only: {service_capabilities - effective_spec_commands}"
     )
 
 
@@ -95,8 +98,15 @@ def test_service_and_api_capability_routes_consistency() -> None:
 
     # Reasoned transport-specific exemptions (Decision D2 & §3A.5)
     api_transport_exemptions = {"health", "events"}
-    # Auxiliary entity storage / metadata routes
-    api_storage_exemptions = {"platform", "projects", "artifacts", "workbench"}
+    # Auxiliary entity storage / metadata routes and ADR-020 source inspection / CAS blob routes
+    api_storage_exemptions = {
+        "platform",
+        "projects",
+        "artifacts",
+        "workbench",
+        "sources",
+        "cas",
+    }
     # CLI standalone server launcher exemption (`opendv serve` starts the API server itself)
     cli_launcher_exemptions = {"serve"}
     # Documented Phase P5 REST route parity additions (All closed in P5.1)

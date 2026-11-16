@@ -20,7 +20,6 @@ from starlette.testclient import TestClient
 from opendv_agent_harness.pipeline import (
     PipelineInputSpec,
     PipelineUnstructuredDocInput,
-    PipelineWaveInput,
     _synthesize_cumulative_contract,
     validate_pipeline_inputs,
 )
@@ -628,24 +627,19 @@ class TestFeature7UnstructuredOnlyPipelineMode:
         ont_file = tmp_path / "ont.json"
         ont_file.write_text(ont.model_dump_json(), encoding="utf-8")
 
-        wave = PipelineWaveInput(
-            wave_index=0,
-            wave_name="Wave 0 Unstructured",
-            wave_type="UNSTRUCTURED_ONBOARDING",
-            unstructured_documents=[
-                PipelineUnstructuredDocInput(
-                    doc_id="DOC-MSA-001",
-                    document_path=str(doc_file),
-                    record_source="UNSTRUCTURED",
-                )
-            ],
-        )
+        unstr_docs = [
+            PipelineUnstructuredDocInput(
+                doc_id="DOC-MSA-001",
+                document_path=str(doc_file),
+                record_source="UNSTRUCTURED",
+            )
+        ]
 
         spec = PipelineInputSpec(
             pipeline_id="pipe-unstr-01",
             project_id="proj-am-01",
             graph_a_ontology_path=str(ont_file),
-            waves=[wave],
+            unstructured_documents=unstr_docs,
             unstructured_only=True,
         )
 
@@ -658,7 +652,7 @@ class TestFeature7UnstructuredOnlyPipelineMode:
             ontology=ont,
             cumulative_sources={},
             cumulative_source_systems={},
-            cumulative_unstructured_docs=[(wave.unstructured_documents[0], "sha256_mock")],
+            cumulative_unstructured_docs=[(spec.unstructured_documents[0], "sha256_mock")],
             added_drift_cols_by_table={},
             current_wave_drift_tables=set(),
             wave_index=0,

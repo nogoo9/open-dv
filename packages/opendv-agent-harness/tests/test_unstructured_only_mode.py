@@ -5,7 +5,6 @@ from pathlib import Path
 from opendv_agent_harness.pipeline import (
     PipelineInputSpec,
     PipelineUnstructuredDocInput,
-    PipelineWaveInput,
     _synthesize_cumulative_contract,
     validate_pipeline_inputs,
 )
@@ -34,25 +33,20 @@ def test_unstructured_only_validation_bypass(tmp_path: Path) -> None:
     ont_file = tmp_path / "ont.json"
     ont_file.write_text(_sample_ontology().model_dump_json(), encoding="utf-8")
 
-    wave = PipelineWaveInput(
-        wave_index=0,
-        wave_name="Unstructured Ingestion",
-        wave_type="UNSTRUCTURED_ONBOARDING",
-        unstructured_documents=[
-            PipelineUnstructuredDocInput(
-                doc_id="DOC-001",
-                document_path=str(doc_file),
-                record_source="UNSTRUCTURED",
-            )
-        ],
-    )
+    unstr_docs = [
+        PipelineUnstructuredDocInput(
+            doc_id="DOC-001",
+            document_path=str(doc_file),
+            record_source="UNSTRUCTURED",
+        )
+    ]
 
     # 1. With unstructured_only=False (default): fails validation
     spec_default = PipelineInputSpec(
         pipeline_id="pipe-1",
         project_id="proj-1",
         graph_a_ontology_path=str(ont_file),
-        waves=[wave],
+        unstructured_documents=unstr_docs,
         unstructured_only=False,
     )
     report_default = validate_pipeline_inputs(spec_default, base_dir=tmp_path)
@@ -66,7 +60,7 @@ def test_unstructured_only_validation_bypass(tmp_path: Path) -> None:
         pipeline_id="pipe-1",
         project_id="proj-1",
         graph_a_ontology_path=str(ont_file),
-        waves=[wave],
+        unstructured_documents=unstr_docs,
         unstructured_only=True,
     )
     report_unstr = validate_pipeline_inputs(spec_unstr, base_dir=tmp_path)

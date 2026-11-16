@@ -507,7 +507,220 @@ class CypherDDLExporter:
 
 ---
 
-## 7. Extension Testing & Conformance Verification
+## 7. Extension Point 6: Custom Catalog Source Adapters (`CatalogSourceAdapter` SPI)
+
+### 7.1 Architecture & Multi-Table Catalog Introspection
+For multi-table relational databases, cloud lakehouses, and catalog metastores (e.g. PostgreSQL, Snowflake, BigQuery, or custom RDBMS), implement the `CatalogSourceAdapter` SPI defined in `opendv_sources.spi.catalog`.
+
+`CatalogSourceAdapter` enables the Open-DV pipeline to:
+1. Discover catalog namespaces and user tables without hardcoding table names.
+2. Introspect table schemas, column physical types, Primary Keys, and Foreign Key constraints.
+3. Expand catalog feeds into per-table `ResolvedTableSource` descriptors.
+4. Execute pushdown profiling inside the source warehouse to avoid full data egress.
+
+```python
+from __future__ import annotations
+
+from typing import Any
+from pydantic import BaseModel, Field
+
+from opendv_sources.models.descriptors import (
+    ColumnDescriptor,
+    ForeignKeyHint,
+    NamespaceDescriptor,
+    ResolvedTableSource,
+    SourceCapabilities,
+    TableSchemaDescriptor,
+    TableSummary,
+    TabularProfileSummary,
+)
+from opendv_sources.models.specs import (
+    NamespaceRef,
+    SamplingPolicy,
+    SourceSpec,
+    TableRef,
+    TableSelectionSpec,
+)
+from opendv_sources.spi.catalog import CatalogSourceAdapter
+
+
+class RdbmsConnectorConfig(BaseModel):
+    """Configuration schema for custom RDBMS connection parameters."""
+
+    host: str = Field(default="localhost", description="Database server hostname")
+    port: int = Field(default=5432, description="Database port")
+    database: str = Field(default="analytics", description="Target database name")
+
+
+class CustomRdbmsCatalogAdapter(CatalogSourceAdapter):
+    """Reference implementation of CatalogSourceAdapter for enterprise relational databases."""
+
+    def __init__(self, adapter_name: str = "custom_rdbms") -> None:
+        self._adapter_name = adapter_name
+
+    @property
+    def adapter_name(self) -> str:
+        return self._adapter_name
+
+    def list_namespaces(self, spec: SourceSpec) -> list[NamespaceDescriptor]:
+        """Discover database schema namespaces via information_schema."""
+        return [
+            NamespaceDescriptor(
+                catalog="analytics",
+                schema_name="public",
+                description="Default public relational schema",
+            )
+        ]
+
+    def list_tables(
+        self,
+        spec: SourceSpec,
+        namespace: NamespaceRef | None = None,
+    ) -> list[TableSummary]:
+        """Enumerate user tables skipping internal catalogs."""
+        ns = namespace or NamespaceRef(catalog="analytics", schema_name="public")
+        return [
+            TableSummary(
+                table_name="orders",
+                namespace=ns,
+                table_type="BASE_TABLE",
+                row_count_estimate=50000,
+                column_count=3,
+                comment="Customer purchase transactions",
+            ),
+            TableSummary(
+                table_name="order_items",
+                namespace=ns,
+                table_type="BASE_TABLE",
+                row_count_estimate=150000,
+                column_count=4,
+                comment="Line items per order",
+            ),
+        ]
+
+    def inspect_table(self, spec: SourceSpec, table: TableRef) -> TableSchemaDescriptor:
+        """Inspect table schema, columns, PKs, and FK constraints."""
+        ns = table.namespace or NamespaceRef(catalog="analytics", schema_name="public")
+        if table.table_name == "order_items":
+            cols = [
+                ColumnDescriptor(
+                    name="order_item_id",
+                    physical_type="BIGINT",
+                    nullable=False,
+                    is_primary_key=True,
+                    primary_key_ordinal=1,
+                ),
+                ColumnDescriptor(
+                    name="order_id",
+                    physical_type="BIGINT",
+                    nullable=False,
+                    foreign_key_ref=ForeignKeyHint(
+                        target_table="orders",
+                        target_column="order_id",
+                        constraint_name="fk_order_items_orders",
+                    ),
+                ),
+                ColumnDescriptor(name="product_id", physical_type="VARCHAR", nullable=False),
+                ColumnDescriptor(name="quantity", physical_type="INTEGER", nullable=False),
+            ]
+            pks = ["order_item_id"]
+            fks = [
+                ForeignKeyHint(
+                    target_table="orders",
+                    target_column="order_id",
+                    constraint_name="fk_order_items_orders",
+                )
+            ]
+        else:
+            cols = [
+                ColumnDescriptor(
+                    name="order_id",
+                    physical_type="BIGINT",
+                    nullable=False,
+                    is_primary_key=True,
+                    primary_key_ordinal=1,
+                ),
+                ColumnDescriptor(name="customer_id", physical_type="VARCHAR", nullable=False),
+                ColumnDescriptor(name="order_date", physical_type="DATE", nullable=False),
+            ]
+            pks = ["order_id"]
+            fks = []
+
+        return TableSchemaDescriptor(
+            table_name=table.table_name,
+            namespace=ns,
+            columns=cols,
+            primary_key_columns=pks,
+            foreign_keys=fks,
+            row_count_estimate=50000,
+            fingerprint="rdbms_sha256_snapshot_hash",
+        )
+
+    def expand_feed(
+        self,
+        spec: SourceSpec,
+        table: TableRef | None = None,
+    ) -> list[ResolvedTableSource]:
+        """Expand multi-table specification into concrete per-table feeds."""
+        source_sys = str(spec.options.get("source_system") or "enterprise_rdbms")
+        tbl_names = [table.table_name] if table else ["orders", "order_items"]
+        resolved: list[ResolvedTableSource] = []
+        for name in tbl_names:
+            t_ref = TableRef(table_name=name)
+            schema = self.inspect_table(spec, t_ref)
+            sub_spec = spec.model_copy(update={"options": {**spec.options, "table": name}})
+            resolved.append(
+                ResolvedTableSource(
+                    source_system=source_sys,
+                    table_name=name,
+                    qualified_name=f"{source_sys}.{name}",
+                    schema_descriptor=schema,
+                    spec=sub_spec,
+                    execution_mode="DIRECT_DUCKDB_ATTACH",
+                )
+            )
+        return resolved
+
+    def profile_pushdown(
+        self,
+        spec: SourceSpec,
+        table: TableRef,
+        policy: SamplingPolicy,
+    ) -> TabularProfileSummary:
+        """Run remote SQL aggregate profiling directly in relational warehouse."""
+        return TabularProfileSummary(
+            table_name=table.table_name,
+            namespace=table.namespace,
+            total_row_count=50000,
+            column_stats={
+                "order_id": {"null_count": 0, "approx_distinct": 50000},
+            },
+        )
+
+    def capabilities(self, spec: SourceSpec | None = None) -> SourceCapabilities:
+        """Declare adapter capabilities."""
+        return SourceCapabilities(
+            execution_mode="DIRECT_DUCKDB_ATTACH",
+            supports_multi_table=True,
+            supports_catalog_hierarchy=True,
+            supports_foreign_keys=True,
+            supports_governance_tags=True,
+            supports_time_travel=False,
+            supports_streaming=True,
+            supports_pushdown=True,
+            supports_drift_detection=True,
+            client_uploadable=False,
+            server_resolved=True,
+        )
+
+    @classmethod
+    def config_schema(cls) -> type[BaseModel] | None:
+        return RdbmsConnectorConfig
+```
+
+---
+
+## 8. Extension Testing & Conformance Verification
 
 To guarantee that your custom extensions maintain system stability, pass `extra="forbid"` contract validation, and resist injection payloads, run the documentation conformance suite in CI:
 
@@ -525,3 +738,4 @@ uv run ruff check tests/docs/
 - [x] Custom concept matchers score human-readable lexical fields (`concept_name + synonyms`) and break ties deterministically by `concept_uri`.
 - [x] Custom task specs and filters enforce sticky confidential tainting and `(?<![A-Za-z0-9])` `snake_case`-safe HMAC-SHA256 pseudonymization.
 - [x] Custom export serializers strictly validate/quote identifiers and strip CR/LF/`*/` from untrusted ontology text.
+- [x] Custom catalog source adapters implement `CatalogSourceAdapter` for multi-table catalog enumeration, PK/FK prior extraction, and warehouse pushdown profiling.

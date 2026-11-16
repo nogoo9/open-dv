@@ -136,7 +136,7 @@ def run_axi_dv_verification_pipeline(
 
         before_a4 = copy.deepcopy(contract)
         contract = codemod_enforce_cold_start_extensibility(
-            contract, ontology_graph, bronze_profile
+            contract, ontology_graph, bronze_profile, deployed_contract=deployed_contract
         )
         if contract != before_a4:
             applied_codemods.append("ALG_A4_COLD_START_EXTENSIBILITY")

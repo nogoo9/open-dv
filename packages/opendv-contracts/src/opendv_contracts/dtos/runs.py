@@ -83,9 +83,14 @@ class CreateRunRequest(BaseContractModel):
         max_length=1_000_000,
         description="Inline starting contract YAML or JSON string (Decision D1 / GAP-07)",
     )
-    wave_id: str | None = Field(
+    blueprint_path: str | None = Field(
         default=None,
-        description="Target wave identifier (e.g. W0, W1, W2) (GAP-07)",
+        description="Path to VaultBlueprint YAML or JSON file (ADR-017)",
+    )
+    blueprint_content: str | None = Field(
+        default=None,
+        max_length=5_000_000,
+        description="Inline VaultBlueprint YAML or JSON string (ADR-017)",
     )
 
     @model_validator(mode="after")
@@ -103,9 +108,12 @@ class CreateRunRequest(BaseContractModel):
             and not self.pipeline_input_path
             and not self.initial_contract
             and not self.initial_contract_path
+            and not self.blueprint_path
+            and not self.blueprint_content
         ):
             raise ValueError(
-                "Either 'project_id', 'pipeline_input_path', or "
+                "Either 'project_id', 'pipeline_input_path', "
+                "'blueprint_path'/'blueprint_content', or "
                 "'initial_contract'/'initial_contract_path' must be provided."
             )
         return self
@@ -193,10 +201,6 @@ class ProjectRunDTO(BaseContractModel):
     initial_contract_path: str | None = Field(
         default=None,
         description="Path to initial contract if file-backed (GAP-07)",
-    )
-    wave_id: str | None = Field(
-        default=None,
-        description="Target wave identifier if restricted (GAP-07)",
     )
     lifecycle_stage: str = Field(
         default=LifecycleStage.COLD_START_N1.value,

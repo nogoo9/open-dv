@@ -1,0 +1,13 @@
+{
+  "version": "v0.0.0",
+  "target_version": "v0.0.0",
+  "target_sha256": "8301bc3087f0c93470858943dde8042f322879a25a5dfc76cb1d42efd900f8d6",
+  "parent_sha256": null,
+  "commit_timestamp": "2026-11-15T15:11:30.704659+00:00",
+  "created_at": "2026-11-15T15:11:30.704659+00:00",
+  "author": "system:genesis",
+  "mode": "genesis",
+  "domain_namespace": "asset_management",
+  "enterprise_owner": "Enterprise Architecture",
+  "grandfathered_concept_uris": []
+}

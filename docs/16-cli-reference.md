@@ -162,7 +162,12 @@ Execute end-to-end 8-stage synthesis pipeline run
 
 | Option | Short | Type | Required | Default | Inline Upload | Description |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| `--input` | `-i` | `path` | Yes | — | Yes | Path to pipeline input specification YAML |
+| `--input` | `-i` | `path` | No | — | Yes | Path to pipeline input specification YAML |
+| `--blueprint` | `-b` | `path` | No | — | Yes | Path to vault_blueprint.yaml |
+| `--ontology` | — | `path` | No | — | Yes | Path to Graph A business ontology YAML or JSON |
+| `--contract` | — | `path` | No | — | Yes | Path to existing Data Vault contract YAML or JSON |
+| `--source` | — | `array` | No | — | No | Source URI or file path (can be specified multiple times) |
+| `--dialect` | — | `string` | No | `duckdb` | No | Target SQL output dialect (default: duckdb) |
 | `--harness-config` | `-c` | `path` | No | — | No | Path to agent harness configuration YAML |
 | `--initial-contract` | — | `path` | No | — | Yes | Path to starting contract YAML |
 | `--provider` | `-p` | `string` | No | — | No | Target harness provider override |
@@ -170,7 +175,6 @@ Execute end-to-end 8-stage synthesis pipeline run
 | `--output-dir` | `-o` | `path` | No | — | No | Target directory for generated artifacts and reports |
 | `--stream` | `-s` | `boolean` | No | `True` | No | Stream live stage execution progress |
 | `--stream-tokens` | — | `boolean` | No | `False` | No | Stream live LLM tokens and thinking deltas |
-| `--wave-id` | `-w` | `string` | No | — | No | Target wave identifier (e.g. W0, W1, W2) |
 | `--unstructured-only` | — | `boolean` | No | `False` | No | Enable unstructured-only mode without relational source prerequisites |
 
 - **Request DTO:** `PipelineRunRequest`
@@ -191,7 +195,12 @@ Deterministically validate pipeline input specifications, sources, and harness c
 
 | Option | Short | Type | Required | Default | Inline Upload | Description |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| `--input` | `-i` | `path` | Yes | — | Yes | Path to input spec file |
+| `--input` | `-i` | `path` | No | — | Yes | Path to input spec file |
+| `--blueprint` | `-b` | `path` | No | — | Yes | Path to vault_blueprint.yaml |
+| `--ontology` | — | `path` | No | — | Yes | Path to Graph A business ontology YAML or JSON |
+| `--contract` | — | `path` | No | — | Yes | Path to existing Data Vault contract YAML or JSON |
+| `--source` | — | `array` | No | — | No | Source URI or file path (can be specified multiple times) |
+| `--dialect` | — | `string` | No | `duckdb` | No | Target SQL output dialect (default: duckdb) |
 | `--harness-config` | `-c` | `path` | No | — | No | Path to harness config file |
 | `--initial-contract` | — | `path` | No | — | Yes | Path to initial contract YAML |
 | `--provider` | `-p` | `string` | No | — | No | Target harness provider override |
@@ -281,7 +290,6 @@ Create and initialize a run
 | `--contract` | `-c` | `path` | No | — | Yes | Contract YAML path |
 | `--initial-contract-path` | — | `path` | No | — | Yes | Path to initial contract YAML file |
 | `--initial-contract` | — | `string` | No | — | No | Inline starting contract YAML or JSON string |
-| `--wave-id` | `-w` | `string` | No | — | No | Target wave identifier |
 
 - **Request DTO:** `CreateRunRequest`
 - **Response DTO:** `PipelineRunHandle`
@@ -340,7 +348,6 @@ Fetch 3-Level Explorer bundle for a completed or active run
 | Option | Short | Type | Required | Default | Inline Upload | Description |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
 | `--run-id` | `-r` | `string` | Yes | — | No | Target run ID |
-| `--wave-id` | `-w` | `string` | No | — | No | Target wave identifier |
 
 - **Response DTO:** `ExplorerBundleDTO`
 
@@ -1383,6 +1390,38 @@ opendvctl config validate --api-url $OPENDV_API_URL --json
 ```bash
 # Standalone execution
 opendv serve --help
+```
+
+### `opendv source` / `opendvctl source`
+
+**Availability:** *(Both CLIs)*  
+**Description:** Inspect and discover external source systems, catalogs, and schemas  
+**Summary:** Inspect source catalogs, tables, and constraints
+
+#### Subcommands of `source`
+
+##### `source inspect` *(Both CLIs)*
+
+Inspect tables, columns, primary keys, and foreign keys in a source
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--uri` | `-u` | `string` | No | — | No | Source URI or file path to inspect (e.g. sqlite:///path/to/db.sqlite) |
+| `--adapter` | `-a` | `string` | No | — | No | Target source adapter identifier (e.g. sqlite, databricks, duckdb, file) |
+| `--namespace` | `-n` | `string` | No | — | No | Namespace, schema, or catalog name to scope inspection |
+| `--table` | `-t` | `string` | No | — | No | Target physical table name to inspect |
+| `--credentials-ref` | — | `string` | No | — | No | Credentials reference (e.g. env:VAR_NAME) |
+
+- **Request DTO:** `SourceInspectRequestDTO`
+- **Response DTO:** `SourceInspectResponseDTO`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv source inspect --help
+
+# Client execution
+opendvctl source inspect --api-url $OPENDV_API_URL --json
 ```
 
 ---

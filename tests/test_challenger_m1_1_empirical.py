@@ -23,7 +23,6 @@ from starlette.testclient import TestClient
 from opendv_agent_harness.pipeline import (
     PipelineInputSpec,
     PipelineUnstructuredDocInput,
-    PipelineWaveInput,
     _synthesize_cumulative_contract,
     validate_pipeline_inputs,
 )
@@ -720,25 +719,20 @@ class TestUnstructuredOnlyPipelineModeEmpirical:
         ont_file = tmp_path / "ontology.json"
         ont_file.write_text(ont.model_dump_json(), encoding="utf-8")
 
-        wave = PipelineWaveInput(
-            wave_index=0,
-            wave_name="Wave 0 Unstructured Documents",
-            wave_type="UNSTRUCTURED_ONBOARDING",
-            unstructured_documents=[
-                PipelineUnstructuredDocInput(
-                    doc_id="DOC-9901",
-                    document_path=str(doc_file),
-                    record_source="UNSTRUCTURED",
-                )
-            ],
-        )
+        unstr_docs = [
+            PipelineUnstructuredDocInput(
+                doc_id="DOC-9901",
+                document_path=str(doc_file),
+                record_source="UNSTRUCTURED",
+            )
+        ]
 
         # 1. Assert unstructured_only=False fails with UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE
         spec_fail = PipelineInputSpec(
             pipeline_id="pipe-fail",
             project_id="proj-fail",
             graph_a_ontology_path=str(ont_file),
-            waves=[wave],
+            unstructured_documents=unstr_docs,
             unstructured_only=False,
         )
         report_fail = validate_pipeline_inputs(spec_fail, base_dir=tmp_path)
@@ -750,14 +744,14 @@ class TestUnstructuredOnlyPipelineModeEmpirical:
             pipeline_id="pipe-pass",
             project_id="proj-pass",
             graph_a_ontology_path=str(ont_file),
-            waves=[wave],
+            unstructured_documents=unstr_docs,
             unstructured_only=True,
         )
         report_pass = validate_pipeline_inputs(spec_pass, base_dir=tmp_path)
         assert not any(d["code"] == "UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE" for d in report_pass.diagnostics)
 
         # 3. Assert contract synthesis creates hub_document, sat_document_metadata, and 6 ledger columns
-        cum_unstr = [(wave.unstructured_documents[0], "sha256_mock_hash")]
+        cum_unstr = [(spec_pass.unstructured_documents[0], "sha256_mock_hash")]
         contract = _synthesize_cumulative_contract(
             ontology=ont,
             cumulative_sources={},

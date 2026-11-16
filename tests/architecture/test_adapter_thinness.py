@@ -45,10 +45,14 @@ def test_router_adapter_thinness() -> None:
                     rel_path = r_file.relative_to(REPO_ROOT)
                     violations.append(f"{rel_path}:{node.lineno}: direct engine call '{func_name}'")
 
-        # 2. Assert router depends on OpenDVService
+        # 2. Assert router depends on OpenDVService or StudioSessionManager
         text = r_file.read_text(encoding="utf-8")
-        assert "OpenDVService" in text or "get_opendv_service" in text, (
-            f"Router '{r_file.name}' does not inject or reference OpenDVService"
+        assert (
+            "OpenDVService" in text
+            or "get_opendv_service" in text
+            or "StudioSessionManager" in text
+        ), (
+            f"Router '{r_file.name}' does not inject or reference OpenDVService or StudioSessionManager"
         )
 
     assert not violations, "Adapter thinness violations detected:\n" + "\n".join(violations)

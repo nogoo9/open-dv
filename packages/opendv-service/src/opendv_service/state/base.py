@@ -51,7 +51,11 @@ class BaseStateContainer:
         repo_root: Path | None = None,
         state_dir: Path | None = None,
         settings: Any | None = None,
+        is_server: bool = False,
+        allowed_hosts: list[str] | None = None,
     ) -> None:
+        self.is_server = is_server
+        self.allowed_hosts = allowed_hosts
         self.settings = settings
         eff_ws = workspace_root if workspace_root is not None else repo_root
         self._explicit_workspace = eff_ws is not None

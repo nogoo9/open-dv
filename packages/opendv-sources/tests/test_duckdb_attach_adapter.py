@@ -339,3 +339,57 @@ def test_duckdb_attach_client_workspace_root_cannot_override_server_jail(tmp_pat
     )
     with pytest.raises(PathContainmentError):
         adapter.read_bytes(evil_spec)
+
+
+def test_validate_identifier_and_quote_ident() -> None:
+    """Verify C5 identifier validation and shared quote_ident escaping."""
+    from opendv_sources.adapters.duckdb_attach import (
+        qualify_bronze_view_name,
+        quote_ident,
+        validate_identifier,
+    )
+
+    # Valid identifiers
+    assert validate_identifier("valid_table_1") == "valid_table_1"
+    assert validate_identifier('"quoted_ident"') == "quoted_ident"
+    assert validate_identifier("`backticked`") == "backticked"
+
+    # Invalid identifiers / SQL injection attempts rejected
+    with pytest.raises(ValueError, match="Unsafe SQL identifier"):
+        validate_identifier("tbl; DROP TABLE users;")
+    with pytest.raises(ValueError, match="Unsafe SQL identifier"):
+        validate_identifier("tbl' OR 1=1 --")
+    with pytest.raises(ValueError, match="Unsafe SQL identifier"):
+        validate_identifier("tbl with spaces")
+    with pytest.raises(ValueError, match="Unsafe SQL identifier"):
+        validate_identifier("table-with-hyphens")
+
+    # Shared quote_ident correctly doubles internal quotes and wraps in double quotes
+    assert quote_ident("simple") == '"simple"'
+    assert quote_ident('has"quote') == '"has""quote"'
+    assert quote_ident('"already_quoted"') == '"already_quoted"'
+    assert quote_ident('"nested""quote"') == '"nested""quote"'
+    # Pre-quoted injection attempt with unescaped internal quotes must have quotes doubled
+    assert quote_ident('"bad"injection"') == '"bad""injection"'
+
+    # Bronze view qualification avoids collisions
+    view_name = qualify_bronze_view_name("source_alpha", "orders")
+    assert view_name == "bronze_source_alpha_orders"
+    assert quote_ident(view_name) == '"bronze_source_alpha_orders"'
+
+
+def test_defensive_validate_identifier_in_register_and_inspect(tmp_path: Path) -> None:
+    """Verify defensive validate_identifier in register() and inspect_table()."""
+    from opendv_sources.spi.catalog import TableRef
+
+    adapter = DuckdbAttachSourceAdapter()
+    conn = duckdb.connect(":memory:")
+
+    # 1. Unsafe relation_name in register()
+    spec = SourceSpec(adapter="sqlite", uri=str(tmp_path / "test.db#tbl"))
+    with pytest.raises(ValueError, match="Unsafe SQL identifier"):
+        adapter.register(spec, conn, "evil_view; DROP TABLE x; --")
+
+    # 2. Unsafe table_name in inspect_table()
+    with pytest.raises(ValueError, match="Unsafe SQL identifier"):
+        adapter.inspect_table(spec, TableRef(table_name="evil_tbl; SELECT 1;"))

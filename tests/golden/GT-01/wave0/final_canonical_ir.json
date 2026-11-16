@@ -1,203 +1,291 @@
 {
-  "bridge_tables": [],
+  "ir_version": "1.0.0",
+  "model_name": "global_commerce_vault",
   "hash_config": {
     "algorithm": "SHA256",
+    "storage_type": "BINARY(32)",
     "delimiter": "||",
-    "encoding_scheme": "LENGTH_PREFIXED",
     "null_token_bk": "-1",
     "null_token_payload": "-1:^^",
-    "storage_type": "BINARY(32)",
+    "zero_key_unknown_token": "-1",
     "zero_key_error_token": "-2",
-    "zero_key_unknown_token": "-1"
+    "encoding_scheme": "LENGTH_PREFIXED"
+  },
+  "system_columns": {
+    "load_dts_col": "load_dts",
+    "load_dts_type": "TIMESTAMP_NTZ(9)",
+    "rec_src_col": "rec_src",
+    "rec_src_type": "VARCHAR(255)",
+    "hash_diff_col": "hash_diff",
+    "applied_dts_col": "applied_dts"
   },
   "hubs": [
     {
-      "bkcc_literal": "GLOBAL",
-      "business_concept": "Customer",
-      "business_keys": [
-        {
-          "data_type": "VARCHAR(64)",
-          "is_bkcc": true,
-          "name": "bkcc",
-          "nullable": false
-        },
-        {
-          "data_type": "VARCHAR",
-          "name": "customer_tax_id",
-          "nullable": false
-        }
-      ],
-      "hk_column": {
-        "data_type": "BINARY(32)",
-        "hash_expression": {
-          "algorithm": "SHA256",
-          "bkcc_literal": "GLOBAL",
-          "input_columns": [
-            "bkcc",
-            "customer_tax_id"
-          ],
-          "normalization": "UPPER_TRIM"
-        },
-        "name": "hk_customer",
-        "nullable": false
-      },
-      "load_dts_column": {
-        "data_type": "TIMESTAMP_NTZ(9)",
-        "name": "load_dts",
-        "nullable": false
-      },
       "name": "hub_customer",
+      "business_concept": "Customer",
+      "verified_global_master_key": false,
+      "bkcc_literal": "CRM_SALESFORCE_CRM_CUSTOMERS",
+      "hk_column": {
+        "name": "hk_customer",
+        "data_type": "BINARY(32)",
+        "nullable": false,
+        "hash_expression": {
+          "algorithm": "SHA256",
+          "input_columns": [
+            "bkcc",
+            "customer_tax_id"
+          ],
+          "normalization": "UPPER_TRIM",
+          "bkcc_literal": "CRM_SALESFORCE_CRM_CUSTOMERS"
+        }
+      },
+      "business_keys": [
+        {
+          "name": "bkcc",
+          "data_type": "VARCHAR(64)",
+          "nullable": false,
+          "is_bkcc": true
+        },
+        {
+          "name": "customer_tax_id",
+          "data_type": "VARCHAR(255)",
+          "nullable": false
+        }
+      ],
+      "load_dts_column": {
+        "name": "load_dts",
+        "data_type": "TIMESTAMP_NTZ(9)",
+        "nullable": false
+      },
       "rec_src_column": {
-        "data_type": "VARCHAR(255)",
         "name": "rec_src",
+        "data_type": "VARCHAR(255)",
         "nullable": false
       },
       "source_mappings": [
         {
+          "staging_table": "stg_crm_salesforce_crm_customers",
           "bk_source_columns": [
             "bkcc",
             "customer_tax_id"
           ],
-          "bkcc_literal": "GLOBAL",
-          "bkcc_prefix": "GLOBAL",
+          "rec_src_value": "CRM_SALESFORCE_CRM_CUSTOMERS",
           "bronze_table": "crm_salesforce.crm_customers",
+          "key_authority_tier": "TIER_3_LOCAL_SCOPED",
+          "bkcc_prefix": "CRM_SALESFORCE_CRM_CUSTOMERS",
+          "bkcc_literal": "CRM_SALESFORCE_CRM_CUSTOMERS",
           "column_bkcc_map": {
-            "customer_tax_id": "GLOBAL"
-          },
-          "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
-          "rec_src_value": "CRM_SALESFORCE",
-          "staging_table": "stg_crm_salesforce_crm_customers"
+            "customer_tax_id": "CRM_SALESFORCE_CRM_CUSTOMERS"
+          }
         }
-      ],
-      "verified_global_master_key": true
+      ]
     },
     {
-      "bkcc_literal": "GLOBAL",
-      "business_concept": "Order",
-      "business_keys": [
-        {
-          "data_type": "VARCHAR(64)",
-          "is_bkcc": true,
-          "name": "bkcc",
-          "nullable": false
-        },
-        {
-          "data_type": "VARCHAR",
-          "name": "order_id",
-          "nullable": false
-        }
-      ],
-      "hk_column": {
-        "data_type": "BINARY(32)",
-        "hash_expression": {
-          "algorithm": "SHA256",
-          "bkcc_literal": "GLOBAL",
-          "input_columns": [
-            "bkcc",
-            "order_id"
-          ],
-          "normalization": "UPPER_TRIM"
-        },
-        "name": "hk_order",
-        "nullable": false
-      },
-      "load_dts_column": {
-        "data_type": "TIMESTAMP_NTZ(9)",
-        "name": "load_dts",
-        "nullable": false
-      },
       "name": "hub_order",
+      "business_concept": "Order",
+      "verified_global_master_key": false,
+      "bkcc_literal": "ERP_NETSUITE_ERP_ORDERS",
+      "hk_column": {
+        "name": "hk_order",
+        "data_type": "BINARY(32)",
+        "nullable": false,
+        "hash_expression": {
+          "algorithm": "SHA256",
+          "input_columns": [
+            "bkcc",
+            "order_id"
+          ],
+          "normalization": "UPPER_TRIM",
+          "bkcc_literal": "ERP_NETSUITE_ERP_ORDERS"
+        }
+      },
+      "business_keys": [
+        {
+          "name": "bkcc",
+          "data_type": "VARCHAR(64)",
+          "nullable": false,
+          "is_bkcc": true
+        },
+        {
+          "name": "order_id",
+          "data_type": "VARCHAR(255)",
+          "nullable": false
+        }
+      ],
+      "load_dts_column": {
+        "name": "load_dts",
+        "data_type": "TIMESTAMP_NTZ(9)",
+        "nullable": false
+      },
       "rec_src_column": {
-        "data_type": "VARCHAR(255)",
         "name": "rec_src",
+        "data_type": "VARCHAR(255)",
         "nullable": false
       },
       "source_mappings": [
         {
+          "staging_table": "stg_erp_netsuite_erp_orders",
           "bk_source_columns": [
             "bkcc",
             "order_id"
           ],
-          "bkcc_literal": "GLOBAL",
-          "bkcc_prefix": "GLOBAL",
+          "rec_src_value": "ERP_NETSUITE_ERP_ORDERS",
           "bronze_table": "erp_netsuite.erp_orders",
+          "key_authority_tier": "TIER_3_LOCAL_SCOPED",
+          "bkcc_prefix": "ERP_NETSUITE_ERP_ORDERS",
+          "bkcc_literal": "ERP_NETSUITE_ERP_ORDERS",
           "column_bkcc_map": {
-            "order_id": "GLOBAL"
-          },
-          "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
-          "rec_src_value": "ERP_NETSUITE",
-          "staging_table": "stg_erp_netsuite_erp_orders"
+            "order_id": "ERP_NETSUITE_ERP_ORDERS"
+          }
         }
-      ],
-      "verified_global_master_key": true
+      ]
     },
     {
-      "bkcc_literal": "GLOBAL",
+      "name": "hub_promotion",
       "business_concept": "Promotion",
-      "business_keys": [
-        {
-          "data_type": "VARCHAR(64)",
-          "is_bkcc": true,
-          "name": "bkcc",
-          "nullable": false
-        },
-        {
-          "data_type": "VARCHAR",
-          "name": "promo_campaign_code",
-          "nullable": false
-        }
-      ],
+      "verified_global_master_key": false,
+      "bkcc_literal": "ERP_NETSUITE",
       "hk_column": {
+        "name": "hk_promotion",
         "data_type": "BINARY(32)",
+        "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
-          "bkcc_literal": "GLOBAL",
           "input_columns": [
             "bkcc",
             "promo_campaign_code"
           ],
-          "normalization": "UPPER_TRIM"
+          "normalization": "UPPER_TRIM",
+          "bkcc_literal": "ERP_NETSUITE"
+        }
+      },
+      "business_keys": [
+        {
+          "name": "bkcc",
+          "data_type": "VARCHAR(64)",
+          "nullable": false,
+          "is_bkcc": true
         },
-        "name": "hk_promotion",
-        "nullable": false
-      },
+        {
+          "name": "promo_campaign_code",
+          "data_type": "VARCHAR(255)",
+          "nullable": false
+        }
+      ],
       "load_dts_column": {
-        "data_type": "TIMESTAMP_NTZ(9)",
         "name": "load_dts",
+        "data_type": "TIMESTAMP_NTZ(9)",
         "nullable": false
       },
-      "name": "hub_promotion",
       "rec_src_column": {
-        "data_type": "VARCHAR(255)",
         "name": "rec_src",
+        "data_type": "VARCHAR(255)",
         "nullable": false
       },
       "source_mappings": [
         {
+          "staging_table": "stg_erp_netsuite_erp_orders",
           "bk_source_columns": [
             "bkcc",
             "promo_campaign_code"
           ],
-          "bkcc_literal": "GLOBAL",
-          "bkcc_prefix": "GLOBAL",
-          "bronze_table": "erp_netsuite.erp_orders",
-          "column_bkcc_map": {
-            "promo_campaign_code": "GLOBAL"
-          },
-          "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
           "rec_src_value": "ERP_NETSUITE",
-          "staging_table": "stg_erp_netsuite_erp_orders"
+          "bronze_table": "erp_netsuite.erp_orders",
+          "key_authority_tier": "TIER_3_LOCAL_SCOPED",
+          "bkcc_prefix": "ERP_NETSUITE",
+          "bkcc_literal": "ERP_NETSUITE",
+          "column_bkcc_map": {
+            "promo_campaign_code": "ERP_NETSUITE"
+          }
         }
-      ],
-      "verified_global_master_key": true
+      ]
     }
   ],
-  "ir_version": "1.0.0",
   "links": [
     {
-      "degenerate_columns": [],
+      "name": "lnk_order_customer_promotion",
+      "link_type": "STANDARD",
+      "semantic_role": "Relationship lnk_order_customer_promotion sourced from erp_netsuite.erp_orders",
+      "requires_steward_approval_gate": false,
       "hk_column": {
+        "name": "hk_lnk_order_customer_promotion",
         "data_type": "BINARY(32)",
+        "nullable": false,
+        "hash_expression": {
+          "algorithm": "SHA256",
+          "input_columns": [
+            "hk_order",
+            "hk_customer",
+            "hk_promotion"
+          ],
+          "normalization": "UPPER_TRIM"
+        }
+      },
+      "hub_references": [
+        {
+          "fk_column_name": "hk_order",
+          "target_hub": "hub_order",
+          "target_hk_column": "hk_order",
+          "data_type": "BINARY(32)",
+          "nullable": false,
+          "role_name": "order"
+        },
+        {
+          "fk_column_name": "hk_customer",
+          "target_hub": "hub_customer",
+          "target_hk_column": "hk_customer",
+          "data_type": "BINARY(32)",
+          "nullable": false,
+          "role_name": "customer"
+        },
+        {
+          "fk_column_name": "hk_promotion",
+          "target_hub": "hub_promotion",
+          "target_hk_column": "hk_promotion",
+          "data_type": "BINARY(32)",
+          "nullable": false,
+          "role_name": "promotion"
+        }
+      ],
+      "degenerate_columns": [],
+      "immutable_measures": [],
+      "load_dts_column": {
+        "name": "load_dts",
+        "data_type": "TIMESTAMP_NTZ(9)",
+        "nullable": false
+      },
+      "rec_src_column": {
+        "name": "rec_src",
+        "data_type": "VARCHAR(255)",
+        "nullable": false
+      },
+      "source_mappings": [
+        {
+          "staging_table": "stg_erp_netsuite_erp_orders",
+          "bronze_table": "erp_netsuite.erp_orders",
+          "fk_source_columns": {
+            "hk_order": "order_id",
+            "hk_customer": "customer_tax_id",
+            "hk_promotion": "promo_campaign_code"
+          },
+          "fk_bkcc_literals": {
+            "hk_order": "ERP_NETSUITE_ERP_ORDERS",
+            "hk_customer": "CRM_SALESFORCE_CRM_CUSTOMERS",
+            "hk_promotion": "ERP_NETSUITE"
+          },
+          "rec_src_value": "ERP_NETSUITE_ERP_ORDERS"
+        }
+      ]
+    },
+    {
+      "name": "lnk_order_customer",
+      "link_type": "STANDARD",
+      "semantic_role": "Relationship lnk_order_customer sourced from erp_netsuite.erp_orders",
+      "requires_steward_approval_gate": false,
+      "hk_column": {
+        "name": "hk_lnk_order_customer",
+        "data_type": "BINARY(32)",
+        "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
           "input_columns": [
@@ -205,194 +293,145 @@
             "hk_customer"
           ],
           "normalization": "UPPER_TRIM"
-        },
-        "name": "hk_lnk_order_customer",
-        "nullable": false
+        }
       },
       "hub_references": [
         {
-          "data_type": "BINARY(32)",
           "fk_column_name": "hk_order",
-          "nullable": false,
-          "role_name": "order",
+          "target_hub": "hub_order",
           "target_hk_column": "hk_order",
-          "target_hub": "hub_order"
+          "data_type": "BINARY(32)",
+          "nullable": false,
+          "role_name": "order"
         },
         {
-          "data_type": "BINARY(32)",
           "fk_column_name": "hk_customer",
-          "nullable": false,
-          "role_name": "customer",
+          "target_hub": "hub_customer",
           "target_hk_column": "hk_customer",
-          "target_hub": "hub_customer"
+          "data_type": "BINARY(32)",
+          "nullable": false,
+          "role_name": "customer"
         }
       ],
+      "degenerate_columns": [],
       "immutable_measures": [],
-      "link_type": "STANDARD",
       "load_dts_column": {
-        "data_type": "TIMESTAMP_NTZ(9)",
         "name": "load_dts",
+        "data_type": "TIMESTAMP_NTZ(9)",
         "nullable": false
       },
-      "name": "lnk_order_customer",
       "rec_src_column": {
-        "data_type": "VARCHAR(255)",
         "name": "rec_src",
+        "data_type": "VARCHAR(255)",
         "nullable": false
       },
-      "requires_steward_approval_gate": false,
-      "semantic_role": "Relationship lnk_order_customer sourced from erp_netsuite.erp_orders",
       "source_mappings": [
         {
+          "staging_table": "stg_erp_netsuite_erp_orders",
           "bronze_table": "erp_netsuite.erp_orders",
-          "fk_bkcc_literals": {
-            "hk_customer": "GLOBAL",
-            "hk_order": "GLOBAL"
-          },
           "fk_source_columns": {
-            "hk_customer": "customer_tax_id",
-            "hk_order": "order_id"
+            "hk_order": "order_id",
+            "hk_customer": "customer_tax_id"
           },
-          "rec_src_value": "ERP_NETSUITE",
-          "staging_table": "stg_erp_netsuite_erp_orders"
+          "fk_bkcc_literals": {
+            "hk_order": "ERP_NETSUITE_ERP_ORDERS",
+            "hk_customer": "CRM_SALESFORCE_CRM_CUSTOMERS"
+          },
+          "rec_src_value": "ERP_NETSUITE_ERP_ORDERS"
         }
       ]
     },
     {
-      "degenerate_columns": [],
+      "name": "lnk_order_customer",
+      "link_type": "STANDARD",
+      "semantic_role": "Relationship lnk_order_customer sourced from erp_netsuite.erp_orders",
+      "requires_steward_approval_gate": false,
       "hk_column": {
+        "name": "hk_lnk_order_customer",
         "data_type": "BINARY(32)",
+        "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
           "input_columns": [
             "hk_order",
-            "hk_promotion"
+            "hk_customer"
           ],
           "normalization": "UPPER_TRIM"
-        },
-        "name": "hk_lnk_order_customer_promotion",
-        "nullable": false
+        }
       },
       "hub_references": [
         {
-          "data_type": "BINARY(32)",
           "fk_column_name": "hk_order",
-          "nullable": false,
-          "role_name": "order",
+          "target_hub": "hub_order",
           "target_hk_column": "hk_order",
-          "target_hub": "hub_order"
+          "data_type": "BINARY(32)",
+          "nullable": false,
+          "role_name": "order"
         },
         {
+          "fk_column_name": "hk_customer",
+          "target_hub": "hub_customer",
+          "target_hk_column": "hk_customer",
           "data_type": "BINARY(32)",
-          "fk_column_name": "hk_promotion",
           "nullable": false,
-          "role_name": "promotion",
-          "target_hk_column": "hk_promotion",
-          "target_hub": "hub_promotion"
+          "role_name": "customer"
         }
       ],
+      "degenerate_columns": [],
       "immutable_measures": [],
-      "link_type": "STANDARD",
       "load_dts_column": {
-        "data_type": "TIMESTAMP_NTZ(9)",
         "name": "load_dts",
+        "data_type": "TIMESTAMP_NTZ(9)",
         "nullable": false
       },
-      "name": "lnk_order_customer_promotion",
       "rec_src_column": {
-        "data_type": "VARCHAR(255)",
         "name": "rec_src",
+        "data_type": "VARCHAR(255)",
         "nullable": false
       },
-      "requires_steward_approval_gate": false,
-      "semantic_role": "Relationship lnk_order_customer_promotion sourced from erp_netsuite.erp_orders",
       "source_mappings": [
         {
+          "staging_table": "stg_erp_netsuite_erp_orders",
           "bronze_table": "erp_netsuite.erp_orders",
-          "fk_bkcc_literals": {
-            "hk_order": "GLOBAL",
-            "hk_promotion": "GLOBAL"
-          },
           "fk_source_columns": {
             "hk_order": "order_id",
-            "hk_promotion": "promo_campaign_code"
+            "hk_customer": "customer_tax_id"
           },
-          "rec_src_value": "ERP_NETSUITE",
-          "staging_table": "stg_erp_netsuite_erp_orders"
+          "fk_bkcc_literals": {
+            "hk_order": "ERP_NETSUITE_ERP_ORDERS",
+            "hk_customer": "CRM_SALESFORCE_CRM_CUSTOMERS"
+          },
+          "rec_src_value": "ERP_NETSUITE_ERP_ORDERS"
         }
       ]
     }
   ],
-  "model_name": "global_commerce_vault",
-  "pit_tables": [
-    {
-      "as_of_dts_column": "as_of_dts",
-      "name": "pit_customer",
-      "parent_entity": "hub_customer",
-      "snapshot_window_policy": "LOGARITHMIC",
-      "tracked_satellites": [
-        "sat_customer_pii",
-        "sat_customer_core"
-      ]
-    }
-  ],
-  "reference_tables": [],
   "satellites": [
     {
-      "hash_diff_column": {
-        "data_type": "BINARY(32)",
-        "hash_expression": {
-          "algorithm": "SHA256",
-          "input_columns": [
-            "contact_email",
-            "tax_ssn_tin"
-          ],
-          "normalization": "EXACT_TRIM"
-        },
-        "name": "hash_diff",
-        "nullable": false
-      },
-      "hash_diff_migration_policy": "SPLIT_NEW_SATELLITE",
-      "load_dts_column": {
-        "data_type": "TIMESTAMP_NTZ(9)",
-        "name": "load_dts",
-        "nullable": false
-      },
-      "name": "sat_customer_pii",
+      "name": "sat_customer_core",
+      "satellite_type": "STANDARD",
+      "split_classification": "CORE",
       "parent_entity": "hub_customer",
       "parent_hk_column": {
-        "data_type": "BINARY(32)",
         "name": "hk_customer",
-        "nullable": false,
-        "target_column": "hk_customer"
-      },
-      "payload_columns": [
-        {
-          "data_type": "VARCHAR",
-          "name": "contact_email",
-          "nullable": true
-        },
-        {
-          "data_type": "VARCHAR",
-          "name": "tax_ssn_tin",
-          "nullable": true
-        }
-      ],
-      "rec_src_column": {
-        "data_type": "VARCHAR(255)",
-        "name": "rec_src",
+        "target_column": "hk_customer",
+        "data_type": "BINARY(32)",
         "nullable": false
       },
-      "satellite_type": "STANDARD",
-      "source_mapping": {
-        "rec_src_value": "CRM_SALESFORCE",
-        "staging_table": "stg_crm_salesforce_crm_customers"
+      "load_dts_column": {
+        "name": "load_dts",
+        "data_type": "TIMESTAMP_NTZ(9)",
+        "nullable": false
       },
-      "split_classification": "PII_RESTRICTED"
-    },
-    {
+      "rec_src_column": {
+        "name": "rec_src",
+        "data_type": "VARCHAR(255)",
+        "nullable": false
+      },
       "hash_diff_column": {
+        "name": "hash_diff",
         "data_type": "BINARY(32)",
+        "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
           "input_columns": [
@@ -402,107 +441,113 @@
             "legal_name"
           ],
           "normalization": "EXACT_TRIM"
-        },
-        "name": "hash_diff",
-        "nullable": false
+        }
       },
       "hash_diff_migration_policy": "SPLIT_NEW_SATELLITE",
-      "load_dts_column": {
-        "data_type": "TIMESTAMP_NTZ(9)",
-        "name": "load_dts",
-        "nullable": false
-      },
-      "name": "sat_customer_core",
-      "parent_entity": "hub_customer",
-      "parent_hk_column": {
-        "data_type": "BINARY(32)",
-        "name": "hk_customer",
-        "nullable": false,
-        "target_column": "hk_customer"
-      },
       "payload_columns": [
         {
-          "data_type": "VARCHAR",
           "name": "account_segment",
+          "data_type": "VARCHAR(255)",
           "nullable": true
         },
         {
-          "data_type": "VARCHAR",
           "name": "country_iso2",
+          "data_type": "VARCHAR(255)",
           "nullable": true
         },
         {
-          "data_type": "DOUBLE",
           "name": "credit_limit_usd",
+          "data_type": "DECIMAL(18,2)",
           "nullable": true
         },
         {
-          "data_type": "VARCHAR",
           "name": "legal_name",
+          "data_type": "VARCHAR(255)",
           "nullable": true
         }
       ],
-      "rec_src_column": {
-        "data_type": "VARCHAR(255)",
-        "name": "rec_src",
-        "nullable": false
-      },
-      "satellite_type": "STANDARD",
       "source_mapping": {
-        "rec_src_value": "CRM_SALESFORCE",
-        "staging_table": "stg_crm_salesforce_crm_customers"
-      },
-      "split_classification": "CORE"
+        "staging_table": "stg_crm_salesforce_crm_customers",
+        "rec_src_value": "CRM_SALESFORCE_CRM_CUSTOMERS"
+      }
     },
     {
-      "hash_diff_column": {
+      "name": "sat_customer_pii",
+      "satellite_type": "STANDARD",
+      "split_classification": "PII_RESTRICTED",
+      "parent_entity": "hub_customer",
+      "parent_hk_column": {
+        "name": "hk_customer",
+        "target_column": "hk_customer",
         "data_type": "BINARY(32)",
+        "nullable": false
+      },
+      "load_dts_column": {
+        "name": "load_dts",
+        "data_type": "TIMESTAMP_NTZ(9)",
+        "nullable": false
+      },
+      "rec_src_column": {
+        "name": "rec_src",
+        "data_type": "VARCHAR(255)",
+        "nullable": false
+      },
+      "hash_diff_column": {
+        "name": "hash_diff",
+        "data_type": "BINARY(32)",
+        "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
           "input_columns": [
-            "promo_campaign_code"
+            "contact_email",
+            "tax_ssn_tin"
           ],
           "normalization": "EXACT_TRIM"
-        },
-        "name": "hash_diff",
-        "nullable": false
+        }
       },
       "hash_diff_migration_policy": "SPLIT_NEW_SATELLITE",
-      "load_dts_column": {
-        "data_type": "TIMESTAMP_NTZ(9)",
-        "name": "load_dts",
-        "nullable": false
-      },
-      "name": "sat_promotion_ref",
-      "parent_entity": "hub_promotion",
-      "parent_hk_column": {
-        "data_type": "BINARY(32)",
-        "name": "hk_promotion",
-        "nullable": false,
-        "target_column": "hk_promotion"
-      },
       "payload_columns": [
         {
-          "data_type": "VARCHAR",
-          "name": "promo_campaign_code",
+          "name": "contact_email",
+          "data_type": "VARCHAR(255)",
+          "nullable": true
+        },
+        {
+          "name": "tax_ssn_tin",
+          "data_type": "VARCHAR(255)",
           "nullable": true
         }
       ],
-      "rec_src_column": {
-        "data_type": "VARCHAR(255)",
-        "name": "rec_src",
-        "nullable": false
-      },
-      "satellite_type": "STANDARD",
       "source_mapping": {
-        "rec_src_value": "ERP_NETSUITE",
-        "staging_table": "stg_erp_netsuite_erp_orders"
-      },
-      "split_classification": "CORE"
+        "staging_table": "stg_crm_salesforce_crm_customers",
+        "rec_src_value": "CRM_SALESFORCE_CRM_CUSTOMERS"
+      }
     },
     {
-      "hash_diff_column": {
+      "name": "sat_order_core",
+      "satellite_type": "STANDARD",
+      "split_classification": "CORE",
+      "parent_entity": "hub_order",
+      "parent_hk_column": {
+        "name": "hk_order",
+        "target_column": "hk_order",
         "data_type": "BINARY(32)",
+        "nullable": false
+      },
+      "load_dts_column": {
+        "name": "load_dts",
+        "data_type": "TIMESTAMP_NTZ(9)",
+        "nullable": false
+      },
+      "rec_src_column": {
+        "name": "rec_src",
+        "data_type": "VARCHAR(255)",
+        "nullable": false
+      },
+      "hash_diff_column": {
+        "name": "hash_diff",
+        "data_type": "BINARY(32)",
+        "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
           "input_columns": [
@@ -512,65 +557,95 @@
             "order_total_usd"
           ],
           "normalization": "EXACT_TRIM"
-        },
-        "name": "hash_diff",
-        "nullable": false
+        }
       },
       "hash_diff_migration_policy": "SPLIT_NEW_SATELLITE",
-      "load_dts_column": {
-        "data_type": "TIMESTAMP_NTZ(9)",
-        "name": "load_dts",
-        "nullable": false
-      },
-      "name": "sat_order_core",
-      "parent_entity": "hub_order",
-      "parent_hk_column": {
-        "data_type": "BINARY(32)",
-        "name": "hk_order",
-        "nullable": false,
-        "target_column": "hk_order"
-      },
       "payload_columns": [
         {
-          "data_type": "VARCHAR",
           "name": "currency_code",
+          "data_type": "VARCHAR(255)",
           "nullable": true
         },
         {
-          "data_type": "DATE",
           "name": "order_date",
+          "data_type": "DATE",
           "nullable": true
         },
         {
-          "data_type": "VARCHAR",
           "name": "order_status",
+          "data_type": "VARCHAR(255)",
           "nullable": true
         },
         {
-          "data_type": "DOUBLE",
           "name": "order_total_usd",
+          "data_type": "DECIMAL(18,2)",
           "nullable": true
         }
       ],
-      "rec_src_column": {
-        "data_type": "VARCHAR(255)",
-        "name": "rec_src",
+      "source_mapping": {
+        "staging_table": "stg_erp_netsuite_erp_orders",
+        "rec_src_value": "ERP_NETSUITE_ERP_ORDERS"
+      }
+    },
+    {
+      "name": "sat_promotion_ref",
+      "satellite_type": "STANDARD",
+      "split_classification": "STATIC",
+      "parent_entity": "hub_promotion",
+      "parent_hk_column": {
+        "name": "hk_promotion",
+        "target_column": "hk_promotion",
+        "data_type": "BINARY(32)",
         "nullable": false
       },
-      "satellite_type": "STANDARD",
-      "source_mapping": {
-        "rec_src_value": "ERP_NETSUITE",
-        "staging_table": "stg_erp_netsuite_erp_orders"
+      "load_dts_column": {
+        "name": "load_dts",
+        "data_type": "TIMESTAMP_NTZ(9)",
+        "nullable": false
       },
-      "split_classification": "CORE"
+      "rec_src_column": {
+        "name": "rec_src",
+        "data_type": "VARCHAR(255)",
+        "nullable": false
+      },
+      "hash_diff_column": {
+        "name": "hash_diff",
+        "data_type": "BINARY(32)",
+        "nullable": false,
+        "hash_expression": {
+          "algorithm": "SHA256",
+          "input_columns": [
+            "promo_campaign_code"
+          ],
+          "normalization": "EXACT_TRIM"
+        }
+      },
+      "hash_diff_migration_policy": "SPLIT_NEW_SATELLITE",
+      "payload_columns": [
+        {
+          "name": "promo_campaign_code",
+          "data_type": "VARCHAR(255)",
+          "nullable": true
+        }
+      ],
+      "source_mapping": {
+        "staging_table": "stg_erp_netsuite_erp_orders",
+        "rec_src_value": "ERP_NETSUITE_ERP_ORDERS"
+      }
     }
   ],
-  "system_columns": {
-    "applied_dts_col": "applied_dts",
-    "hash_diff_col": "hash_diff",
-    "load_dts_col": "load_dts",
-    "load_dts_type": "TIMESTAMP_NTZ(9)",
-    "rec_src_col": "rec_src",
-    "rec_src_type": "VARCHAR(255)"
-  }
+  "pit_tables": [
+    {
+      "name": "pit_customer",
+      "parent_entity": "hub_customer",
+      "as_of_dts_column": "as_of_dts",
+      "snapshot_window_policy": "LOGARITHMIC",
+      "tracked_satellites": [
+        "sat_customer_core",
+        "sat_customer_pii"
+      ]
+    }
+  ],
+  "bridge_tables": [],
+  "reference_tables": []
 }

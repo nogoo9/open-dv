@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from opendv_service.cli_spec.definitions import CommandDef, OptionDef
+from opendv_service.cli_spec.schema import CommandDef, OptionDef
 from opendv_service.settings import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
 
 CONFIG_COMMAND = CommandDef(

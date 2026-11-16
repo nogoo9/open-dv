@@ -181,6 +181,7 @@ def codemod_enforce_cold_start_extensibility(
     contract: dict[str, Any],
     ontology_graph: dict[str, Any],
     bronze_profile: dict[str, Any],
+    deployed_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Algorithm A.4: 3-Tier `BKCC` Authority & Nullable-FK Link Splitter (`U_nn >= 0.95`)."""
     ir = copy.deepcopy(contract)
@@ -188,8 +189,23 @@ def codemod_enforce_cold_start_extensibility(
     col_metrics, table_collisions = _extract_bronze_cold_start_metrics(bronze_profile)
     ledger: list[dict[str, Any]] = ir.get("column_triage_ledger", [])
 
+    deployed_hub_sources: set[tuple[str, str, str]] = set()
+    deployed_link_names: set[str] = set()
+    if deployed_contract and isinstance(deployed_contract, dict):
+        for dhub in deployed_contract.get("hubs", []):
+            dhub_name = str(dhub.get("name", ""))
+            for dsrc in dhub.get("business_key_sources", []):
+                b_tbl = str(dsrc.get("bronze_table", ""))
+                r_src = str(dsrc.get("record_source_code", ""))
+                deployed_hub_sources.add((dhub_name, b_tbl, r_src))
+                deployed_hub_sources.add((dhub_name, b_tbl.split(".")[-1], r_src))
+        deployed_link_names = {
+            str(lnk.get("name", "")) for lnk in deployed_contract.get("links", [])
+        }
+
     # 1. Enforce 3-Tier BKCC Authority on Hubs
     for hub in ir.get("hubs", []):
+        hub_name = str(hub.get("name", ""))
         uri = str(hub.get("ontology_concept_uri", ""))
         auth_info = authority_map.get(
             uri,
@@ -207,6 +223,14 @@ def codemod_enforce_cold_start_extensibility(
 
         for src in hub.get("business_key_sources", []):
             b_table = str(src.get("bronze_table", ""))
+            rec_src = str(src.get("record_source_code") or "")
+            if (hub_name, b_table, rec_src) in deployed_hub_sources or (
+                hub_name, b_table.split(".")[-1], rec_src
+            ) in deployed_hub_sources:
+                # Algorithm A.7: Preserve existing deployed contract's BKCC authority & tier
+                if str(src.get("key_authority_tier")) == "TIER_3_LOCAL_SCOPED":
+                    has_tier3_source = True
+                continue
             key_cols = [str(c) for c in src.get("key_columns", [])]
             if not key_cols:
                 continue
@@ -308,6 +332,10 @@ def codemod_enforce_cold_start_extensibility(
     existing_link_names = {str(lnk.get("name", "")) for lnk in ir.get("links", [])}
 
     for lnk in ir.get("links", []):
+        if str(lnk.get("name", "")) in deployed_link_names:
+            # Algorithm A.7: Preserve existing deployed contract's links
+            new_links.append(lnk)
+            continue
         refs = list(lnk.get("hub_references", []))
         if len(refs) < 2 or lnk.get("where_filter_condition"):
             new_links.append(lnk)
@@ -335,7 +363,6 @@ def codemod_enforce_cold_start_extensibility(
         if len(mandatory_refs) >= 2 and optional_refs:
             base_lnk = copy.deepcopy(lnk)
             base_lnk["hub_references"] = mandatory_refs
-            new_links.append(base_lnk)
 
             base_slug = str(lnk.get("name", "")).removeprefix("lnk_")
             for opt_ref in optional_refs:
@@ -346,8 +373,13 @@ def codemod_enforce_cold_start_extensibility(
                 else:
                     role_slug = raw_role
 
-                opt_lnk_name = f"lnk_{base_slug}_{role_slug}"
-                if opt_lnk_name not in existing_link_names:
+                if str(lnk.get("name", "")).endswith(f"_{role_slug}"):
+                    base_lnk["name"] = str(lnk.get("name", ""))[: -len(role_slug) - 1]
+                    opt_lnk_name = str(lnk.get("name"))
+                else:
+                    opt_lnk_name = f"lnk_{base_slug}_{role_slug}"
+
+                if opt_lnk_name not in existing_link_names or opt_lnk_name == str(lnk.get("name")):
                     opt_lnk = copy.deepcopy(lnk)
                     opt_lnk["name"] = opt_lnk_name
                     is_co_invest = role_slug == "co_invest" and (
@@ -360,7 +392,7 @@ def codemod_enforce_cold_start_extensibility(
                         )
                         opt_lnk["hub_references"] = [*mandatory_refs, opt_ref]
                     else:
-                        opt_lnk["hub_references"] = [mandatory_refs[0], opt_ref]
+                        opt_lnk["hub_references"] = [*mandatory_refs, opt_ref]
                     opt_lnk["where_filter_condition"] = " AND ".join(
                         f"{c} IS NOT NULL" for c in opt_ref.get("source_fk_columns", [])
                     )
@@ -386,6 +418,8 @@ def codemod_enforce_cold_start_extensibility(
                             entry["elm_classification"] = "OPTIONAL_FOREIGN_KEY_REF"
                         if "dv_target_role" in entry:
                             entry["dv_target_role"] = "OPTIONAL_FOREIGN_KEY_REF"
+
+            new_links.append(base_lnk)
         elif optional_refs:
             opt_fk_cols_ordered: list[str] = []
             for opt_ref in optional_refs:

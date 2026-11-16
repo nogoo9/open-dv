@@ -36,6 +36,12 @@ from opendv_sources.adapters.liteparse_adapter import (
     InvalidDocumentError,
     LiteParseDocumentAdapter,
 )
+from opendv_sources.config.defaults import (
+    OLE_CFB_MAGIC as _OLE_CFB_MAGIC,
+)
+from opendv_sources.config.defaults import (
+    ZIP_LOCAL_MAGIC_PREFIXES as _ZIP_LOCAL_MAGIC_PREFIXES,
+)
 from opendv_sources.exceptions import (
     ArchiveSecurityViolationError,
     DocumentExtractionError,
@@ -68,8 +74,7 @@ _ZIP_OFFICE_EXTENSIONS: frozenset[str] = frozenset(
     {".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
 )
 _OLE_OFFICE_EXTENSIONS: frozenset[str] = frozenset({".doc", ".xls", ".ppt"})
-_ZIP_LOCAL_MAGIC_PREFIXES: tuple[bytes, ...] = (b"PK\x03\x04", b"PK\x05\x06")
-_OLE_CFB_MAGIC: bytes = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
 _OLE_CFB_MIN_BYTES: int = 512
 
 _SOFFICE_INFILTER_MAP: dict[str, str] = {

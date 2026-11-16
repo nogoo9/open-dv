@@ -204,7 +204,12 @@ def run_gt01_lifecycle_waves(
             provider_override="agy",
         )
         res = service.execute_pipeline_run_sync(req)
-        run_id = str(res.get("run_id", ""))
+        rep_dict = (
+            res.report
+            if hasattr(res, "report") and isinstance(res.report, dict)
+            else (res.get("report") if isinstance(res, dict) and "report" in res else (res.model_dump(mode="json") if hasattr(res, "model_dump") else dict(res)))
+        )
+        run_id = str(getattr(res, "run_id", rep_dict.get("run_id", "")))
 
         # 1. final_contract.yaml
         final_contract_path = out_dir / "final_contract.yaml"
@@ -235,7 +240,13 @@ def run_gt01_lifecycle_waves(
         )
 
         # 4. pipeline_report.json (normalized)
-        norm_rep = normalize_pipeline_report(res, path_root=str(repo_root))
+        if (
+            "inference_plan" in rep_dict
+            and isinstance(rep_dict["inference_plan"], dict)
+            and "plan_id" in rep_dict["inference_plan"]
+        ):
+            rep_dict["inference_plan"]["plan_id"] = "<PLAN_ID>"
+        norm_rep = normalize_pipeline_report(rep_dict, path_root=str(repo_root))
         rep_bytes = (json.dumps(norm_rep, indent=2, sort_keys=True) + "\n").encode("utf-8")
         golden_manager.assert_golden_byte_equality(
             golden_id="GT-01",
@@ -247,6 +258,12 @@ def run_gt01_lifecycle_waves(
         # 5. explorer_bundle.json (normalized)
         bundle_obj = service.get_explorer_bundle(run_id, role=RbacRole.DATA_STEWARD)
         raw_bundle = bundle_obj.model_dump(mode="json")
+        if (
+            "inference_plan" in raw_bundle
+            and isinstance(raw_bundle["inference_plan"], dict)
+            and "plan_id" in raw_bundle["inference_plan"]
+        ):
+            raw_bundle["inference_plan"]["plan_id"] = "<PLAN_ID>"
         if w_idx == 3:
             wave3_bundle_dict = raw_bundle
         norm_bundle = normalize_for_parity(raw_bundle, path_root=str(repo_root))
@@ -268,7 +285,7 @@ def run_gt01_lifecycle_waves(
                 },
                 sort_keys=True,
             )
-            for st in res.get("step_reports", [])
+            for st in rep_dict.get("step_reports", [])
         ]
         events_bytes = ("\n".join(event_lines) + "\n").encode("utf-8")
         golden_manager.assert_golden_byte_equality(

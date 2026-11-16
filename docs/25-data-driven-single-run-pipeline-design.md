@@ -290,3 +290,16 @@ Companion decompositions apply the same `< 5,000` token ceiling to:
 - Two dedicated architectural tests enforce compliance automatically on every PR:
   1. `tests/architecture/test_module_token_budget.py`: Uses `tiktoken` (`cl100k_base`) across all pipeline/sources/contracts/service/API/CLI/testkit/builder `.py`/`.ts`/`.tsx` files in `ADR-020` scope and fails on any file `>= 5,000` tokens.
   2. `tests/architecture/test_no_hardcoded_literals.py`: AST check rejecting hardcoded HTTP URLs, hardcoded SQLite/Databricks hosts, and magic threshold literals inside production packages/apps outside dedicated config modules.
+
+### 5.4 Locked Architectural Refinements & CI Gates Completion Status
+
+| Workstream | Subsystem / Capability | Key Architectural Artifacts | Verification Status |
+|---|---|---|---|
+| **WS-1** | Universal Multi-Connector Sources (`CatalogSourceAdapter` SPI) | `opendv-sources`: `spi/catalog.py`, `adapters/sqlite_inspector.py`, `adapters/databricks_uc.py`, `adapters/databricks_profiler.py`, `registry/scheme_registry.py` | Verified (`test_catalog_spi.py`, `test_sqlite_inspector.py`, `test_databricks_uc_adapter.py`) |
+| **WS-2A** | `VaultBlueprint` v1.0 & JCS Lineage Tracking | `opendv-core`: `models/vault_blueprint.py`, `opendv-contracts`: `dtos/blueprint.py`, `schemas/vault-blueprint-v1.schema.json` | Verified (`test_vault_blueprint.py`, `test_single_run_dtos.py`) |
+| **WS-2B** | Zero-Data Execution & Contract-Only Drift | `opendv-agent-harness/pipeline`: `mode_detector.py` (7-row matrix), `COLD_START_N1`, `VERIFIED_NO_OP`, `Alg A.9a` contract-diff | Verified (`test_mode_detector.py`, `test_alg_a9a_contract_diff.py`) |
+| **WS-3** | Pipeline Harness Decomposition & Single-Run Purity | `opendv-agent-harness/pipeline/` (15 modules strictly `< 5,000` tokens `cl100k_base`), `pipeline.py` backward-compat facade (965 tokens) | Verified (`test_pipeline_modules.py`, `test_single_run_invariants.py`, `test_module_token_budget.py`) |
+| **WS-4** | REST APIs, Dual-CLI Parity & 4-Step Wizard UI | `/api/v1/sources/inspect`, `/api/v1/ontology/studio/sessions/{id}/export-blueprint`, `opendv source inspect`, `apps/opendv-web-workbench/src/explorer/builder/` | Verified (`test_sources_inspect_api.py`, `test_single_run_api.py`, `wizard-shell.test.tsx`, `catalog-table-picker.test.tsx`) |
+| **WS-5** | Multi-Wave Scenario Migration & Testkit | `opendv-testkit`: `multi_wave_runner.py`, `uc_emulator.py` (<5,000 tokens) | Verified (`test_multi_wave_runner.py`, `test_databricks_conformance.py`) |
+| **WS-6.3** | Architecture CI Gates & Schema Sync | `tests/architecture/test_module_token_budget.py`, `tests/architecture/test_no_hardcoded_literals.py`, `tests/architecture/test_schema_sync.py`, `tests/docs/test_doc_code_snippets.py` | Verified (`uv run pytest tests/architecture/ -v`, `uv run pytest tests/docs/ -v`) |
+| **WS-6.5** | Documentation Sync | `docs/16-cli-reference.md`, `docs/22-ontology-studio-user-guide.md`, `docs/23-ontology-studio-extension-guide.md`, `docs/25`, `docs/26` | Verified |

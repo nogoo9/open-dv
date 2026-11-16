@@ -667,7 +667,7 @@ def _normalize_delta_operation(op: Any) -> Any:
         op_dict = dict(op)
         if not str(op_dict.get("op_id") or "").strip():
             op_dict["op_id"] = f"op-{uuid.uuid4().hex[:8]}"
-        op_type = op_dict.get("op_type")
+        op_type = op_dict.get("op_type") or op_dict.get("op") or op_dict.get("action")
         if isinstance(op_type, str):
             if (
                 op_type in ("AddConceptOp", "add_concept")
@@ -682,13 +682,136 @@ def _normalize_delta_operation(op: Any) -> Any:
                 norm.update(c)
                 norm.update(op_dict)
                 norm["op_type"] = "add_concept"
-                return norm
+                op_dict = norm
+                op_type = "add_concept"
 
             if op_type.endswith("Op") and len(op_type) > 2:
                 base = op_type[:-2]
-                snake = re.sub(r"(?<!^)(?=[A-Z])", "_", base).lower()
-                op_dict["op_type"] = snake
-                return op_dict
+                op_type = re.sub(r"(?<!^)(?=[A-Z])", "_", base).lower()
+            elif op_type.isupper():
+                op_type = op_type.lower()
+            if op_type in ("add_concept_attribute", "add_attribute"):
+                op_type = "add_attribute"
+            op_dict["op_type"] = op_type
+
+            valid_entity_schemes = (
+                "urn:ontology:entity:",
+                "urn:ontology:provisional:",
+                "urn:ontology:event:",
+                "urn:opendv:",
+            )
+            valid_rel_schemes = (
+                "urn:ontology:relationship:",
+                "urn:ontology:provisional:",
+                "urn:ontology:event:",
+                "urn:opendv:",
+            )
+
+            # Normalize concept op fields
+            if op_type == "add_concept":
+                raw_uri = (
+                    op_dict.get("concept_uri")
+                    or op_dict.get("concept_id")
+                    or op_dict.get("uri")
+                    or op_dict.get("id")
+                )
+                if not raw_uri and op_dict.get("concept_name"):
+                    c_slug = op_dict["concept_name"].lower().replace(" ", "_")
+                    raw_uri = f"urn:ontology:entity:{c_slug}"
+                elif raw_uri and not any(raw_uri.startswith(s) for s in valid_entity_schemes):
+                    if ":" not in raw_uri:
+                        slug = raw_uri
+                        raw_uri = f"urn:ontology:entity:{slug}"
+                if raw_uri:
+                    op_dict["concept_uri"] = raw_uri
+                if "concept_name" not in op_dict or not op_dict["concept_name"]:
+                    op_dict["concept_name"] = (
+                        op_dict.get("label")
+                        or op_dict.get("name")
+                        or (raw_uri.split(":")[-1].replace("_", " ").title() if raw_uri else "")
+                    )
+
+            # Normalize relationship op fields
+            elif op_type == "add_relationship":
+                raw_uri = (
+                    op_dict.get("relationship_uri")
+                    or op_dict.get("relationship_id")
+                    or op_dict.get("uri")
+                    or op_dict.get("id")
+                )
+                if not raw_uri and op_dict.get("relationship_name"):
+                    r_slug = op_dict["relationship_name"].lower().replace(" ", "_")
+                    raw_uri = f"urn:ontology:relationship:{r_slug}"
+                elif raw_uri and not any(raw_uri.startswith(s) for s in valid_rel_schemes):
+                    if ":" not in raw_uri:
+                        slug = raw_uri
+                        raw_uri = f"urn:ontology:relationship:{slug}"
+                if raw_uri:
+                    op_dict["relationship_uri"] = raw_uri
+                if "relationship_name" not in op_dict or not op_dict["relationship_name"]:
+                    op_dict["relationship_name"] = (
+                        op_dict.get("label")
+                        or op_dict.get("name")
+                        or (raw_uri.split(":")[-1].replace("_", " ").title() if raw_uri else "")
+                    )
+
+            # Normalize attribute op fields
+            elif op_type == "add_attribute":
+                raw_uri = (
+                    op_dict.get("concept_uri")
+                    or op_dict.get("concept_id")
+                    or op_dict.get("concept")
+                )
+                if (
+                    raw_uri
+                    and not any(raw_uri.startswith(s) for s in valid_entity_schemes)
+                    and ":" not in raw_uri
+                ):
+                    slug = raw_uri
+                    raw_uri = f"urn:ontology:entity:{slug}"
+                if raw_uri:
+                    op_dict["concept_uri"] = raw_uri
+                attr_spec = op_dict.get("attribute")
+                if isinstance(attr_spec, dict):
+                    if not op_dict.get("attribute_name"):
+                        op_dict["attribute_name"] = (
+                            attr_spec.get("attribute_name") or attr_spec.get("name") or ""
+                        )
+                    dt_val = attr_spec.get("data_type") or attr_spec.get("datatype")
+                    if not op_dict.get("data_type") and dt_val:
+                        op_dict["data_type"] = dt_val
+                    if not op_dict.get("description"):
+                        op_dict["description"] = (
+                            attr_spec.get("description") or attr_spec.get("definition")
+                        )
+                    for k, v in attr_spec.items():
+                        if k not in op_dict and k not in ("name",):
+                            op_dict[k] = v
+                elif "attribute_name" not in op_dict or not op_dict["attribute_name"]:
+                    op_dict["attribute_name"] = (
+                        (attr_spec if isinstance(attr_spec, str) else None)
+                        or op_dict.get("name")
+                        or "attribute"
+                    )
+
+            # Pop legacy alias keys so extra="forbid" models don't fail 422
+            aliases_to_pop = [
+                "op",
+                "action",
+                "concept_id",
+                "uri",
+                "id",
+                "label",
+                "relationship_id",
+                "concept",
+            ]
+            if op_type != "add_reference_enumeration":
+                aliases_to_pop.append("name")
+            if op_type != "add_attribute" or not isinstance(op_dict.get("attribute"), dict):
+                aliases_to_pop.append("attribute")
+
+            for alias_key in aliases_to_pop:
+                op_dict.pop(alias_key, None)
         return op_dict
     return op
 

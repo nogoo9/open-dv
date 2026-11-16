@@ -1,0 +1,1774 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "BlueprintLineage": {
+      "additionalProperties": false,
+      "description": "Cryptographic lineage provenance for a VaultBlueprint (ADR-017).",
+      "properties": {
+        "schema_version": {
+          "const": "1.0.0",
+          "default": "1.0.0",
+          "description": "Lineage schema version",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "blueprint_revision": {
+          "default": 1,
+          "description": "Sequential blueprint revision counter across pipeline runs",
+          "minimum": 1,
+          "title": "Blueprint Revision",
+          "type": "integer"
+        },
+        "domain_namespace": {
+          "description": "Target business domain namespace matching ontology",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Domain Namespace",
+          "type": "string"
+        },
+        "ontology_sha256": {
+          "description": "Deterministic RFC 8785 JCS SHA-256 of the GraphAOntology",
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Ontology Sha256",
+          "type": "string"
+        },
+        "contract_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deterministic RFC 8785 JCS SHA-256 of NoMistakeDataVault2ContractV5, or null on Day-0 seed",
+          "title": "Contract Sha256"
+        },
+        "parent_blueprint_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SHA-256 digest of immediate parent VaultBlueprint (null on genesis)",
+          "title": "Parent Blueprint Sha256"
+        },
+        "lineage_notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-readable provenance or evolution note",
+          "title": "Lineage Notes"
+        }
+      },
+      "required": [
+        "domain_namespace",
+        "ontology_sha256"
+      ],
+      "title": "BlueprintLineage",
+      "type": "object"
+    },
+    "BusinessKeySource": {
+      "additionalProperties": false,
+      "description": "Source Bronze table mapping and 3-Tier BK Authority specification for a Hub.",
+      "properties": {
+        "bronze_table": {
+          "title": "Bronze Table",
+          "type": "string"
+        },
+        "key_columns": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Key Columns",
+          "type": "array"
+        },
+        "record_source_code": {
+          "title": "Record Source Code",
+          "type": "string"
+        },
+        "key_authority_tier": {
+          "$ref": "#/$defs/KeyAuthorityTierLiteral"
+        },
+        "require_src_qualifier": {
+          "title": "Require Src Qualifier",
+          "type": "boolean"
+        },
+        "bkcc_prefix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bkcc Prefix"
+        },
+        "bkcc_column_expr": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bkcc Column Expr"
+        },
+        "system_scoped_bk_justification": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "System Scoped Bk Justification"
+        }
+      },
+      "required": [
+        "bronze_table",
+        "key_columns",
+        "record_source_code",
+        "key_authority_tier",
+        "require_src_qualifier"
+      ],
+      "title": "BusinessKeySource",
+      "type": "object"
+    },
+    "CanonicalBusinessConcept": {
+      "additionalProperties": false,
+      "description": "Core Business Concept (CBC) node in Graph A mapping to a Data Vault 2.0 Hub.",
+      "properties": {
+        "concept_uri": {
+          "pattern": "^urn:(ontology:entity|opendv:concept):[a-z0-9_]+$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "concept_name": {
+          "default": "",
+          "title": "Concept Name",
+          "type": "string"
+        },
+        "elm_archetype": {
+          "default": "CORE_CONCEPT",
+          "title": "Elm Archetype",
+          "type": "string"
+        },
+        "definition": {
+          "default": "Canonical business concept.",
+          "title": "Definition",
+          "type": "string"
+        },
+        "target_hub": {
+          "anyOf": [
+            {
+              "pattern": "^hub_[a-z0-9_]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Hub"
+        },
+        "governance_constraints": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GovernanceConstraints"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "key_authority_tiers": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyAuthorityTiers"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "concept_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Concept Id"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "taxonomy_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Taxonomy Class"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "authoritative_sor": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authoritative Sor"
+        },
+        "parent_concept_uri": {
+          "anyOf": [
+            {
+              "pattern": "^urn:(ontology:entity|opendv:concept):[a-z0-9_]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hierarchical parent concept URI within Graph A ontology",
+          "title": "Parent Concept Uri"
+        },
+        "attributes": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ConceptAttribute"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Associated conceptual attributes",
+          "title": "Attributes"
+        },
+        "synonyms": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Discovered lexical synonyms (1..256 characters each)",
+          "title": "Synonyms"
+        },
+        "external_mappings": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ExternalMapping"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Grounded external ontology mappings (e.g. FIBO)",
+          "title": "External Mappings"
+        },
+        "deprecated": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deprecation flag under human edit governance",
+          "title": "Deprecated"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Arbitrary conceptual metadata key-values",
+          "title": "Metadata"
+        },
+        "source_hints": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Provenance hints identifying source data feeds",
+          "title": "Source Hints"
+        }
+      },
+      "required": [
+        "concept_uri"
+      ],
+      "title": "CanonicalBusinessConcept",
+      "type": "object"
+    },
+    "CanonicalRelationship": {
+      "additionalProperties": false,
+      "description": "Unit-of-Work Relationship / Event edge in Graph A mapping to a Data Vault 2.0 Link.",
+      "properties": {
+        "relationship_uri": {
+          "pattern": "^urn:(ontology:(event|relationship)|opendv:(event|relationship)):[a-z0-9_]+$",
+          "title": "Relationship Uri",
+          "type": "string"
+        },
+        "relationship_name": {
+          "default": "",
+          "title": "Relationship Name",
+          "type": "string"
+        },
+        "target_link": {
+          "pattern": "^(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$",
+          "title": "Target Link",
+          "type": "string"
+        },
+        "endpoints": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "title": "Endpoints",
+          "type": "array"
+        },
+        "grain_semantics": {
+          "default": "Canonical relationship edge.",
+          "title": "Grain Semantics",
+          "type": "string"
+        },
+        "yagni_cost_guard_policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/YagniCostGuardPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "relationship_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Relationship Id"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Relationship description",
+          "title": "Description"
+        },
+        "cardinality": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Relationship cardinality",
+          "title": "Cardinality"
+        },
+        "deprecated": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deprecation flag",
+          "title": "Deprecated"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Relationship metadata",
+          "title": "Metadata"
+        },
+        "source_hints": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Source provenance hints",
+          "title": "Source Hints"
+        }
+      },
+      "required": [
+        "relationship_uri",
+        "target_link",
+        "endpoints"
+      ],
+      "title": "CanonicalRelationship",
+      "type": "object"
+    },
+    "ColumnTriageEntry": {
+      "additionalProperties": false,
+      "description": "Single Bronze column triage ledger item enforcing 100% column accountability.",
+      "properties": {
+        "bronze_table": {
+          "title": "Bronze Table",
+          "type": "string"
+        },
+        "column_name": {
+          "title": "Column Name",
+          "type": "string"
+        },
+        "elm_classification": {
+          "$ref": "#/$defs/ELMClassificationLiteral"
+        },
+        "target_dv_entity": {
+          "title": "Target Dv Entity",
+          "type": "string"
+        },
+        "source_sql_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Canonical physical SQL type recorded when the column was triaged (used by Alg A.9a contract-diff drift).",
+          "title": "Source Sql Type"
+        }
+      },
+      "required": [
+        "bronze_table",
+        "column_name",
+        "elm_classification",
+        "target_dv_entity"
+      ],
+      "title": "ColumnTriageEntry",
+      "type": "object"
+    },
+    "ConceptAttribute": {
+      "additionalProperties": false,
+      "description": "Normalized conceptual attribute associated with a Canonical Business Concept.",
+      "properties": {
+        "attribute_name": {
+          "description": "Normalized conceptual attribute identifier (lowercase, 1..64 chars)",
+          "pattern": "^[a-z0-9_]{1,64}$",
+          "title": "Attribute Name",
+          "type": "string"
+        },
+        "data_type": {
+          "default": "string",
+          "description": "Logical data type classification (e.g. string, integer, decimal, boolean, date, timestamp, binary)",
+          "title": "Data Type",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Conceptual definition / description of the attribute",
+          "title": "Description"
+        },
+        "is_optional": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the attribute is optional in Data Vault satellite storage",
+          "title": "Is Optional"
+        },
+        "example_values": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sample representative values extracted from source evidence",
+          "title": "Example Values"
+        },
+        "deprecated": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deprecation flag under human edit governance",
+          "title": "Deprecated"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Arbitrary conceptual metadata key-values",
+          "title": "Metadata"
+        },
+        "source_hints": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Provenance hints identifying source data feeds or columns",
+          "title": "Source Hints"
+        }
+      },
+      "required": [
+        "attribute_name"
+      ],
+      "title": "ConceptAttribute",
+      "type": "object"
+    },
+    "ContractHubSpec": {
+      "additionalProperties": false,
+      "description": "Data Vault 2.0 Hub contract specification.",
+      "properties": {
+        "name": {
+          "pattern": "^hub_[a-z0-9_]+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "ontology_concept_uri": {
+          "pattern": "^urn:ontology:entity:[a-z0-9_]+$",
+          "title": "Ontology Concept Uri",
+          "type": "string"
+        },
+        "business_key_sources": {
+          "items": {
+            "$ref": "#/$defs/BusinessKeySource"
+          },
+          "minItems": 1,
+          "title": "Business Key Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "ontology_concept_uri",
+        "business_key_sources"
+      ],
+      "title": "ContractHubSpec",
+      "type": "object"
+    },
+    "ContractLinkHubReference": {
+      "additionalProperties": false,
+      "description": "Foreign key reference from a Link to a parent Hub.",
+      "properties": {
+        "target_hub": {
+          "pattern": "^hub_[a-z0-9_]+$",
+          "title": "Target Hub",
+          "type": "string"
+        },
+        "role_alias": {
+          "title": "Role Alias",
+          "type": "string"
+        },
+        "source_fk_columns": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Fk Columns",
+          "type": "array"
+        }
+      },
+      "required": [
+        "target_hub",
+        "role_alias",
+        "source_fk_columns"
+      ],
+      "title": "ContractLinkHubReference",
+      "type": "object"
+    },
+    "ContractLinkSpec": {
+      "additionalProperties": false,
+      "description": "Data Vault 2.0 Link contract specification.",
+      "properties": {
+        "name": {
+          "pattern": "^(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "link_type": {
+          "$ref": "#/$defs/ContractLinkTypeLiteral"
+        },
+        "ontology_concept_uri": {
+          "pattern": "^urn:ontology:(event|relationship):[a-z0-9_]+$",
+          "title": "Ontology Concept Uri",
+          "type": "string"
+        },
+        "source_bronze_table": {
+          "title": "Source Bronze Table",
+          "type": "string"
+        },
+        "driving_key_hub": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Driving Key Hub"
+        },
+        "where_filter_condition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Where Filter Condition"
+        },
+        "degenerate_columns": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Degenerate Columns"
+        },
+        "hub_references": {
+          "items": {
+            "$ref": "#/$defs/ContractLinkHubReference"
+          },
+          "minItems": 2,
+          "title": "Hub References",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "link_type",
+        "ontology_concept_uri",
+        "source_bronze_table",
+        "hub_references"
+      ],
+      "title": "ContractLinkSpec",
+      "type": "object"
+    },
+    "ContractLinkTypeLiteral": {
+      "enum": [
+        "STANDARD_LINK",
+        "NON_HISTORIZED_LINK",
+        "SAME_AS_LINK",
+        "HIERARCHICAL_LINK",
+        "UNSTRUCTURED_EXTRACTION_LINK"
+      ],
+      "type": "string"
+    },
+    "ContractReferenceTableSpec": {
+      "additionalProperties": false,
+      "description": "Data Vault 2.0 Reference Table (`ref_*`) contract specification.",
+      "properties": {
+        "name": {
+          "pattern": "^ref_[a-z0-9_]+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "ontology_concept_uri": {
+          "pattern": "^urn:ontology:enum:[a-z0-9_]+$",
+          "title": "Ontology Concept Uri",
+          "type": "string"
+        },
+        "source_bronze_table": {
+          "title": "Source Bronze Table",
+          "type": "string"
+        },
+        "code_column": {
+          "title": "Code Column",
+          "type": "string"
+        },
+        "description_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Description Columns",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "ontology_concept_uri",
+        "source_bronze_table",
+        "code_column",
+        "description_columns"
+      ],
+      "title": "ContractReferenceTableSpec",
+      "type": "object"
+    },
+    "ContractSatelliteSpec": {
+      "additionalProperties": false,
+      "description": "Data Vault 2.0 Satellite contract specification.",
+      "properties": {
+        "name": {
+          "pattern": "^(sat|bsat|mas|ma_sat|esat|sts|rts)_[a-z0-9_]+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "satellite_type": {
+          "$ref": "#/$defs/ContractSatelliteTypeLiteral"
+        },
+        "parent_entity": {
+          "pattern": "^(hub|lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$",
+          "title": "Parent Entity",
+          "type": "string"
+        },
+        "source_bronze_table": {
+          "title": "Source Bronze Table",
+          "type": "string"
+        },
+        "driving_key_column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Driving Key Column"
+        },
+        "sub_sequence_column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sub Sequence Column"
+        },
+        "security_classification": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecurityClassificationLiteral"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "volatility_tier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VolatilityTierLiteral"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "hash_diff_migration_policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HashDiffMigrationPolicyLiteral"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "soft_deprecated_columns": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Soft Deprecated Columns"
+        },
+        "payload_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Payload Columns",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "satellite_type",
+        "parent_entity",
+        "source_bronze_table",
+        "payload_columns"
+      ],
+      "title": "ContractSatelliteSpec",
+      "type": "object"
+    },
+    "ContractSatelliteTypeLiteral": {
+      "enum": [
+        "STANDARD_SATELLITE",
+        "EFFECTIVITY_SATELLITE",
+        "MULTI_ACTIVE_SATELLITE",
+        "VECTOR_SATELLITE",
+        "AI_PROVENANCE_SATELLITE"
+      ],
+      "type": "string"
+    },
+    "ELMClassificationLiteral": {
+      "enum": [
+        "BUSINESS_KEY",
+        "FOREIGN_KEY_REF",
+        "OPTIONAL_FOREIGN_KEY_REF",
+        "DEGENERATE_KEY",
+        "DESCRIPTIVE_PAYLOAD",
+        "REFERENCE_CODE",
+        "SYSTEM_SURROGATE_DROPPED",
+        "TECHNICAL_METADATA",
+        "ESCALATED_AMBIGUOUS"
+      ],
+      "type": "string"
+    },
+    "EscalationReasonLiteral": {
+      "enum": [
+        "MISSING_ONTOLOGY_CONCEPT",
+        "COMPETING_NATURAL_KEYS",
+        "DISJOINT_MULTI_SOURCE_BKS"
+      ],
+      "type": "string"
+    },
+    "ExternalMapping": {
+      "additionalProperties": false,
+      "description": "Grounded external reference ontology mapping (e.g. FIBO, ISO 20022, Wikidata).",
+      "properties": {
+        "scheme": {
+          "description": "Registered standard/scheme name (e.g. 'fibo', 'edmcouncil', 'iso20022', 'wikidata', 'custom')",
+          "minLength": 1,
+          "title": "Scheme",
+          "type": "string"
+        },
+        "target_uri": {
+          "description": "Target reference ontology URI",
+          "minLength": 1,
+          "title": "Target Uri",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Confidence score from 0.0 to 1.0 (quantized to 4 decimal places)",
+          "title": "Confidence"
+        },
+        "predicate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Mapping relation predicate (e.g. 'skos:exactMatch', 'skos:closeMatch', 'skos:broadMatch', 'skos:relatedMatch')",
+          "title": "Predicate"
+        },
+        "pinned": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether mapping is pinned against automated re-scoring overrides",
+          "title": "Pinned"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Actor or pipeline attribution that authored the mapping (e.g. 'human', 'agent', 'deterministic')",
+          "title": "Provenance"
+        },
+        "reference_pack_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Registered reference ontology pack ID",
+          "title": "Reference Pack Id"
+        },
+        "reference_pack_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SHA-256 digest of reference ontology pack",
+          "title": "Reference Pack Sha256"
+        }
+      },
+      "required": [
+        "scheme",
+        "target_uri"
+      ],
+      "title": "ExternalMapping",
+      "type": "object"
+    },
+    "GovernanceConstraints": {
+      "additionalProperties": false,
+      "description": "PII and MNPI security isolation constraints for a Canonical Business Concept.",
+      "properties": {
+        "pii_confidential_attributes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pii Confidential Attributes"
+        },
+        "mnpi_confidential_attributes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mnpi Confidential Attributes"
+        },
+        "required_satellite_split": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Required Satellite Split"
+        },
+        "required_extraction_satellite_split": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Required Extraction Satellite Split"
+        }
+      },
+      "title": "GovernanceConstraints",
+      "type": "object"
+    },
+    "GraphAOntology": {
+      "additionalProperties": false,
+      "description": "Root Semantic Ontology Graph A model (`examples/private_equity/pe_graph_a_ontology.yaml`).",
+      "properties": {
+        "ontology_version": {
+          "default": "1.0.0",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "title": "Ontology Version",
+          "type": "string"
+        },
+        "parent_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SHA-256 of the immediate parent Graph A ontology from which this version was derived.",
+          "title": "Parent Sha256"
+        },
+        "decision_refs": {
+          "description": "IDs of Steward decisions that produced this version.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Decision Refs",
+          "type": "array"
+        },
+        "domain_namespace": {
+          "default": "general",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Domain Namespace",
+          "type": "string"
+        },
+        "enterprise_owner": {
+          "default": "Enterprise Architecture",
+          "minLength": 2,
+          "title": "Enterprise Owner",
+          "type": "string"
+        },
+        "standards_references": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Standards References",
+          "type": "array"
+        },
+        "canonical_business_concepts": {
+          "items": {
+            "$ref": "#/$defs/CanonicalBusinessConcept"
+          },
+          "title": "Canonical Business Concepts",
+          "type": "array"
+        },
+        "canonical_relationships": {
+          "items": {
+            "$ref": "#/$defs/CanonicalRelationship"
+          },
+          "title": "Canonical Relationships",
+          "type": "array"
+        },
+        "reference_enumerations": {
+          "items": {
+            "$ref": "#/$defs/ReferenceEnumeration"
+          },
+          "title": "Reference Enumerations",
+          "type": "array"
+        },
+        "ontology_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ontology Id"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ontology description",
+          "title": "Description"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ontology-level metadata",
+          "title": "Metadata"
+        }
+      },
+      "title": "GraphAOntology",
+      "type": "object"
+    },
+    "HashDiffMigrationPolicyLiteral": {
+      "enum": [
+        "SPLIT_NEW_SATELLITE",
+        "NULL_EQUIVALENT_PADDING",
+        "VERSIONED_CUTOVER"
+      ],
+      "type": "string"
+    },
+    "JsonValue": {},
+    "KeyAuthorityTierLiteral": {
+      "enum": [
+        "TIER_1_GLOBAL_STANDARD",
+        "TIER_2_ENTERPRISE_SOR",
+        "TIER_3_LOCAL_SCOPED"
+      ],
+      "type": "string"
+    },
+    "KeyAuthorityTierSpec": {
+      "additionalProperties": false,
+      "description": "Authority rule for Tier-1 Global, Tier-2 Enterprise SoR, or Tier-3 Local Scoped BKs.",
+      "properties": {
+        "authority_name": {
+          "default": "DEFAULT",
+          "title": "Authority Name",
+          "type": "string"
+        },
+        "column_patterns": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column Patterns"
+        },
+        "regex_pattern": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Regex Pattern"
+        },
+        "bkcc_policy": {
+          "default": "GLOBAL",
+          "title": "Bkcc Policy",
+          "type": "string"
+        },
+        "require_src_qualifier": {
+          "default": false,
+          "title": "Require Src Qualifier",
+          "type": "boolean"
+        },
+        "cross_source_resolution_target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cross Source Resolution Target"
+        },
+        "authoritative_sor": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authoritative Sor"
+        }
+      },
+      "title": "KeyAuthorityTierSpec",
+      "type": "object"
+    },
+    "KeyAuthorityTiers": {
+      "additionalProperties": false,
+      "description": "3-Tier Business Key Authority hierarchy for a Canonical Business Concept.",
+      "properties": {
+        "tier_1_global_standard": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyAuthorityTierSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tier_2_enterprise_sor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyAuthorityTierSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tier_3_local_scoped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyAuthorityTierSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "KeyAuthorityTiers",
+      "type": "object"
+    },
+    "LifecycleStageLiteral": {
+      "enum": [
+        "COLD_START_N1",
+        "MULTI_SOURCE_EXPANSION"
+      ],
+      "type": "string"
+    },
+    "NoMistakeDataVault2ContractV5": {
+      "additionalProperties": false,
+      "description": "Root model for `schemas/no-mistake-dv2-contract-v5.schema.json`.",
+      "properties": {
+        "contract_version": {
+          "const": "5.0",
+          "default": "5.0",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "domain_namespace": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Domain Namespace",
+          "type": "string"
+        },
+        "lifecycle_stage": {
+          "$ref": "#/$defs/LifecycleStageLiteral"
+        },
+        "column_triage_ledger": {
+          "items": {
+            "$ref": "#/$defs/ColumnTriageEntry"
+          },
+          "minItems": 1,
+          "title": "Column Triage Ledger",
+          "type": "array"
+        },
+        "hubs": {
+          "items": {
+            "$ref": "#/$defs/ContractHubSpec"
+          },
+          "title": "Hubs",
+          "type": "array"
+        },
+        "links": {
+          "items": {
+            "$ref": "#/$defs/ContractLinkSpec"
+          },
+          "title": "Links",
+          "type": "array"
+        },
+        "satellites": {
+          "items": {
+            "$ref": "#/$defs/ContractSatelliteSpec"
+          },
+          "title": "Satellites",
+          "type": "array"
+        },
+        "reference_tables": {
+          "items": {
+            "$ref": "#/$defs/ContractReferenceTableSpec"
+          },
+          "title": "Reference Tables",
+          "type": "array"
+        },
+        "unmapped_escalations": {
+          "items": {
+            "$ref": "#/$defs/UnmappedEscalation"
+          },
+          "title": "Unmapped Escalations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "domain_namespace",
+        "lifecycle_stage",
+        "column_triage_ledger",
+        "hubs",
+        "links",
+        "satellites",
+        "reference_tables",
+        "unmapped_escalations"
+      ],
+      "title": "NoMistakeDataVault2ContractV5",
+      "type": "object"
+    },
+    "ReferenceEnumeration": {
+      "additionalProperties": false,
+      "description": "Reference enumeration specification in Graph A mapping to a `ref_*` table.",
+      "properties": {
+        "enum_uri": {
+          "pattern": "^urn:(ontology|opendv):enum:[a-z0-9_]+$",
+          "title": "Enum Uri",
+          "type": "string"
+        },
+        "target_reference_table": {
+          "pattern": "^ref_[a-z0-9_]+$",
+          "title": "Target Reference Table",
+          "type": "string"
+        },
+        "allowed_codes": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Allowed Codes",
+          "type": "array"
+        },
+        "enumeration_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-readable enumeration name",
+          "title": "Enumeration Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Enumeration description",
+          "title": "Description"
+        },
+        "code_descriptions": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Descriptions for individual allowed codes",
+          "title": "Code Descriptions"
+        },
+        "deprecated": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deprecation flag",
+          "title": "Deprecated"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Enumeration metadata",
+          "title": "Metadata"
+        }
+      },
+      "required": [
+        "enum_uri",
+        "target_reference_table",
+        "allowed_codes"
+      ],
+      "title": "ReferenceEnumeration",
+      "type": "object"
+    },
+    "SecurityClassificationLiteral": {
+      "enum": [
+        "PUBLIC",
+        "INTERNAL",
+        "CONFIDENTIAL",
+        "PII_HIGH",
+        "PCI"
+      ],
+      "type": "string"
+    },
+    "UnmappedEscalation": {
+      "additionalProperties": false,
+      "description": "Structured escalation entry for ambiguous Bronze columns requiring human decision.",
+      "properties": {
+        "bronze_table": {
+          "title": "Bronze Table",
+          "type": "string"
+        },
+        "columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "escalation_reason": {
+          "$ref": "#/$defs/EscalationReasonLiteral"
+        },
+        "architect_question": {
+          "title": "Architect Question",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bronze_table",
+        "columns",
+        "escalation_reason",
+        "architect_question"
+      ],
+      "title": "UnmappedEscalation",
+      "type": "object"
+    },
+    "VolatilityTierLiteral": {
+      "enum": [
+        "UNCLASSIFIED",
+        "STATIC",
+        "STANDARD",
+        "HIGH_FREQ",
+        "ADDITIVE_DRIFT_COMPANION"
+      ],
+      "type": "string"
+    },
+    "YagniCostGuardPolicy": {
+      "additionalProperties": false,
+      "description": "Gate 4 YAGNI cost guard thresholds attached to a canonical relationship.",
+      "properties": {
+        "max_general_columns_threshold": {
+          "minimum": 1,
+          "title": "Max General Columns Threshold",
+          "type": "integer"
+        },
+        "min_write_amplification_mb_per_day": {
+          "minimum": 0.0,
+          "title": "Min Write Amplification Mb Per Day",
+          "type": "number"
+        }
+      },
+      "required": [
+        "max_general_columns_threshold",
+        "min_write_amplification_mb_per_day"
+      ],
+      "title": "YagniCostGuardPolicy",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Normative JSON Schema (Draft 2020-12) for VaultBlueprint v1.0, combining GraphAOntology, Data Vault 2.0 Contract, and cryptographic lineage (ADR-017).",
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "description": "Normative VaultBlueprint specification version (v1.0.0)",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "blueprint_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional alias for schema_version (e.g. '1.0' or '1.0.0')",
+      "title": "Blueprint Version"
+    },
+    "domain_namespace": {
+      "description": "Target business domain namespace",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "title": "Domain Namespace",
+      "type": "string"
+    },
+    "lineage": {
+      "$ref": "#/$defs/BlueprintLineage",
+      "description": "Cryptographic lineage metadata chaining parent revisions"
+    },
+    "ontology": {
+      "$ref": "#/$defs/GraphAOntology",
+      "description": "Semantic oracle: GraphAOntology v1.0"
+    },
+    "contract": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NoMistakeDataVault2ContractV5"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Physical Data Vault 2.0 model contract (or null for zero-data greenfield seed)"
+    }
+  },
+  "required": [
+    "domain_namespace",
+    "lineage",
+    "ontology"
+  ],
+  "title": "VaultBlueprint",
+  "type": "object",
+  "$id": "https://enterprise.ai/schemas/vault-blueprint-v1.json"
+}

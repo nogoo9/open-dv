@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, field_validator
 
 from opendv_contracts.dtos.common import BaseContractModel
+from opendv_core.config import get_core_modeling_config
 
 _CREDENTIAL_REF_REGEX = re.compile(r"^(env|secret):[A-Za-z0-9_]+$")
 _DISALLOWED_OPTION_KEYS = {
@@ -27,6 +28,77 @@ _FORBIDDEN_CONTAINMENT_OPTION_KEYS = {
     "base_dir",
     "allow_temp",
 }
+
+
+class NamespaceRef(BaseContractModel):
+    """Reference identifying a database, catalog, or schema namespace."""
+
+    catalog: str | None = Field(default=None, description="Optional 3-level catalog identifier")
+    schema_name: str | None = Field(default=None, description="Schema or database identifier")
+
+
+class TableRef(BaseContractModel):
+    """Reference identifying a specific table within an optional namespace."""
+
+    table_name: str = Field(..., description="Table or view identifier")
+    namespace: NamespaceRef | None = Field(default=None, description="Optional namespace reference")
+
+    @property
+    def canonical_name(self) -> str:
+        """Canonical dot-delimited identifier (e.g. catalog.schema.table or table)."""
+        parts: list[str] = []
+        if self.namespace:
+            if self.namespace.catalog:
+                parts.append(self.namespace.catalog)
+            if self.namespace.schema_name:
+                parts.append(self.namespace.schema_name)
+        parts.append(self.table_name)
+        return ".".join(parts)
+
+
+TableSelectionMode = Literal["ALL_USER_TABLES", "EXPLICIT", "PATTERN"]
+
+
+class TableSelectionSpec(BaseContractModel):
+    """Specification defining which tables to ingest or inspect from a catalog feed."""
+
+    mode: TableSelectionMode = Field(
+        default="ALL_USER_TABLES",
+        description="Selection mode: ALL_USER_TABLES, EXPLICIT, or PATTERN",
+    )
+    tables: list[str] = Field(
+        default_factory=list,
+        description="Explicit table names to ingest when mode is EXPLICIT",
+    )
+    include_pattern: str | None = Field(
+        default=None,
+        description="Regex or glob pattern of table names to include when mode is PATTERN",
+    )
+    exclude_pattern: str | None = Field(
+        default=None,
+        description="Regex or glob pattern of table names to exclude",
+    )
+
+
+SamplingStrategy = Literal["DETERMINISTIC_LIMIT", "TABLESAMPLE_BERNOULLI"]
+
+
+class SamplingPolicy(BaseContractModel):
+    """Sampling configuration for sandbox staging and profile pushdown."""
+
+    max_sandbox_rows: int = Field(
+        default=get_core_modeling_config().max_sandbox_rows,
+        ge=1,
+        description="Maximum row count staged into DuckDB shadow sandbox",
+    )
+    strategy: SamplingStrategy = Field(
+        default="DETERMINISTIC_LIMIT",
+        description="Sampling method: DETERMINISTIC_LIMIT or TABLESAMPLE_BERNOULLI",
+    )
+    seed: int | None = Field(
+        default=None,
+        description="Optional deterministic random seed for repeatable Bernoulli sampling",
+    )
 
 
 class SourceSpec(BaseContractModel):
@@ -59,6 +131,18 @@ class SourceSpec(BaseContractModel):
     client_path: str | None = Field(
         default=None,
         description="Client display path for remote inline uploads",
+    )
+    namespace: NamespaceRef | None = Field(
+        default=None,
+        description="Optional catalog/schema namespace specification",
+    )
+    table_selection: TableSelectionSpec | None = Field(
+        default=None,
+        description="Optional table selection filter for multi-table catalogs",
+    )
+    sampling_policy: SamplingPolicy | None = Field(
+        default=None,
+        description="Optional sampling policy for pushdown profiling and sandbox staging",
     )
 
     @field_validator("credentials_ref")
@@ -106,4 +190,13 @@ class FormatSpec(BaseContractModel):
     )
 
 
-__all__ = ["FormatSpec", "SourceSpec"]
+__all__ = [
+    "FormatSpec",
+    "NamespaceRef",
+    "SamplingPolicy",
+    "SamplingStrategy",
+    "SourceSpec",
+    "TableRef",
+    "TableSelectionMode",
+    "TableSelectionSpec",
+]

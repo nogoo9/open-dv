@@ -767,57 +767,17 @@
       "events": [
         [
           "STAGE_00",
-          "[REDACTED INTERNAL] Stage STAGE_00_ORCHESTRATION masked for role 'VIEWER'.",
-          "PASS"
-        ],
-        [
-          "STAGE_00",
-          "[REDACTED INTERNAL] Stage STAGE_00_ORCHESTRATION masked for role 'VIEWER'.",
-          "PASS"
-        ],
-        [
-          "STAGE_01",
-          "[REDACTED INTERNAL] Stage STAGE_01_SCOUT_SOURCE masked for role 'VIEWER'.",
-          "PASS"
-        ],
-        [
-          "STAGE_02",
-          "[REDACTED INTERNAL] Stage STAGE_02_SCOUT_UNSTRUCTURED masked for role 'VIEWER'.",
-          "PASS"
-        ],
-        [
-          "STAGE_03",
-          "[REDACTED INTERNAL] Stage STAGE_03_SHIP_VAULT_PASS1 masked for role 'VIEWER'.",
-          "PASS"
-        ],
-        [
-          "STAGE_04",
-          "[REDACTED INTERNAL] Stage STAGE_04_SHIP_VAULT_PASS2 masked for role 'VIEWER'.",
+          "Session start",
           "PASS"
         ],
         [
           "STAGE_05",
-          "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
-          "PASS"
-        ],
-        [
-          "STAGE_05",
-          "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
-          "AUTO_REPAIRED"
-        ],
-        [
-          "STAGE_05",
-          "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
-          "AUTO_REPAIRED"
-        ],
-        [
-          "STAGE_06",
-          "[REDACTED INTERNAL] Stage STAGE_06_AXI_DV_DYNAMIC_SANDBOX masked for role 'VIEWER'.",
+          "Static verification complete",
           "PASS"
         ],
         [
           "STAGE_07",
-          "[REDACTED INTERNAL] Stage STAGE_07_DETERMINISTIC_COMPILER masked for role 'VIEWER'.",
+          "Deterministic compile complete",
           "PASS"
         ]
       ],

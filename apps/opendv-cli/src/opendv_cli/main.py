@@ -27,6 +27,7 @@ SUBCOMMANDS = frozenset(
         "ontology",
         "config",
         "serve",
+        "source",
     }
 )
 _BOOLEAN_FLAGS = frozenset(
@@ -101,9 +102,71 @@ def _annotate_explicit_cli_flags(args: argparse.Namespace, raw_args: list[str]) 
         args._explicit_enterprise_owner = _has_cli_flag(raw_args, "--enterprise-owner", "-o")
 
 
+def _configure_extended_actions(parser: argparse.ArgumentParser) -> None:
+    """Ensure array options (like --source) accumulate multiple occurrences."""
+    for action in getattr(parser, "_actions", []):
+        if getattr(action, "dest", None) == "source" and getattr(action, "nargs", None) == "+":
+            action.__class__ = argparse._ExtendAction
+        if isinstance(action, argparse._SubParsersAction):
+            for subparser in action.choices.values():
+                _configure_extended_actions(subparser)
+
+
+def _normalize_source_inspect_args(args: list[str]) -> list[str]:
+    """Normalize positional source URI following `opendv source inspect <uri>` to `--uri <uri>`."""
+    if "source" not in args or "inspect" not in args:
+        return args
+    if "--uri" in args:
+        return args
+    try:
+        s_idx = args.index("source")
+        if s_idx + 1 >= len(args) or args[s_idx + 1] != "inspect":
+            return args
+        opts_with_arg = {
+            "--adapter",
+            "-a",
+            "--namespace",
+            "--table",
+            "--credentials-ref",
+            "--format",
+            "--api-url",
+            "--role",
+            "--token",
+            "--tenant-id",
+            "--project-id",
+        }
+        idx = s_idx + 2
+        while idx < len(args):
+            tok = args[idx]
+            if tok.startswith("-"):
+                if "=" in tok:
+                    idx += 1
+                elif tok in opts_with_arg:
+                    idx += 2
+                else:
+                    idx += 1
+            else:
+                return [*args[:idx], "--uri", tok, *args[idx + 1:]]
+    except (ValueError, IndexError):
+        pass
+    return args
+
+
 def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
     """Construct the spec-driven ArgumentParser for `opendv` or `axi-dv`."""
-    return build_argument_parser(prog=prog)
+    from pathlib import Path
+
+    from opendv_contracts.spec import load_cli_spec
+
+    canonical_spec_path = Path(__file__).resolve().parents[4] / "schemas" / "v1" / "cli-spec.json"
+    spec = (
+        load_cli_spec(canonical_spec_path)
+        if canonical_spec_path.is_file()
+        else load_cli_spec()
+    )
+    parser = build_argument_parser(prog=prog, spec=spec)
+    _configure_extended_actions(parser)
+    return parser
 
 
 def _dispatch(
@@ -168,6 +231,8 @@ def app_main(
     ) and not _has_explicit_subcommand(raw_args):
         raw_args = ["verify", *raw_args]
 
+    raw_args = _normalize_source_inspect_args(raw_args)
+
     try:
         args = parser.parse_args(raw_args)
     except SystemExit as exc:
@@ -209,6 +274,8 @@ def axi_dv_main(
         flag in raw_args for flag in _NO_SUBCOMMAND_EXEMPT_FLAGS
     ) and not _has_explicit_subcommand(raw_args):
         raw_args = ["verify", *raw_args]
+
+    raw_args = _normalize_source_inspect_args(raw_args)
 
     parser = build_parser(prog="axi-dv")
     try:

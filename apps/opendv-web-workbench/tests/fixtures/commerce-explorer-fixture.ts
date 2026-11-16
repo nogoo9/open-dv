@@ -683,15 +683,18 @@ export const GLOBAL_COMMERCE_ARTIFACTS: Record<string, Artifact> = {
 			"project_id: global_commerce_vault\n" +
 			"display_name: Global Commerce & Billing Vault\n" +
 			"ontology_path: ontology/graph_a_ontology.yaml\n" +
-			"waves:\n" +
-			"  - wave_id: wave_0_cold_start\n" +
-			"    relational_sources: [sources/wave0_crm_customers.csv, sources/wave0_erp_orders.csv]\n" +
-			"  - wave_id: wave_1_incremental_stripe\n" +
-			"    relational_sources: [sources/wave1_stripe_eu_invoices.csv]\n" +
-			"  - wave_id: wave_2_crm_schema_drift\n" +
-			"    relational_sources: [sources/wave2_crm_customers_v2_drift.csv]\n" +
-			"  - wave_id: wave_3_unstructured_msa\n" +
-			"    unstructured_sources: [sources/wave3_enterprise_msa_addendum_2026.txt]",
+			"sources:\n" +
+			"  - table_name: crm_customers\n" +
+			"    data_path: sources/wave0_crm_customers.csv\n" +
+			"  - table_name: erp_orders\n" +
+			"    data_path: sources/wave0_erp_orders.csv\n" +
+			"  - table_name: stripe_eu_invoices\n" +
+			"    data_path: sources/wave1_stripe_eu_invoices.csv\n" +
+			"  - table_name: crm_customers_v2_drift\n" +
+			"    data_path: sources/wave2_crm_customers_v2_drift.csv\n" +
+			"unstructured_documents:\n" +
+			"  - doc_id: DOC-MSA-2026-089\n" +
+			"    document_path: sources/wave3_enterprise_msa_addendum_2026.txt",
 	},
 	ontology: {
 		id: "ontology",

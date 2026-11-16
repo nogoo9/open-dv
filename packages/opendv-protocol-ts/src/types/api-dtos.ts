@@ -302,3 +302,5 @@ export interface PlatformConfigValidationResponse {
 	resolved_persona_models: Record<string, string>;
 	providers: ProviderReadinessDTO[];
 }
+
+export * from "./vault-blueprint";

@@ -61,6 +61,7 @@ export interface ColumnTriageLedgerEntryDTO {
 	column_name: string;
 	elm_classification: ElmClassification;
 	target_dv_entity: string;
+	source_sql_type?: string | null | undefined;
 }
 
 export interface HubBusinessKeySourceDTO {

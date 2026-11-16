@@ -1,0 +1,89 @@
+# Open-DV Asset Management & Benchmark Datasets Manifest (ADR-020)
+manifest_version: "1.0"
+description: "Declarative manifest for keyless public datasets and benchmarks with deterministic offline fallbacks."
+
+fetch_config:
+  user_agent: "OpenDVResearch/1.0 (research@open-dv.dev)"
+  request_timeout_seconds: 5.0
+  max_sec_equities_count: 50
+  max_fred_observations_count: 30
+
+suites:
+  asset_management:
+    target_database: "data/public_am/am_sec_treasury_ibor.sqlite"
+    description: "Asset Management IBOR & Regulatory SQLite database with full PK/FK DDL."
+    sources:
+      sec_company_tickers:
+        url: "https://www.sec.gov/files/company_tickers.json"
+        method: "GET"
+        format: "json"
+        target_table: "issuers"
+        fallback_csv: "sec_security_master.csv"
+      sec_13f_holdings:
+        format: "csv"
+        target_table: "holdings_13f"
+        fallback_csv: "sec_13f_holdings.csv"
+      fred_treasury_yields:
+        url: "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10"
+        method: "GET"
+        format: "csv"
+        target_table: "treasury_rates"
+        fallback_csv: "fred_treasury_rates.csv"
+    tables:
+      - name: "issuers"
+        pk: ["cik"]
+        description: "SEC-registered equity issuers."
+      - name: "securities"
+        pk: ["ticker"]
+        fk:
+          - column: "cik"
+            target_table: "issuers"
+            target_column: "cik"
+        description: "Public equity instruments with CIK issuer link."
+      - name: "institutional_filers"
+        pk: ["filer_cik"]
+        description: "Institutional investment managers filing Form 13F."
+      - name: "holdings_13f"
+        pk: ["holding_id"]
+        fk:
+          - column: "ticker"
+            target_table: "securities"
+            target_column: "ticker"
+          - column: "filer_cik"
+            target_table: "institutional_filers"
+            target_column: "filer_cik"
+        description: "Quarterly institutional holdings positions."
+      - name: "treasury_rates"
+        pk: ["observation_date", "series_id"]
+        description: "Benchmark Treasury interest and yield rates."
+      - name: "yield_curves"
+        pk: ["curve_id"]
+        description: "Daily term structure yield curve spreads."
+
+  benchmarks:
+    northwind:
+      target_path: "data/public_sqlite/northwind.sqlite"
+      url: "https://raw.githubusercontent.com/jpwhite3/northwind-SQLite3/master/dist/northwind.db"
+      description: "Northwind SQLite enterprise ERP benchmark."
+      tables:
+        - "Categories"
+        - "Customers"
+        - "Employees"
+        - "Order Details"
+        - "Orders"
+        - "Products"
+        - "Suppliers"
+    chinook:
+      target_path: "data/public_sqlite/chinook.sqlite"
+      url: "https://raw.githubusercontent.com/lerocha/chinook-database/master/ChinookDatabase/DataSources/Chinook_Sqlite.sqlite"
+      description: "Chinook SQLite digital media retail benchmark."
+      tables:
+        - "Album"
+        - "Artist"
+        - "Customer"
+        - "Employee"
+        - "Genre"
+        - "Invoice"
+        - "InvoiceLine"
+        - "MediaType"
+        - "Track"

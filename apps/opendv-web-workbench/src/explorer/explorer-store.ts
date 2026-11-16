@@ -231,15 +231,8 @@ export function createExplorerStore(
 		},
 
 		getVisibleInputIds: () => {
-			const bundle = get().bundle;
-			const wave = get().activeWave;
-			if (wave === "all") return bundle.inputIds;
-			return bundle.inputIds.filter((id) => {
-				const art = bundle.artifacts[id];
-				return (
-					!art?.waves || art.waves.includes(wave as "W0" | "W1" | "W2" | "W3")
-				);
-			});
+			// Single-run architecture: inputs are shown unconditionally for the active run
+			return get().bundle.inputIds;
 		},
 
 		switchPresetBundle: (key) => {

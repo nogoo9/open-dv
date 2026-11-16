@@ -20,12 +20,14 @@ Certifies Feature 15 for Milestone M4:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from pathlib import Path
 
 import pytest
 import yaml
+from starlette.testclient import TestClient
 
 from tests.parity.transports import ClientCliTransport, StandaloneCliTransport
 
@@ -104,19 +106,12 @@ def test_wave0_pipeline_validate_unstructured_only_parity(
         "domain_namespace": "asset_management",
         "graph_a_ontology_path": str(COMMERCE_ONTOLOGY_PATH),
         "unstructured_only": True,
-        "waves": [
+        "sources": [],
+        "unstructured_documents": [
             {
-                "wave_index": 0,
-                "wave_name": "Wave 0 — Genesis Unstructured Documents Only",
-                "wave_type": "UNSTRUCTURED_ONBOARDING",
-                "description": "Cold start unstructured onboarding",
-                "unstructured_documents": [
-                    {
-                        "doc_id": "DOC-CALPERS-001",
-                        "document_path": str(doc_path),
-                        "record_source": "CAS_INGESTION",
-                    }
-                ],
+                "doc_id": "DOC-CALPERS-001",
+                "document_path": str(doc_path),
+                "record_source": "CAS_INGESTION",
             }
         ],
     }
@@ -153,19 +148,12 @@ def test_wave0_pipeline_validate_unstructured_only_parity(
         "display_name": "Asset Management Wave 0 Missing Relational Source",
         "domain_namespace": "asset_management",
         "graph_a_ontology_path": str(COMMERCE_ONTOLOGY_PATH),
-        "waves": [
+        "sources": [],
+        "unstructured_documents": [
             {
-                "wave_index": 0,
-                "wave_name": "Wave 0 — Unstructured Documents Missing Prior Relational Source",
-                "wave_type": "UNSTRUCTURED_ONBOARDING",
-                "description": "Cold start unstructured onboarding without flag",
-                "unstructured_documents": [
-                    {
-                        "doc_id": "DOC-CALPERS-002",
-                        "document_path": str(doc_path),
-                        "record_source": "CAS_INGESTION",
-                    }
-                ],
+                "doc_id": "DOC-CALPERS-002",
+                "document_path": str(doc_path),
+                "record_source": "CAS_INGESTION",
             }
         ],
     }
@@ -723,3 +711,416 @@ def test_dual_cli_exit_code_matrix_parity_0_to_7(
     )
     assert c_ts_7 == 7
     assert _extract_error_code(out_ts_7, err_ts_7) == "LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE"
+
+
+def _create_ecommerce_sqlite_db(db_path: Path) -> Path:
+    """Create a temporary SQLite database with PK and FK constraints for parity testing."""
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE customers (
+            customer_id INTEGER PRIMARY KEY,
+            email TEXT NOT NULL,
+            full_name TEXT NOT NULL
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE orders (
+            order_id INTEGER PRIMARY KEY,
+            customer_id INTEGER NOT NULL,
+            order_total REAL NOT NULL,
+            FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+        )
+        """
+    )
+    cur.execute("INSERT INTO customers VALUES (1, 'alice@example.com', 'Alice Smith')")
+    cur.execute("INSERT INTO orders VALUES (101, 1, 99.50)")
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+# ---------------------------------------------------------------------------
+# Workstream 4 (WS-4.3): Dual-CLI Single-Run & Source Inspect Parity
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parity
+def test_source_inspect_dual_cli_parity(
+    cli_transport: StandaloneCliTransport,
+    client_cli_transport: ClientCliTransport,
+    tmp_path: Path,
+) -> None:
+    """Verify dual-CLI parity for `opendv source inspect` and `opendvctl source inspect`.
+
+    1. Positive parity with SQLite DB:
+       - Extracts tables, columns, PK, and FK constraints.
+       - Returns exit code 0 on both CLIs with identical table structures.
+    2. Positional URI vs --uri flag parity:
+       - Both CLIs accept `source inspect <path>` and `source inspect --uri <path>`.
+    3. Table filtering parity:
+       - Both CLIs support `--table <tbl>` filtering.
+    """
+    db_path = tmp_path / "retail.sqlite"
+    _create_ecommerce_sqlite_db(db_path)
+
+    # 1. Positional URI
+    cmd_pos = ["source", "inspect", str(db_path), "--json"]
+    c_py, out_py, err_py = cli_transport.invoke_raw(cmd_pos)
+    c_ts, out_ts, err_ts = client_cli_transport.invoke_raw(cmd_pos)
+
+    assert c_py == 0, f"opendv source inspect positional failed: {err_py}"
+    assert c_ts == 0, f"opendvctl source inspect positional failed: {err_ts}"
+    assert c_py == c_ts
+
+    data_py = json.loads(out_py.strip())
+    data_ts = json.loads(out_ts.strip())
+
+    assert data_py.get("adapter_id") == "sqlite"
+    assert data_ts.get("adapter_id") == "sqlite"
+    assert len(data_py.get("tables", [])) == 2
+    assert len(data_ts.get("tables", [])) == 2
+
+    py_table_names = sorted(t["table_name"] for t in data_py["tables"])
+    ts_table_names = sorted(t["table_name"] for t in data_ts["tables"])
+    assert py_table_names == ["customers", "orders"]
+    assert ts_table_names == ["customers", "orders"]
+
+    # Verify primary keys and foreign keys parity
+    py_tables = {t["table_name"]: t for t in data_py["tables"]}
+    ts_tables = {t["table_name"]: t for t in data_ts["tables"]}
+    assert py_tables["customers"]["primary_key_columns"] == ["customer_id"]
+    assert ts_tables["customers"]["primary_key_columns"] == ["customer_id"]
+    assert len(py_tables["orders"]["foreign_keys"]) >= 1
+    assert len(ts_tables["orders"]["foreign_keys"]) >= 1
+    assert py_tables["orders"]["foreign_keys"][0]["target_table"] == "customers"
+    assert ts_tables["orders"]["foreign_keys"][0]["target_table"] == "customers"
+
+    # 2. Flag-based URI: --uri
+    cmd_flag = ["source", "inspect", "--uri", f"sqlite:///{db_path.as_posix()}", "--json"]
+    c_py_f, out_py_f, err_py_f = cli_transport.invoke_raw(cmd_flag)
+    c_ts_f, out_ts_f, err_ts_f = client_cli_transport.invoke_raw(cmd_flag)
+    assert c_py_f == 0, f"opendv source inspect --uri failed: {err_py_f}"
+    assert c_ts_f == 0, f"opendvctl source inspect --uri failed: {err_ts_f}"
+    assert c_py_f == c_ts_f
+
+    # 3. Table filter: --table customers
+    cmd_tbl = ["source", "inspect", str(db_path), "--table", "customers", "--json"]
+    c_py_t, out_py_t, err_py_t = cli_transport.invoke_raw(cmd_tbl)
+    c_ts_t, out_ts_t, err_ts_t = client_cli_transport.invoke_raw(cmd_tbl)
+    assert c_py_t == 0, f"opendv table filter failed: {err_py_t}"
+    assert c_ts_t == 0, f"opendvctl table filter failed: {err_ts_t}"
+    t_py = json.loads(out_py_t.strip())
+    t_ts = json.loads(out_ts_t.strip())
+    assert len(t_py.get("tables", [])) == 1
+    assert len(t_ts.get("tables", [])) == 1
+    assert t_py["tables"][0]["table_name"] == "customers"
+    assert t_ts["tables"][0]["table_name"] == "customers"
+
+
+@pytest.mark.parity
+def test_source_inspect_negative_dual_cli_parity(
+    cli_transport: StandaloneCliTransport,
+    client_cli_transport: ClientCliTransport,
+    tmp_path: Path,
+) -> None:
+    """Verify dual-CLI parity on syntax errors and security enforcement for `source inspect`.
+
+    1. Missing --uri: both CLIs exit 2 with SYNTAX_INVALID_ARGUMENT.
+    2. Invalid credentials_ref: both CLIs exit 2 with SYNTAX_INVALID_ARGUMENT.
+    """
+    db_path = tmp_path / "retail.sqlite"
+    _create_ecommerce_sqlite_db(db_path)
+
+    # 1. Missing URI
+    cmd_no_uri = ["source", "inspect", "--json"]
+    c_py_m, out_py_m, err_py_m = cli_transport.invoke_raw(cmd_no_uri)
+    c_ts_m, out_ts_m, err_ts_m = client_cli_transport.invoke_raw(cmd_no_uri)
+
+    assert c_py_m == 2, f"Expected exit 2, got {c_py_m}: {err_py_m}"
+    assert c_ts_m == 2, f"Expected exit 2, got {c_ts_m}: {err_ts_m}"
+    assert c_py_m == c_ts_m
+    assert _extract_error_code(out_py_m, err_py_m) == "SYNTAX_INVALID_ARGUMENT"
+    assert _extract_error_code(out_ts_m, err_ts_m) == "SYNTAX_INVALID_ARGUMENT"
+
+    # 2. Invalid credentials_ref pattern
+    cmd_bad_cred = [
+        "source",
+        "inspect",
+        str(db_path),
+        "--credentials-ref",
+        "plaintext_secret_123",
+        "--json",
+    ]
+    c_py_c, out_py_c, err_py_c = cli_transport.invoke_raw(cmd_bad_cred)
+    c_ts_c, out_ts_c, err_ts_c = client_cli_transport.invoke_raw(cmd_bad_cred)
+
+    assert c_py_c == 2, f"Expected exit 2, got {c_py_c}: {err_py_c}"
+    assert c_ts_c == 2, f"Expected exit 2, got {c_ts_c}: {err_ts_c}"
+    assert c_py_c == c_ts_c
+    assert _extract_error_code(out_py_c, err_py_c) == "SYNTAX_INVALID_ARGUMENT"
+    assert _extract_error_code(out_ts_c, err_ts_c) == "SYNTAX_INVALID_ARGUMENT"
+
+
+@pytest.mark.parity
+def test_single_run_pipeline_validate_dual_cli_parity(
+    cli_transport: StandaloneCliTransport,
+    client_cli_transport: ClientCliTransport,
+    tmp_path: Path,
+) -> None:
+    """Verify dual-CLI parity for `pipeline validate` single-run options (--source, --ontology).
+
+    1. Positive parity: Greenfield Cold Start with SQLite source and Graph A ontology
+       exits 0 on both CLIs and returns InferredExecutionPlanDTO with primary_action COLD_START_N1.
+    2. Negative parity: Missing --input, --blueprint, and --ontology
+       exits 2 on both CLIs with SYNTAX_INVALID_ARGUMENT.
+    """
+    db_path = tmp_path / "crm.sqlite"
+    _create_ecommerce_sqlite_db(db_path)
+
+    # Positive: single-run with --source and --ontology
+    cmd_val = [
+        "pipeline",
+        "validate",
+        "--source",
+        f"sqlite:///{db_path.as_posix()}",
+        "--ontology",
+        str(COMMERCE_ONTOLOGY_PATH),
+        "--dialect",
+        "duckdb",
+        "--json",
+    ]
+    c_py, out_py, err_py = cli_transport.invoke_raw(cmd_val)
+    c_ts, out_ts, err_ts = client_cli_transport.invoke_raw(cmd_val)
+
+    assert c_py == 0, f"opendv pipeline validate failed: {err_py}"
+    assert c_ts == 0, f"opendvctl pipeline validate failed: {err_ts}"
+    assert c_py == c_ts
+
+    plan_py = json.loads(out_py.strip())
+    plan_ts = json.loads(out_ts.strip())
+
+    assert plan_py.get("primary_action") == "COLD_START_N1"
+    assert plan_ts.get("primary_action") == "COLD_START_N1"
+    assert "plan_id" in plan_py
+    assert "plan_id" in plan_ts
+    assert len(plan_py.get("table_actions", [])) >= 1
+    assert len(plan_ts.get("table_actions", [])) >= 1
+
+    # Negative: missing ingress
+    cmd_neg = ["pipeline", "validate", "--json"]
+    c_py_n, out_py_n, err_py_n = cli_transport.invoke_raw(cmd_neg)
+    c_ts_n, out_ts_n, err_ts_n = client_cli_transport.invoke_raw(cmd_neg)
+
+    assert c_py_n == 2, f"Expected exit 2, got {c_py_n}: {err_py_n}"
+    assert c_ts_n == 2, f"Expected exit 2, got {c_ts_n}: {err_ts_n}"
+    assert c_py_n == c_ts_n
+    assert _extract_error_code(out_py_n, err_py_n) == "SYNTAX_INVALID_ARGUMENT"
+    assert _extract_error_code(out_ts_n, err_ts_n) == "SYNTAX_INVALID_ARGUMENT"
+
+
+@pytest.mark.parity
+def test_single_run_pipeline_run_dual_cli_parity(
+    cli_transport: StandaloneCliTransport,
+    client_cli_transport: ClientCliTransport,
+    tmp_path: Path,
+) -> None:
+    """Verify dual-CLI parity for `pipeline run` single-run options (--source, --ontology).
+
+    1. Missing ingress: both CLIs exit 2 with SYNTAX_INVALID_ARGUMENT.
+    2. Single-run execution: both CLIs accept single-run options and exit 0.
+    """
+    db_path = tmp_path / "crm_run.sqlite"
+    _create_ecommerce_sqlite_db(db_path)
+
+    # 1. Missing ingress negative check
+    cmd_neg = ["pipeline", "run", "--json"]
+    c_py_n, out_py_n, err_py_n = cli_transport.invoke_raw(cmd_neg)
+    c_ts_n, out_ts_n, err_ts_n = client_cli_transport.invoke_raw(cmd_neg)
+
+    assert c_py_n == 2, f"Expected exit 2, got {c_py_n}: {err_py_n}"
+    assert c_ts_n == 2, f"Expected exit 2, got {c_ts_n}: {err_ts_n}"
+    assert c_py_n == c_ts_n
+    assert _extract_error_code(out_py_n, err_py_n) == "SYNTAX_INVALID_ARGUMENT"
+    assert _extract_error_code(out_ts_n, err_ts_n) == "SYNTAX_INVALID_ARGUMENT"
+
+    # 2. Single-run execution
+    cmd_run = [
+        "pipeline",
+        "run",
+        "--source",
+        f"sqlite:///{db_path.as_posix()}",
+        "--ontology",
+        str(COMMERCE_ONTOLOGY_PATH),
+        "--dialect",
+        "duckdb",
+        "--json",
+    ]
+    c_py, out_py, err_py = cli_transport.invoke_raw(cmd_run)
+    c_ts, out_ts, err_ts = client_cli_transport.invoke_raw(cmd_run)
+
+    assert c_py == 0, f"opendv pipeline run failed: {err_py}"
+    assert c_ts == 0, f"opendvctl pipeline run failed: {err_ts}"
+    assert c_py == c_ts
+
+    res_py = json.loads(out_py.strip())
+    res_ts = json.loads(out_ts.strip())
+    assert isinstance(res_py, dict)
+    assert isinstance(res_ts, dict)
+
+
+@pytest.mark.parity
+def test_r3_c2_pipeline_input_dto_e2e_validator_parity(
+    cli_transport: StandaloneCliTransport,
+    client_cli_transport: ClientCliTransport,
+    platform_api_client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """Verify dual-CLI parity hitting the real FastAPI PipelineInputDTO validator (R3-C2).
+
+    1. Ensures client omits client *_path fields and undeclared keys.
+    2. Ensures steward_hold_policy is correctly mapped inside governance_policy.
+    3. Confirms both CLIs exit 0 without 422 extra_forbidden validation errors.
+    """
+    db_path = tmp_path / "crm_validator.sqlite"
+    _create_ecommerce_sqlite_db(db_path)
+
+    cmd_val = [
+        "pipeline",
+        "validate",
+        "--source",
+        f"sqlite:///{db_path.as_posix()}",
+        "--ontology",
+        str(COMMERCE_ONTOLOGY_PATH),
+        "--hold-policy",
+        "pause",
+        "--provider",
+        "agy",
+        "--json",
+    ]
+    c_py_val, out_py_val, err_py_val = cli_transport.invoke_raw(cmd_val)
+    c_ts_val, out_ts_val, err_ts_val = client_cli_transport.invoke_raw(cmd_val)
+
+    assert c_py_val == 0, f"opendv validate failed: {err_py_val}"
+    assert c_ts_val == 0, f"opendvctl validate failed: {err_ts_val}"
+    assert c_py_val == c_ts_val
+
+    # Test direct REST submission to ensure FastAPI accepts single-run payload
+    loaded_ont = yaml.safe_load(COMMERCE_ONTOLOGY_PATH.read_text(encoding="utf-8"))
+    payload = {
+        "ontology_source": loaded_ont,
+        "sources": [
+            {
+                "feed_id": "feed-crm-1",
+                "source_system": "crm",
+                "uri": f"sqlite:///{db_path.as_posix()}",
+                "target_dialect": "duckdb",
+            }
+        ],
+        "target_dialect": "duckdb",
+        "harness_provider": "agy",
+        "governance_policy": {"steward_hold_policy": "pause"},
+    }
+    resp = platform_api_client.post(
+        "/api/v1/runs?sync=true",
+        json=payload,
+        headers={"X-OpenDV-Role": "INTERNAL_MODELER"},
+    )
+    assert resp.status_code == 200, f"FastAPI validation rejected single-run payload: {resp.text}"
+    data = resp.json()
+    assert isinstance(data, dict)
+    assert data.get("status") in {"COMPLETED", "PAUSED_HOLD", "AUTO_REPAIRED"}
+
+
+@pytest.mark.parity
+def test_r3_c3_cas_upload_inspect_and_run_e2e(
+    platform_api_client: TestClient,
+    tmp_path: Path,
+) -> None:
+    """Verify CAS blob upload, source inspection of staged CAS files, and pipeline run with cas:// URI (R3-C3)."""
+    db_path = tmp_path / "cas_test.sqlite"
+    _create_ecommerce_sqlite_db(db_path)
+    sqlite_bytes = db_path.read_bytes()
+    sqlite_hash = hashlib.sha256(sqlite_bytes).hexdigest().lower()
+
+    csv_path = tmp_path / "customers.csv"
+    csv_path.write_text("customer_id,email,created_at\n1,alice@example.com,2026-01-01\n", encoding="utf-8")
+    csv_bytes = csv_path.read_bytes()
+    csv_hash = hashlib.sha256(csv_bytes).hexdigest().lower()
+
+    auth_hdr = {"X-OpenDV-Role": "DATA_STEWARD"}
+
+    # 1. Upload SQLite blob to POST /api/v1/cas/blobs
+    resp_up_sqlite = platform_api_client.post(
+        "/api/v1/cas/blobs",
+        content=sqlite_bytes,
+        headers={**auth_hdr, "Content-Type": "application/octet-stream", "X-CAS-SHA256": sqlite_hash},
+    )
+    assert resp_up_sqlite.status_code == 201, f"Failed to upload SQLite: {resp_up_sqlite.text}"
+    assert resp_up_sqlite.json()["sha256"] == sqlite_hash
+
+    # 2. Upload CSV blob to POST /api/v1/cas/blobs
+    resp_up_csv = platform_api_client.post(
+        "/api/v1/cas/blobs",
+        content=csv_bytes,
+        headers={**auth_hdr, "Content-Type": "application/octet-stream", "X-CAS-SHA256": csv_hash},
+    )
+    assert resp_up_csv.status_code == 201, f"Failed to upload CSV: {resp_up_csv.text}"
+    assert resp_up_csv.json()["sha256"] == csv_hash
+
+    # 3. Inspect staged SQLite blob via POST /api/v1/sources/inspect
+    resp_ins_sqlite = platform_api_client.post(
+        "/api/v1/sources/inspect",
+        json={"uri": f"cas://{sqlite_hash}", "adapter": "sqlite"},
+        headers=auth_hdr,
+    )
+    assert resp_ins_sqlite.status_code == 200, f"Failed to inspect CAS SQLite: {resp_ins_sqlite.text}"
+    sqlite_meta = resp_ins_sqlite.json()
+    assert len(sqlite_meta["tables"]) >= 1
+    table_names = [t["table_name"] for t in sqlite_meta["tables"]]
+    assert any("order" in name.lower() or "customer" in name.lower() for name in table_names)
+
+    # 4. Inspect staged CSV blob via POST /api/v1/sources/inspect
+    resp_ins_csv = platform_api_client.post(
+        "/api/v1/sources/inspect",
+        json={"uri": f"cas://{csv_hash}", "adapter": "file"},
+        headers=auth_hdr,
+    )
+    assert resp_ins_csv.status_code == 200, f"Failed to inspect CAS CSV: {resp_ins_csv.text}"
+    csv_meta = resp_ins_csv.json()
+    assert csv_meta["adapter_id"] == "file"
+    assert "fingerprint" in csv_meta
+
+    # 5. Trigger single-run execution via POST /api/v1/runs with cas:// URI
+    loaded_ont = yaml.safe_load(COMMERCE_ONTOLOGY_PATH.read_text(encoding="utf-8"))
+    run_payload = {
+        "ontology_source": loaded_ont,
+        "sources": [
+            {
+                "feed_id": "cas-sqlite-feed-1",
+                "source_system": "cas_store",
+                "uri": f"cas://{sqlite_hash}",
+                "target_dialect": "duckdb",
+            }
+        ],
+        "target_dialect": "duckdb",
+        "harness_provider": "agy",
+        "governance_policy": {
+            "stage_output_policy": "symbolic_completion",
+        },
+    }
+    resp_run = platform_api_client.post(
+        "/api/v1/runs?sync=true",
+        json=run_payload,
+        headers={"X-OpenDV-Role": "INTERNAL_MODELER"},
+    )
+    assert resp_run.status_code == 200, f"Pipeline run with cas:// failed: {resp_run.text}"
+    run_data = resp_run.json()
+    assert isinstance(run_data, dict)
+    assert run_data.get("status") in {"COMPLETED", "PAUSED_HOLD", "AUTO_REPAIRED"}
+

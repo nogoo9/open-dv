@@ -8,6 +8,12 @@ from opendv_contracts.dtos.artifacts import (
     get_known_artifact_kinds,
     is_known_artifact_kind,
 )
+from opendv_contracts.dtos.blueprint import (
+    BlueprintEvolutionDiffDTO,
+    BlueprintExportResponseDTO,
+    BlueprintLineageDTO,
+    VaultBlueprintDTO,
+)
 from opendv_contracts.dtos.cas import (
     AddTextSourceRequest,
     SourceUploadResponse,
@@ -138,10 +144,14 @@ from opendv_contracts.dtos.ontology import (
     is_destructive_delta,
 )
 from opendv_contracts.dtos.pipeline import (
+    DocExecutionActionDTO,
+    InferredExecutionPlanDTO,
     PipelineEvent,
+    PipelineInputDTO,
     PipelineRunHandle,
     PipelineRunRequest,
     PipelineValidateRequest,
+    TableExecutionActionDTO,
 )
 from opendv_contracts.dtos.platform_config import (
     ConfigValidationDiagnosticDTO,
@@ -172,6 +182,15 @@ from opendv_contracts.dtos.sandbox import (
     SandboxQueryRequest,
     SandboxQueryResponse,
     SandboxQueryType,
+)
+from opendv_contracts.dtos.sources import (
+    ConnectorUIManifestDTO,
+    NamespaceSpecDTO,
+    SamplingPolicyDTO,
+    SourceFeedDTO,
+    SourceInspectRequestDTO,
+    SourceInspectResponseDTO,
+    TableSelectionDTO,
 )
 from opendv_contracts.dtos.starter_packs import (
     ApplyStarterPackRequest,
@@ -345,5 +364,11 @@ __all__ = [  # noqa: RUF022
     "StagedCandidatesQueryResponse", "StarterPackListResponse", "StarterPackMetadata",
     "StarterPackSummaryDTO", "SteeringRefineRequest", "TextSourceUploadRequest",
     "TextSourceUploadResponse",
+    # Single-Run, VaultBlueprint & Universal Multi-Connector DTOs (ADR-017 / ADR-019 / ADR-021)
+    "BlueprintEvolutionDiffDTO", "BlueprintExportResponseDTO", "BlueprintLineageDTO",
+    "ConnectorUIManifestDTO", "DocExecutionActionDTO", "InferredExecutionPlanDTO",
+    "NamespaceSpecDTO", "PipelineInputDTO", "SamplingPolicyDTO",
+    "SourceFeedDTO", "SourceInspectRequestDTO", "SourceInspectResponseDTO",
+    "TableExecutionActionDTO", "TableSelectionDTO", "VaultBlueprintDTO",
 ]
 # fmt: on

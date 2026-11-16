@@ -104,3 +104,38 @@ def test_custom_composition() -> None:
     assert len(custom.canonical_business_concepts) == 10  # 6 spine + 4 equities
     assert len(custom.canonical_relationships) == 10  # 6 spine + 4 equities
     assert custom.domain_namespace == "custom_equities"
+
+
+def test_sources_config_magic_numbers_m7() -> None:
+    """Verify M7: magic numbers like bernoulli_sample_percentage are configured in SourcesConfig."""
+    from opendv_sources.config import SourcesConfig, get_source_defaults
+
+    cfg = get_source_defaults()
+    assert isinstance(cfg, SourcesConfig)
+    assert cfg.bernoulli_sample_percentage == 10.0
+
+
+def test_vertical_packs_submodule_token_budgets_m9() -> None:
+    """Verify M9: vertical_packs submodules strictly maintain <5,000 token budget."""
+    from pathlib import Path
+
+    import tiktoken
+
+    enc = tiktoken.get_encoding("cl100k_base")
+    submodule_dir = (
+        Path(__file__).parents[1] / "src" / "opendv_sources" / "asset_management" / "vertical_packs"
+    )
+    assert submodule_dir.is_dir()
+
+    python_files = list(submodule_dir.glob("*.py"))
+    assert len(python_files) >= 6
+
+    for py_file in python_files:
+        content = py_file.read_text(encoding="utf-8")
+        tokens = len(enc.encode(content))
+        assert tokens < 5000, f"{py_file.name} exceeded 5,000 token limit: {tokens} tokens"
+
+    # Also verify vertical_packs/__init__.py is small dispatcher
+    init_file = submodule_dir / "__init__.py"
+    init_tokens = len(enc.encode(init_file.read_text(encoding="utf-8")))
+    assert init_tokens < 1000

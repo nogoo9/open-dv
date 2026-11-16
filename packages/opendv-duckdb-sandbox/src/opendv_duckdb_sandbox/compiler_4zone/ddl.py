@@ -32,7 +32,14 @@ def _compile_generic_hub_ddl_and_zero_keys(hub: IRHub) -> str:
     """Compile DDL and Dual Zero-Key (`'0'*64` and `'f'*64`) inserts for an `IRHub`."""
     tbl = _validate_ident(hub.name)
     hk = _validate_ident(hub.hk_column.name)
-    bk_defs = [f"    {_validate_ident(bk.name)} VARCHAR NOT NULL," for bk in hub.business_keys]
+    seen_bk_names: set[str] = set()
+    unique_bks: list[Any] = []
+    for bk in hub.business_keys:
+        clean_bk = _validate_ident(bk.name)
+        if clean_bk not in seen_bk_names:
+            seen_bk_names.add(clean_bk)
+            unique_bks.append(bk)
+    bk_defs = [f"    {_validate_ident(bk.name)} VARCHAR NOT NULL," for bk in unique_bks]
     ddl = "\n".join(
         [
             f"CREATE TABLE IF NOT EXISTS raw_vault.{tbl} (",
@@ -43,8 +50,8 @@ def _compile_generic_hub_ddl_and_zero_keys(hub: IRHub) -> str:
             ");",
         ]
     )
-    unknown_bks = ", ".join("'SYSTEM'" if bk.is_bkcc else "'-1'" for bk in hub.business_keys)
-    error_bks = ", ".join("'SYSTEM'" if bk.is_bkcc else "'-2'" for bk in hub.business_keys)
+    unknown_bks = ", ".join("'SYSTEM'" if bk.is_bkcc else "'-1'" for bk in unique_bks)
+    error_bks = ", ".join("'SYSTEM'" if bk.is_bkcc else "'-2'" for bk in unique_bks)
     zero_insert = (
         f"INSERT OR IGNORE INTO raw_vault.{tbl} VALUES\n"
         f"    ('{ZERO_KEY_UNKNOWN}', {unknown_bks}, "
@@ -123,11 +130,18 @@ def _compile_generic_satellite_ddl_and_ghost(sat: IRSatellite) -> str:
             "    hash_diff CHAR(64) NOT NULL,",
         ]
     )
+    seen_col_names = {parent_hk, "load_dts", "rec_src", "hash_diff"}
+    if has_applied:
+        seen_col_names.add("applied_dts")
+    deduped_data_cols = []
     for c in data_cols:
         c_name = _validate_ident(c.name)
-        c_type = _normalize_duckdb_type(c.data_type)
-        nullability = " NOT NULL" if c.name in sub_seq_names else ""
-        col_defs.append(f"    {c_name} {c_type}{nullability},")
+        if c_name not in seen_col_names:
+            seen_col_names.add(c_name)
+            deduped_data_cols.append(c)
+            c_type = _normalize_duckdb_type(c.data_type)
+            nullability = " NOT NULL" if c.name in sub_seq_names else ""
+            col_defs.append(f"    {c_name} {c_type}{nullability},")
 
     sub_seq_pk_tail = ", ".join(_validate_ident(c) for c in sorted(sub_seq_names))
     pk_cols = [parent_hk, "load_dts"]
@@ -150,7 +164,7 @@ def _compile_generic_satellite_ddl_and_ghost(sat: IRSatellite) -> str:
         ghost_vals.append(f"TIMESTAMP '{GHOST_DTS}'")
     ghost_cols.extend(["rec_src", "hash_diff"])
     ghost_vals.extend([f"'{GHOST_REC_SRC}'", f"'{ZERO_KEY_UNKNOWN}'"])
-    for col in data_cols:
+    for col in deduped_data_cols:
         if col.name in sub_seq_names:
             ghost_cols.append(_validate_ident(col.name))
             ghost_vals.append(_ghost_literal_for_sat_column(col, sub_seq_names))

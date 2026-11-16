@@ -29,13 +29,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from opendv_sources.config.defaults import (
+    DEFAULT_RASTER_RATIO_THRESHOLD,
+    DEFAULT_SPARSE_TEXT_THRESHOLD,
+)
 from opendv_sources.exceptions import OCRExecutionError, OCRUnavailableError
 
 logger = logging.getLogger(__name__)
 
 # Normative threshold constants (ADR-010, docs/19 §3.4)
-DEFAULT_SPARSE_TEXT_THRESHOLD: int = 50
-DEFAULT_RASTER_RATIO_THRESHOLD: float = 0.40
 VALID_OCR_MODES: frozenset[str] = frozenset({"auto", "force", "off"})
 
 # Regex pattern for PDF unmapped character CID notations e.g. (cid:123)

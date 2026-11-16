@@ -3,7 +3,11 @@
  */
 
 import { errorHandler } from "./error-handler";
-import { CliSyntaxError, CommandLineParseError, SpecDrivenParser } from "./parser";
+import {
+	CliSyntaxError,
+	CommandLineParseError,
+	SpecDrivenParser,
+} from "./parser";
 import { presentResult } from "./presenter";
 import { RemoteExecutor } from "./remote-executor";
 import { loadCliSpec } from "./spec";
@@ -14,7 +18,11 @@ export { CliSyntaxError, CommandLineParseError };
 function argvWantsJson(argv: string[]): boolean {
 	for (let i = 0; i < argv.length; i++) {
 		const tok = argv[i];
-		if (tok === "--json" || tok === "--json-output" || tok === "--format=json") {
+		if (
+			tok === "--json" ||
+			tok === "--json-output" ||
+			tok === "--format=json"
+		) {
 			return true;
 		}
 		if (tok === "--format" && argv[i + 1] === "json") {
@@ -22,6 +30,56 @@ function argvWantsJson(argv: string[]): boolean {
 		}
 	}
 	return false;
+}
+
+function normalizeSourceInspectArgv(rawArgs: string[]): string[] {
+	if (!rawArgs.includes("source") || !rawArgs.includes("inspect")) {
+		return rawArgs;
+	}
+	if (rawArgs.includes("--uri")) {
+		return rawArgs;
+	}
+	const sIdx = rawArgs.indexOf("source");
+	if (sIdx === -1 || rawArgs[sIdx + 1] !== "inspect") {
+		return rawArgs;
+	}
+	const optsWithArg = new Set([
+		"--adapter",
+		"-a",
+		"--namespace",
+		"-n",
+		"--table",
+		"-t",
+		"--uri",
+		"-u",
+		"--credentials-ref",
+		"--format",
+		"--api-url",
+		"--role",
+		"--token",
+		"--tenant-id",
+		"--project-id",
+	]);
+	let i = sIdx + 2;
+	while (i < rawArgs.length) {
+		const tok = rawArgs[i];
+		if (!tok) {
+			i++;
+			continue;
+		}
+		if (tok.startsWith("-")) {
+			if (tok.includes("=")) {
+				i++;
+			} else if (optsWithArg.has(tok)) {
+				i += 2;
+			} else {
+				i++;
+			}
+		} else {
+			return [...rawArgs.slice(0, i), "--uri", tok, ...rawArgs.slice(i + 1)];
+		}
+	}
+	return rawArgs;
 }
 
 export async function runCli(
@@ -37,12 +95,15 @@ export async function runCli(
 		return 0;
 	}
 
-	let isJson = argvWantsJson(argv);
+	const normalizedArgv = normalizeSourceInspectArgv(argv);
+	let isJson = argvWantsJson(normalizedArgv);
 
 	try {
-		const parsed = parser.parse(argv);
+		const parsed = parser.parse(normalizedArgv);
 		isJson =
-			isJson || parsed.options.json === true || parsed.options.format === "json";
+			isJson ||
+			parsed.options.json === true ||
+			parsed.options.format === "json";
 
 		if (parsed.isDumpCliTree) {
 			writer(dumpCliTree());

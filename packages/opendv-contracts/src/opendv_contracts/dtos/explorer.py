@@ -152,7 +152,6 @@ class ArtifactDTO(BaseContractModel):
     viz: VizKind = Field(..., description="Visualizer renderer kind")
     desc: str = Field(..., description="Detailed description")
     raw: str = Field(..., description="RBAC-redacted raw artifact text")
-    waves: list[str] | None = Field(default=None, description="Associated wave filter identifiers")
     wave_index: int | None = Field(default=None, description="Primary wave integer index")
     sha256: str | None = Field(
         default=None,
@@ -249,8 +248,6 @@ class ExplorerBundleDTO(BaseContractModel):
     display_name: str = Field(..., alias="displayName", description="Human-readable project name")
     run_id: str = Field(..., alias="runId", description="Run identifier")
     spec_file: str = Field(..., alias="specFile", description="Pipeline spec filename")
-    waves_count: int = Field(..., alias="wavesCount", ge=0, description="Number of waves")
-    waves: list[WaveMetadataSpecDTO] = Field(default_factory=list, description="Wave metadata list")
     status_label: str = Field(..., alias="statusLabel", description="Summary status label")
     gates_passed: int = Field(
         default=0, alias="gatesPassed", ge=0, description="Number of gates passed"
@@ -300,7 +297,6 @@ class ExplorerBundleDTO(BaseContractModel):
             "displayName": "display_name",
             "runId": "run_id",
             "specFile": "spec_file",
-            "wavesCount": "waves_count",
             "statusLabel": "status_label",
             "gatesPassed": "gates_passed",
             "gatesTotal": "gates_total",

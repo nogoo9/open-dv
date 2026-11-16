@@ -195,14 +195,13 @@ export async function followEventStream(
 					const eventType = String(dObj.event_type || evType).toUpperCase();
 					const payload = (dObj.payload as Record<string, unknown>) || dObj;
 
-					const w = payload.wave_index ?? 0;
 					const st = String(payload.stage_id ?? "");
 					const p = String(payload.agent_persona || payload.persona || "");
 					const m = String(payload.model || payload.model_used || "");
 
 					if (eventType === "STAGE_STARTED") {
 						if (streamEnabled) {
-							const msg = `[Wave ${w}][${formatShortStage(st)}] Starting ${st} (${p}, model=${m})...`;
+							const msg = `[${formatShortStage(st)}] Starting ${st} (${p}, model=${m})...`;
 							logLine(msg);
 						}
 					} else if (
@@ -213,7 +212,7 @@ export async function followEventStream(
 							const st_s = String(payload.status ?? "");
 							const sm = String(payload.summary ?? "");
 							const dur = Number(payload.duration_ms ?? 0);
-							const msg = `[Wave ${w}][${formatShortStage(st)}] ${st} (${p}, model=${m}) -> ${st_s}: ${sm} (${dur}ms)`;
+							const msg = `[${formatShortStage(st)}] ${st} (${p}, model=${m}) -> ${st_s}: ${sm} (${dur}ms)`;
 							logLine(msg);
 						}
 					} else if (eventType === "TOKEN_DELTA") {

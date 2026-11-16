@@ -1,0 +1,16 @@
+{
+  "session_id": "am-walkthrough",
+  "created_at": "2026-11-15T15:11:30.704659+00:00",
+  "updated_at": "2026-11-15T21:10:43.549224+00:00",
+  "head_version": "1.0.0",
+  "head_sha256": "7a0d8f78422f8fed79cc7b8446f3894b0b2e3e983f6e82e712414d0c3e8804f6",
+  "audit_chain_head_sha256": "5c5e7e8884057dfdf86aa0e711fc7ef3ab5f52aae60704da0db97de6c4208e1d",
+  "status": "ACTIVE",
+  "taint_classification": "UNTAINTED",
+  "domain_namespace": "asset_management",
+  "enterprise_owner": "Enterprise Architecture",
+  "committed_versions": [],
+  "promoted_versions": [],
+  "last_promoted_sha256": null,
+  "imported_audit_anchor_sha256": null
+}

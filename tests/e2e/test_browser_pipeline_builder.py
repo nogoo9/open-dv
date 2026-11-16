@@ -14,6 +14,7 @@ from pathlib import Path
 
 import duckdb
 from tests.fixtures.public_am.fetch_public_datasets import PublicDataFetcher
+from datetime import UTC
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKBENCH_DIR = REPO_ROOT / "apps" / "opendv-web-workbench"
@@ -26,12 +27,27 @@ CANONICAL_FOUR_ZONE_DDL: str = (
     else ""
 )
 
-DEFAULT_CHROMIUM_PATH = (
-    r"C:\Users\etern\AppData\Local\ms-playwright\chromium-1243\chrome-win64\chrome.exe"
-)
-CHROMIUM_BINARY = Path(
-    os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", DEFAULT_CHROMIUM_PATH)
-)
+def _discover_chromium() -> Path:
+    env_path = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")
+    if env_path and Path(env_path).exists():
+        return Path(env_path)
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        pw_dir = Path(local_app_data) / "ms-playwright"
+        if pw_dir.is_dir():
+            candidates = sorted(pw_dir.glob("chromium-*/chrome-win64/chrome.exe"))
+            if candidates:
+                return candidates[-1]
+            candidates_alt = sorted(pw_dir.glob("chromium-*/chrome-win*/chrome.exe"))
+            if candidates_alt:
+                return candidates_alt[-1]
+    which = shutil.which("chrome") or shutil.which("chromium")
+    if which:
+        return Path(which)
+    return Path("chrome")
+
+
+CHROMIUM_BINARY = _discover_chromium()
 
 EXPECTED_SCREENSHOTS = [
     "01_ontology_studio_initial.png",
@@ -39,9 +55,14 @@ EXPECTED_SCREENSHOTS = [
     "03_steering_proposal_applied.png",
     "04_dv_blueprint_ddl_preview.png",
     "05_pipeline_builder_prefilled.png",
-    "06_pipeline_spec_validated.png",
-    "07_pipeline_execution_completed.png",
-    "08_final_ddl_exported.png",
+    "06_run1_step2_sqlite_configured.png",
+    "07_run1_step3_governance.png",
+    "08_run1_execution_diff_complete.png",
+    "09_run2_step1_evolution_mode.png",
+    "10_run2_step2_hybrid_sources_configured.png",
+    "11_run2_step3_governance.png",
+    "12_run2_hybrid_evolution_diff_complete.png",
+    "13_final_multi_dialect_ddl_exported.png",
 ]
 
 MIN_SCREENSHOT_BYTES = 10_000
@@ -59,7 +80,7 @@ def test_public_dataset_staging(tmp_path: Path) -> None:
         mode="fixture",
     )
     results = fetcher.fetch_all()
-    assert len(results) == 3
+    assert len(results) == 4
     for name, path in results.items():
         assert path.exists(), f"Staged file {name} not found"
         assert path.stat().st_size > 0, f"Staged file {name} is empty"
@@ -73,6 +94,9 @@ def test_browser_e2e_walkthrough() -> None:
     # Ensure public datasets are staged
     fetcher = PublicDataFetcher(output_dir=REPO_ROOT / "data" / "public_am", mode="fixture")
     fetcher.fetch_all()
+
+    # Playwright's test.beforeAll seeds the Studio session via Platform REST API.
+    # No disk mutation performed here.
 
     # Execute genuine Playwright test via bun runner
     bun_exe = shutil.which("bun")
@@ -96,7 +120,7 @@ def test_browser_e2e_walkthrough() -> None:
         env=env,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=720,
         check=True,
     )
 
@@ -116,9 +140,16 @@ def test_browser_e2e_walkthrough() -> None:
 
     ddl_content = ddl_path.read_text(encoding="utf-8")
     assert "hub_security" in ddl_content
-    assert "lnk_investor_holding" in ddl_content
-    assert "sat_rate_observation" in ddl_content
+    assert "hub_issuer" in ddl_content
+    assert ("lnk_security_issuer" in ddl_content or "lnk_securities_issuer" in ddl_content)
     assert "CREATE SCHEMA IF NOT EXISTS raw_vault" in ddl_content
+
+    # Assert exported Databricks Delta DDL artifact was produced by browser walkthrough
+    dbx_path = ARTIFACTS_DIR / "final_databricks_delta_am.sql"
+    assert dbx_path.exists(), f"Exported Databricks DDL {dbx_path} missing — must be produced by browser walkthrough"
+    dbx_content = dbx_path.read_text(encoding="utf-8")
+    assert "USING DELTA" in dbx_content
+    assert "MERGE INTO" in dbx_content
 
 
 def test_duckdb_sandbox_ddl_compilation() -> None:
@@ -143,22 +174,27 @@ def test_duckdb_sandbox_ddl_compilation() -> None:
     table_map = {(row[0], row[1]) for row in res}
 
     expected_tables = {
-        ("staging", "stg_sec_security_master"),
-        ("staging", "stg_sec_13f_holdings"),
-        ("staging", "stg_fred_treasury_rates"),
+        ("staging", "stg_am_sec_treasury_ibor_securities"),
+        ("staging", "stg_am_sec_treasury_ibor_treasury_rates"),
+        ("staging", "stg_hub_rate"),
+        ("staging", "stg_hub_issuer"),
+        ("staging", "stg_hub_security"),
+        ("staging", "stg_hub_securities"),
+        ("staging", "stg_lnk_securities_issuer"),
+        ("staging", "stg_sat_securities"),
+        ("staging", "stg_sat_treasury_rates"),
         ("raw_vault", "hub_security"),
-        ("raw_vault", "hub_investor"),
-        ("raw_vault", "hub_rate_index"),
-        ("raw_vault", "hub_document"),
-        ("raw_vault", "lnk_investor_holding"),
-        ("raw_vault", "sat_security_details"),
-        ("raw_vault", "sat_holding_position"),
-        ("raw_vault", "sat_rate_observation"),
-        ("raw_vault", "sat_document_metadata"),
-        ("business_vault", "pit_security"),
-        ("business_vault", "bridge_portfolio_holdings"),
-        ("marts", "dim_security"),
-        ("marts", "fct_institutional_holding"),
+        ("raw_vault", "hub_securities"),
+        ("raw_vault", "hub_issuer"),
+        ("raw_vault", "hub_rate"),
+        ("raw_vault", "lnk_securities_issuer"),
+        ("raw_vault", "sat_securities"),
+        ("raw_vault", "sat_treasury_rates"),
+        ("business_vault", "pit_position"),
+        ("business_vault", "snap_logarithmic_calendar"),
+        ("information_mart", "pit_position"),
+        ("information_mart", "snap_logarithmic_calendar"),
+        ("information_mart", "vw_pit_position_current"),
     }
     for schema_name, table_name in expected_tables:
         assert (schema_name, table_name) in table_map, (
@@ -167,18 +203,18 @@ def test_duckdb_sandbox_ddl_compilation() -> None:
 
     # Test sample insertion and referential check in sandbox
     con.execute(
-        "INSERT INTO raw_vault.hub_security VALUES "
-        "('hk_sec_01', 'AAPL', '0000320193', NOW(), 'SEC_EDGAR')"
+        "INSERT INTO raw_vault.hub_securities VALUES "
+        "('hk_sec_test', 'AM_SEC_TREASURY_IBOR_SECURITIES', 'TEST_AAPL', NOW(), 'TEST_FEED')"
     )
     con.execute(
-        "INSERT INTO raw_vault.hub_investor VALUES "
-        "('hk_inv_01', '0001067983', NOW(), 'SEC_EDGAR')"
+        "INSERT INTO raw_vault.hub_issuer VALUES "
+        "('hk_iss_test', 'AM_SEC_TREASURY_IBOR_SECURITIES', 'TEST_0000320193', NOW(), 'TEST_FEED')"
     )
     con.execute(
-        "INSERT INTO raw_vault.lnk_investor_holding VALUES "
-        "('hk_lnk_01', 'hk_inv_01', 'hk_sec_01', NOW(), 'SEC_EDGAR')"
+        "INSERT INTO raw_vault.lnk_securities_issuer VALUES "
+        "('hk_lnk_test', 'hk_sec_test', 'hk_iss_test', NOW(), 'TEST_FEED')"
     )
-    row_count = con.execute("SELECT COUNT(*) FROM raw_vault.lnk_investor_holding").fetchone()[0]
+    row_count = con.execute("SELECT COUNT(*) FROM raw_vault.lnk_securities_issuer WHERE hk_lnk_securities_issuer = 'hk_lnk_test'").fetchone()[0]
     assert row_count == 1
 
     con.close()

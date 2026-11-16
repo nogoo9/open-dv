@@ -5,6 +5,7 @@ from __future__ import annotations
 import socket
 import threading
 import time
+import os
 from collections.abc import Generator
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from tests.parity.transports import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+os.environ.setdefault("OPENDV_AGY_CLI_BIN", "disabled")
 
 
 def _find_free_port() -> int:

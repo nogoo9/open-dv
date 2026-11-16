@@ -8176,3 +8176,45 @@ export function useStudioStore<T>(selector: (state: StudioStoreState) => T): T {
 
 	return useSyncExternalStore(studioStore.subscribe, getSnapshot, getSnapshot);
 }
+
+/**
+ * Resolves CSRF token / header value for cookie-authenticated Studio and Pipeline Builder requests.
+ */
+export function getCsrfToken(): string {
+	if (typeof document !== "undefined") {
+		const match = document.cookie.match(
+			/(?:^|;\s*)(?:csrf_token|opendv_csrf|XSRF-TOKEN|csrf)=([^;]+)/i,
+		);
+		if (match?.[1]) return decodeURIComponent(match[1]);
+	}
+	return "1";
+}
+
+/**
+ * Returns standard headers for Studio and Pipeline Builder requests with genuine role and CSRF.
+ */
+export function getStudioAuthHeaders(
+	extraHeaders?: Record<string, string>,
+	targetUrl?: string,
+): Record<string, string> {
+	const isStudio = Boolean(
+		(targetUrl && (targetUrl.includes("/ontology/studio") || targetUrl.includes("/studio/"))) ||
+		(extraHeaders && (extraHeaders["X-OpenDV-Role"] === "" || extraHeaders["x-is-studio"] === "true")),
+	);
+	const headers: Record<string, string> = {
+		"X-OpenDV-Workbench": getCsrfToken(),
+		...(extraHeaders ?? {}),
+	};
+	delete headers["x-is-studio"];
+	if (!isStudio && !headers["X-OpenDV-Role"]) {
+		headers["X-OpenDV-Role"] = "INTERNAL_MODELER";
+	} else if (isStudio && headers["X-OpenDV-Role"] === "") {
+		delete headers["X-OpenDV-Role"];
+	}
+	const token = studioStore.getState()?.authToken;
+	if (token && !headers.Authorization && !headers.authorization) {
+		headers.Authorization = `Bearer ${token}`;
+	}
+	return headers;
+}
+

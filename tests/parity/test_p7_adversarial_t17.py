@@ -602,27 +602,20 @@ def test_par_ont_hold_e2e_gate1_resumption(tmp_path: Path) -> None:
         project_id="proj-s3-adv",
         domain_namespace="logistics_and_commerce",
         graph_a_ontology_path=str((s3_dir / "graph_a_ontology.yaml").resolve()),
-        waves=[
+        sources=[
             {
-                "wave_index": 0,
-                "wave_name": "w0_unmapped_supplier",
-                "wave_type": "COLD_START",
-                "sources": [
-                    {
-                        "feed_id": "feed-unmapped-supplier",
-                        "source_system": "bronze_logistics",
-                        "table_name": "feed_unmapped_supplier",
-                        "data_path": str((s3_dir / "feed_unmapped_supplier.csv").resolve()),
-                        "business_key_columns": ["delivery_id"],
-                        "target_hub_name": "hub_supplier_delivery",
-                        "record_source_code": "LOGISTICS_FEED",
-                        "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
-                        "bkcc_namespace": "GLOBAL",
-                    }
-                ],
-                "unstructured_documents": [],
+                "feed_id": "feed-unmapped-supplier",
+                "source_system": "bronze_logistics",
+                "table_name": "feed_unmapped_supplier",
+                "data_path": str((s3_dir / "feed_unmapped_supplier.csv").resolve()),
+                "business_key_columns": ["delivery_id"],
+                "target_hub_name": "hub_supplier_delivery",
+                "record_source_code": "LOGISTICS_FEED",
+                "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                "bkcc_namespace": "GLOBAL",
             }
         ],
+        unstructured_documents=[],
     )
 
     out_dir = tmp_path / "out_s3_e2e"

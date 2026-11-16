@@ -276,6 +276,10 @@ export class ErrorHandler {
 				return 2;
 			}
 
+			if (String(obj.status).toLowerCase() === "paused_hold") {
+				return 0;
+			}
+
 			if (obj.overall_passed === false) {
 				return 1;
 			}

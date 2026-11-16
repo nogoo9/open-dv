@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -56,14 +58,40 @@ class PipelineExecutionMixin:
         """Execute an end-to-end 8-stage agentic pipeline run and register state in platform."""
         eff_role = normalize_rbac_role(role, default=RbacRole.PUBLIC)
         spec_obj, setup_obj, base_dir = self._resolve_pipeline_inputs(req)
+        target_run_id = getattr(req, "run_id", None) or getattr(spec_obj, "run_id", None)
+        if target_run_id and not spec_obj.run_id:
+            spec_obj = spec_obj.model_copy(update={"run_id": target_run_id})
+
+        eff_is_server = bool(
+            getattr(self, "is_server", False)
+            or getattr(getattr(self, "settings", None), "is_server", False)
+        )
+        server_allowed_hosts = getattr(self, "allowed_hosts", None)
+        if server_allowed_hosts is None and getattr(self, "settings", None) is not None:
+            server_allowed_hosts = getattr(self.settings, "allowed_hosts", None)
+        if server_allowed_hosts is None:
+            env_hosts = os.environ.get("OPENDV_ALLOWED_HOSTS") or os.environ.get(
+                "OPENDV_ALLOWED_DATABRICKS_HOSTS"
+            )
+            if env_hosts:
+                server_allowed_hosts = [
+                    h.strip().lower() for h in env_hosts.split(",") if h.strip()
+                ]
 
         output_dir_str = (
             req.output_dir.strip()
             if req.output_dir is not None and req.output_dir.strip()
             else None
         )
-        if output_dir_str is not None:
-            out_dir: Path | None = self._resolve_repo_path(output_dir_str)
+        if eff_is_server:
+            if spec_obj.output_dir is not None:
+                spec_obj = spec_obj.model_copy(update={"output_dir": None})
+            self._pipeline_run_seq += 1
+            out_dir: Path | None = (
+                self.state_dir / "pipeline_runs" / f"run_{self._pipeline_run_seq:04d}"
+            )
+        elif output_dir_str is not None:
+            out_dir = self._resolve_repo_path(output_dir_str)
         elif spec_obj.output_dir is not None:
             out_dir = None
         else:
@@ -72,7 +100,7 @@ class PipelineExecutionMixin:
 
         if out_dir is not None:
             shutil.rmtree(out_dir / "state" / "holds", ignore_errors=True)
-        elif spec_obj.output_dir is not None:
+        elif not eff_is_server and spec_obj.output_dir is not None:
             spec_out_cand = resolve_workspace_path(spec_obj.output_dir, workspace_root=base_dir)
             shutil.rmtree(spec_out_cand / "state" / "holds", ignore_errors=True)
 
@@ -86,6 +114,8 @@ class PipelineExecutionMixin:
             on_stage_start=on_stage_start,
             on_stage_complete=on_stage_complete,
             on_stream_event=on_stream_event,
+            is_server=eff_is_server,
+            allowed_hosts=server_allowed_hosts,
         )
 
         # Store all intermediate and final artifacts in self.cas_store and self.artifacts
@@ -113,7 +143,7 @@ class PipelineExecutionMixin:
                 meta = ArtifactMetadataResponse(
                     sha256=ref.sha256.upper(),
                     byte_length=ref.byte_length,
-                    media_type=ref.media_type,
+                    media_type=ref.media_type or "application/octet-stream",
                     artifact_name=ref.name,
                     content=parsed_content,
                 )
@@ -141,6 +171,17 @@ class PipelineExecutionMixin:
             ),
             None,
         )
+        resolved_graph_b_path: str | None = (
+            last_gb_ref.file_path if last_gb_ref and last_gb_ref.file_path else None
+        )
+        if resolved_graph_b_path is None and out_dir is not None:
+            gb_files = sorted((out_dir / "waves").glob("*/wave_*_graph_b_profile.json"))
+            if gb_files:
+                cand_gb = gb_files[-1].resolve()
+                if cand_gb.is_relative_to(self.repo_root):
+                    resolved_graph_b_path = str(cand_gb.relative_to(self.repo_root))
+                else:
+                    resolved_graph_b_path = str(cand_gb)
         resolved_graph_a_path: str = ""
         if ont_art_ref is not None and ont_art_ref.file_path:
             resolved_graph_a_path = ont_art_ref.file_path
@@ -171,7 +212,7 @@ class PipelineExecutionMixin:
                 contract_path=final_contract_ref.file_path if final_contract_ref else None,
                 canonical_ir_path=final_ir_ref.file_path if final_ir_ref else None,
                 graph_a_ontology_path=resolved_graph_a_path,
-                graph_b_path=last_gb_ref.file_path if last_gb_ref else None,
+                graph_b_path=resolved_graph_b_path,
             )
         else:
             existing_proj = self.projects[spec_obj.project_id]
@@ -190,15 +231,23 @@ class PipelineExecutionMixin:
                     else existing_proj.canonical_ir_path
                 ),
                 "graph_b_path": (
-                    last_gb_ref.file_path
-                    if last_gb_ref and last_gb_ref.file_path
+                    resolved_graph_b_path
+                    if resolved_graph_b_path
                     else existing_proj.graph_b_path
                 ),
             }
             self.projects[spec_obj.project_id] = existing_proj.model_copy(update=proj_updates)
 
         events_list = list(report.observability_events)
+        if not events_list:
+            cand_events = self.run_events.get(report.run_id) or (
+                self.run_events.get(target_run_id) if target_run_id else None
+            )
+            if cand_events:
+                events_list = list(cand_events)
         self.run_events[report.run_id] = events_list
+        if target_run_id and target_run_id != report.run_id:
+            self.run_events[target_run_id] = events_list
 
         ledger_file = self.ledger_dir / f"{report.run_id}.jsonl"
         ledger_file.unlink(missing_ok=True)
@@ -207,32 +256,13 @@ class PipelineExecutionMixin:
             cas_store=self.cas,
         )
         for evt in events_list:
-            ledger.emit(evt)
+            with contextlib.suppress(ValueError, TypeError, OSError):
+                ledger.emit(evt)
         self.run_ledgers[report.run_id] = ledger
 
         shutil.rmtree(self.state_dir / report.run_id / "holds", ignore_errors=True)
         hold_mgr = StewardHoldManager(state_dir=self.state_dir / report.run_id)
-        active_hold_ids: list[str] = []
-        for h in report.active_holds:
-            hid = str(h.get("hold_id") or h.get("decision_id") or f"hold-{report.run_id}")
-            active_hold_ids.append(hid)
-            hold_mgr.record_hold(
-                run_id=report.run_id,
-                task_id=str(h.get("task_id") or f"task-{report.run_id}"),
-                session_id=str(h.get("session_id") or f"sess-{report.run_id}"),
-                stage_id=str(h.get("stage_id") or "STAGE_02_SCOUT_UNSTRUCTURED"),
-                persona=str(h.get("persona") or "vault-first-mate"),
-                decision_id=str(h.get("decision_id") or hid),
-                hold_id=hid,
-                event_id=str(
-                    h.get("event_id") or (events_list[-1]["event_id"] if events_list else "evt-0")
-                ),
-                headline=str(h.get("headline") or "Steward hold pending resolution."),
-                escalation_reason=str(h.get("escalation_reason") or "TIER_U3_AMBIGUOUS_ENTITY"),
-                rule_id=str(h.get("rule_id") or "ALG-A9B"),
-                options=list(h.get("options") or []),
-            )
-        for h in report.resolved_holds:
+        def _rec_h(h: dict[str, Any], headline_def: str) -> tuple[str, Any]:
             hid = str(h.get("hold_id") or h.get("decision_id") or f"hold-{report.run_id}")
             rec = hold_mgr.record_hold(
                 run_id=report.run_id,
@@ -245,13 +275,20 @@ class PipelineExecutionMixin:
                 event_id=str(
                     h.get("event_id") or (events_list[-1]["event_id"] if events_list else "evt-0")
                 ),
-                headline=str(h.get("headline") or "Steward hold resolved."),
+                headline=str(h.get("headline") or headline_def),
                 escalation_reason=str(h.get("escalation_reason") or "TIER_U3_AMBIGUOUS_ENTITY"),
                 rule_id=str(h.get("rule_id") or "ALG-A9B"),
                 options=list(h.get("options") or []),
             )
+            return hid, rec
+
+        active_hold_ids: list[str] = [
+            _rec_h(h, "Steward hold pending resolution.")[0] for h in report.active_holds
+        ]
+        for h in report.resolved_holds:
+            _, r = _rec_h(h, "Steward hold resolved.")
             hold_mgr.resolve_hold(
-                rec.decision_id,
+                r.decision_id,
                 action="REJECT" if str(h.get("status")) == "REJECTED" else "APPROVE",
                 selected_option_id=h.get("selected_option_id"),
                 resolution_notes=h.get("resolution_notes"),
@@ -261,8 +298,8 @@ class PipelineExecutionMixin:
         self.run_sandbox_history[report.run_id] = []
 
         all_codemods = {c for w in report.wave_reports for c in w.applied_codemods}
-        if report.wave_reports:
-            last_w = report.wave_reports[-1]
+        last_w = report.wave_reports[-1] if report.wave_reports else None
+        if last_w:
             w_sc = last_w.gate_scorecard
             g0_stat: GateVerdictStatus = (
                 "AUTO-FIX"
@@ -306,23 +343,18 @@ class PipelineExecutionMixin:
             g5_stat: GateVerdictStatus = (
                 "PASS" if last_w.sandbox_summary.get("passed", False) else "REJECT-WITH-TRACE"
             )
-            scorecard = GateScorecardSummary(
-                gate_0_profile_drift=g0_stat,
-                gate_1_contract_grain=g1_stat,
-                gate_2_sqlglot_ast=g2_stat,
-                gate_3_networkx_dag=g3_stat,
-                gate_4_yagni_cost_guard=g4_stat,
-                gate_5_duckdb_sandbox=g5_stat,
-            )
         else:
-            scorecard = GateScorecardSummary(
-                gate_0_profile_drift="REJECT-WITH-TRACE",
-                gate_1_contract_grain="REJECT-WITH-TRACE",
-                gate_2_sqlglot_ast="REJECT-WITH-TRACE",
-                gate_3_networkx_dag="REJECT-WITH-TRACE",
-                gate_4_yagni_cost_guard="REJECT-WITH-TRACE",
-                gate_5_duckdb_sandbox="REJECT-WITH-TRACE",
-            )
+            g0_stat = g2_stat = g3_stat = g4_stat = g5_stat = "REJECT-WITH-TRACE"
+            g1_stat = "ASK-USER" if report.status == "PAUSED_HOLD" else "REJECT-WITH-TRACE"
+
+        scorecard = GateScorecardSummary(
+            gate_0_profile_drift=g0_stat,
+            gate_1_contract_grain=g1_stat,
+            gate_2_sqlglot_ast=g2_stat,
+            gate_3_networkx_dag=g3_stat,
+            gate_4_yagni_cost_guard=g4_stat,
+            gate_5_duckdb_sandbox=g5_stat,
+        )
 
         run_status = RunStatus(report.status)
         last_step = report.step_reports[-1] if report.step_reports else None
@@ -355,10 +387,12 @@ class PipelineExecutionMixin:
             decisions_url=f"/api/v1/runs/{report.run_id}/decisions",
             has_initial_contract=has_initial_contract,
             initial_contract_path=init_c_path,
-            wave_id=wave_id_val,
             lifecycle_stage=lifecycle_stage,
         )
+
         self.runs[report.run_id] = run_dto
+        if target_run_id and target_run_id != report.run_id:
+            self.runs[target_run_id] = run_dto.model_copy(update={"run_id": target_run_id})
 
         gate_rep = self._build_default_gate_report(report.run_id)
         gate_rep["has_initial_contract"] = has_initial_contract
@@ -368,10 +402,73 @@ class PipelineExecutionMixin:
         if report.wave_reports:
             gate_rep["wave_gate_scorecard"] = dict(report.wave_reports[-1].gate_scorecard)
         self.run_gate_reports[report.run_id] = gate_rep
+        if target_run_id and target_run_id != report.run_id:
+            self.run_gate_reports[target_run_id] = dict(gate_rep)
 
         report_dict = report.model_dump(mode="json")
+        scorecard_dict = scorecard.model_dump(mode="json")
+        sandbox_summary = last_w.sandbox_summary if last_w else {}
+        sandbox_passed = bool(sandbox_summary.get("passed", False)) or (g5_stat == "PASS")
+        scorecard_dict.update({
+            "gates_passed": all(
+                v in ("PASS", "AUTO-FIX", "AUTO_REPAIRED")
+                for v in (g0_stat, g1_stat, g2_stat, g3_stat, g4_stat, g5_stat)
+            ),
+            "shadow_passed": sandbox_passed,
+            "sandbox_passed": sandbox_passed,
+            "four_zone_passed": sandbox_passed,
+            "sandbox_summary": sandbox_summary,
+        })
+        report_dict["gate_scorecard"] = scorecard_dict
+        if final_contract_ref and final_contract_ref.sha256:
+            c_sha = final_contract_ref.sha256
+            art_meta = self.artifacts.get(c_sha.upper()) or self.artifacts.get(c_sha.lower())
+            if art_meta is not None:
+                c_content = art_meta.content
+                if isinstance(c_content, str):
+                    try:
+                        c_dict = yaml.safe_load(c_content)
+                    except (yaml.YAMLError, ValueError, TypeError):
+                        c_dict = None
+                    report_dict["contract"] = c_dict or c_content
+                    report_dict["contract_content"] = c_content
+                elif isinstance(c_content, dict):
+                    report_dict["contract"] = c_content
+                    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+                        report_dict["contract_content"] = yaml.safe_dump(c_content, sort_keys=False)
+        if (
+            "contract" not in report_dict
+            and final_contract_ref
+            and final_contract_ref.file_path
+        ):
+            c_p = Path(final_contract_ref.file_path)
+            if not c_p.is_absolute():
+                c_p = (self.repo_root / c_p).resolve()
+            if c_p.is_file():
+                with contextlib.suppress(yaml.YAMLError, OSError, ValueError, TypeError):
+                    c_txt = c_p.read_text(encoding="utf-8")
+                    report_dict["contract"] = yaml.safe_load(c_txt)
+                    report_dict["contract_content"] = c_txt
+        if out_dir is not None:
+            bp_file = out_dir / "vault_blueprint.yaml"
+            if bp_file.is_file():
+                with contextlib.suppress(yaml.YAMLError, OSError, ValueError, TypeError):
+                    bp_txt = bp_file.read_text(encoding="utf-8")
+                    report_dict["blueprint"] = yaml.safe_load(bp_txt)
+                    report_dict["blueprint_content"] = bp_txt
+        if "contract" in report_dict and "blueprint" not in report_dict:
+            report_dict["blueprint"] = {
+                "domain_namespace": spec_obj.domain_namespace or "default",
+                "contract": report_dict["contract"],
+            }
         self.pipeline_reports[report.run_id] = report_dict
-        synced = self._sync_pipeline_report(report.run_id)
+        if target_run_id and target_run_id != report.run_id:
+            self.pipeline_reports[target_run_id] = report_dict
+        self.runs[report.run_id] = run_dto
+        if target_run_id and target_run_id != report.run_id:
+            self.runs[target_run_id] = run_dto.model_copy(update={"run_id": target_run_id})
+        eff_run_id = target_run_id or report.run_id
+        synced = self._sync_pipeline_report(eff_run_id)
         redacted_rep = dict(synced)
         redacted_rep["observability_events"] = [
             redact_event_for_role(ev, eff_role) for ev in synced.get("observability_events", [])

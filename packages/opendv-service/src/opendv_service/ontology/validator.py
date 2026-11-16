@@ -1114,6 +1114,7 @@ _MONOREPO_SOURCE_SKIP_DIRS: frozenset[str] = frozenset(
         "temp_state",
         "test_tmp",
         "tmp_ws",
+        "artifacts",
     }
 )
 

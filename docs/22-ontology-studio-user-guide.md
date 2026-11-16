@@ -504,10 +504,10 @@ In this journey, an Asset Management Data Architect establishes an institutional
 | 3. Polysemy Disambiguation: 3-Persona Agent Runner resolves 'portfolio', 'security', etc.  |
 | 4. Iterative Steering Refinement: Refine proposal with natural language steering prompt    |
 | 5. Staged Candidate Promotion: Path A (synonyms >= 0.65) & Path B (admin signed waiver)    |
-| 6. DV 2.0 Blueprint Inspection: Preview & export Zone 2 Raw Vault DDL (final_four_zone_am) |
-| 7. 1-Click Hand-Off: Deep-link to Pipeline Builder with pre-populated Hub contracts       |
-| 8. Execute Wave 0 Pipeline: Ingest documents with --unstructured-only mode                |
-| 9. Parity Verification: Verify identical results across opendv and opendvctl              |
+| 6. DV 2.0 Blueprint Inspection: Preview & export Zone 2 Raw Vault DDL and VaultBlueprint v1.0 |
+| 7. 1-Click Hand-Off: Deep-link to 4-Step Pipeline Builder Wizard                              |
+| 8. Execute Single-Run Pipeline: Multi-connector data-driven execution (SQLite & Databricks)  |
+| 9. Parity Verification: Verify identical results across opendv and opendvctl                  |
 +───────────────────────────────────────────────────────────────────────────────────────────+
 ```
 
@@ -615,38 +615,47 @@ opendv ontology studio staged promote --session am-fund --candidate-id cand-besp
 opendvctl ontology studio staged promote --session am-fund --candidate-id cand-bespoke-002 --waiver --rationale "Authorized proprietary credit facility per board charter" --api-url http://127.0.0.1:8420
 ```
 
-#### Step 6: DV 2.0 Blueprint Inspection & DDL Export
+#### Step 6: DV 2.0 Blueprint Inspection & VaultBlueprint Export
 In the Web Workbench at `/ontology`, open the right drawer and select the **DV 2.0 Blueprint** tab (`data-testid="right-tab-blueprint"`):
 1. Review the generated Target Raw Vault tables:
    - Hubs: `hub_security`, `hub_investor`, `hub_rate_index`, `hub_document`.
    - Links: `lnk_portfolio_holding`, `lnk_document_extraction`.
    - Satellites: `sat_security_details`, `sat_investor_details`, `sat_document_metadata`.
 2. Click **Copy DDL** (`btn-copy-blueprint-ddl`) or **Download DDL** (`btn-download-blueprint-ddl`) to obtain `final_four_zone_am.sql`, containing 16 validated tables spanning `staging`, `raw_vault`, `business_vault`, and `marts`.
+3. Export the unified `VaultBlueprint` v1.0 YAML envelope via REST endpoint:
+   ```bash
+   curl -s -X GET "http://127.0.0.1:8420/api/v1/ontology/studio/sessions/am-fund/export-blueprint" \
+     -H "Authorization: Bearer dev-token" \
+     -o artifacts/vault_blueprint.yaml
+   ```
 
-#### Step 7: 1-Click Hand-Off to Pipeline Builder
+#### Step 7: 1-Click Hand-Off to 4-Step Pipeline Builder Wizard
 Click **Open in Pipeline Builder ->** (`data-testid="btn-open-in-pipeline-builder"`). The Web Workbench automatically routes to:
 
 ```
 /builder?session_id=am-fund&source=ontology_studio&domain_namespace=asset_management&pipeline_id=pl_am_fund
 ```
 
-`PipelineBuilderView` parses the URL parameters, loads target Hubs from the session ontology, and auto-stages the draft contract via `onStageSpec`, requiring zero manual configuration to validate the pipeline.
+`WizardShell.tsx` and `specBuilderUtils.ts` parse the URL parameters, load target Hubs and Business Keys from the session ontology, and auto-populate Step 1 (Foundation) without manual re-entry.
 
-#### Step 8: Executing Wave 0 Unstructured-Only Pipeline
-Validate and execute the pipeline in pure document mode:
+#### Step 8: Single-Run Data-Driven Pipeline Execution
+Execute the end-to-end data-driven pipeline using the exported `VaultBlueprint` envelope and multi-connector tabular sources:
 
 ```bash
-# Validate unstructured-only pipeline specification (opendv)
-opendv pipeline validate --input examples/asset_management/pipeline_spec.yaml --unstructured-only
+# Validate single-run pipeline with VaultBlueprint envelope (opendv)
+opendv pipeline validate --blueprint artifacts/vault_blueprint.yaml --source "data/public_am/am_sec_treasury_ibor.sqlite" --dialect duckdb
 
-# Validate unstructured-only pipeline specification (opendvctl)
-opendvctl pipeline validate --input examples/asset_management/pipeline_spec.yaml --unstructured-only --api-url http://127.0.0.1:8420
+# Validate single-run pipeline with VaultBlueprint envelope (opendvctl)
+opendvctl pipeline validate --blueprint artifacts/vault_blueprint.yaml --source "data/public_am/am_sec_treasury_ibor.sqlite" --dialect duckdb --api-url http://127.0.0.1:8420
 
-# Execute end-to-end Wave 0 pipeline run (opendv)
-opendv pipeline run --input examples/asset_management/pipeline_spec.yaml --unstructured-only
+# Execute single-run data-driven pipeline targeting DuckDB (opendv)
+opendv pipeline run --blueprint artifacts/vault_blueprint.yaml --source "data/public_am/am_sec_treasury_ibor.sqlite" --dialect duckdb
 
-# Execute end-to-end Wave 0 pipeline run (opendvctl)
-opendvctl pipeline run --input examples/asset_management/pipeline_spec.yaml --unstructured-only --api-url http://127.0.0.1:8420
+# Execute single-run data-driven pipeline targeting Databricks Delta (opendv)
+opendv pipeline run --blueprint artifacts/vault_blueprint.yaml --source "uc://am_prod/ibor" --dialect databricks
+
+# Execute single-run data-driven pipeline (opendvctl)
+opendvctl pipeline run --blueprint artifacts/vault_blueprint.yaml --source "data/public_am/am_sec_treasury_ibor.sqlite" --dialect duckdb --api-url http://127.0.0.1:8420
 ```
 
 #### Step 9: Verifying Dual-CLI Parity
@@ -654,6 +663,35 @@ Verify identical execution and output parity across both CLI environments:
 - Identical JSON schemas and exit codes (`0` for success).
 - Shared canonical validation against `schemas/v1/cli-spec.json`.
 - Complete interoperability for local scripting (`opendv`) and containerized remote automation (`opendvctl`).
+
+### 3.6 Multi-Connector Catalog Sources (SQLite CAS Upload & Databricks Unity Catalog)
+
+Open-DV provides pluggable connector support via the `CatalogSourceAdapter` SPI (`opendv-sources`), enabling single-run data-driven execution across diverse tabular backends:
+
+#### Multi-Table SQLite with Client CAS Upload
+Local SQLite database files (`*.sqlite`, `*.db`) support automatic schema discovery via `PRAGMA table_info` and foreign key analysis via `PRAGMA foreign_key_list`. When executing against a remote platform instance, SQLite sources declare `client_uploadable=True`, uploading the binary database directly into CAS:
+
+```bash
+# Inspect SQLite catalog structure (opendv)
+opendv source inspect --uri "data/public_am/am_sec_treasury_ibor.sqlite" --adapter sqlite
+
+# Inspect SQLite catalog structure (opendvctl)
+opendvctl source inspect --uri "data/public_am/am_sec_treasury_ibor.sqlite" --adapter sqlite --api-url http://127.0.0.1:8420
+```
+
+#### Databricks Unity Catalog
+Databricks Unity Catalog connects via `databricks://` or `uc://` 3-level naming (`catalog.schema.table`):
+1. **Introspection**: Automatically queries `information_schema.tables`, `columns`, `table_constraints`, `key_column_usage`, and `column_tags`.
+2. **Pushdown Profiler**: Executes remote aggregate profiling inside Databricks SQL warehouse to extract min/max/null counts without moving raw data.
+3. **Air-Gapped Local Testing**: `DuckDBUnityCatalogEmulator` in `opendv-testkit` simulates the entire Unity Catalog hierarchy, Delta table metadata, and PyArrow record batch streaming locally without requiring live Databricks credentials.
+
+```bash
+# Inspect Databricks Unity Catalog table (opendv)
+opendv source inspect --uri "uc://am_prod/ibor" --adapter databricks --table security_master
+
+# Inspect Databricks Unity Catalog table (opendvctl)
+opendvctl source inspect --uri "uc://am_prod/ibor" --adapter databricks --table security_master --api-url http://127.0.0.1:8420
+```
 
 ---
 
@@ -793,6 +831,27 @@ The Open-DV Web Workbench provides a visual, reactive single-page application at
   - Automatically maps business keys (`ticker`, `cik`, `series_id`, `doc_id`).
 - **Zero-Click Automatic Staging (`onStageSpec`)**:
   When `PipelineBuilderView.tsx` mounts, it detects incoming `ontology_studio` parameters and triggers `onStageSpec` automatically, staging a valid pipeline specification without requiring any manual clicks or schema re-entry. Stewards can immediately review source mappings, compile the schema, or run the pipeline.
+
+### 4.10 The 4-Step Pipeline Builder Wizard (`/builder`)
+
+The interactive Pipeline Builder (`apps/opendv-web-workbench/src/explorer/builder/WizardShell.tsx`) provides a guided 4-step workflow for configuring, inspecting, and executing single-run Data Vault 2.0 pipelines:
+
+1. **Step 1: Foundation (`Step1Foundation.tsx`)**:
+   - **Contract & Lineage Source**: Choose between an active Studio Session (e.g. `am-fund`), an existing run's `VaultBlueprint` (`vault_blueprint.yaml`), or direct file/spec upload.
+   - **Target Hub Extraction**: Automatically maps CBCs, target Hub tables, and business keys with zero manual typing.
+2. **Step 2: Connector Sources (`Step2ConnectorSources.tsx` & `CatalogTablePickerModal.tsx`)**:
+   - **Multi-Connector Catalog**: Configure Files (CSV, Parquet, JSONL), Multi-Table SQLite (`.sqlite`), or Databricks Unity Catalog (`uc://`).
+   - **Interactive Table & Key Picker**: Select database tables, designate primary keys and business keys, and configure sampling policies (e.g., maximum rows sampled into DuckDB sandbox).
+3. **Step 3: Governance & Dialect (`Step3GovernanceAndDialect.tsx`)**:
+   - **Target SQL Dialect**: Choose between `duckdb` (for local shadow validation) and `databricks` (for Databricks Delta Lake 4-zone DDL).
+   - **Data Governance Controls**: Configure PII/MNPI column tagging, confidentiality masking rules, and zero-drift strictness.
+4. **Step 4: Validate & Run (`Step4ValidateAndRun.tsx`)**:
+   - **Single-Run Execution**: Compiles and verifies the 4-zone schema (`staging`, `raw_vault`, `business_vault`, `marts`).
+   - **Diff Inspector (`DiffInspector.tsx`)**: Displays an interactive schema diff highlighting added tables, companion satellites, and column renames.
+   - **Action Buttons**:
+     - **Download Artifacts**: Export `final_four_zone.sql`, `vault_blueprint.yaml`, `final_contract.yaml`, and `pipeline_report.json`.
+     - **Evolve Schema with New Data ->**: 1-click transition that feeds the output `VaultBlueprint` into a new run for progressive schema evolution.
+     - **Sync Ontology Delta to Studio Session**: Explicitly propagates newly discovered schema drift and table structures back into the Studio Session as an additive delta.
 
 ---
 
@@ -1201,31 +1260,34 @@ opendvctl ontology studio staged promote --session am-session-01 --candidate-id 
 ### 5.9 Pipeline Execution Commands
 
 #### `pipeline validate`
-Validate Data Vault pipeline specifications:
+Validate Data Vault pipeline specifications and `VaultBlueprint` envelopes:
 
 ```bash
-# Validate standard pipeline (opendv)
+# Validate pipeline with VaultBlueprint envelope (opendv)
+opendv pipeline validate --blueprint artifacts/vault_blueprint.yaml --dialect duckdb
+
+# Validate pipeline with VaultBlueprint envelope (opendvctl)
+opendvctl pipeline validate --blueprint artifacts/vault_blueprint.yaml --dialect duckdb --api-url http://127.0.0.1:8420
+
+# Validate pipeline with input spec file (opendv)
 opendv pipeline validate --input examples/asset_management/pipeline_spec.yaml
 
-# Validate standard pipeline (opendvctl)
+# Validate pipeline with input spec file (opendvctl)
 opendvctl pipeline validate --input examples/asset_management/pipeline_spec.yaml --api-url http://127.0.0.1:8420
-
-# Validate in Wave 0 Unstructured-Only Mode (opendv)
-opendv pipeline validate --input examples/asset_management/pipeline_spec.yaml --unstructured-only
-
-# Validate in Wave 0 Unstructured-Only Mode (opendvctl)
-opendvctl pipeline validate --input examples/asset_management/pipeline_spec.yaml --unstructured-only --api-url http://127.0.0.1:8420
 ```
 
 #### `pipeline run`
-Execute end-to-end Data Vault pipeline runs:
+Execute single-run data-driven Data Vault pipeline runs:
 
 ```bash
-# Execute Wave 0 Unstructured-Only pipeline run (opendv)
-opendv pipeline run --input examples/asset_management/pipeline_spec.yaml --unstructured-only
+# Execute single-run data-driven pipeline targeting DuckDB (opendv)
+opendv pipeline run --blueprint artifacts/vault_blueprint.yaml --source "data/public_am/am_sec_treasury_ibor.sqlite" --dialect duckdb
 
-# Execute Wave 0 Unstructured-Only pipeline run (opendvctl)
-opendvctl pipeline run --input examples/asset_management/pipeline_spec.yaml --unstructured-only --api-url http://127.0.0.1:8420
+# Execute single-run data-driven pipeline targeting Databricks Delta (opendv)
+opendv pipeline run --blueprint artifacts/vault_blueprint.yaml --source "uc://am_prod/ibor" --dialect databricks
+
+# Execute single-run data-driven pipeline (opendvctl)
+opendvctl pipeline run --blueprint artifacts/vault_blueprint.yaml --source "data/public_am/am_sec_treasury_ibor.sqlite" --dialect duckdb --api-url http://127.0.0.1:8420
 ```
 
 ---

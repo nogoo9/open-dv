@@ -294,7 +294,8 @@
           "choices": [
             "ADVERSARIAL_BATCHES_1_TO_4",
             "QUERY_D10_PIT",
-            "QUERY_D10B_VALUATION"
+            "QUERY_D10B_VALUATION",
+            "CUSTOM_SQL"
           ],
           "env_var": null,
           "inline_upload": false,
@@ -347,12 +348,72 @@
               "flag": "--input",
               "short": "-i",
               "type": "path",
-              "required": true,
+              "required": false,
               "default": null,
               "choices": null,
               "env_var": null,
               "inline_upload": true,
               "help": "Path to pipeline input specification YAML"
+            },
+            {
+              "name": "blueprint",
+              "flag": "--blueprint",
+              "short": "-b",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to vault_blueprint.yaml"
+            },
+            {
+              "name": "ontology",
+              "flag": "--ontology",
+              "short": null,
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to Graph A business ontology YAML or JSON"
+            },
+            {
+              "name": "contract",
+              "flag": "--contract",
+              "short": null,
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to existing Data Vault contract YAML or JSON"
+            },
+            {
+              "name": "source",
+              "flag": "--source",
+              "short": null,
+              "type": "array",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Source URI or file path (can be specified multiple times)"
+            },
+            {
+              "name": "dialect",
+              "flag": "--dialect",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": "duckdb",
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target SQL output dialect (default: duckdb)"
             },
             {
               "name": "harness_config",
@@ -439,18 +500,6 @@
               "help": "Stream live LLM tokens and thinking deltas"
             },
             {
-              "name": "wave_id",
-              "flag": "--wave-id",
-              "short": "-w",
-              "type": "string",
-              "required": false,
-              "default": null,
-              "choices": null,
-              "env_var": null,
-              "inline_upload": false,
-              "help": "Target wave identifier (e.g. W0, W1, W2)"
-            },
-            {
               "name": "unstructured_only",
               "flag": "--unstructured-only",
               "short": null,
@@ -478,12 +527,72 @@
               "flag": "--input",
               "short": "-i",
               "type": "path",
-              "required": true,
+              "required": false,
               "default": null,
               "choices": null,
               "env_var": null,
               "inline_upload": true,
               "help": "Path to input spec file"
+            },
+            {
+              "name": "blueprint",
+              "flag": "--blueprint",
+              "short": "-b",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to vault_blueprint.yaml"
+            },
+            {
+              "name": "ontology",
+              "flag": "--ontology",
+              "short": null,
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to Graph A business ontology YAML or JSON"
+            },
+            {
+              "name": "contract",
+              "flag": "--contract",
+              "short": null,
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to existing Data Vault contract YAML or JSON"
+            },
+            {
+              "name": "source",
+              "flag": "--source",
+              "short": null,
+              "type": "array",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Source URI or file path (can be specified multiple times)"
+            },
+            {
+              "name": "dialect",
+              "flag": "--dialect",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": "duckdb",
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target SQL output dialect (default: duckdb)"
             },
             {
               "name": "harness_config",
@@ -705,18 +814,6 @@
               "env_var": null,
               "inline_upload": false,
               "help": "Inline starting contract YAML or JSON string"
-            },
-            {
-              "name": "wave_id",
-              "flag": "--wave-id",
-              "short": "-w",
-              "type": "string",
-              "required": false,
-              "default": null,
-              "choices": null,
-              "env_var": null,
-              "inline_upload": false,
-              "help": "Target wave identifier"
             }
           ]
         },
@@ -810,18 +907,6 @@
               "env_var": null,
               "inline_upload": false,
               "help": "Target run ID"
-            },
-            {
-              "name": "wave_id",
-              "flag": "--wave-id",
-              "short": "-w",
-              "type": "string",
-              "required": false,
-              "default": null,
-              "choices": null,
-              "env_var": null,
-              "inline_upload": false,
-              "help": "Target wave identifier"
             }
           ]
         },
@@ -3929,6 +4014,86 @@
           "env_var": null,
           "inline_upload": false,
           "help": "Automatically open the Web Explorer UI in the default browser on startup"
+        }
+      ]
+    },
+    {
+      "name": "source",
+      "description": "Inspect and discover external source systems, catalogs, and schemas",
+      "help": "Inspect source catalogs, tables, and constraints",
+      "aliases": [],
+      "availability": "both",
+      "subcommands": [
+        {
+          "name": "inspect",
+          "description": "Inspect tables, columns, primary keys, and foreign keys in a source",
+          "help": "Inspect source schema, tables, and constraints",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": "SourceInspectRequestDTO",
+          "response_dto": "SourceInspectResponseDTO",
+          "options": [
+            {
+              "name": "uri",
+              "flag": "--uri",
+              "short": "-u",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Source URI or file path to inspect (e.g. sqlite:///path/to/db.sqlite)"
+            },
+            {
+              "name": "adapter",
+              "flag": "--adapter",
+              "short": "-a",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target source adapter identifier (e.g. sqlite, databricks, duckdb, file)"
+            },
+            {
+              "name": "namespace",
+              "flag": "--namespace",
+              "short": "-n",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Namespace, schema, or catalog name to scope inspection"
+            },
+            {
+              "name": "table",
+              "flag": "--table",
+              "short": "-t",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target physical table name to inspect"
+            },
+            {
+              "name": "credentials_ref",
+              "flag": "--credentials-ref",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Credentials reference (e.g. env:VAR_NAME)"
+            }
+          ]
         }
       ]
     }

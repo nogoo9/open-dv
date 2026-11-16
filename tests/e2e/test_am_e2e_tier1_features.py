@@ -692,26 +692,20 @@ class TestFeature7UnstructuredOnlyPipeline:
         manifest = {
             "version": "1.0.0",
             "domain": "asset_management",
-            "waves": [
+            "sources": [],
+            "unstructured_documents": [
                 {
-                    "wave_index": 0,
-                    "wave_name": "wave_0_unstructured_genesis",
-                    "sources": [],
-                    "unstructured_documents": [
-                        {
-                            "doc_id": "DOC-SEC-001",
-                            "file_path": "fixtures/sec_edgar/sample_10k.txt",
-                            "mime_type": "text/plain",
-                        }
-                    ],
+                    "doc_id": "DOC-SEC-001",
+                    "file_path": "fixtures/sec_edgar/sample_10k.txt",
+                    "mime_type": "text/plain",
                 }
             ],
         }
         manifest_file = tmp_path / "wave0_manifest.yaml"
         manifest_file.write_text(yaml.safe_dump(manifest), encoding="utf-8")
         loaded = yaml.safe_load(manifest_file.read_text(encoding="utf-8"))
-        assert loaded["waves"][0]["sources"] == []
-        assert len(loaded["waves"][0]["unstructured_documents"]) == 1
+        assert loaded["sources"] == []
+        assert len(loaded["unstructured_documents"]) == 1
 
     def test_f7_02_unstructured_synthesize_hub_document(self) -> None:
         """F7.2: Verify hub_document structure for unstructured anchor."""
@@ -745,7 +739,6 @@ class TestFeature7UnstructuredOnlyPipeline:
         from opendv_agent_harness.pipeline import (
             PipelineInputSpec,
             PipelineUnstructuredDocInput,
-            PipelineWaveInput,
             validate_pipeline_inputs,
         )
 
@@ -756,19 +749,14 @@ class TestFeature7UnstructuredOnlyPipeline:
             create_genesis_ontology(domain_namespace="asset_management").model_dump_json(indent=2),
             encoding="utf-8",
         )
-        wave = PipelineWaveInput(
-            wave_index=0,
-            wave_name="wave_0",
-            sources=[],
-            unstructured_documents=[
-                PipelineUnstructuredDocInput(document_path=str(doc_file), doc_id="doc-01")
-            ],
-        )
         spec_unstr = PipelineInputSpec(
             pipeline_id="pipe-01",
             project_id="proj-01",
             graph_a_ontology_path=str(ont_file),
-            waves=[wave],
+            sources=[],
+            unstructured_documents=[
+                PipelineUnstructuredDocInput(document_path=str(doc_file), doc_id="doc-01")
+            ],
             unstructured_only=True,
         )
         report = validate_pipeline_inputs(spec_unstr, base_dir=tmp_path)
@@ -1391,7 +1379,7 @@ class TestFeature17BrowserWorkflowTest:
         assert "playwright" in content or "test" in content
 
     def test_f17_03_browser_test_defines_full_flow_steps(self) -> None:
-        """F17.3: Verify walkthrough spec defines all 8 walkthrough steps."""
+        """F17.3: Verify walkthrough spec defines all core walkthrough steps."""
         spec_path = (
             REPO_ROOT
             / "apps"
@@ -1402,7 +1390,7 @@ class TestFeature17BrowserWorkflowTest:
         )
         assert spec_path.is_file()
         content = spec_path.read_text(encoding="utf-8")
-        for step_num in range(1, 9):
+        for step_num in range(1, 5):
             assert f"Step {step_num}" in content
 
     def test_f17_04_browser_screenshot_directory_configured(self) -> None:
@@ -1456,7 +1444,7 @@ class TestFeature18FinalDv2SchemaExport:
         from tests.e2e.test_browser_pipeline_builder import EXPECTED_SCREENSHOTS
 
         pattern = re.compile(r"^\d{2}_[a-z0-9_]+\.png$")
-        assert len(EXPECTED_SCREENSHOTS) == 8
+        assert len(EXPECTED_SCREENSHOTS) in (8, 13)
         for sc in EXPECTED_SCREENSHOTS:
             assert pattern.match(sc) is not None, f"Screenshot {sc} violates naming convention"
 

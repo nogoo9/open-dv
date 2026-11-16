@@ -34,6 +34,7 @@ from opendv_contracts import (
     VerifyRequest,
     VerifyResponse,
 )
+from opendv_contracts.dtos.pipeline import PipelineInputDTO
 from opendv_core import resolve_workspace_path
 from opendv_service.errors import ConflictError, NotFoundError, OpenDVError
 from opendv_service.models import (
@@ -106,8 +107,10 @@ class OpenDVService:
         storage_root: Path | None = None,
         settings: OpenDVSettings | None = None,
         is_server: bool = False,
+        allowed_hosts: list[str] | None = None,
     ) -> None:
         self.is_server = is_server
+        self.allowed_hosts = allowed_hosts
         active_state = state if state is not None else state_store
         self._explicit_workspace = (workspace_root is not None) or (
             bool(getattr(active_state, "_explicit_workspace", False)) if active_state else False
@@ -128,15 +131,36 @@ class OpenDVService:
         )
         self.workspace_root = eff_ws or self.settings.workspace_root or Path.cwd().resolve()
         self.storage_root = eff_storage or self.settings.state_dir
+        eff_allowed_hosts = (
+            allowed_hosts
+            if allowed_hosts is not None
+            else getattr(self.settings, "allowed_hosts", None)
+        )
         self.state = active_state or StateStore(
             workspace_root=self.workspace_root,
             storage_root=self.storage_root,
             settings=self.settings,
+            is_server=is_server,
+            allowed_hosts=eff_allowed_hosts,
         )
         if getattr(self.state, "settings", None) is None:
             self.state.settings = self.settings
-        self.pipeline_runner = pipeline_runner or get_default_pipeline_runner()
+        self.state.is_server = is_server
+        if getattr(self.state, "allowed_hosts", None) is None:
+            self.state.allowed_hosts = eff_allowed_hosts
+        self._pipeline_runner: PipelineRunner | None = pipeline_runner
         self.run_engine = RunExecutionEngine()
+
+    @property
+    def pipeline_runner(self) -> PipelineRunner:
+        """Resolved pipeline runner, delegating to default seam override if unconfigured."""
+        if self._pipeline_runner is not None:
+            return self._pipeline_runner
+        return get_default_pipeline_runner()
+
+    @pipeline_runner.setter
+    def pipeline_runner(self, runner: PipelineRunner | None) -> None:
+        self._pipeline_runner = runner
 
     @property
     def repo_root(self) -> Path:
@@ -223,13 +247,34 @@ class OpenDVService:
 
     # 6. Pipeline Execution & Streaming (Decision D2: Async)
     async def execute_run_async(
-        self, request: PipelineRunRequest | dict[str, Any]
+        self, request: PipelineRunRequest | PipelineInputDTO | dict[str, Any]
     ) -> PipelineRunHandle:
-        req_obj = (
-            request
-            if isinstance(request, PipelineRunRequest)
-            else PipelineRunRequest.model_validate(request)
-        )
+        if isinstance(request, PipelineInputDTO):
+            bp_val = (
+                request.blueprint.model_dump(mode="json")
+                if hasattr(request.blueprint, "model_dump")
+                else request.blueprint
+            )
+            gov_pol = getattr(request, "governance_policy", None)
+            hold_pol = getattr(request, "steward_hold_policy", None)
+            if not hold_pol and gov_pol:
+                hold_pol = (
+                    gov_pol.get("steward_hold_policy")
+                    if isinstance(gov_pol, dict)
+                    else getattr(gov_pol, "steward_hold_policy", None)
+                )
+            req_obj = PipelineRunRequest(
+                input_spec=request.model_dump(mode="json"),
+                blueprint=bp_val,
+                sources=request.sources,
+                unstructured_documents=request.unstructured_documents,
+                target_dialect=request.target_dialect,
+                steward_hold_policy=str(hold_pol) if hold_pol else None,
+            )
+        elif isinstance(request, PipelineRunRequest):
+            req_obj = request
+        else:
+            req_obj = PipelineRunRequest.model_validate(request)
         return self.run_engine.submit_pipeline_run(
             self.state, req_obj, role=RbacRole.PUBLIC, pipeline_runner=self.pipeline_runner
         )
