@@ -60,15 +60,20 @@ test.beforeAll(async ({ request }) => {
 				headers: { "X-OpenDV-Workbench": "1" },
 			});
 			if (initRes.ok()) {
-				const initData = (await initRes.json()) as { token?: string };
-				if (initData.token) {
-					localToken = initData.token;
-				}
+				const initData = (await initRes.json()) as {
+					local_token?: string;
+					token?: string;
+				};
+				localToken = (initData.local_token || initData.token || "").trim();
+			}
+			if (!localToken) {
+				localToken = resolveLocalToken();
 			}
 		} catch {}
 	}
 	const baseHeaders: Record<string, string> = {
 		"X-OpenDV-Role": "INTERNAL_MODELER",
+		"X-OpenDV-Workbench": "1",
 	};
 	if (localToken) {
 		baseHeaders.Authorization = `Bearer ${localToken}`;

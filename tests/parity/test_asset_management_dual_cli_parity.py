@@ -928,6 +928,7 @@ def test_single_run_pipeline_validate_dual_cli_parity(
 def test_single_run_pipeline_run_dual_cli_parity(
     cli_transport: StandaloneCliTransport,
     client_cli_transport: ClientCliTransport,
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     """Verify dual-CLI parity for `pipeline run` single-run options (--source, --ontology).
@@ -935,6 +936,7 @@ def test_single_run_pipeline_run_dual_cli_parity(
     1. Missing ingress: both CLIs exit 2 with SYNTAX_INVALID_ARGUMENT.
     2. Single-run execution: both CLIs accept single-run options and exit 0.
     """
+    monkeypatch.setenv("OPENDV_STORAGE_ROOT", str(tmp_path / "cli_state"))
     db_path = tmp_path / "crm_run.sqlite"
     _create_ecommerce_sqlite_db(db_path)
 
@@ -949,7 +951,19 @@ def test_single_run_pipeline_run_dual_cli_parity(
     assert _extract_error_code(out_py_n, err_py_n) == "SYNTAX_INVALID_ARGUMENT"
     assert _extract_error_code(out_ts_n, err_ts_n) == "SYNTAX_INVALID_ARGUMENT"
 
-    # 2. Single-run execution
+    # 2. Single-run execution (configure symbolic_completion on both isolated roots for offline CI)
+    cmd_cfg = [
+        "config",
+        "set",
+        "--stage-output-policy",
+        "symbolic_completion",
+        "--json",
+    ]
+    c_py_cfg, _, err_py_cfg = cli_transport.invoke_raw(cmd_cfg)
+    c_ts_cfg, _, err_ts_cfg = client_cli_transport.invoke_raw(cmd_cfg)
+    assert c_py_cfg == 0, f"opendv config set failed: {err_py_cfg}"
+    assert c_ts_cfg == 0, f"opendvctl config set failed: {err_ts_cfg}"
+
     cmd_run = [
         "pipeline",
         "run",
