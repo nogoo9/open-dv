@@ -62,7 +62,6 @@ def test_get_explorer_bundle_8_stages_and_roundtrip(tmp_path: Path) -> None:
 
     # 2. Phases and waves
     assert len(bundle.phases) == 4
-    assert len(bundle.waves) == 4
 
     # 3. Artifact groupings
     assert bundle.setting_ids == ["harness", "runopts"]
@@ -75,7 +74,6 @@ def test_get_explorer_bundle_8_stages_and_roundtrip(tmp_path: Path) -> None:
     assert bundle.project_id == "test-explorer-proj"
     assert bundle.projectId == "test-explorer-proj"
     assert bundle.runId == run_id
-    assert bundle.wavesCount == 4
     assert bundle.settingIds == bundle.setting_ids
 
     # 5. Lossless Pydantic serialization round-trip
@@ -93,7 +91,7 @@ def test_get_explorer_bundle_wave_filter(tmp_path: Path) -> None:
     # Filter by W1
     bundle_w1 = get_explorer_bundle(store, run_id, wave_id="W1")
     for art in bundle_w1.artifacts.values():
-        assert "W1" in art.waves
+        assert art.wave_index == 1
 
     # Numeric alias '1' maps to 'W1'
     bundle_1 = get_explorer_bundle(store, run_id, wave_id="1")

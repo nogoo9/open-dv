@@ -25,7 +25,11 @@ def main(argv: list[str] | None = None) -> int:
     repo_root = Path(__file__).resolve().parents[2]
 
     # Configure environment for deterministic test runner
-    os.environ["OPENDV_ALLOWED_HOSTS"] = "127.0.0.1,localhost"
+    existing_hosts = os.environ.get("OPENDV_ALLOWED_HOSTS")
+    e2e_allowed = "127.0.0.1,localhost,am_prod,uc://am_prod"
+    os.environ["OPENDV_ALLOWED_HOSTS"] = (
+        f"{existing_hosts},{e2e_allowed}" if existing_hosts else e2e_allowed
+    )
 
     from opendv_agent_harness.pipeline import (
         run_agentic_vault_pipeline as orig_run_pipeline,

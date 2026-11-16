@@ -4,10 +4,8 @@
  * Decomposed from pipeline.ts to comply with ADR-020 (< 5,000 tokens per module).
  */
 
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { dumpsJcs } from "../jcs";
 import { isClientUploadableFile, stageCasBlob } from "./cas";
 import type { RemoteHttpClient } from "./http-client";
 
@@ -35,7 +33,6 @@ export async function buildSingleRunPayload(
 	let parsedOntology: Record<string, unknown> | null = null;
 	if (options.ontology_content) {
 		const rawContent = String(options.ontology_content);
-		body.ontology_source = { raw_yaml: rawContent };
 		const yamlApi = (
 			Bun as typeof Bun & { YAML?: { parse: (s: string) => unknown } }
 		).YAML;
@@ -46,6 +43,9 @@ export async function buildSingleRunPayload(
 		} catch {
 			// ignore
 		}
+		body.ontology_source = parsedOntology ?? {
+			raw_yaml: rawContent,
+		};
 	} else if (options.ontology) {
 		const ontPath = String(options.ontology);
 		if (existsSync(ontPath)) {
@@ -72,31 +72,6 @@ export async function buildSingleRunPayload(
 				// ignore
 			}
 		}
-	}
-
-	if (
-		!body.blueprint &&
-		parsedOntology &&
-		typeof parsedOntology === "object"
-	) {
-		const domainNs = (parsedOntology.domain_namespace as string) || "general";
-		const ontologySha = createHash("sha256")
-			.update(dumpsJcs(parsedOntology), "utf-8")
-			.digest("hex");
-		body.blueprint = {
-			schema_version: "1.0.0",
-			domain_namespace: domainNs,
-			lineage: {
-				schema_version: "1.0.0",
-				blueprint_revision: 1,
-				domain_namespace: domainNs,
-				ontology_sha256: ontologySha,
-				contract_sha256: null,
-				parent_blueprint_sha256: null,
-			},
-			ontology: parsedOntology,
-			contract: null,
-		};
 	}
 
 	if (options.contract_content || options.initial_contract_content) {

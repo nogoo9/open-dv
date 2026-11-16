@@ -287,6 +287,24 @@ def _resolve_cas_spec(
         or (get_scheme_registry().resolve_adapter(u) if not spec.adapter else spec.adapter)
     )
     efmt = spec.format or fmt
+    if not efmt and p.is_file():
+        try:
+            with open(p, "rb") as bf:
+                hd = bf.read(4096)
+            if hd.startswith(b"PAR1"):
+                efmt = "parquet"
+            elif hd.startswith(b"SQLite format 3\x00"):
+                efmt = "sqlite"
+            else:
+                txt = hd.decode("utf-8", errors="ignore").strip()
+                if txt.startswith(("{", "[")):
+                    efmt = "json"
+                elif "\t" in txt:
+                    efmt = "tsv"
+                elif "," in txt or "\n" in txt:
+                    efmt = "csv"
+        except OSError:
+            pass
     if not adp and efmt:
         adp = (
             "file"

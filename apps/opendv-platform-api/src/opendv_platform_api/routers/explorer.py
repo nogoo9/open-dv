@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from opendv_contracts import ExplorerBundleDTO, RbacRole
 from opendv_platform_api.deps import get_opendv_service, get_rbac_role
@@ -25,6 +25,18 @@ async def get_explorer_bundle(
     run_id: str,
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
     role: Annotated[RbacRole, Depends(get_rbac_role)],
+    wave_id: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Optional wave identifier filter (e.g. 'W1' or '1'). When provided, "
+                "filters artifacts to those matching the specified wave."
+            ),
+        ),
+    ] = None,
 ) -> ExplorerBundleDTO:
-    """Retrieve 3-level explorer bundle (Phases, Stages, Artifacts) for an execution run."""
-    return service.get_explorer_bundle(run_id, role=role)
+    """Retrieve 3-level explorer bundle (Phases, Stages, Artifacts) for an execution run.
+
+    Supports optional wave subset filtering (`?wave_id=W1` or `?wave_id=1`).
+    """
+    return service.get_explorer_bundle(run_id, wave_id=wave_id, role=role)

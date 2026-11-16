@@ -106,6 +106,9 @@ def test_browser_e2e_walkthrough() -> None:
     env = {
         **os.environ,
         "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH": str(CHROMIUM_BINARY),
+        "OPENDV_ALLOWED_HOSTS": os.environ.get(
+            "OPENDV_ALLOWED_HOSTS", "127.0.0.1,localhost,am_prod,uc://am_prod"
+        ),
     }
     cmd = [
         bun_exe,

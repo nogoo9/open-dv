@@ -16810,7 +16810,7 @@
     },
     "/api/v1/runs/{run_id}/explorer": {
       "get": {
-        "description": "Retrieve 3-level explorer bundle (Phases, Stages, Artifacts) for an execution run.",
+        "description": "Retrieve 3-level explorer bundle (Phases, Stages, Artifacts) for an execution run.\n\nSupports optional wave subset filtering (`?wave_id=W1` or `?wave_id=1`).",
         "operationId": "get_explorer_bundle_api_v1_runs__run_id__explorer_get",
         "parameters": [
           {
@@ -16820,6 +16820,24 @@
             "schema": {
               "title": "Run Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Optional wave identifier filter (e.g. 'W1' or '1'). When provided, filters artifacts to those matching the specified wave.",
+            "in": "query",
+            "name": "wave_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional wave identifier filter (e.g. 'W1' or '1'). When provided, filters artifacts to those matching the specified wave.",
+              "title": "Wave Id"
             }
           },
           {

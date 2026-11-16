@@ -175,12 +175,35 @@ class LocalFilesystemSourceAdapter(SourceAdapter, TabularSourceAdapter):
             server_resolved=True,
         )
 
+    @staticmethod
+    def _sniff_format(path: Path) -> str:
+        try:
+            with open(path, "rb") as f:
+                head = f.read(8192)
+            if head.startswith(b"PAR1"):
+                return "parquet"
+            if head.startswith(b"SQLite format 3\x00"):
+                return "sqlite"
+            text = head.decode("utf-8", errors="ignore").strip()
+            if text.startswith(("{", "[")):
+                return "json"
+            if "\t" in text:
+                return "tsv"
+            if "," in text or "\n" in text:
+                return "csv"
+        except (OSError, UnicodeDecodeError):
+            pass
+        return ""
+
     def _detect_format(self, spec: SourceSpec, first_path: Path) -> str:
         if spec.format:
             fmt = spec.format.lower().strip(".")
         else:
             suffix = first_path.suffix.lower().lstrip(".")
             fmt = "parquet" if suffix == "pq" else suffix
+
+        if fmt not in _SUPPORTED_FORMATS and first_path.is_file():
+            fmt = self._sniff_format(first_path)
 
         if fmt not in _SUPPORTED_FORMATS:
             raise UnsupportedFormatError(
