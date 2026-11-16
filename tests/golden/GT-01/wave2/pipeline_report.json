@@ -4,12 +4,12 @@
     {
       "artifact_id": "art-w0-stage01-ontology-coverage",
       "artifact_type": "JSON",
-      "byte_length": 200,
+      "byte_length": 0,
       "file_path": "<OUT>",
       "media_type": "application/json",
       "name": "wave_0_ontology_coverage.json",
       "path": "<OUT>",
-      "sha256": "e8f662c58f146dcba81d23e5211f56e1451a20d9a77120edf9c67ca9ff34ae59",
+      "sha256": "<VOLATILE_SHA256>",
       "stage_id": "STAGE_01_SCOUT_SOURCE"
     },
     {
@@ -37,12 +37,12 @@
     {
       "artifact_id": "art-w0-stage01-graph-b-profile",
       "artifact_type": "JSON",
-      "byte_length": 129,
+      "byte_length": 0,
       "file_path": "<OUT>",
       "media_type": null,
       "name": "wave_0_graph_b_profile.json",
       "path": "<OUT>",
-      "sha256": "194a0235776a4a87a9a12f3f546e45ef3da64f2d8367ff9e3130c04a620fa06e",
+      "sha256": "<VOLATILE_SHA256>",
       "stage_id": null
     }
   ],
@@ -1791,7 +1791,9 @@
           },
           "model_tier": "fast",
           "model_used": "gemini-3.8-flash-high",
-          "output_artifact_sha256s": [],
+          "output_artifact_sha256s": [
+            "<VOLATILE_SHA256>"
+          ],
           "persona": "scout-source",
           "stage_id": "STAGE_01_SCOUT_SOURCE",
           "stage_index": 1,

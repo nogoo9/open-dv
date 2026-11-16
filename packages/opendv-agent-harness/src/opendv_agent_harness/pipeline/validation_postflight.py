@@ -385,7 +385,7 @@ def materialize_final_pipeline_outputs(
 
     ledger_path = output_dir / "vault-ledger.jsonl"
     if not ledger_path.is_file():
-        ledger_path.write_text("", encoding="utf-8")
+        ledger_path.write_text("", encoding="utf-8", newline="\n")
 
     if graph_a_sha256 and loaded_graph_a is not None:
         ont_disk_path = output_dir / "graph_a_ontology.yaml"
@@ -484,9 +484,11 @@ def build_completed_pipeline_report(
     )
 
     (runner.output_dir / "pipeline_report.json").write_text(
-        report.model_dump_json(indent=2), encoding="utf-8"
+        report.model_dump_json(indent=2), encoding="utf-8", newline="\n"
     )
-    (runner.output_dir / "pipeline_report.md").write_text(report.summary_markdown, encoding="utf-8")
+    (runner.output_dir / "pipeline_report.md").write_text(
+        report.summary_markdown, encoding="utf-8", newline="\n"
+    )
 
     report.output_validation = validate_pipeline_outputs(report, cas_store=runner.cas_store)
     if not report.output_validation.passed:

@@ -424,7 +424,7 @@ async def execute_stages_03_and_04(
     w_dir.mkdir(parents=True, exist_ok=True)
     attempt1_contract = copy.deepcopy(contract_dict)
     (w_dir / f"wave_{w_idx}_contract_attempt_1.yaml").write_text(
-        yaml.safe_dump(attempt1_contract, sort_keys=False), encoding="utf-8"
+        yaml.safe_dump(attempt1_contract, sort_keys=False), encoding="utf-8", newline="\n"
     )
 
     step_03 = PipelineStepReport(

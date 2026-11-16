@@ -312,15 +312,15 @@ def inspect_source(
         ("cas://", "databricks://", "https://", "http://")
     ):
         cand_real = os.path.realpath(eff_uri)
-        cand_norm = os.path.normcase(cand_real)
-        safe_bases = (os.path.realpath(tempfile.gettempdir()), os.path.realpath(os.getcwd()))
-        in_safe_base = any(
-            cand_real.startswith(b if b.endswith(os.sep) else b + os.sep)
-            or cand_norm.startswith(os.path.normcase(b).rstrip(os.sep) + os.sep)
-            for b in safe_bases
-        )
-        if in_safe_base and os.path.isfile(cand_real):
-            eff_allowed_roots = [Path(cand_real).parent]
+        temp_real = os.path.realpath(tempfile.gettempdir())
+        cwd_real = os.path.realpath(os.getcwd())
+        temp_pfx = temp_real if temp_real.endswith(os.sep) else temp_real + os.sep
+        cwd_pfx = cwd_real if cwd_real.endswith(os.sep) else cwd_real + os.sep
+        if cand_real.startswith(temp_pfx):
+            if os.path.isfile(cand_real):
+                eff_allowed_roots = [Path(temp_real)]
+        elif cand_real.startswith(cwd_pfx) and os.path.isfile(cand_real):
+            eff_allowed_roots = [Path(cwd_real)]
 
     if eff_allowed_roots:
         eff_allowed_roots = [

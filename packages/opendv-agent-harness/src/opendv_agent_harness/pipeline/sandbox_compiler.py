@@ -356,7 +356,7 @@ def execute_stage_07_compilation(
     w_dir = runner.output_dir / "waves" / f"wave_{w_idx}"
     w_dir.mkdir(parents=True, exist_ok=True)
     (w_dir / f"wave_{w_idx}_graph_b_profile.json").write_text(
-        json.dumps(gb_payload, indent=2), encoding="utf-8"
+        json.dumps(gb_payload, indent=2), encoding="utf-8", newline="\n"
     )
 
     real_gate_scorecard = {

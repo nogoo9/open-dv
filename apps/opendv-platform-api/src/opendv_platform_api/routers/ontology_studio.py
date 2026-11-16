@@ -2299,7 +2299,7 @@ def submit_clarification_answers(
     answers_file = sdir / "clarifications" / "answers.json"
     lock_path = sdir / ".session.lock"
 
-    with reentrant_session_lock(lock_path, session_id=session_id):
+    with reentrant_session_lock(lock_path, session_id=sdir.name):
         answers_file.parent.mkdir(parents=True, exist_ok=True)
         current_answers: list[dict[str, Any]] = []
         if answers_file.is_file():

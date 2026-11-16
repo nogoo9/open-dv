@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.0",
-  "generated_at": "2026-11-16T18:12:37.460027+00:00",
+  "generated_at": "2026-11-16T18:39:52.292908+00:00",
   "generator_transport": "STANDALONE_CLI",
   "entries": [
     {
@@ -46,10 +46,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/pipeline_report.json",
-      "sha256": "bbdd211c58e9c00c839ddbca4d8177a17c9be389408d8006be76bd8e6a353e9e",
-      "byte_size": 226075,
+      "sha256": "5ee284e5fb806dda3ab1606f34b28e017806344ea5324859e84318afe83097b5",
+      "byte_size": 226020,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
+      "last_justified_change": "[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism"
     },
     {
       "golden_id": "GT-01",
@@ -94,10 +94,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/pipeline_report.json",
-      "sha256": "7c28554ed5a3315cb563b69921a29ec21acfed6b3ec32103c88bfd039bbb5478",
-      "byte_size": 253942,
+      "sha256": "b62650906f163fdee78ee8adf0aeed5db0294a677f9f0c79eadd68307e158259",
+      "byte_size": 253887,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
+      "last_justified_change": "[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism"
     },
     {
       "golden_id": "GT-01",
@@ -142,10 +142,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/pipeline_report.json",
-      "sha256": "57eb404b6d6b347f72e636be1e8fdbe5f8f3443360018c3cd6d0cb0beafdd52b",
-      "byte_size": 278344,
+      "sha256": "2edd647eee485947f64227ece598c491c229d43c726ef1cdaa98d2e6e2c894df",
+      "byte_size": 278289,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
+      "last_justified_change": "[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism"
     },
     {
       "golden_id": "GT-01",
@@ -198,10 +198,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/pipeline_report.json",
-      "sha256": "eff7f542446bcd925115d91e6e4b05a91962a89dc33c201a3da2c687f614161f",
-      "byte_size": 354965,
+      "sha256": "ac893848916ea24c109e8ee56f0928427d74bfce970fb03ac517c7fbee8e93d2",
+      "byte_size": 354959,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
+      "last_justified_change": "[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism"
     },
     {
       "golden_id": "GT-02",

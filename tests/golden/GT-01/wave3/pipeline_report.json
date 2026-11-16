@@ -26,12 +26,12 @@
     {
       "artifact_id": "art-w0-stage01-graph-b-profile",
       "artifact_type": "JSON",
-      "byte_length": 408,
+      "byte_length": 0,
       "file_path": "<OUT>",
       "media_type": null,
       "name": "wave_0_graph_b_profile.json",
       "path": "<OUT>",
-      "sha256": "f7950ffa197c17200e7232b32cb6bf8edc5e459a71eda21378a3eab47a5e550f",
+      "sha256": "<VOLATILE_SHA256>",
       "stage_id": null
     }
   ],
@@ -1908,7 +1908,9 @@
           },
           "model_tier": "fast",
           "model_used": "gemini-3.8-flash-high",
-          "output_artifact_sha256s": [],
+          "output_artifact_sha256s": [
+            "<VOLATILE_SHA256>"
+          ],
           "persona": "scout-source",
           "stage_id": "STAGE_01_SCOUT_SOURCE",
           "stage_index": 1,

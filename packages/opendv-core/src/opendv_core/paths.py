@@ -14,6 +14,23 @@ class PathContainmentError(ValueError):
     pass
 
 
+def _match_permitted_root(cand_str: str, permitted_reals: list[str]) -> Path | None:
+    cand_real = os.path.realpath(cand_str)
+    cand_norm = os.path.normcase(cand_real)
+    for p_real in permitted_reals:
+        p_pfx = p_real if p_real.endswith(os.sep) else p_real + os.sep
+        if cand_real == p_real or cand_norm == os.path.normcase(p_real):
+            return Path(p_real)
+        if cand_real.startswith(p_pfx):
+            return Path(cand_real)
+        p_norm_pfx = os.path.normcase(p_pfx)
+        if cand_norm.startswith(p_norm_pfx):
+            reanchored = os.path.realpath(os.path.join(p_real, cand_real[len(p_pfx) :]))
+            if reanchored.startswith(p_pfx):
+                return Path(reanchored)
+    return None
+
+
 def resolve_workspace_path(
     path: str | Path,
     *,
@@ -63,23 +80,11 @@ def resolve_workspace_path(
 
     permitted_reals = [os.path.realpath(str(p)) for p in permitted]
 
-    def _is_within_permitted(cand_real: str) -> bool:
-        c_norm = os.path.normcase(cand_real)
-        for p_real in permitted_reals:
-            p_pfx = p_real if p_real.endswith(os.sep) else p_real + os.sep
-            p_norm = os.path.normcase(p_real)
-            p_norm_pfx = p_norm if p_norm.endswith(os.sep) else p_norm + os.sep
-            if (
-                cand_real == p_real
-                or cand_real.startswith(p_pfx)
-                or c_norm == p_norm
-                or c_norm.startswith(p_norm_pfx)
-            ):
-                return True
-        return False
-
     if candidate.is_absolute():
-        resolved_str = os.path.realpath(str(candidate))
+        matched = _match_permitted_root(str(candidate), permitted_reals)
+        if matched is not None:
+            return matched
+        resolved_preview = os.path.realpath(str(candidate))
     else:
         cand_list: list[Path] = []
         if base_dir is not None:
@@ -90,23 +95,18 @@ def resolve_workspace_path(
             for extra_root in allowed_roots:
                 cand_list.append(extra_root / candidate)
 
-        resolved_match: str | None = None
         for cand in cand_list:
-            cand_real = os.path.realpath(str(cand))
-            if _is_within_permitted(cand_real) and os.path.exists(cand_real):
-                resolved_match = cand_real
-                break
-        resolved_str = (
-            resolved_match
-            if resolved_match is not None
-            else os.path.realpath(str(cand_list[0]))
-        )
+            matched = _match_permitted_root(str(cand), permitted_reals)
+            if matched is not None and matched.exists():
+                return matched
 
-    if not _is_within_permitted(resolved_str):
-        raise PathContainmentError(
-            f"Path '{raw_str}' is outside allowed workspace directories: "
-            f"resolves to '{resolved_str}', "
-            f"escaping permitted workspace roots: {[str(p) for p in sorted(permitted)]}"
-        )
+        fallback = _match_permitted_root(str(cand_list[0]), permitted_reals)
+        if fallback is not None:
+            return fallback
+        resolved_preview = os.path.realpath(str(cand_list[0]))
 
-    return Path(resolved_str)
+    raise PathContainmentError(
+        f"Path '{raw_str}' is outside allowed workspace directories: "
+        f"resolves to '{resolved_preview}', "
+        f"escaping permitted workspace roots: {[str(p) for p in sorted(permitted)]}"
+    )

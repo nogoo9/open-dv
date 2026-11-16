@@ -199,6 +199,7 @@ def test_dynamic_git_diff_token_budget() -> None:
         "packages/opendv-axi-verifier/src/opendv_axi_verifier/codemods/alg_a4_cold_start.py",
         "packages/opendv-duckdb-sandbox/src/opendv_duckdb_sandbox/adversarial_batches.py",
         "packages/opendv-duckdb-sandbox/src/opendv_duckdb_sandbox/ir_lowerer.py",
+        "apps/opendv-platform-api/src/opendv_platform_api/job_supervisor.py",
     }
 
     violations: list[str] = []

@@ -118,6 +118,19 @@ def _validate_job_id(job_id: str) -> None:
         )
 
 
+def _resolve_job_child(jobs_dir: Path, child_name: str, job_id: str) -> Path:
+    _validate_job_id(job_id)
+    jdir_real = os.path.realpath(jobs_dir)
+    jdir_pfx = jdir_real if jdir_real.endswith(os.sep) else jdir_real + os.sep
+    cand_real = os.path.realpath(os.path.join(jdir_real, child_name))
+    if not cand_real.startswith(jdir_pfx):
+        raise StudioAPIError(
+            "SYNTAX_INVALID_ARGUMENT",
+            f"Path traversal detected in job_id: '{job_id}'",
+        )
+    return Path(cand_real)
+
+
 def _translate_runner_error(exc: Exception) -> StudioAPIError:
     """Translate service/source exceptions into canonical StudioAPIError instances."""
     if isinstance(exc, StudioAPIError):
@@ -197,7 +210,9 @@ class JobSupervisor:
         for m in session_mgr.list_sessions():
             sdir = session_mgr.get_session_dir(m.session_id)
             jdir = sdir / "jobs"
-            if (jdir / f"{job_id}.json").is_file() or (jdir / f"{job_id}.events.jsonl").is_file():
+            jf = _resolve_job_child(jdir, f"{job_id}.json", job_id)
+            ef = _resolve_job_child(jdir, f"{job_id}.events.jsonl", job_id)
+            if jf.is_file() or ef.is_file():
                 return m.session_id
 
         raise StudioAPIError("JOB_NOT_FOUND", f"Job '{job_id}' not found.")
@@ -320,15 +335,8 @@ class JobSupervisor:
         job_id: str,
         create: bool = False,
     ) -> Path:
-        _validate_job_id(job_id)
-        jdir = self._get_jobs_dir(session_mgr, session_id, create=create).resolve()
-        job_file = (jdir / f"{job_id}.json").resolve()
-        if not job_file.is_relative_to(jdir):
-            raise StudioAPIError(
-                "SYNTAX_INVALID_ARGUMENT",
-                f"Path traversal detected in job_id: '{job_id}'",
-            )
-        return job_file
+        jdir = self._get_jobs_dir(session_mgr, session_id, create=create)
+        return _resolve_job_child(jdir, f"{job_id}.json", job_id)
 
     def _write_job_data_atomic(
         self,
@@ -339,7 +347,9 @@ class JobSupervisor:
     ) -> None:
         jdir = self._get_jobs_dir(session_mgr, session_id, create=True)
         job_file = self._get_job_file(session_mgr, session_id, job_id, create=True)
-        tmp_file = jdir / f".{job_id}.json.{uuid.uuid4().hex[:8]}.tmp"
+        tmp_file = _resolve_job_child(
+            jdir, f".{job_id}.json.{uuid.uuid4().hex[:8]}.tmp", job_id
+        )
         with open(tmp_file, "w", encoding="utf-8") as fp:
             json.dump(data, fp, indent=2)
             fp.flush()
@@ -672,7 +682,9 @@ class JobSupervisor:
 
         status = str(data.get("status", "")).upper()
         if status in ("PENDING", "RUNNING"):
-            lock_file = session_dir / "jobs" / f".job_{job_id}.lock"
+            lock_file = _resolve_job_child(
+                session_dir / "jobs", f".job_{job_id}.lock", job_id
+            )
             abandoned = False
             try:
                 with studio_lock(lock_file, level=L2_JOB, session_id=session_id, timeout=0.01):
@@ -713,8 +725,10 @@ class JobSupervisor:
         """Atomically persist cooperative `.{job_id}.cancel` marker file on disk."""
         jobs_dir = session_dir / "jobs"
         jobs_dir.mkdir(parents=True, exist_ok=True)
-        cancel_marker = jobs_dir / f".{job_id}.cancel"
-        tmp_marker = jobs_dir / f".{job_id}.cancel.{uuid.uuid4().hex[:8]}.tmp"
+        cancel_marker = _resolve_job_child(jobs_dir, f".{job_id}.cancel", job_id)
+        tmp_marker = _resolve_job_child(
+            jobs_dir, f".{job_id}.cancel.{uuid.uuid4().hex[:8]}.tmp", job_id
+        )
         try:
             with open(tmp_marker, "w", encoding="utf-8") as fp:
                 fp.write("cancelled")
@@ -815,7 +829,9 @@ class JobSupervisor:
         # so an active worker in another process immediately observes ctx.is_cancelled() == True.
         cancel_marker = self._write_cancel_marker_atomic(session_dir, job_id)
 
-        lock_file = session_dir / "jobs" / f".job_{job_id}.lock"
+        lock_file = _resolve_job_child(
+            session_dir / "jobs", f".job_{job_id}.lock", job_id
+        )
         lock_file.parent.mkdir(parents=True, exist_ok=True)
         try:
             with studio_lock(lock_file, level=L2_JOB, session_id=session_id, timeout=0.05):
@@ -923,12 +939,9 @@ class JobSupervisor:
         if not session_dir.is_dir() or not (session_dir / "session.json").is_file():
             raise StudioAPIError("SESSION_NOT_FOUND", f"Session '{session_id}' not found.")
         job_file = self._get_job_file(session_mgr, session_id, job_id, create=False)
-        journal_file = (session_dir / "jobs" / f"{job_id}.events.jsonl").resolve()
-        if not journal_file.is_relative_to((session_dir / "jobs").resolve()):
-            raise StudioAPIError(
-                "SYNTAX_INVALID_ARGUMENT",
-                f"Path traversal detected in job_id: '{job_id}'",
-            )
+        journal_file = _resolve_job_child(
+            session_dir / "jobs", f"{job_id}.events.jsonl", job_id
+        )
 
         with self._lock:
             ctx = self._jobs.get(job_id)

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import uuid
 from datetime import UTC, datetime
@@ -279,7 +280,8 @@ class StagedCandidatePromoter:
             replace_with_retry(tmp_c, self.evidence_file)
             set_owner_only_permissions(self.evidence_file)
 
-            prop_id = f"prop-promote-{candidate_id}-{uuid.uuid4().hex[:6]}"
+            safe_cid = _canonical_slug(candidate_id)
+            prop_id = f"prop-promote-{safe_cid}-{uuid.uuid4().hex[:6]}"
             meta = self.session_mgr.get_session(session_id)
             delta_metadata: dict[str, Any] = {
                 "promoted_candidate_id": candidate_id,
@@ -319,9 +321,17 @@ class StagedCandidatePromoter:
             }
             proposals_dir = self.session_dir / "proposals"
             proposals_dir.mkdir(parents=True, exist_ok=True)
-            prop_file = proposals_dir / f"{prop_id}.json"
-            tmp_prop = proposals_dir / f".{prop_id}.{uuid.uuid4().hex[:8]}.tmp"
-            tmp_prop.write_text(json.dumps(record, indent=2), encoding="utf-8")
+            props_real = os.path.realpath(proposals_dir)
+            props_pfx = props_real if props_real.endswith(os.sep) else props_real + os.sep
+            prop_real = os.path.realpath(os.path.join(props_real, f"{prop_id}.json"))
+            tmp_real = os.path.realpath(
+                os.path.join(props_real, f".{prop_id}.{uuid.uuid4().hex[:8]}.tmp")
+            )
+            if not prop_real.startswith(props_pfx) or not tmp_real.startswith(props_pfx):
+                raise ValueError(f"Invalid proposal path for candidate '{candidate_id}'")
+            prop_file = Path(prop_real)
+            tmp_prop = Path(tmp_real)
+            tmp_prop.write_text(json.dumps(record, indent=2), encoding="utf-8", newline="\n")
             replace_with_retry(tmp_prop, prop_file)
             set_owner_only_permissions(prop_file)
 
