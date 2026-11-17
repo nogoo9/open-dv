@@ -1,0 +1,34 @@
+Open-DV v6.0 — Neuro-Symbolic Data Vault 2.0 Architecture Walkthrough (2:45)
+
+Turn messy enterprise data into verified Data Vault 2.0 — before a single SQL line runs.
+Open-DV pairs multi-agent semantic discovery (@vault-first-mate, @scout-source, @scout-unstructured, @ship-vault) with a deterministic 6-gate formal verifier (axi-dv, Gates G0-G5) and in-memory DuckDB 4-Zone shadow sandbox.
+
+Quick Start (Apache-2.0):
+  git clone https://github.com/nogoo9/open-dv.git
+  cd open-dv
+  uv sync --all-packages && bun install
+  uv run opendv serve --open
+
+Web UI (Ontology Studio, 4-Step Pipeline Builder & 3-Level Explorer):
+  http://127.0.0.1:8420
+
+Headless CI Verification (Dual CLIs):
+  uv run opendv verify -c final_contract.yaml --json
+  opendvctl pipeline run --api-url "$OPENDV_API_URL" -i pipeline_input.yaml --json
+
+Chapters:
+0:00 Why LLM SQL Fails
+0:28 Ontology Studio & FIBO
+1:02 Run 1: SQLite Greenfield
+1:38 6-Gate axi-dv & Sandbox
+2:05 Run 2: Databricks UC + Drift
+2:32 Multi-Dialect SQL & CLIs
+
+Resources & Specifications:
+- GitHub Repository: https://github.com/nogoo9/open-dv
+- Core Modelling Spec (3-Tier BKCC, PII Isolation): https://github.com/nogoo9/open-dv/blob/main/docs/01-core-modelling-spec.md
+- Schema Stability & Evolution (Alg A.7, A.9a Drift): https://github.com/nogoo9/open-dv/blob/main/docs/02-schema-stability-and-evolution.md
+- Verification & Agentic Architecture (6-Gate axi-dv, DuckDB Sandbox): https://github.com/nogoo9/open-dv/blob/main/docs/03-verification-and-agentic-architecture.md
+- ELM Calculus & Reference Algorithms (Alg A.1-A.9b, SHA-256): https://github.com/nogoo9/open-dv/blob/main/docs/05-elm-calculus-and-reference-algorithms.md
+- Dual-CLI Reference (opendv & opendvctl): https://github.com/nogoo9/open-dv/blob/main/docs/16-cli-reference.md
+- Ontology Construction Studio & FIBO Grounding: https://github.com/nogoo9/open-dv/blob/main/docs/20-ontology-studio-spec.md

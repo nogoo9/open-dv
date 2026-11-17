@@ -1,0 +1,16 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendv-website'
+language: 'typescript'
+layer: 'application'
+tags:
+  - 'typescript'
+  - 'web-ui'
+
+tasks:
+  preview:
+    description: 'Serve static Open-DV product showcase website.'
+    command: 'bun'
+    args:
+      - 'run'
+      - 'preview'

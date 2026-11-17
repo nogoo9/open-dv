@@ -1,0 +1,11 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"jsx": "react-jsx",
+		"outDir": "./.moon/cache/tsc",
+		"rootDir": "./src",
+		"tsBuildInfoFile": "./.moon/cache/tsc/tsconfig.tsbuildinfo"
+	},
+	"include": ["src/**/*"],
+	"exclude": ["dist", "tests", "e2e", "playwright.config.ts"]
+}
