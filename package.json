@@ -7,7 +7,8 @@
   "workspaces": [
     "packages/opendv-protocol-ts",
     "apps/opendv-web-workbench",
-    "apps/opendvctl"
+    "apps/opendvctl",
+    "apps/opendv-website"
   ],
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
@@ -18,6 +19,9 @@
     "lint": "moon run :lint",
     "typecheck": "moon run :typecheck",
     "test": "moon run :test",
-    "build": "moon run :build"
+    "build": "moon run :build",
+    "site:build": "bun run --cwd apps/opendv-website build",
+    "site:preview": "bun run --cwd apps/opendv-website preview",
+    "site:test:e2e": "bun run --cwd apps/opendv-website test:e2e"
   }
 }

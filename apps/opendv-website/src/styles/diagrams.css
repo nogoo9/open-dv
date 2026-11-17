@@ -1,0 +1,289 @@
+.diagram-frame {
+	min-inline-size: 0;
+	max-inline-size: 100%;
+	margin: 0;
+	background: var(--bg-card);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	padding: 1rem 1.15rem;
+	box-shadow: var(--shadow-card);
+}
+
+.diagram-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	margin-block-end: 0.85rem;
+	padding-block-end: 0.75rem;
+	border-block-end: 1px solid var(--border);
+}
+
+.dia-ctrl-group {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.4rem;
+}
+
+.dia-ctrl-group[role="tablist"] {
+	border-block-end: 0;
+	margin-block-end: 0;
+}
+
+.dia-ctrl-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.35rem;
+	min-block-size: 40px;
+	min-inline-size: 44px;
+	padding: 0.35rem 0.8rem;
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--border-control);
+	background: var(--bg-subtle);
+	color: var(--ink);
+	font-family: var(--font-sans);
+	font-size: 0.84rem;
+	font-weight: 500;
+	cursor: pointer;
+	transition: background-color 150ms ease, border-color 150ms ease, color 150ms
+		ease;
+}
+
+.dia-ctrl-btn:hover {
+	background: var(--bg-code);
+	border-color: var(--ink);
+}
+
+.dia-ctrl-btn[aria-pressed="true"],
+.diagram-toolbar .dia-ctrl-btn[aria-selected="true"] {
+	background: var(--ink);
+	color: #ffffff;
+	border-color: var(--ink);
+}
+
+.dia-canvas {
+	min-inline-size: 0;
+	max-inline-size: 100%;
+	overflow-x: auto;
+	background: var(--bg-subtle);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: 0.65rem;
+}
+
+svg.dia {
+	width: 100%;
+	height: auto;
+	display: block;
+	font-family: var(--font-sans);
+}
+
+[data-diagram="inference-matrix"] svg.dia,
+[data-diagram="six-gate-verifier"] svg.dia {
+	min-inline-size: 42rem;
+}
+
+.diagram-frame figcaption {
+	margin-block-start: 0.75rem;
+	font-size: 0.875rem;
+	color: var(--ink-muted);
+}
+
+/* Compositor-Safe Animations (WCAG 2.2.2 & 2.3.1 compliant) */
+@keyframes dia-flow {
+	to {
+		stroke-dashoffset: -28;
+	}
+}
+
+@keyframes dia-pulse {
+	0%,
+	100% {
+		opacity: 0.68;
+	}
+	50% {
+		opacity: 1;
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.dia-flow {
+		stroke-dasharray: 6 8;
+		animation: dia-flow 1.8s linear infinite;
+	}
+
+	.dia-heal-arc {
+		stroke-dasharray: 5 7;
+		animation: dia-flow 2.2s linear infinite;
+	}
+
+	.dia-pulse {
+		animation: dia-pulse 2.4s ease-in-out infinite;
+	}
+}
+
+[data-paused="true"] svg * {
+	animation-play-state: paused !important;
+}
+
+/* Vault Firewall Interactive Mode States */
+.diagram-frame .dia-opendv-branch,
+.diagram-frame .dia-naive-branch {
+	transition: opacity 180ms ease;
+}
+
+.diagram-frame[data-firewall-mode="naive"] .dia-opendv-branch {
+	opacity: 0.25;
+}
+
+.diagram-frame[data-firewall-mode="opendv"] .dia-naive-branch {
+	opacity: 0.22;
+}
+
+[data-firewall-mode="naive"] .dia-naive-branch {
+	opacity: 1;
+	stroke: var(--danger-stroke);
+}
+
+/* Inference Matrix Scenario Highlighting */
+[data-scenario-node] {
+	opacity: 0.45;
+	transition: opacity 180ms ease;
+}
+
+.diagram-frame[data-active-scenario="day0-seed"]
+	[data-scenario-node*="day0-seed"],
+.diagram-frame[data-active-scenario="sqlite-greenfield"]
+	[data-scenario-node*="sqlite-greenfield"],
+.diagram-frame[data-active-scenario="hybrid-drift"]
+	[data-scenario-node*="hybrid-drift"],
+.diagram-frame[data-active-scenario="verified-noop"]
+	[data-scenario-node*="verified-noop"] {
+	opacity: 1;
+}
+
+/* Six-Gate Interactive Nodes & Fault Simulation */
+.dia-gate-node,
+[data-gate-node] {
+	cursor: pointer;
+	transition: opacity 160ms ease;
+}
+
+.dia-gate-node:focus-visible,
+[data-gate-node]:focus-visible {
+	outline: 3px solid var(--gold);
+	outline-offset: 4px;
+}
+
+.diagram-frame[data-active-gate="G0"] [data-gate-select="G0"] .dia-gate-box,
+.diagram-frame[data-active-gate="G1"] [data-gate-select="G1"] .dia-gate-box,
+.diagram-frame[data-active-gate="G2"] [data-gate-select="G2"] .dia-gate-box,
+.diagram-frame[data-active-gate="G3"] [data-gate-select="G3"] .dia-gate-box,
+.diagram-frame[data-active-gate="G4"] [data-gate-select="G4"] .dia-gate-box,
+.diagram-frame[data-active-gate="G5"] [data-gate-select="G5"] .dia-gate-box {
+	stroke: var(--gold);
+	stroke-width: 2.5px;
+	fill: var(--gold-fill);
+}
+
+.diagram-frame[data-active-fault="fault-nullable-fk"]
+	[data-gate-select="G1"]
+	.dia-gate-box,
+.diagram-frame[data-active-fault="fault-micro-sat"]
+	[data-gate-select="G4"]
+	.dia-gate-box,
+.diagram-frame[data-active-fault="fault-hub-grain"]
+	[data-gate-select="G3"]
+	.dia-gate-box {
+	stroke: var(--danger-stroke);
+	stroke-width: 2.5px;
+	fill: var(--danger-fill);
+}
+
+.diagram-frame[data-active-fault="fault-hub-grain"] .dia-heal-arc {
+	stroke: var(--gold);
+	stroke-width: 2.5px;
+}
+
+/* Readout & Diagnostic Consoles Below SVG */
+.scenario-readout,
+.gate-readout-dl {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+	gap: 0.75rem 1.25rem;
+	margin: 1rem 0 0;
+	padding: 0.95rem 1.05rem;
+	background: var(--bg-subtle);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+}
+
+.gate-readout-dl {
+	margin-block-start: 0.65rem;
+	padding: 0.75rem 0.9rem;
+}
+
+.readout-row {
+	display: flex;
+	flex-direction: column;
+	gap: 0.2rem;
+}
+
+.readout-row dt {
+	font-family: var(--font-mono);
+	font-size: 0.72rem;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--ink-muted);
+}
+
+.readout-row dd {
+	margin: 0;
+	font-size: 0.9rem;
+	color: var(--ink);
+}
+
+.gate-readout,
+.fault-detail,
+[data-fault-detail] {
+	margin-block-start: 0.85rem;
+	padding: 0.9rem 1.05rem;
+	background: var(--bg-subtle);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	font-size: 0.92rem;
+}
+
+.fault-detail p {
+	margin: 0.35rem 0 0;
+}
+
+.fault-meta {
+	margin: 0 !important;
+}
+
+.fault-trace {
+	margin: 0.6rem 0 0;
+}
+
+.scenario-readout[hidden],
+.gate-readout[hidden],
+[data-fault-detail][hidden] {
+	display: none;
+}
+
+.trace-line {
+	display: block;
+	padding: 0.5rem 0.75rem;
+	background: var(--bg-code);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-sm);
+	font-family: var(--font-mono);
+	font-size: 0.8rem;
+	color: var(--ink);
+	overflow-x: auto;
+}

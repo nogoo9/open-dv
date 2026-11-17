@@ -3,7 +3,7 @@ __pycache__/
 *$py.class
 .pytest_cache/
 .venv/
-.moon/cache/
+**/.moon/cache/
 node_modules/
 dist/
 *.egg-info/
@@ -18,4 +18,6 @@ worktrees/
 .env
 .critique/
 reports/*.json
+playwright-report/
+test-results/
 

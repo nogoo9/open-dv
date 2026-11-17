@@ -13,6 +13,9 @@
     },
     {
       "path": "./apps/opendvctl"
+    },
+    {
+      "path": "./apps/opendv-website"
     }
   ]
 }
