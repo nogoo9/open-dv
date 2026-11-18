@@ -129,6 +129,26 @@ describe("wizardSpecMapper (WS5.1)", () => {
 			expect(dto.initial_contract_path).toBe("schemas/dv_contract.yaml");
 			expect(dto.initial_contract_content).toBeUndefined();
 		});
+
+		it("populates content from title/document_path for inline_note documents when content is omitted", () => {
+			const form = createDefaultWizardFormState({
+				unstructuredDocs: [
+					{
+						doc_id: "doc_note_1",
+						title: "Custody FX settlement SLA addendum",
+						document_path: "Custody FX settlement SLA addendum",
+						doc_type: "inline_note",
+						mime_type: "text/plain",
+					},
+				],
+			});
+
+			const dto = formStateToPipelineInputDto(form);
+			expect(dto.unstructured_documents).toHaveLength(1);
+			expect(dto.unstructured_documents?.[0]?.content).toBe(
+				"Custody FX settlement SLA addendum",
+			);
+		});
 	});
 
 	describe("2. pipelineInputDtoToFormState hydration", () => {

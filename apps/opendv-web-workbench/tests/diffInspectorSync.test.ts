@@ -132,4 +132,57 @@ describe("diffInspectorSync (R4-C1)", () => {
 		expect(res.success).toBe(false);
 		expect(res.error).toContain("No new operations to sync");
 	});
+
+	it("preserves >= 8-word grain_semantics on synced add_relationship operations", async () => {
+		let capturedDeltaBody: any = null;
+		const mockFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+			const url = String(input);
+			if (url.includes("/export?export_format=json")) {
+				return new Response(
+					JSON.stringify({
+						canonical_business_concepts: [],
+						canonical_relationships: [],
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				);
+			}
+			if (url.includes("/delta") && init?.method === "POST") {
+				capturedDeltaBody = JSON.parse(String(init.body));
+				return new Response(JSON.stringify({ ok: true }), { status: 200 });
+			}
+			return new Response(JSON.stringify({ head_sha256: "abc123sha" }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			});
+		};
+
+		const customGrain =
+			"Each custody holding associates one account with one financial security.";
+		const res = await executeSyncOntologyDelta({
+			sessionId: "session-grain",
+			apiUrl: "http://127.0.0.1:8000",
+			fetchImpl: mockFetch as any,
+			operations: [
+				{
+					op_type: "add_relationship",
+					relationship_uri: "urn:ontology:relationship:custody_security",
+					target_link: "lnk_custody_security",
+					endpoints: ["urn:ontology:entity:custody_account", "urn:ontology:entity:security"],
+					grain_semantics: customGrain,
+				},
+				{
+					op_type: "add_relationship",
+					relationship_uri: "urn:ontology:relationship:position_security",
+					target_link: "lnk_position_security",
+					endpoints: ["urn:ontology:entity:position", "urn:ontology:entity:security"],
+				},
+			],
+		});
+
+		expect(res.success).toBe(true);
+		const ops = capturedDeltaBody.operations;
+		expect(ops).toHaveLength(2);
+		expect(ops[0].grain_semantics).toBe(customGrain);
+		expect(ops[1].grain_semantics.split(/\s+/).length).toBeGreaterThanOrEqual(8);
+	});
 });

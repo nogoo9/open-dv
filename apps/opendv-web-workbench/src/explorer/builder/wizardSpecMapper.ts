@@ -114,7 +114,10 @@ export function formStateToPipelineInputDto(
 					: docType === "markdown"
 						? "text/markdown"
 						: "text/plain")) as string;
-			const content = doc.content ? String(doc.content) : undefined;
+			const rawContent = doc.content ? String(doc.content).trim() : "";
+			const content =
+				rawContent ||
+				(docType === "inline_note" ? document_path.trim() || undefined : undefined);
 			return {
 				doc_id: doc.doc_id ? String(doc.doc_id) : `doc_${Date.now()}`,
 				document_path,

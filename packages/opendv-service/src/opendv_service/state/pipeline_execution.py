@@ -296,6 +296,10 @@ class PipelineExecutionMixin:
         self.hold_managers[report.run_id] = hold_mgr
         self.run_decisions[report.run_id] = []
         self.run_sandbox_history[report.run_id] = []
+        if target_run_id and target_run_id != report.run_id:
+            self.hold_managers[target_run_id] = hold_mgr
+            self.run_decisions.setdefault(target_run_id, [])
+            self.run_sandbox_history.setdefault(target_run_id, [])
 
         all_codemods = {c for w in report.wave_reports for c in w.applied_codemods}
         last_w = report.wave_reports[-1] if report.wave_reports else None
@@ -390,11 +394,7 @@ class PipelineExecutionMixin:
             lifecycle_stage=lifecycle_stage,
         )
 
-        self.runs[report.run_id] = run_dto
-        if target_run_id and target_run_id != report.run_id:
-            self.runs[target_run_id] = run_dto.model_copy(update={"run_id": target_run_id})
-
-        gate_rep = self._build_default_gate_report(report.run_id)
+        gate_rep = self._build_default_gate_report(report.run_id, run_dto=run_dto)
         gate_rep["has_initial_contract"] = has_initial_contract
         gate_rep["initial_contract_path"] = init_c_path
         gate_rep["wave_id"] = wave_id_val

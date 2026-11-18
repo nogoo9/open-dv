@@ -54,6 +54,30 @@ def _clean_contract_dict(cnt: dict[str, Any] | None) -> dict[str, Any] | None:
     return out
 
 
+def _normalize_studio_placeholder_grain(ont_dict: dict[str, Any]) -> dict[str, Any]:
+    """Expand Studio's auto-placeholder 3-word relationship grain strings to >= 8 words."""
+    rels = ont_dict.get("canonical_relationships")
+    if not isinstance(rels, list):
+        return ont_dict
+    norm_rels: list[Any] = []
+    for rel in rels:
+        if isinstance(rel, dict):
+            gs = str(rel.get("grain_semantics") or "")
+            if gs.startswith("Unit-of-work link ") and len(gs.split()) < 8:
+                eps = rel.get("endpoints") or []
+                ep_str = " and ".join(str(e) for e in eps) if eps else "participating hubs"
+                t_lnk = rel.get("target_link") or rel.get("relationship_name") or "link"
+                rel = {
+                    **rel,
+                    "grain_semantics": (
+                        "One unit-of-work relationship association record connecting "
+                        f"{ep_str} via {t_lnk}."
+                    ),
+                }
+        norm_rels.append(rel)
+    return {**ont_dict, "canonical_relationships": norm_rels}
+
+
 def execute_axi_repair_loop(
     candidate_contract: dict[str, Any],
     ontology: GraphAOntology,
@@ -69,7 +93,7 @@ def execute_axi_repair_loop(
     Returns:
         (repaired_contract_dict, axi_pipeline_result, is_verified)
     """
-    ont_dict = (
+    ont_dict = _normalize_studio_placeholder_grain(
         ontology.model_dump(mode="json", exclude_none=True)
         if hasattr(ontology, "model_dump")
         else dict(ontology)
@@ -319,7 +343,7 @@ def execute_stage_05_static_gates(
         )
         wave_rep = PipelineWaveReport(
             wave_index=w_idx,
-            wave_name=w_name,
+            wave_name=w_name or f"Wave {w_idx}",
             wave_type=w_type,
             verdict="FAIL",
             status="REJECT-WITH-TRACE",

@@ -155,6 +155,13 @@ export async function executeSyncOntologyDelta(
 		if (opType === "add_relationship" || opType.includes("relationship") || opType.includes("link")) {
 			const rawRel = op.relationship_uri || op.relationship_id || op.name || "rel";
 			const slug = rawRel.split(":").pop() || "rel";
+			const targetLink = op.target_link || (slug.startsWith("lnk_") ? slug : `lnk_${slug}`);
+			const eps = Array.isArray(op.endpoints) ? op.endpoints.map(String) : [];
+			const rawGrain = typeof op.grain_semantics === "string" ? op.grain_semantics.trim() : "";
+			const grainSemantics =
+				rawGrain.split(/\s+/).filter(Boolean).length >= 8
+					? rawGrain
+					: `One unit-of-work relationship association record connecting ${eps.length > 0 ? eps.join(" and ") : "participating hubs"} via ${targetLink}.`;
 			return {
 				op_type: "add_relationship",
 				op_id: op.op_id || `op-rel-${slug}-${idx}`,
@@ -162,8 +169,9 @@ export async function executeSyncOntologyDelta(
 					? rawRel
 					: `urn:ontology:relationship:${slug}`,
 				relationship_name: op.relationship_name || op.label || slug,
-				target_link: op.target_link || (slug.startsWith("lnk_") ? slug : `lnk_${slug}`),
-				...(Array.isArray(op.endpoints) && op.endpoints.length > 0 ? { endpoints: op.endpoints } : {}),
+				target_link: targetLink,
+				grain_semantics: grainSemantics,
+				...(eps.length > 0 ? { endpoints: eps } : {}),
 			};
 		}
 

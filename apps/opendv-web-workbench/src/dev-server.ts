@@ -71,6 +71,7 @@ export function createWorkbenchDevServer(
 	return Bun.serve({
 		port,
 		hostname,
+		idleTimeout: 255,
 		async fetch(request) {
 			const url = new URL(request.url);
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +31,51 @@ from opendv_service.state.base import _load_structured_mapping
 
 if TYPE_CHECKING:
     from opendv_service.state.base import BaseStateContainer
+
+
+_PRUNED_WALK_DIRS = frozenset(
+    {
+        "node_modules",
+        ".venv",
+        "venv",
+        ".git",
+        ".moon",
+        "dist",
+        "worktrees",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".opendv",
+        "playwright-report",
+        "test-results",
+    }
+)
+
+
+def _find_ontology_base_dir(repo_root: Path, rel_ont_path: str) -> Path | None:
+    """Bounded search for a workspace-relative ontology file while pruning heavy build/env dirs."""
+    search_roots = []
+    examples_dir = repo_root / "examples"
+    if examples_dir.is_dir():
+        search_roots.append(examples_dir)
+    search_roots.append(repo_root)
+
+    seen: set[Path] = set()
+    for root in search_roots:
+        for dirpath, dirnames, _ in os.walk(root, topdown=True):
+            dirnames[:] = sorted(d for d in dirnames if d not in _PRUNED_WALK_DIRS)
+            if root == repo_root and dirpath == str(repo_root):
+                dirnames[:] = [d for d in dirnames if d != "examples"]
+            p = Path(dirpath)
+            if p in seen:
+                continue
+            seen.add(p)
+            cand = p / rel_ont_path
+            if cand.is_file():
+                # Preserve relative base_dir resolution (`base_dir / ont_p == cand`).
+                return p.resolve()
+    return None
 
 
 class PipelineStateMixin:
@@ -119,9 +165,9 @@ class PipelineStateMixin:
         if ont_p and isinstance(ont_p, str) and not Path(ont_p).is_absolute():
             cand = base_dir / ont_p
             if not cand.is_file():
-                matches = list(self.repo_root.glob(f"**/{ont_p}"))
-                if matches and matches[0].is_file():
-                    base_dir = matches[0].resolve().parent.parent
+                matched_base = _find_ontology_base_dir(self.repo_root, ont_p)
+                if matched_base is not None:
+                    base_dir = matched_base
 
         if raw_spec.get("ontology_source") and not raw_spec.get("graph_a_source"):
             raw_spec["graph_a_source"] = raw_spec.get("ontology_source")

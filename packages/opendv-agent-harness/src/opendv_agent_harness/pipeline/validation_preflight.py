@@ -497,7 +497,10 @@ def validate_pipeline_inputs(
     for idx, doc in enumerate(all_docs):
         checked_items += 1
         fp = getattr(doc, "document_path", None) or getattr(doc, "file_path", None)
-        if fp:
+        has_inline_content = bool(
+            getattr(doc, "content", None) and str(doc.content).strip()
+        )
+        if fp and (not has_inline_content or ".." in str(fp)):
             valid, resolved_p, err_msg = _validate_path_containment(str(fp), eff_base, ws_root)
             if not valid:
                 _diag(

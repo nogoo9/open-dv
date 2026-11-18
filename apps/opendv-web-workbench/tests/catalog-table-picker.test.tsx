@@ -16,6 +16,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
 	CatalogTablePickerModal,
+	formatForeignKeyRef,
 	type InspectedTable,
 } from "../src/explorer/builder/CatalogTablePickerModal";
 
@@ -232,6 +233,53 @@ describe("CatalogTablePickerModal (WS5.3)", () => {
 			expect(html).toContain('data-testid="btn-expand-table-security_master"');
 			expect(html).toContain('data-testid="btn-expand-table-fund_portfolio"');
 			expect(html).toContain('data-testid="btn-expand-table-daily_positions"');
+		});
+
+		it("formats structured ForeignKeyHint objects cleanly and avoids [object Object]", () => {
+			expect(
+				formatForeignKeyRef({ target_table: "issuers", target_column: "cik" }),
+			).toBe("issuers.cik");
+			expect(
+				formatForeignKeyRef({
+					target_table: "issuers",
+					target_columns: ["cik"],
+				}),
+			).toBe("issuers.cik");
+			expect(formatForeignKeyRef("security_master.security_id")).toBe(
+				"security_master.security_id",
+			);
+			expect(formatForeignKeyRef(null)).toBeNull();
+
+			const tablesWithObjectFk: InspectedTable[] = [
+				{
+					table_name: "daily_positions",
+					estimated_rows: 1000,
+					columns: [
+						{
+							name: "cik",
+							data_type: "TEXT",
+							foreign_key_ref: {
+								target_table: "issuers",
+								target_column: "cik",
+							},
+						},
+					],
+				},
+			];
+			const html = renderToStaticMarkup(
+				createElement(CatalogTablePickerModal, {
+					isOpen: true,
+					onClose: () => {},
+					sourceType: "sqlite",
+					initialTables: tablesWithObjectFk,
+					defaultExpandedTables: ["daily_positions"],
+					onApply: () => {},
+				}),
+			);
+
+			expect(html).toContain('data-testid="fk-badge-cik"');
+			expect(html).toContain("FK ➔ issuers.cik");
+			expect(html).not.toContain("[object Object]");
 		});
 	});
 

@@ -37,8 +37,11 @@ TEST_TOKEN = "challenger-e2e2-token-xyz123"
 
 
 @pytest.fixture(autouse=True)
-def studio_parity_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure authentication tokens are available in the test environment."""
+def studio_parity_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure authentication tokens and studio storage are isolated per test."""
+    studio_root = tmp_path / "studio_parity_root"
+    studio_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("OPENDV_STUDIO_ROOT", str(studio_root))
     monkeypatch.setenv("OPENDV_TOKEN", TEST_TOKEN)
     monkeypatch.setenv("OPENDV_STUDIO_TOKEN", TEST_TOKEN)
 
