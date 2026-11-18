@@ -20,6 +20,7 @@ class ConstructOptions(BaseModel):
     principal: str = "system:deterministic"
     if_match: str | None = None
     preferred_mappings: dict[str, str] = Field(default_factory=dict)
+    steering_prompt: str | None = None
 
 
 class StagedCandidate(BaseModel):

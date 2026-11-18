@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -26,6 +27,7 @@ from opendv_core.paths import PathContainmentError
 from opendv_platform_api.job_supervisor import get_job_supervisor
 from opendv_platform_api.routers import (
     artifacts,
+    cas,
     compile,
     decisions,
     explorer,
@@ -33,11 +35,14 @@ from opendv_platform_api.routers import (
     health,
     ontology,
     ontology_studio,
+    ontology_studio_blueprint,
+    pipelines,
     platform_config,
     profile,
     projects,
     runs,
     sandbox,
+    sources,
     verify,
     web_ui,
 )
@@ -52,8 +57,8 @@ from opendv_service.studio.locks import LockTimeoutError
 from opendv_service.studio.session_manager import SessionNotFoundError
 
 STUDIO_API_PREFIX: Final[str] = "/api/v1/ontology/studio"
-STUDIO_MAX_SOURCE_UPLOAD_BYTES: Final[int] = 100 * 1024 * 1024  # 100 MiB
-STUDIO_MAX_BUNDLE_IMPORT_BYTES: Final[int] = 500 * 1024 * 1024  # 500 MiB
+STUDIO_MAX_SOURCE_UPLOAD_BYTES: Final[int] = ontology_studio.MAX_SOURCE_UPLOAD_BYTES
+STUDIO_MAX_BUNDLE_IMPORT_BYTES: Final[int] = ontology_studio.MAX_BUNDLE_IMPORT_BYTES
 
 _HTTP_STATUS_TITLES: dict[int, str] = {
     400: "Bad Request",
@@ -73,11 +78,14 @@ def _is_studio_path(path: str) -> bool:
 
 def _resolve_request_size_limit(request: Request, default_limit: int) -> int:
     path = request.url.path.rstrip("/")
-    if request.method == "POST" and _is_studio_path(path):
-        if path.endswith("/sources"):
-            return STUDIO_MAX_SOURCE_UPLOAD_BYTES
-        if path.endswith("/sessions/bundle/import"):
-            return STUDIO_MAX_BUNDLE_IMPORT_BYTES
+    if request.method == "POST":
+        if _is_studio_path(path):
+            if path.endswith("/sources"):
+                return STUDIO_MAX_SOURCE_UPLOAD_BYTES
+            if path.endswith("/sessions/bundle/import"):
+                return STUDIO_MAX_BUNDLE_IMPORT_BYTES
+        if path.endswith("/cas/blobs"):
+            return cas.MAX_CAS_UPLOAD_BYTES
     return default_limit
 
 
@@ -157,6 +165,7 @@ def create_app(
             workspace_root=active_settings.workspace_root,
             storage_root=active_settings.state_dir,
             settings=active_settings,
+            is_server=True,
         )
         active_service._explicit_workspace = explicit_ws_configured
     else:
@@ -164,12 +173,14 @@ def create_app(
             workspace_root=active_settings.workspace_root,
             storage_root=active_settings.state_dir,
             settings=active_settings,
+            is_server=True,
         )
         active_service = OpenDVService(
             state_store=active_state,
             workspace_root=active_settings.workspace_root,
             storage_root=active_settings.state_dir,
             settings=active_settings,
+            is_server=True,
         )
         active_service._explicit_workspace = explicit_ws_configured
 
@@ -203,6 +214,23 @@ def create_app(
     if getattr(active_service.state, "settings", None) is None:
         active_service.state.settings = active_settings
 
+    from opendv_agent_harness.models import HarnessConfig
+    from opendv_service.studio.agent_runner import StudioAgentRunner
+
+    provider_str = os.environ.get("OPENDV_AGENT_PROVIDER", "agy").strip().lower()
+    harness_cfg = HarnessConfig(
+        provider=provider_str,
+        workspace_dir=active_service.workspace_root,
+        state_dir=(active_service.workspace_root / ".opendv" / "harness").resolve(),
+        app_data_dir=getattr(active_settings, "app_data_dir", None)
+        or (active_service.workspace_root / ".opendv").resolve(),
+        save_dir=(active_service.workspace_root / ".opendv" / "runs").resolve(),
+    )
+    application.state.studio_agent_runner = StudioAgentRunner(
+        harness_config=harness_cfg,
+        timeout_seconds=float(os.environ.get("OPENDV_STUDIO_AGENT_TIMEOUT", "20.0")),
+    )
+
     cors_origins = list(active_settings.cors_origins or [])
     allow_cors_credentials = bool(cors_origins) and "*" not in cors_origins
 
@@ -221,8 +249,9 @@ def create_app(
             "X-OpenDV-Workbench",
             "X-OpenDV-Workspace-If-Match",
             "X-OpenDV-Waiver-Key",
+            "X-CAS-SHA256",
         ],
-        expose_headers=["ETag", "Content-Disposition"],
+        expose_headers=["ETag", "Content-Disposition", "X-OpenDV-Role", "X-OpenDV-Principal"],
     )
 
     @application.middleware("http")
@@ -292,7 +321,12 @@ def create_app(
 
         request._receive = limited_receive
         try:
-            return await call_next(request)
+            response = await call_next(request)
+            studio_principal = getattr(request.state, "studio_principal", None)
+            if studio_principal is not None:
+                response.headers["X-OpenDV-Role"] = str(studio_principal.role)
+                response.headers["X-OpenDV-Principal"] = str(studio_principal.principal)
+            return response
         except PayloadTooLargeError as exc:
             if is_studio:
                 return build_studio_problem_response(
@@ -427,7 +461,11 @@ def create_app(
     ) -> JSONResponse:
         path_str = str(request.url.path)
         sanitized_errors: list[dict[str, Any]] = []
-        for err in exc.errors():
+        try:
+            raw_errors = exc.errors(include_input=False)  # type: ignore[call-arg]
+        except TypeError:
+            raw_errors = exc.errors()
+        for err in raw_errors:
             sanitized_errors.append(
                 {
                     "loc": [str(part) for part in err.get("loc", ())],
@@ -485,17 +523,56 @@ def create_app(
         request: Request,
         exc: ValueError,
     ) -> JSONResponse:
+        sanitized_errors: list[dict[str, Any]] | None = None
+        if hasattr(exc, "errors") and callable(exc.errors):
+            raw_errs = None
+            try:
+                raw_errs = exc.errors(include_input=False)  # type: ignore[call-arg]
+            except TypeError:
+                try:
+                    raw_errs = exc.errors()
+                except (ValueError, AttributeError):
+                    raw_errs = None
+            except (ValueError, AttributeError):
+                raw_errs = None
+
+            if raw_errs:
+                sanitized_errors = [
+                    {
+                        "loc": [str(part) for part in err.get("loc", ())],
+                        "msg": str(err.get("msg", "Validation error")),
+                        "type": str(err.get("type", "value_error")),
+                    }
+                    for err in raw_errs
+                ]
+        if sanitized_errors:
+            detail_str = "; ".join(
+                f"{'.'.join(err['loc'])}: {err['msg']}" if err.get("loc") else err["msg"]
+                for err in sanitized_errors
+            ) or "Validation error"
+        elif type(exc).__name__ == "ValidationError":
+            detail_str = "Validation error"
+        else:
+            detail_str = str(exc)
+        if (
+            "password" in detail_str.lower()
+            or "secret" in detail_str.lower()
+            or "token" in detail_str.lower()
+        ):
+            detail_str = re.sub(r"'(?:env|secret):[^']+'", "'[REDACTED]'", detail_str)
         if _is_studio_path(str(request.url.path)):
             return build_studio_problem_response(
                 code="SYNTAX_INVALID_ARGUMENT",
-                detail=str(exc),
+                detail=detail_str,
                 status_code=400,
                 instance=str(request.url.path),
+                invalid_params=sanitized_errors,
             )
         return build_problem_details_response(
             status_code=400,
-            detail=str(exc),
+            detail=detail_str,
             instance=str(request.url.path),
+            errors=sanitized_errors,
         )
 
     @application.exception_handler(StudioAPIError)
@@ -520,17 +597,17 @@ def create_app(
         path_str = str(request.url.path)
         try:
             raise exc
-        except Exception as unhandled_exc:  # noqa: BLE001 - API global exception handler boundary
+        except Exception:  # noqa: BLE001 - API global exception handler boundary
             if _is_studio_path(path_str):
                 return build_studio_problem_response(
                     code="INTERNAL_ERROR",
-                    detail=f"An unexpected internal server error occurred: {unhandled_exc}",
+                    detail="An unexpected internal server error occurred.",
                     status_code=500,
                     instance=path_str,
                 )
             return build_problem_details_response(
                 status_code=500,
-                detail=f"An unexpected internal server error occurred: {unhandled_exc}",
+                detail="An unexpected internal server error occurred.",
                 instance=path_str,
                 problem_type="https://open-dv.dev/problems/internal-error",
                 title="Internal Server Error",
@@ -544,13 +621,17 @@ def create_app(
     application.include_router(verify.router, prefix=api_prefix)
     application.include_router(projects.router, prefix=api_prefix)
     application.include_router(runs.router, prefix=api_prefix)
+    application.include_router(pipelines.router, prefix=api_prefix)
     application.include_router(explorer.router, prefix=api_prefix)
     application.include_router(gates.router, prefix=api_prefix)
     application.include_router(sandbox.router, prefix=api_prefix)
     application.include_router(decisions.router, prefix=api_prefix)
     application.include_router(artifacts.router, prefix=api_prefix)
+    application.include_router(cas.router, prefix=api_prefix)
     application.include_router(ontology.router, prefix=api_prefix)
     application.include_router(ontology_studio.router, prefix=api_prefix)
+    application.include_router(ontology_studio_blueprint.router, prefix=api_prefix)
+    application.include_router(sources.router, prefix=api_prefix)
     application.include_router(web_ui.router)
 
     return application

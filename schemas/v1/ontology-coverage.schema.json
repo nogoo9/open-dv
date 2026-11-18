@@ -242,12 +242,6 @@
       "description": "Pipeline run identifier",
       "title": "Run Id"
     },
-    "wave_id": {
-      "default": "wave_0",
-      "description": "Pipeline wave identifier or index",
-      "title": "Wave Id",
-      "type": "string"
-    },
     "domain_namespace": {
       "default": "",
       "description": "Domain namespace of the ontology",

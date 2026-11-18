@@ -14,6 +14,7 @@
 
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
+import { STUDIO_MAX_UPLOAD_BYTES } from "../constants";
 import { isSupportedSourceFile, useStudioStore } from "../store/studio-store";
 import type { EvidenceChunk, SourceDocument } from "../store/types";
 
@@ -98,7 +99,7 @@ export const SourcesPanel: React.FC<SourcesPanelProps> = ({
 			return;
 		}
 
-		const maxBytes = maxFileSizeBytes ?? 50 * 1024 * 1024;
+		const maxBytes = maxFileSizeBytes ?? STUDIO_MAX_UPLOAD_BYTES;
 
 		const errors: string[] = [];
 
@@ -278,7 +279,7 @@ export const SourcesPanel: React.FC<SourcesPanelProps> = ({
 								multiple
 								className="sr-only"
 								onChange={handleFileInputChange}
-								accept=".pdf,.docx,.xlsx,.html,.htm,.json,.csv,.md,.txt"
+								accept=".pdf,.docx,.xlsx,.html,.htm,.json,.csv,.md,.markdown,.txt"
 								data-testid="file-input"
 							/>
 						</label>
@@ -379,9 +380,8 @@ export const SourcesPanel: React.FC<SourcesPanelProps> = ({
 						data-testid="parse-success-badge"
 					>
 						✓ Parsing complete (
-						{parsingState.evidence_chunks.length ||
-							parsingState.chunks_count ||
-							0}{" "}
+						{parsingState.chunks_count ??
+							(parsingState.evidence_chunks.length || 0)}{" "}
 						chunks extracted)
 					</div>
 				)}

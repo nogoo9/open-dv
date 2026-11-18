@@ -67,7 +67,6 @@ class OntologyCoverageArtifact(BaseContractModel):
         ..., description="Unique artifact identifier, e.g. art-w0-stage01-ontology-coverage"
     )
     run_id: str | None = Field(default=None, description="Pipeline run identifier")
-    wave_id: str = Field(default="wave_0", description="Pipeline wave identifier or index")
     domain_namespace: str = Field(default="", description="Domain namespace of the ontology")
     graph_a_version: str = Field(default="1.0.0", description="Graph A ontology version")
     graph_a_sha256: str = Field(

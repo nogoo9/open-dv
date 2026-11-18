@@ -2,98 +2,121 @@ contract_version: '5.0'
 domain_namespace: global_commerce
 lifecycle_stage: MULTI_SOURCE_EXPANSION
 column_triage_ledger:
-- bronze_table: erp_netsuite.erp_orders
-  column_name: order_id
-  elm_classification: BUSINESS_KEY
-  target_dv_entity: hub_order
-- bronze_table: erp_netsuite.erp_orders
+- bronze_table: crm_salesforce.crm_customers
   column_name: customer_tax_id
-  elm_classification: FOREIGN_KEY_REF
-  target_dv_entity: lnk_order_customer
-- bronze_table: erp_netsuite.erp_orders
-  column_name: order_date
   elm_classification: DESCRIPTIVE_PAYLOAD
-  target_dv_entity: sat_order_core
-- bronze_table: erp_netsuite.erp_orders
-  column_name: order_total_usd
-  elm_classification: DESCRIPTIVE_PAYLOAD
-  target_dv_entity: sat_order_core
-- bronze_table: erp_netsuite.erp_orders
-  column_name: currency_code
-  elm_classification: DESCRIPTIVE_PAYLOAD
-  target_dv_entity: sat_order_core
-- bronze_table: erp_netsuite.erp_orders
-  column_name: order_status
-  elm_classification: DESCRIPTIVE_PAYLOAD
-  target_dv_entity: sat_order_core
-- bronze_table: erp_netsuite.erp_orders
-  column_name: promo_campaign_code
-  elm_classification: BUSINESS_KEY
-  target_dv_entity: hub_promotion
-- bronze_table: erp_netsuite.erp_orders
-  column_name: promo_campaign_code
-  elm_classification: OPTIONAL_FOREIGN_KEY_REF
-  target_dv_entity: lnk_order_customer_promotion
-- bronze_table: billing_stripe.stripe_invoices
-  column_name: invoice_number
-  elm_classification: BUSINESS_KEY
-  target_dv_entity: hub_invoice
-- bronze_table: billing_stripe.stripe_invoices
-  column_name: order_id
-  elm_classification: FOREIGN_KEY_REF
-  target_dv_entity: lnk_invoice_customer_order
-- bronze_table: billing_stripe.stripe_invoices
-  column_name: customer_tax_id
-  elm_classification: FOREIGN_KEY_REF
-  target_dv_entity: lnk_invoice_customer_order
-- bronze_table: billing_stripe.stripe_invoices
-  column_name: invoice_amount_usd
-  elm_classification: DESCRIPTIVE_PAYLOAD
-  target_dv_entity: sat_invoice_core
-- bronze_table: billing_stripe.stripe_invoices
-  column_name: settlement_status
-  elm_classification: DESCRIPTIVE_PAYLOAD
-  target_dv_entity: sat_invoice_core
+  target_dv_entity: sat_customer_core_ext_v2
+  source_sql_type: VARCHAR
 - bronze_table: crm_salesforce.crm_customers
   column_name: customer_row_seq
-  elm_classification: SYSTEM_SURROGATE_DROPPED
-  target_dv_entity: DROPPED_SURROGATE
-- bronze_table: crm_salesforce.crm_customers
-  column_name: customer_tax_id
-  elm_classification: BUSINESS_KEY
-  target_dv_entity: hub_customer
+  elm_classification: DESCRIPTIVE_PAYLOAD
+  target_dv_entity: sat_customer_core_ext_v2
+  source_sql_type: BIGINT
 - bronze_table: crm_salesforce.crm_customers
   column_name: legal_name
   elm_classification: DESCRIPTIVE_PAYLOAD
   target_dv_entity: sat_customer_core
+  source_sql_type: VARCHAR
 - bronze_table: crm_salesforce.crm_customers
   column_name: country_iso2
   elm_classification: DESCRIPTIVE_PAYLOAD
   target_dv_entity: sat_customer_core
+  source_sql_type: VARCHAR
 - bronze_table: crm_salesforce.crm_customers
   column_name: account_segment
   elm_classification: DESCRIPTIVE_PAYLOAD
   target_dv_entity: sat_customer_core
+  source_sql_type: VARCHAR
 - bronze_table: crm_salesforce.crm_customers
   column_name: credit_limit_usd
   elm_classification: DESCRIPTIVE_PAYLOAD
   target_dv_entity: sat_customer_core
+  source_sql_type: DOUBLE
 - bronze_table: crm_salesforce.crm_customers
   column_name: contact_email
   elm_classification: DESCRIPTIVE_PAYLOAD
-  target_dv_entity: sat_customer_pii
+  target_dv_entity: sat_customer_core_ext_v2
+  source_sql_type: VARCHAR
 - bronze_table: crm_salesforce.crm_customers
   column_name: tax_ssn_tin
   elm_classification: DESCRIPTIVE_PAYLOAD
-  target_dv_entity: sat_customer_pii
-- bronze_table: crm_salesforce.crm_customers
-  column_name: loyalty_tier_code
-  elm_classification: DESCRIPTIVE_PAYLOAD
   target_dv_entity: sat_customer_core_ext_v2
+  source_sql_type: VARCHAR
+- bronze_table: erp_netsuite.erp_orders
+  column_name: order_id
+  elm_classification: BUSINESS_KEY
+  target_dv_entity: hub_order
+  source_sql_type: VARCHAR
+- bronze_table: erp_netsuite.erp_orders
+  column_name: order_date
+  elm_classification: DESCRIPTIVE_PAYLOAD
+  target_dv_entity: sat_order_core
+  source_sql_type: DATE
+- bronze_table: erp_netsuite.erp_orders
+  column_name: order_total_usd
+  elm_classification: DESCRIPTIVE_PAYLOAD
+  target_dv_entity: sat_order_core
+  source_sql_type: DOUBLE
+- bronze_table: erp_netsuite.erp_orders
+  column_name: currency_code
+  elm_classification: DESCRIPTIVE_PAYLOAD
+  target_dv_entity: sat_order_core
+  source_sql_type: VARCHAR
+- bronze_table: erp_netsuite.erp_orders
+  column_name: order_status
+  elm_classification: DESCRIPTIVE_PAYLOAD
+  target_dv_entity: sat_order_core
+  source_sql_type: VARCHAR
+- bronze_table: erp_netsuite.erp_orders
+  column_name: promo_campaign_code
+  elm_classification: OPTIONAL_FOREIGN_KEY_REF
+  target_dv_entity: lnk_order_customer_promotion
+  source_sql_type: VARCHAR
+- bronze_table: erp_netsuite.erp_orders
+  column_name: customer_tax_id
+  elm_classification: FOREIGN_KEY_REF
+  target_dv_entity: lnk_order_customer
+  source_sql_type: VARCHAR
+- bronze_table: erp_netsuite.erp_orders
+  column_name: promo_campaign_code
+  elm_classification: OPTIONAL_FOREIGN_KEY_REF
+  target_dv_entity: lnk_order_customer_promotion
+  source_sql_type: VARCHAR
+- bronze_table: billing_stripe.stripe_invoices
+  column_name: invoice_number
+  elm_classification: BUSINESS_KEY
+  target_dv_entity: hub_invoice
+  source_sql_type: VARCHAR
+- bronze_table: billing_stripe.stripe_invoices
+  column_name: invoice_amount_usd
+  elm_classification: DESCRIPTIVE_PAYLOAD
+  target_dv_entity: sat_invoice_core
+  source_sql_type: DOUBLE
+- bronze_table: billing_stripe.stripe_invoices
+  column_name: settlement_status
+  elm_classification: DESCRIPTIVE_PAYLOAD
+  target_dv_entity: sat_invoice_core
+  source_sql_type: VARCHAR
+- bronze_table: billing_stripe.stripe_invoices
+  column_name: order_id
+  elm_classification: FOREIGN_KEY_REF
+  target_dv_entity: lnk_invoice_customer_order
+  source_sql_type: VARCHAR
+- bronze_table: billing_stripe.stripe_invoices
+  column_name: customer_tax_id
+  elm_classification: FOREIGN_KEY_REF
+  target_dv_entity: lnk_invoice_customer_order
+  source_sql_type: VARCHAR
 - bronze_table: crm_salesforce.crm_customers
   column_name: annual_spend_band
   elm_classification: DESCRIPTIVE_PAYLOAD
   target_dv_entity: sat_customer_core_ext_v2
+  source_sql_type: VARCHAR
+- bronze_table: crm_salesforce.crm_customers
+  column_name: loyalty_tier_code
+  elm_classification: DESCRIPTIVE_PAYLOAD
+  target_dv_entity: sat_customer_core_ext_v2
+  source_sql_type: VARCHAR
 hubs:
 - name: hub_customer
   ontology_concept_uri: urn:ontology:entity:customer
@@ -101,20 +124,26 @@ hubs:
   - bronze_table: crm_salesforce.crm_customers
     key_columns:
     - customer_tax_id
-    record_source_code: CRM_SALESFORCE
-    key_authority_tier: TIER_1_GLOBAL_STANDARD
-    require_src_qualifier: false
-    bkcc_prefix: GLOBAL
+    record_source_code: CRM_SALESFORCE_CRM_CUSTOMERS
+    key_authority_tier: TIER_3_LOCAL_SCOPED
+    require_src_qualifier: true
+    bkcc_prefix: CRM_SALESFORCE_CRM_CUSTOMERS
+    bkcc_column_expr: null
+    system_scoped_bk_justification: Auto-qualified Tier-3 local-scoped business key
+      on hub_customer to prevent cross-system SHA-256 hash key collisions.
 - name: hub_order
   ontology_concept_uri: urn:ontology:entity:order
   business_key_sources:
   - bronze_table: erp_netsuite.erp_orders
     key_columns:
     - order_id
-    record_source_code: ERP_NETSUITE
-    key_authority_tier: TIER_1_GLOBAL_STANDARD
-    require_src_qualifier: false
-    bkcc_prefix: GLOBAL
+    record_source_code: ERP_NETSUITE_ERP_ORDERS
+    key_authority_tier: TIER_3_LOCAL_SCOPED
+    require_src_qualifier: true
+    bkcc_prefix: ERP_NETSUITE_ERP_ORDERS
+    bkcc_column_expr: null
+    system_scoped_bk_justification: Auto-qualified Tier-3 local-scoped business key
+      on hub_order to prevent cross-system SHA-256 hash key collisions.
 - name: hub_promotion
   ontology_concept_uri: urn:ontology:entity:promotion
   business_key_sources:
@@ -122,26 +151,32 @@ hubs:
     key_columns:
     - promo_campaign_code
     record_source_code: ERP_NETSUITE
-    key_authority_tier: TIER_1_GLOBAL_STANDARD
-    require_src_qualifier: false
-    bkcc_prefix: GLOBAL
+    key_authority_tier: TIER_3_LOCAL_SCOPED
+    require_src_qualifier: true
+    bkcc_prefix: ERP_NETSUITE
+    bkcc_column_expr: null
+    system_scoped_bk_justification: Auto-qualified Tier-3 local-scoped business key
+      on hub_promotion to prevent cross-system SHA-256 hash key collisions.
 - name: hub_invoice
   ontology_concept_uri: urn:ontology:entity:invoice
   business_key_sources:
   - bronze_table: billing_stripe.stripe_invoices
     key_columns:
     - invoice_number
-    record_source_code: STRIPE_EU
+    record_source_code: BILLING_STRIPE_STRIPE_INVOICES
     key_authority_tier: TIER_3_LOCAL_SCOPED
     require_src_qualifier: true
     bkcc_prefix: STRIPE_EU
-    system_scoped_bk_justification: Tier-3 local-scoped business key in namespace
-      STRIPE_EU from source STRIPE_EU.
+    bkcc_column_expr: null
+    system_scoped_bk_justification: Auto-qualified Tier-3 local-scoped business key
+      on hub_invoice to prevent cross-system SHA-256 hash key collisions.
 links:
-- name: lnk_order_customer
+- name: lnk_order_customer_promotion
   link_type: STANDARD_LINK
-  ontology_concept_uri: urn:ontology:relationship:order_customer
+  ontology_concept_uri: urn:ontology:relationship:order_promotion
   source_bronze_table: erp_netsuite.erp_orders
+  where_filter_condition: promo_campaign_code IS NOT NULL
+  degenerate_columns: []
   hub_references:
   - target_hub: hub_order
     role_alias: order
@@ -151,48 +186,39 @@ links:
     role_alias: customer
     source_fk_columns:
     - customer_tax_id
-- name: lnk_order_customer_promotion
+  - target_hub: hub_promotion
+    role_alias: promotion
+    source_fk_columns:
+    - promo_campaign_code
+- name: lnk_order_customer
   link_type: STANDARD_LINK
   ontology_concept_uri: urn:ontology:relationship:order_customer
   source_bronze_table: erp_netsuite.erp_orders
-  where_filter_condition: promo_campaign_code IS NOT NULL
+  degenerate_columns: []
   hub_references:
   - target_hub: hub_order
     role_alias: order
     source_fk_columns:
     - order_id
-  - target_hub: hub_promotion
-    role_alias: promotion
+  - target_hub: hub_customer
+    role_alias: customer
     source_fk_columns:
-    - promo_campaign_code
+    - customer_tax_id
 - name: lnk_invoice_customer_order
   link_type: STANDARD_LINK
-  ontology_concept_uri: urn:ontology:relationship:order_customer
+  ontology_concept_uri: urn:ontology:relationship:stripe_invoices_order
   source_bronze_table: billing_stripe.stripe_invoices
+  degenerate_columns: []
   hub_references:
   - target_hub: hub_invoice
     role_alias: invoice
     source_fk_columns:
     - invoice_number
-  - target_hub: hub_customer
-    role_alias: customer
-    source_fk_columns:
-    - customer_tax_id
   - target_hub: hub_order
     role_alias: order
     source_fk_columns:
     - order_id
 satellites:
-- name: sat_customer_pii
-  satellite_type: STANDARD_SATELLITE
-  parent_entity: hub_customer
-  source_bronze_table: crm_salesforce.crm_customers
-  security_classification: PII_HIGH
-  volatility_tier: STANDARD
-  soft_deprecated_columns: []
-  payload_columns:
-  - contact_email
-  - tax_ssn_tin
 - name: sat_customer_core
   satellite_type: STANDARD_SATELLITE
   parent_entity: hub_customer
@@ -213,17 +239,32 @@ satellites:
   volatility_tier: ADDITIVE_DRIFT_COMPANION
   payload_columns:
   - annual_spend_band
+  - contact_email
+  - customer_row_seq
+  - customer_tax_id
   - loyalty_tier_code
+  - tax_ssn_tin
   soft_deprecated_columns: []
-- name: sat_promotion_ref
+- name: sat_customer_pii
   satellite_type: STANDARD_SATELLITE
-  parent_entity: hub_promotion
-  source_bronze_table: erp_netsuite.erp_orders
+  parent_entity: hub_customer
+  source_bronze_table: crm_salesforce.crm_customers
+  security_classification: CONFIDENTIAL
+  volatility_tier: STANDARD
+  soft_deprecated_columns: []
+  payload_columns:
+  - contact_email
+  - tax_ssn_tin
+- name: sat_invoice_core
+  satellite_type: STANDARD_SATELLITE
+  parent_entity: hub_invoice
+  source_bronze_table: billing_stripe.stripe_invoices
   security_classification: INTERNAL
   volatility_tier: STANDARD
   soft_deprecated_columns: []
   payload_columns:
-  - promo_campaign_code
+  - invoice_amount_usd
+  - settlement_status
 - name: sat_order_core
   satellite_type: STANDARD_SATELLITE
   parent_entity: hub_order
@@ -236,15 +277,14 @@ satellites:
   - order_date
   - order_status
   - order_total_usd
-- name: sat_invoice_core
+- name: sat_promotion_ref
   satellite_type: STANDARD_SATELLITE
-  parent_entity: hub_invoice
-  source_bronze_table: billing_stripe.stripe_invoices
+  parent_entity: hub_promotion
+  source_bronze_table: erp_netsuite.erp_orders
   security_classification: INTERNAL
-  volatility_tier: STANDARD
+  volatility_tier: STATIC
   soft_deprecated_columns: []
   payload_columns:
-  - invoice_amount_usd
-  - settlement_status
+  - promo_campaign_code
 reference_tables: []
 unmapped_escalations: []

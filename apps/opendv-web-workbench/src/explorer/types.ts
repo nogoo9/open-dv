@@ -62,6 +62,10 @@ export interface ExplorerStoreState {
 	fullId: string | null;
 	fullTab: ArtifactFullTab;
 	activeWave: WaveFilterId;
+	builderSessionId: string | null;
+	builderSource: string | null;
+	builderDomain: string | null;
+	builderPipelineId: string | null;
 	runState: ExplorerRunState;
 	activeRunningStageIdx: number | null;
 	statusBannerText: string;

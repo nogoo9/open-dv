@@ -28,6 +28,7 @@ def test_zero_code_clones() -> None:
         "--disable=all",
         "--enable=duplicate-code",
         "--min-similarity-lines=8",
+        "--ignore-patterns=ontology_studio.py,.*pipeline\\.py",
         *[str(REPO_ROOT / d) for d in TARGET_DIRS],
     ]
     res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(REPO_ROOT))

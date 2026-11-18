@@ -44,6 +44,49 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/api/v1/cas/blobs": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Upload Cas Blob
+		 * @description Store an immutable binary blob into the Content-Addressable Store.
+		 *
+		 *     Validates optional X-CAS-SHA256 header, enforces max upload size, computes
+		 *     SHA-256 digest, and persists into the CAS store.
+		 */
+		post: operations["upload_cas_blob_api_v1_cas_blobs_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/cas/blobs/{sha256}": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Cas Blob
+		 * @description Retrieve raw immutable binary blob by its 64-character hex digest.
+		 */
+		get: operations["get_cas_blob_api_v1_cas_blobs__sha256__get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/api/v1/compile": {
 		parameters: {
 			query?: never;
@@ -476,6 +519,30 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/api/v1/ontology/studio/sessions/{session_id}/export-blueprint": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Export Session Blueprint Get
+		 * @description Export the active or specified version of a Studio session as a VaultBlueprintDTO (GET).
+		 */
+		get: operations["export_session_blueprint_get_api_v1_ontology_studio_sessions__session_id__export_blueprint_get"];
+		put?: never;
+		/**
+		 * Export Session Blueprint Post
+		 * @description Export the active or specified version of a Studio session as a VaultBlueprintDTO (POST).
+		 */
+		post: operations["export_session_blueprint_post_api_v1_ontology_studio_sessions__session_id__export_blueprint_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/api/v1/ontology/studio/sessions/{session_id}/feedback": {
 		parameters: {
 			query?: never;
@@ -700,6 +767,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/refine": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Refine Proposal Endpoint
+		 * @description Refine a pending ontology proposal with natural-language steering guidance.
+		 */
+		post: operations["refine_proposal_endpoint_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__refine_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/reject": {
 		parameters: {
 			query?: never;
@@ -764,6 +851,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/api/v1/ontology/studio/sessions/{session_id}/sources/text": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Upload Text Source
+		 * @description Ingest free-form text or analyst notes directly into session CAS storage.
+		 */
+		post: operations["upload_text_source_api_v1_ontology_studio_sessions__session_id__sources_text_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/api/v1/ontology/studio/sessions/{session_id}/sources/{source_id}": {
 		parameters: {
 			query?: never;
@@ -802,6 +909,66 @@ export interface paths {
 		get: operations["get_source_content_api_v1_ontology_studio_sessions__session_id__sources__source_id__content_get"];
 		put?: never;
 		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/staged-candidates": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * List Staged Candidates
+		 * @description Query held-back candidate concepts (< 0.65 BM25 match score) for session.
+		 */
+		get: operations["list_staged_candidates_api_v1_ontology_studio_sessions__session_id__staged_candidates_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/staged-candidates/{candidate_id}/promote": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Promote Candidate Endpoint
+		 * @description Promote a held-back candidate concept via Path A or Path B (admin waiver).
+		 */
+		post: operations["promote_candidate_endpoint_api_v1_ontology_studio_sessions__session_id__staged_candidates__candidate_id__promote_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/starter-packs/apply": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Apply Starter Pack Endpoint
+		 * @description Apply one or more Asset Management starter packs to the active session.
+		 */
+		post: operations["apply_starter_pack_endpoint_api_v1_ontology_studio_sessions__session_id__starter_packs_apply_post"];
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -868,6 +1035,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/api/v1/ontology/studio/starter-packs": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * List Starter Packs Endpoint
+		 * @description List available Asset Management vertical starter packs.
+		 */
+		get: operations["list_starter_packs_endpoint_api_v1_ontology_studio_starter_packs_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/api/v1/ontology/suggestions": {
 		parameters: {
 			query?: never;
@@ -919,7 +1106,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Run Pipeline
-		 * @description Initiate an asynchronous end-to-end 8-stage agentic pipeline run (Decision D2).
+		 * @description Execute or submit an agentic pipeline run returning HTTP 202 handle.
 		 */
 		post: operations["run_pipeline_api_v1_pipelines_runs_post"];
 		delete?: never;
@@ -939,7 +1126,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Validate Pipeline
-		 * @description Deterministically validate an agentic pipeline input spec and harness config.
+		 * @description Deterministically validate an agentic pipeline input spec or single-run blueprint.
 		 */
 		post: operations["validate_pipeline_api_v1_pipelines_validate_post"];
 		delete?: never;
@@ -1092,9 +1279,29 @@ export interface paths {
 		put?: never;
 		/**
 		 * Start Run
-		 * @description Start an asynchronous verification, compilation, and sandbox execution run (Decision D2).
+		 * @description Start an asynchronous verification run or execute a single-run pipeline.
 		 */
 		post: operations["start_run_api_v1_runs_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/runs/validate": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Validate Single Run
+		 * @description Pre-flight validate single-run PipelineInputDTO and derive InferredExecutionPlanDTO.
+		 */
+		post: operations["validate_single_run_api_v1_runs_validate_post"];
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -1214,7 +1421,7 @@ export interface paths {
 		};
 		/**
 		 * Stream Run Events
-		 * @description Server-Sent Events (`text/event-stream`) stream of RBAC-redacted VaultObservabilityEvents.
+		 * @description Server-Sent Events (`text/event-stream`) stream of RBAC-redacted events.
 		 */
 		get: operations["stream_run_events_api_v1_runs__run_id__events_get"];
 		put?: never;
@@ -1329,6 +1536,46 @@ export interface paths {
 		 * @description Execute standalone query in the DuckDB sandbox (GAP-04).
 		 */
 		post: operations["execute_standalone_sandbox_api_v1_sandbox_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/sources/adapters": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Source Adapters
+		 * @description Return declarative UI manifests for all registered connectors.
+		 */
+		get: operations["get_source_adapters_api_v1_sources_adapters_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/sources/inspect": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Inspect Data Source
+		 * @description Inspect and enumerate namespaces, tables, columns, PKs, FKs, and tags from a data source.
+		 */
+		post: operations["inspect_data_source_api_v1_sources_inspect_post"];
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -2376,6 +2623,83 @@ export interface components {
 			rationale: string;
 		};
 		/**
+		 * ApplyStarterPackRequest
+		 * @description Request payload to apply one or more starter packs to a Studio session.
+		 */
+		ApplyStarterPackRequest: {
+			/**
+			 * Base Sha256
+			 * @description Expected base ontology SHA-256 for OCC
+			 */
+			base_sha256?: string | null;
+			/**
+			 * Base Version
+			 * @description Expected base ontology version
+			 */
+			base_version?: string | null;
+			/**
+			 * Domain Namespace
+			 * @description Optional namespace override
+			 */
+			domain_namespace?: string | null;
+			/**
+			 * Enterprise Owner
+			 * @description Optional enterprise owner override
+			 */
+			enterprise_owner?: string | null;
+			/** @description Pack identifier alias */
+			pack?: components["schemas"]["AssetManagementPackId"] | null;
+			/** @description Single pack identifier alias (normalized into pack_ids) */
+			pack_id?: components["schemas"]["AssetManagementPackId"] | null;
+			/**
+			 * Pack Ids
+			 * @description Pack identifiers to compose and apply
+			 */
+			pack_ids?: components["schemas"]["AssetManagementPackId"][];
+		};
+		/**
+		 * ApplyStarterPackResponse
+		 * @description Response payload returned upon applying starter packs.
+		 */
+		ApplyStarterPackResponse: {
+			/**
+			 * Applied
+			 * @description Whether applying starter pack succeeded
+			 * @default true
+			 */
+			applied: boolean;
+			/**
+			 * Applied Delta Id
+			 * @description ID of generated and applied delta if committed
+			 */
+			applied_delta_id?: string | null;
+			/**
+			 * Applied Pack Ids
+			 * @description List of successfully applied pack identifiers
+			 */
+			applied_pack_ids: components["schemas"]["AssetManagementPackId"][];
+			/**
+			 * Concept Count
+			 * @description Total active CBCs in session ontology
+			 */
+			concept_count: number;
+			/**
+			 * Ontology Sha256
+			 * @description Canonical JCS SHA-256 of updated ontology
+			 */
+			ontology_sha256: string;
+			/**
+			 * Ontology Version
+			 * @description Version of the updated ontology
+			 */
+			ontology_version: string;
+			/**
+			 * Relationship Count
+			 * @description Total active relationships
+			 */
+			relationship_count: number;
+		};
+		/**
 		 * ArtifactDTO
 		 * @description Comprehensive artifact descriptor for Explorer workbench.
 		 */
@@ -2486,11 +2810,6 @@ export interface components {
 			 * @description Primary wave integer index
 			 */
 			wave_index?: number | null;
-			/**
-			 * Waves
-			 * @description Associated wave filter identifiers
-			 */
-			waves?: string[] | null;
 		};
 		/**
 		 * ArtifactMetadataResponse
@@ -2530,6 +2849,90 @@ export interface components {
 			 * @default application/json
 			 */
 			media_type: string;
+		};
+		/**
+		 * AssetManagementPackId
+		 * @description Authoritative identifier for Asset Management starter packs.
+		 * @enum {string}
+		 */
+		AssetManagementPackId:
+			| "core_spine"
+			| "public_equities_oms"
+			| "fixed_income_rates"
+			| "multi_asset_ibor"
+			| "private_equity_buyout"
+			| "private_credit_direct_lending"
+			| "custody_clearing"
+			| "all_domains";
+		/**
+		 * BlueprintExportResponseDTO
+		 * @description Response DTO for Studio blueprint export endpoints (/export-blueprint).
+		 */
+		BlueprintExportResponseDTO: {
+			/** @description Exported VaultBlueprint envelope */
+			blueprint: components["schemas"]["VaultBlueprintDTO"];
+			/**
+			 * Exported At Utc
+			 * @description ISO 8601 UTC export timestamp
+			 */
+			exported_at_utc: string;
+			/**
+			 * Raw Vault Ddl
+			 * @description Zone 2 Raw Vault DDL preview
+			 * @default
+			 */
+			raw_vault_ddl: string;
+			/**
+			 * Target Tables
+			 * @description Summary of target Hubs, Links, and Satellites in the blueprint
+			 */
+			target_tables?: {
+				[key: string]: unknown;
+			}[];
+		};
+		/**
+		 * BlueprintLineageDTO
+		 * @description Lineage provenance metadata for a VaultBlueprint (ADR-017).
+		 */
+		BlueprintLineageDTO: {
+			/**
+			 * Blueprint Revision
+			 * @description Sequential blueprint revision counter across pipeline runs
+			 * @default 1
+			 */
+			blueprint_revision: number;
+			/**
+			 * Contract Sha256
+			 * @description Deterministic RFC 8785 JCS SHA-256 of NoMistakeDataVault2ContractV5
+			 */
+			contract_sha256?: string | null;
+			/**
+			 * Domain Namespace
+			 * @description Target business domain namespace matching ontology
+			 */
+			domain_namespace: string;
+			/**
+			 * Lineage Notes
+			 * @description Human-readable provenance or evolution note
+			 */
+			lineage_notes?: string | null;
+			/**
+			 * Ontology Sha256
+			 * @description Deterministic RFC 8785 JCS SHA-256 of the GraphAOntology
+			 */
+			ontology_sha256: string;
+			/**
+			 * Parent Blueprint Sha256
+			 * @description SHA-256 digest of immediate parent VaultBlueprint (null on genesis)
+			 */
+			parent_blueprint_sha256?: string | null;
+			/**
+			 * Schema Version
+			 * @description Lineage schema version
+			 * @default 1.0.0
+			 * @constant
+			 */
+			schema_version: "1.0.0";
 		};
 		/** Body_import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post */
 		Body_import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post: {
@@ -2905,6 +3308,85 @@ export interface components {
 			 */
 			target?: string | null;
 		};
+		/**
+		 * ConnectorUIManifestDTO
+		 * @description Declarative UI descriptor for a source connector adapter.
+		 */
+		ConnectorUIManifestDTO: {
+			/**
+			 * Adapter Id
+			 * @description Unique adapter identifier (e.g. 'sqlite', 'databricks')
+			 */
+			adapter_id: string;
+			/**
+			 * Client Uploadable
+			 * @description Whether this source type supports direct file upload via CAS
+			 * @default false
+			 */
+			client_uploadable: boolean;
+			/** Connection Fields */
+			connection_fields?: {
+				[key: string]: unknown;
+			}[];
+			/**
+			 * Description
+			 * @description Connector description and capabilities summary
+			 */
+			description: string;
+			/**
+			 * Display Name
+			 * @description Human-readable connector name
+			 */
+			display_name: string;
+			/**
+			 * Execution Mode
+			 * @description Execution mode within the Open-DV engine
+			 * @enum {string}
+			 */
+			execution_mode:
+				| "DIRECT_DUCKDB_ATTACH"
+				| "REMOTE_PUSHDOWN_PLUS_ARROW_SAMPLE"
+				| "INLINE_CAS_STAGED";
+			/** Sample Uri */
+			sample_uri?: string | null;
+			/**
+			 * Schemes
+			 * @description Supported URI schemes
+			 */
+			schemes?: string[];
+			/** Secret Ref Fields */
+			secret_ref_fields?: string[];
+			/**
+			 * Supported File Extensions
+			 * @description Supported file extensions (e.g. ['.sqlite', '.db'])
+			 */
+			supported_file_extensions?: string[];
+			/**
+			 * Supports Catalog Hierarchy
+			 * @default false
+			 */
+			supports_catalog_hierarchy: boolean;
+			/**
+			 * Supports Foreign Keys
+			 * @default false
+			 */
+			supports_foreign_keys: boolean;
+			/**
+			 * Supports Governance Tags
+			 * @default false
+			 */
+			supports_governance_tags: boolean;
+			/**
+			 * Supports Multi Table
+			 * @default false
+			 */
+			supports_multi_table: boolean;
+			/**
+			 * Supports Time Travel
+			 * @default false
+			 */
+			supports_time_travel: boolean;
+		};
 		/** ConstructRequest */
 		ConstructRequest: {
 			/**
@@ -2920,6 +3402,8 @@ export interface components {
 			fibo_modules?: string[];
 			/** Mode */
 			mode?: string | null;
+			/** Steering Prompt */
+			steering_prompt?: string | null;
 		};
 		/**
 		 * CreateProjectRequest
@@ -2969,6 +3453,16 @@ export interface components {
 			 * @default 2026-11-01T23:59:59Z
 			 */
 			assertion_cutoff_ts: string;
+			/**
+			 * Blueprint Content
+			 * @description Inline VaultBlueprint YAML or JSON string (ADR-017)
+			 */
+			blueprint_content?: string | null;
+			/**
+			 * Blueprint Path
+			 * @description Path to VaultBlueprint YAML or JSON file (ADR-017)
+			 */
+			blueprint_path?: string | null;
 			/**
 			 * Contract Path
 			 * @description Legacy contract path
@@ -3040,11 +3534,6 @@ export interface components {
 			 * @default true
 			 */
 			run_sandbox_batches: boolean;
-			/**
-			 * Wave Id
-			 * @description Target wave identifier (e.g. W0, W1, W2) (GAP-07)
-			 */
-			wave_id?: string | null;
 		};
 		/** CreateSessionRequest */
 		CreateSessionRequest: {
@@ -3224,6 +3713,28 @@ export interface components {
 			 * @description Confidence score
 			 */
 			score: number;
+		};
+		/**
+		 * DocExecutionActionDTO
+		 * @description Inferred per-document action within a single-run execution plan.
+		 */
+		DocExecutionActionDTO: {
+			/**
+			 * Action
+			 * @default EXTRACT_SPANS_AND_LINKS
+			 * @enum {string}
+			 */
+			action: "GROUND_ONTOLOGY_CONCEPT" | "EXTRACT_SPANS_AND_LINKS";
+			/**
+			 * Doc Id
+			 * @description Unique document identifier
+			 */
+			doc_id: string;
+			/**
+			 * Target Hub
+			 * @default hub_document
+			 */
+			target_hub: string;
 		};
 		/**
 		 * DocExtractionSpec
@@ -3537,16 +4048,17 @@ export interface components {
 			 * @description Summary status label
 			 */
 			statusLabel: string;
+		};
+		/**
+		 * ExportBlueprintRequest
+		 * @description Optional payload specifying target ontology version tag.
+		 */
+		ExportBlueprintRequest: {
 			/**
-			 * Waves
-			 * @description Wave metadata list
+			 * Version Tag
+			 * @description Optional semantic version tag of ontology snapshot to export (e.g. 'v1.0.0')
 			 */
-			waves?: components["schemas"]["WaveMetadataSpecDTO"][];
-			/**
-			 * Wavescount
-			 * @description Number of waves
-			 */
-			wavesCount: number;
+			version_tag?: string | null;
 		};
 		/** FeedbackSubmissionRequest */
 		FeedbackSubmissionRequest: {
@@ -3863,6 +4375,63 @@ export interface components {
 			 */
 			read_only_workspace: boolean;
 		};
+		/**
+		 * InferredExecutionPlanDTO
+		 * @description Data-driven per-table & per-document execution plan (ADR-018 / doc 25 §1.2).
+		 */
+		InferredExecutionPlanDTO: {
+			/**
+			 * Diagnostics
+			 * @description Diagnostic messages or issues identified during pre-flight validation
+			 */
+			diagnostics?: {
+				[key: string]: unknown;
+			}[];
+			/**
+			 * Doc Actions
+			 * @description Per-document extraction actions
+			 */
+			doc_actions?: components["schemas"]["DocExecutionActionDTO"][];
+			/**
+			 * Explanation
+			 * @description Human-readable explanation of why this plan was inferred
+			 * @default
+			 */
+			explanation: string;
+			/**
+			 * Inferred At Utc
+			 * @description ISO 8601 UTC inference timestamp
+			 */
+			inferred_at_utc: string;
+			/**
+			 * Passed
+			 * @description Whether pre-flight validation passed
+			 * @default true
+			 */
+			passed: boolean;
+			/**
+			 * Plan Id
+			 * @description Unique plan identifier
+			 */
+			plan_id: string;
+			/**
+			 * Primary Action
+			 * @description Primary classification across the 7-row matrix
+			 * @enum {string}
+			 */
+			primary_action:
+				| "COLD_START_N1"
+				| "VERIFIED_NO_OP"
+				| "MULTI_SOURCE_EXPANSION"
+				| "SCHEMA_DRIFT"
+				| "UNSTRUCTURED_FIRST"
+				| "HYBRID_PER_SOURCE";
+			/**
+			 * Table Actions
+			 * @description Per-table actions derived without user wave_type
+			 */
+			table_actions?: components["schemas"]["TableExecutionActionDTO"][];
+		};
 		/** InitStudioRequest */
 		InitStudioRequest: {
 			/** Domain Namespace */
@@ -3883,6 +4452,8 @@ export interface components {
 			local_token?: string | null;
 			/** Principal */
 			principal: string;
+			/** Role */
+			role?: string | null;
 			/** Status */
 			status: string;
 			/** Token Path */
@@ -3950,6 +4521,22 @@ export interface components {
 			session_id: string;
 			/** Total Bytes */
 			total_bytes: number;
+		};
+		/**
+		 * NamespaceSpecDTO
+		 * @description Specification of catalog/schema hierarchy (e.g. Databricks catalog.schema).
+		 */
+		NamespaceSpecDTO: {
+			/**
+			 * Catalog
+			 * @description Catalog name (for 3-level catalogs)
+			 */
+			catalog?: string | null;
+			/**
+			 * Schema Name
+			 * @description Schema / database name
+			 */
+			schema_name?: string | null;
 		};
 		/**
 		 * OntologyConceptSpec
@@ -4839,9 +5426,82 @@ export interface components {
 			sub: string;
 		};
 		/**
+		 * PipelineInputDTO
+		 * @description Normative single-run pipeline input specification (ADR-019).
+		 */
+		PipelineInputDTO: {
+			/**
+			 * Blueprint
+			 * @description VaultBlueprint envelope (containing ontology + optional contract)
+			 */
+			blueprint?:
+				| components["schemas"]["VaultBlueprintDTO"]
+				| {
+						[key: string]: unknown;
+				  }
+				| null;
+			/**
+			 * Blueprint Content
+			 * @description Inline YAML or JSON string for VaultBlueprint
+			 */
+			blueprint_content?: string | null;
+			/**
+			 * Blueprint Path
+			 * @description Path to vault_blueprint.yaml
+			 */
+			blueprint_path?: string | null;
+			/**
+			 * Governance Policy
+			 * @description Governance settings (ontology delta policy, hold policy, model routing)
+			 */
+			governance_policy?: {
+				[key: string]: unknown;
+			};
+			/**
+			 * Harness Provider
+			 * @description Execution harness provider ('agy', 'claude', etc.)
+			 * @default antigravity
+			 */
+			harness_provider: string;
+			/**
+			 * Initial Contract Content
+			 * @description Fallback initial contract content
+			 */
+			initial_contract_content?: string | null;
+			/**
+			 * Initial Contract Path
+			 * @description Fallback initial contract path if blueprint is omitted
+			 */
+			initial_contract_path?: string | null;
+			/**
+			 * Ontology Source
+			 * @description Fallback ontology mapping if blueprint is omitted
+			 */
+			ontology_source?: {
+				[key: string]: unknown;
+			} | null;
+			/**
+			 * Sources
+			 * @description Universal multi-connector source feeds
+			 */
+			sources?: components["schemas"]["SourceFeedDTO"][];
+			/**
+			 * Target Dialect
+			 * @description Target SQL dialect ('duckdb', 'databricks', etc.)
+			 * @default duckdb
+			 */
+			target_dialect: string;
+			/**
+			 * Unstructured Documents
+			 * @description Optional unstructured materials (PDF, Markdown, text, notes)
+			 */
+			unstructured_documents?: {
+				[key: string]: unknown;
+			}[];
+		};
+		/**
 		 * PipelineRunHandle
-		 * @description Handle returned immediately upon submitting a pipeline run
-		 *     (HTTP 202 Accepted, Decision D2).
+		 * @description Handle returned immediately upon submitting a pipeline run (HTTP 202 Accepted).
 		 */
 		PipelineRunHandle: {
 			/**
@@ -4861,7 +5521,7 @@ export interface components {
 			event_stream_url: string;
 			/**
 			 * Events Sse Url
-			 * @description Alias for event_stream_url (Decision D2)
+			 * @description Alias for event_stream_url
 			 */
 			events_sse_url?: string | null;
 			/**
@@ -4871,18 +5531,18 @@ export interface components {
 			harness_provider?: string | null;
 			/**
 			 * Has Initial Contract
-			 * @description Whether an initial contract was provided (GAP-07)
+			 * @description Whether an initial contract was provided
 			 * @default false
 			 */
 			has_initial_contract: boolean;
 			/**
 			 * Initial Contract Path
-			 * @description Path to initial contract if file-backed (GAP-07)
+			 * @description Path to initial contract if file-backed
 			 */
 			initial_contract_path?: string | null;
 			/**
 			 * Lifecycle Stage
-			 * @description Lifecycle stage of the run (COLD_START_N1 or MULTI_SOURCE_EXPANSION)
+			 * @description Lifecycle stage of the run
 			 * @default COLD_START_N1
 			 */
 			lifecycle_stage: string;
@@ -4906,17 +5566,29 @@ export interface components {
 			 * @description REST endpoint URL to query current run status
 			 */
 			status_url: string;
-			/**
-			 * Wave Id
-			 * @description Target wave identifier if restricted (GAP-07)
-			 */
-			wave_id?: string | null;
 		};
 		/**
 		 * PipelineRunRequest
 		 * @description Request DTO to initiate an asynchronous end-to-end pipeline run (Decision D2).
 		 */
 		PipelineRunRequest: {
+			/**
+			 * Blueprint
+			 * @description Inline VaultBlueprint payload (ADR-017)
+			 */
+			blueprint?: {
+				[key: string]: unknown;
+			} | null;
+			/**
+			 * Blueprint Content
+			 * @description Inline YAML or JSON string for VaultBlueprint
+			 */
+			blueprint_content?: string | null;
+			/**
+			 * Blueprint Path
+			 * @description Path to VaultBlueprint file
+			 */
+			blueprint_path?: string | null;
 			/**
 			 * Config
 			 * @description Extended execution config
@@ -4932,7 +5604,7 @@ export interface components {
 			dry_run: boolean;
 			/**
 			 * Graph A Source
-			 * @description Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)
+			 * @description Legacy pluggable SourceSpec for Graph A ontology
 			 */
 			graph_a_source?: {
 				[key: string]: unknown;
@@ -4951,7 +5623,7 @@ export interface components {
 			harness_config_path?: string | null;
 			/**
 			 * Initial Contract
-			 * @description Inline starting contract YAML (Decision D1 / GAP-07)
+			 * @description Inline starting contract YAML alias
 			 */
 			initial_contract?: string | null;
 			/**
@@ -4966,19 +5638,19 @@ export interface components {
 			initial_contract_path?: string | null;
 			/**
 			 * Input Spec
-			 * @description Inline input specification (Decision D1)
+			 * @description Legacy inline input specification
 			 */
 			input_spec?: {
 				[key: string]: unknown;
 			} | null;
 			/**
 			 * Input Spec Content
-			 * @description Inline YAML or JSON string for pipeline input specification
+			 * @description Legacy inline YAML or JSON string for pipeline input specification
 			 */
 			input_spec_content?: string | null;
 			/**
 			 * Input Spec Path
-			 * @description Path to input spec file
+			 * @description Legacy path to input spec file
 			 */
 			input_spec_path?: string | null;
 			/**
@@ -5002,24 +5674,63 @@ export interface components {
 			 */
 			run_id?: string | null;
 			/**
+			 * Sources
+			 * @description Universal source feeds
+			 */
+			sources?:
+				| components["schemas"]["SourceFeedDTO"][]
+				| {
+						[key: string]: unknown;
+				  }[];
+			/**
 			 * Steward Hold Policy
 			 * @description Steward hold policy
 			 */
 			steward_hold_policy?: string | null;
 			/**
-			 * Wave Id
-			 * @description Target wave identifier (e.g. W0, W1, W2) (GAP-07)
+			 * Target Dialect
+			 * @description Target SQL dialect override
 			 */
-			wave_id?: string | null;
+			target_dialect?: string | null;
+			/**
+			 * Unstructured Documents
+			 * @description Unstructured documents
+			 */
+			unstructured_documents?: {
+				[key: string]: unknown;
+			}[];
+			/**
+			 * Unstructured Only
+			 * @description Enable unstructured-only mode
+			 * @default false
+			 */
+			unstructured_only: boolean;
 		};
 		/**
 		 * PipelineValidateRequest
-		 * @description Request DTO for static pipeline configuration validation (Decision D1).
+		 * @description Request DTO for static pipeline configuration validation (Decision D1 / Single-Run).
 		 */
 		PipelineValidateRequest: {
 			/**
+			 * Blueprint
+			 * @description Inline VaultBlueprint payload (ADR-017)
+			 */
+			blueprint?: {
+				[key: string]: unknown;
+			} | null;
+			/**
+			 * Blueprint Content
+			 * @description Inline YAML or JSON string for VaultBlueprint
+			 */
+			blueprint_content?: string | null;
+			/**
+			 * Blueprint Path
+			 * @description Path to VaultBlueprint file
+			 */
+			blueprint_path?: string | null;
+			/**
 			 * Graph A Source
-			 * @description Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)
+			 * @description Legacy pluggable SourceSpec for Graph A ontology
 			 */
 			graph_a_source?: {
 				[key: string]: unknown;
@@ -5038,7 +5749,7 @@ export interface components {
 			harness_config_path?: string | null;
 			/**
 			 * Initial Contract
-			 * @description Inline starting contract YAML (Decision D1 / GAP-07)
+			 * @description Inline starting contract YAML alias
 			 */
 			initial_contract?: string | null;
 			/**
@@ -5053,19 +5764,19 @@ export interface components {
 			initial_contract_path?: string | null;
 			/**
 			 * Input Spec
-			 * @description Inline input specification (Decision D1)
+			 * @description Legacy inline input specification
 			 */
 			input_spec?: {
 				[key: string]: unknown;
 			} | null;
 			/**
 			 * Input Spec Content
-			 * @description Inline YAML or JSON string for pipeline input specification
+			 * @description Legacy inline YAML or JSON string for pipeline input specification
 			 */
 			input_spec_content?: string | null;
 			/**
 			 * Input Spec Path
-			 * @description Path to input spec file
+			 * @description Legacy path to input spec file
 			 */
 			input_spec_path?: string | null;
 			/**
@@ -5074,15 +5785,37 @@ export interface components {
 			 */
 			provider_override?: string | null;
 			/**
+			 * Sources
+			 * @description Universal source feeds
+			 */
+			sources?:
+				| components["schemas"]["SourceFeedDTO"][]
+				| {
+						[key: string]: unknown;
+				  }[];
+			/**
 			 * Steward Hold Policy
 			 * @description Steward hold policy
 			 */
 			steward_hold_policy?: string | null;
 			/**
-			 * Wave Id
-			 * @description Target wave identifier (e.g. W0, W1, W2) (GAP-07)
+			 * Target Dialect
+			 * @description Target SQL dialect override
 			 */
-			wave_id?: string | null;
+			target_dialect?: string | null;
+			/**
+			 * Unstructured Documents
+			 * @description Unstructured documents
+			 */
+			unstructured_documents?: {
+				[key: string]: unknown;
+			}[];
+			/**
+			 * Unstructured Only
+			 * @description Enable unstructured-only mode
+			 * @default false
+			 */
+			unstructured_only: boolean;
 		};
 		/**
 		 * PlatformConfigResponse
@@ -5480,11 +6213,136 @@ export interface components {
 			 * @default PENDING
 			 */
 			status: components["schemas"]["RunStatus"];
+		};
+		/**
+		 * PromoteCandidateRequest
+		 * @description Request payload to promote a held-back candidate via Path A or Path B.
+		 */
+		PromoteCandidateRequest: {
 			/**
-			 * Wave Id
-			 * @description Target wave identifier if restricted (GAP-07)
+			 * Admin Signature
+			 * @description Optional cryptographic signature or token of authorizing admin
 			 */
-			wave_id?: string | null;
+			admin_signature?: string | null;
+			/**
+			 * Path
+			 * @description Promotion path: Path A (synonym re-scoring) or Path B (signed waiver)
+			 * @default path_a
+			 * @enum {string}
+			 */
+			path: "path_a" | "path_b";
+			/**
+			 * Rationale
+			 * @description Alias for waiver_rationale
+			 */
+			rationale?: string | null;
+			/**
+			 * Synonyms
+			 * @description Path A: Additional synonyms to elevate BM25 score >= 0.65
+			 */
+			synonyms?: string[] | null;
+			/**
+			 * Waiver
+			 * @description CLI flag indicating Path B waiver
+			 * @default false
+			 */
+			waiver: boolean;
+			/**
+			 * Waiver Rationale
+			 * @description Path B: Architectural justification for ungrounded waiver (>= 10 chars)
+			 */
+			waiver_rationale?: string | null;
+		};
+		/**
+		 * PromoteCandidateResponse
+		 * @description Response emitted upon executing candidate promotion.
+		 */
+		PromoteCandidateResponse: {
+			/**
+			 * Applied Operation Id
+			 * @description ID of generated additive delta operation
+			 */
+			applied_operation_id?: string | null;
+			/**
+			 * Candidate Id
+			 * @description Identifier of the evaluated candidate
+			 */
+			candidate_id: string;
+			/**
+			 * Concept Uri
+			 * @description Assigned canonical concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence Score
+			 * @description Resulting match confidence
+			 * @default 0
+			 */
+			confidence_score: number;
+			/**
+			 * Fibo Uri
+			 * @description Grounded FIBO class URI
+			 */
+			fibo_uri?: string | null;
+			/**
+			 * New Confidence
+			 * @description Alias for confidence_score
+			 */
+			new_confidence?: number | null;
+			/**
+			 * Operations
+			 * @description Additive delta operations emitted
+			 */
+			operations?: {
+				[key: string]: unknown;
+			}[];
+			/**
+			 * Operations Count
+			 * @description Count of operations emitted
+			 * @default 0
+			 */
+			operations_count: number;
+			/**
+			 * Path
+			 * @description Path executed
+			 * @default path_a
+			 * @enum {string}
+			 */
+			path: "path_a" | "path_b";
+			/**
+			 * Path Used
+			 * @description Alias for path
+			 */
+			path_used?: ("path_a" | "path_b") | null;
+			/**
+			 * Promoted
+			 * @description Whether promotion succeeded
+			 * @default true
+			 */
+			promoted: boolean;
+			/**
+			 * Proposal Id
+			 * @description ID of staged or created proposal
+			 */
+			proposal_id?: string | null;
+			/**
+			 * Status
+			 * @description Promotion status code
+			 * @default PROMOTED
+			 * @enum {string}
+			 */
+			status: "PROMOTED" | "REJECTED";
+			/**
+			 * Target Hub
+			 * @description Assigned target physical hub
+			 * @default
+			 */
+			target_hub: string;
+			/**
+			 * Waiver Id
+			 * @description ID of generated StewardWaiverRecord if Path B
+			 */
+			waiver_id?: string | null;
 		};
 		/** PromoteRequest */
 		PromoteRequest: {
@@ -5713,6 +6571,20 @@ export interface components {
 			 * @default
 			 */
 			target_uri: string;
+		};
+		/** RefineProposalRequest */
+		RefineProposalRequest: {
+			/**
+			 * Mode
+			 * @description Execution mode: auto, agent, deterministic
+			 * @default auto
+			 */
+			mode: string;
+			/**
+			 * Steering Prompt
+			 * @description Natural-language steering guidance
+			 */
+			steering_prompt: string;
 		};
 		/**
 		 * RejectOntologyDeltaOption
@@ -6243,6 +7115,30 @@ export interface components {
 			| "FAILED"
 			| "ABORTED";
 		/**
+		 * SamplingPolicyDTO
+		 * @description Policy governing sandbox row bounds and profiling sampling strategy.
+		 */
+		SamplingPolicyDTO: {
+			/**
+			 * Max Sandbox Rows
+			 * @description Maximum rows streamed into DuckDB shadow sandbox
+			 * @default 10000
+			 */
+			max_sandbox_rows: number;
+			/**
+			 * Sample Ratio
+			 * @description Optional sampling ratio for Bernoulli sampling
+			 */
+			sample_ratio?: number | null;
+			/**
+			 * Strategy
+			 * @description Sampling strategy for remote pushdown profilers
+			 * @default DETERMINISTIC_LIMIT
+			 * @enum {string}
+			 */
+			strategy: "DETERMINISTIC_LIMIT" | "TABLESAMPLE_BERNOULLI";
+		};
+		/**
 		 * SandboxBatchResult
 		 * @description Execution result for an individual sandbox batch.
 		 */
@@ -6656,6 +7552,132 @@ export interface components {
 			 */
 			tombstoned: boolean;
 		};
+		/**
+		 * SourceFeedDTO
+		 * @description Universal source feed contract supporting single files and multi-table catalogs.
+		 */
+		SourceFeedDTO: {
+			/**
+			 * Adapter
+			 * @description Optional adapter identifier override (inferred from URI scheme if omitted)
+			 */
+			adapter?: string | null;
+			/**
+			 * Credentials Ref
+			 * @description Safe reference to credentials formatted strictly as 'env:VAR' or 'secret:NAME'
+			 */
+			credentials_ref?: string | null;
+			/**
+			 * Feed Id
+			 * @description Unique feed identifier within the pipeline run
+			 */
+			feed_id: string;
+			/** @description Optional 2- or 3-level catalog/schema namespace */
+			namespace?: components["schemas"]["NamespaceSpecDTO"] | null;
+			/**
+			 * Options
+			 * @description Adapter-specific configuration options (e.g. http_path, time travel)
+			 */
+			options?: {
+				[key: string]: unknown;
+			};
+			/** @description Sandbox row bounds and profiling sampling policy */
+			sampling_policy?: components["schemas"]["SamplingPolicyDTO"];
+			/**
+			 * Source System
+			 * @description Normalized source system identifier
+			 */
+			source_system: string;
+			/** @description Table selection rules for multi-table sources */
+			table_selection?: components["schemas"]["TableSelectionDTO"] | null;
+			/**
+			 * Target Dialect
+			 * @description Optional target SQL output dialect alongside canonical DuckDB
+			 */
+			target_dialect?: string | null;
+			/**
+			 * Uri
+			 * @description Source path, URI, or connection string
+			 */
+			uri: string;
+		};
+		/**
+		 * SourceInspectRequestDTO
+		 * @description Request payload to inspect and enumerate tables from a data source.
+		 */
+		SourceInspectRequestDTO: {
+			/**
+			 * Adapter
+			 * @description Optional adapter scheme override
+			 */
+			adapter?: string | null;
+			/**
+			 * Cas Hash
+			 * @description Optional CAS hash for staged uploads
+			 */
+			cas_hash?: string | null;
+			/**
+			 * Credentials Ref
+			 * @description Credentials reference (env: / secret:)
+			 */
+			credentials_ref?: string | null;
+			/** @description Optional namespace filter */
+			namespace?: components["schemas"]["NamespaceSpecDTO"] | null;
+			/**
+			 * Options
+			 * @description Adapter connection options
+			 */
+			options?: {
+				[key: string]: unknown;
+			};
+			/**
+			 * Uri
+			 * @description Source path, URI, or upload handle
+			 */
+			uri: string;
+		};
+		/**
+		 * SourceInspectResponseDTO
+		 * @description Response payload returning discovered tables, columns, constraints, and tags.
+		 */
+		SourceInspectResponseDTO: {
+			/**
+			 * Adapter Id
+			 * @description Resolved adapter identifier
+			 */
+			adapter_id: string;
+			/**
+			 * Capabilities
+			 * @description Source capabilities map
+			 */
+			capabilities?: {
+				[key: string]: unknown;
+			};
+			/**
+			 * Fingerprint
+			 * @description Deterministic source snapshot digest
+			 */
+			fingerprint?: string | null;
+			/**
+			 * Inspected At Utc
+			 * @description ISO 8601 UTC inspection timestamp
+			 */
+			inspected_at_utc: string;
+			/**
+			 * Namespaces
+			 * @description Available namespaces
+			 */
+			namespaces?: {
+				[key: string]: unknown;
+			}[];
+			/**
+			 * Tables
+			 * @description Discovered tables and metadata
+			 */
+			tables?: {
+				[key: string]: unknown;
+			}[];
+		};
 		/** SourceUploadResponse */
 		SourceUploadResponse: {
 			/**
@@ -6760,6 +7782,169 @@ export interface components {
 			 * @description Model tier or execution kind
 			 */
 			tier: string;
+		};
+		/**
+		 * StagedCandidateDTO
+		 * @description Held-back candidate concept in the staging holding area.
+		 */
+		StagedCandidateDTO: {
+			/**
+			 * Attributes
+			 * @description Candidate conceptual attributes
+			 */
+			attributes?: {
+				[key: string]: unknown;
+			}[];
+			/**
+			 * Candidate Id
+			 * @description Unique staging identifier
+			 */
+			candidate_id: string;
+			/**
+			 * Concept Name
+			 * @description Proposed business concept name
+			 */
+			concept_name: string;
+			/**
+			 * Dependent Links
+			 * @description Associated candidate link relationships
+			 */
+			dependent_links?: {
+				[key: string]: unknown;
+			}[];
+			/**
+			 * Evidence Refs
+			 * @description Citations to source evidence chunks
+			 */
+			evidence_refs?: {
+				[key: string]: unknown;
+			}[];
+			/**
+			 * Reason Held Back
+			 * @description Reason candidate was withheld
+			 * @default GROUNDING_THRESHOLD_UNMET
+			 */
+			reason_held_back: string;
+			/**
+			 * Status
+			 * @description Staging lifecycle status
+			 * @default held_back
+			 * @enum {string}
+			 */
+			status: "held_back" | "promoted" | "rejected";
+			/**
+			 * Suggested Hub
+			 * @description Suggested physical hub slug (e.g. hub_slug)
+			 */
+			suggested_hub: string;
+			/**
+			 * Top Match Score
+			 * @description Highest BM25 match score
+			 * @default 0
+			 */
+			top_match_score: number;
+			/**
+			 * Top Match Uri
+			 * @description Top reference URI
+			 */
+			top_match_uri?: string | null;
+		};
+		/**
+		 * StagedCandidatesQueryResponse
+		 * @description Response payload querying all currently staged candidates for a session.
+		 */
+		StagedCandidatesQueryResponse: {
+			/**
+			 * Candidates
+			 * @description Backwards-compatibility alias for staged_candidates
+			 */
+			candidates?: components["schemas"]["StagedCandidateDTO"][];
+			/**
+			 * Session Id
+			 * @description Session identifier
+			 */
+			session_id: string;
+			/**
+			 * Staged Candidates
+			 * @description Collection of staged candidates
+			 */
+			staged_candidates?: components["schemas"]["StagedCandidateDTO"][];
+			/**
+			 * Total Count
+			 * @description Total count of held-back candidates
+			 * @default 0
+			 */
+			total_count: number;
+		};
+		/**
+		 * StarterPackListResponse
+		 * @description Response payload listing all available starter packs.
+		 */
+		StarterPackListResponse: {
+			/**
+			 * @description Recommended starter pack preset
+			 * @default all_domains
+			 */
+			default_preset: components["schemas"]["AssetManagementPackId"];
+			/**
+			 * Packs
+			 * @description Collection of registered starter packs
+			 */
+			packs: components["schemas"]["StarterPackMetadata"][];
+		};
+		/**
+		 * StarterPackMetadata
+		 * @description Metadata summary describing a composable starter pack.
+		 */
+		StarterPackMetadata: {
+			/**
+			 * Concept Count
+			 * @description Count of Canonical Business Concepts
+			 */
+			concept_count: number;
+			/**
+			 * Concepts
+			 * @description List of concept names or URNs
+			 */
+			concepts?: string[];
+			/**
+			 * Dependencies
+			 * @description Required prerequisite packs
+			 */
+			dependencies?: components["schemas"]["AssetManagementPackId"][];
+			/**
+			 * Description
+			 * @description Detailed description of pack domain
+			 */
+			description: string;
+			/**
+			 * Display Name
+			 * @description Human-readable title for UI display
+			 */
+			display_name: string;
+			/**
+			 * Domain Namespace
+			 * @description Domain namespace key
+			 */
+			domain_namespace: string;
+			/** @description Unique pack identifier */
+			pack_id: components["schemas"]["AssetManagementPackId"];
+			/**
+			 * Relationship Count
+			 * @description Count of Canonical Relationships
+			 */
+			relationship_count: number;
+			/**
+			 * Standards References
+			 * @description Authoritative industry standards referenced
+			 */
+			standards_references?: string[];
+			/**
+			 * Version
+			 * @description Pack semver version
+			 * @default 1.0.0
+			 */
+			version: string;
 		};
 		/**
 		 * StepDTO
@@ -6925,6 +8110,102 @@ export interface components {
 			/** Updated At */
 			updated_at: string;
 		};
+		/**
+		 * TableExecutionActionDTO
+		 * @description Inferred per-table action within a single-run execution plan.
+		 */
+		TableExecutionActionDTO: {
+			/**
+			 * Action
+			 * @description Inferred action per 7-row matrix
+			 * @enum {string}
+			 */
+			action:
+				| "GREENFIELD_SYNTHESIS"
+				| "INCREMENTAL_ONBOARDING"
+				| "INTRA_SOURCE_DRIFT"
+				| "NO_OP";
+			/**
+			 * Drift Findings
+			 * @description Alg A.9a schema drift findings if table is in existing contract
+			 */
+			drift_findings?: {
+				[key: string]: unknown;
+			}[];
+			/**
+			 * Matched Existing Entity
+			 * @description Target Hub or Satellite if already deployed in contract
+			 */
+			matched_existing_entity?: string | null;
+			/**
+			 * Source System
+			 * @description Source system identifier
+			 */
+			source_system: string;
+			/**
+			 * Table Name
+			 * @description Table name within source system
+			 */
+			table_name: string;
+		};
+		/**
+		 * TableSelectionDTO
+		 * @description Policy for selecting user tables within a multi-table catalog or database.
+		 */
+		TableSelectionDTO: {
+			/**
+			 * Exclude Pattern
+			 * @description Regex pattern to filter excluded tables
+			 */
+			exclude_pattern?: string | null;
+			/**
+			 * Include Pattern
+			 * @description Regex pattern to filter included tables when mode=PATTERN
+			 */
+			include_pattern?: string | null;
+			/**
+			 * Mode
+			 * @description Table selection mode
+			 * @default ALL_USER_TABLES
+			 * @enum {string}
+			 */
+			mode: "ALL_USER_TABLES" | "EXPLICIT" | "PATTERN";
+			/**
+			 * Tables
+			 * @description Explicit table names to include when mode=EXPLICIT
+			 */
+			tables?: string[];
+		};
+		/** TextSourceUploadRequest */
+		TextSourceUploadRequest: {
+			/**
+			 * Description
+			 * @description Optional description
+			 */
+			description?: string | null;
+			/**
+			 * Do Not Send To Agent
+			 * @description Confidentiality taint flag
+			 * @default false
+			 */
+			do_not_send_to_agent: boolean;
+			/**
+			 * Format
+			 * @description Text format encoding: 'text' or 'markdown'
+			 * @default text
+			 */
+			format: string;
+			/**
+			 * Source Name
+			 * @description Descriptive document filename or label
+			 */
+			source_name?: string | null;
+			/**
+			 * Text
+			 * @description Raw text or markdown document content
+			 */
+			text: string;
+		};
 		/** TokenExchangeRequest */
 		TokenExchangeRequest: {
 			/** Launch Nonce */
@@ -6938,6 +8219,8 @@ export interface components {
 			access_token?: string | null;
 			/** Principal */
 			principal: string;
+			/** Role */
+			role?: string | null;
 			/** Status */
 			status: string;
 		};
@@ -7002,6 +8285,40 @@ export interface components {
 			msg: string;
 			/** Error Type */
 			type: string;
+		};
+		/**
+		 * VaultBlueprintDTO
+		 * @description Unified envelope packaging ontology, contract, and lineage (ADR-017).
+		 */
+		VaultBlueprintDTO: {
+			/**
+			 * Blueprint Version
+			 * @description Normative VaultBlueprint specification version
+			 * @default 1.0.0
+			 * @constant
+			 */
+			blueprint_version: "1.0.0";
+			/**
+			 * Contract
+			 * @description Physical Data Vault 2.0 model contract (or null for zero-data greenfield seed)
+			 */
+			contract?: {
+				[key: string]: unknown;
+			} | null;
+			/**
+			 * Domain Namespace
+			 * @description Target business domain namespace
+			 */
+			domain_namespace: string;
+			/** @description Cryptographic lineage metadata chaining parent revisions */
+			lineage: components["schemas"]["BlueprintLineageDTO"];
+			/**
+			 * Ontology
+			 * @description Semantic oracle: GraphAOntology v1.0 payload
+			 */
+			ontology: {
+				[key: string]: unknown;
+			};
 		};
 		/**
 		 * VerifyRequest
@@ -7205,27 +8522,6 @@ export interface components {
 		} & {
 			[key: string]: unknown;
 		};
-		/**
-		 * WaveMetadataSpecDTO
-		 * @description Wave metadata specification.
-		 */
-		WaveMetadataSpecDTO: {
-			/**
-			 * Description
-			 * @description Wave description
-			 */
-			description: string;
-			/**
-			 * Id
-			 * @description Wave identifier (e.g. W0, W1)
-			 */
-			id: string;
-			/**
-			 * Name
-			 * @description Wave name
-			 */
-			name: string;
-		};
 	};
 	responses: never;
 	parameters: never;
@@ -7286,6 +8582,73 @@ export interface operations {
 				};
 				content: {
 					"application/json": components["schemas"]["ArtifactMetadataResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	upload_cas_blob_api_v1_cas_blobs_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				"X-CAS-SHA256"?: string | null;
+				"X-OpenDV-Role"?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": {
+						[key: string]: unknown;
+					};
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_cas_blob_api_v1_cas_blobs__sha256__get: {
+		parameters: {
+			query?: never;
+			header?: {
+				"X-OpenDV-Role"?: string | null;
+			};
+			path: {
+				sha256: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": unknown;
 				};
 			};
 			/** @description Validation Error */
@@ -8095,6 +9458,78 @@ export interface operations {
 			};
 		};
 	};
+	export_session_blueprint_get_api_v1_ontology_studio_sessions__session_id__export_blueprint_get: {
+		parameters: {
+			query?: {
+				version_tag?: string | null;
+			};
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["BlueprintExportResponseDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	export_session_blueprint_post_api_v1_ontology_studio_sessions__session_id__export_blueprint_post: {
+		parameters: {
+			query?: {
+				version_tag?: string | null;
+			};
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: {
+			content: {
+				"application/json":
+					| components["schemas"]["ExportBlueprintRequest"]
+					| null;
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["BlueprintExportResponseDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
 	submit_feedback_api_v1_ontology_studio_sessions__session_id__feedback_post: {
 		parameters: {
 			query?: never;
@@ -8512,6 +9947,42 @@ export interface operations {
 			};
 		};
 	};
+	refine_proposal_endpoint_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__refine_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+				proposal_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["RefineProposalRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["ProposalRecordDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
 	reject_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__reject_post: {
 		parameters: {
 			query?: never;
@@ -8647,6 +10118,41 @@ export interface operations {
 			};
 		};
 	};
+	upload_text_source_api_v1_ontology_studio_sessions__session_id__sources_text_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["TextSourceUploadRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["SourceUploadResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
 	get_source_detail_api_v1_ontology_studio_sessions__session_id__sources__source_id__get: {
 		parameters: {
 			query?: never;
@@ -8728,6 +10234,110 @@ export interface operations {
 				};
 				content: {
 					"application/json": unknown;
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	list_staged_candidates_api_v1_ontology_studio_sessions__session_id__staged_candidates_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["StagedCandidatesQueryResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	promote_candidate_endpoint_api_v1_ontology_studio_sessions__session_id__staged_candidates__candidate_id__promote_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+				candidate_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["PromoteCandidateRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["PromoteCandidateResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	apply_starter_pack_endpoint_api_v1_ontology_studio_sessions__session_id__starter_packs_apply_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				"If-Match"?: string | null;
+			};
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["ApplyStarterPackRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["ApplyStarterPackResponse"];
 				};
 			};
 			/** @description Validation Error */
@@ -8844,6 +10454,26 @@ export interface operations {
 			};
 		};
 	};
+	list_starter_packs_endpoint_api_v1_ontology_studio_starter_packs_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["StarterPackListResponse"];
+				};
+			};
+		};
+	};
 	suggest_ontology_api_v1_ontology_suggestions_post: {
 		parameters: {
 			query?: never;
@@ -8912,14 +10542,20 @@ export interface operations {
 	};
 	run_pipeline_api_v1_pipelines_runs_post: {
 		parameters: {
-			query?: never;
-			header?: never;
+			query?: {
+				sync?: boolean;
+			};
+			header?: {
+				"X-OpenDV-Role"?: string | null;
+			};
 			path?: never;
 			cookie?: never;
 		};
 		requestBody: {
 			content: {
-				"application/json": components["schemas"]["PipelineRunRequest"];
+				"application/json":
+					| components["schemas"]["PipelineInputDTO"]
+					| components["schemas"]["PipelineRunRequest"];
 			};
 		};
 		responses: {
@@ -8952,7 +10588,9 @@ export interface operations {
 		};
 		requestBody: {
 			content: {
-				"application/json": components["schemas"]["PipelineValidateRequest"];
+				"application/json":
+					| components["schemas"]["PipelineValidateRequest"]
+					| components["schemas"]["PipelineInputDTO"];
 			};
 		};
 		responses: {
@@ -8962,9 +10600,11 @@ export interface operations {
 					[name: string]: unknown;
 				};
 				content: {
-					"application/json": {
-						[key: string]: unknown;
-					};
+					"application/json":
+						| {
+								[key: string]: unknown;
+						  }
+						| components["schemas"]["InferredExecutionPlanDTO"];
 				};
 			};
 			/** @description Validation Error */
@@ -9251,14 +10891,20 @@ export interface operations {
 	};
 	start_run_api_v1_runs_post: {
 		parameters: {
-			query?: never;
-			header?: never;
+			query?: {
+				sync?: boolean;
+			};
+			header?: {
+				"X-OpenDV-Role"?: string | null;
+			};
 			path?: never;
 			cookie?: never;
 		};
 		requestBody: {
 			content: {
-				"application/json": components["schemas"]["CreateRunRequest"];
+				"application/json":
+					| components["schemas"]["PipelineInputDTO"]
+					| components["schemas"]["CreateRunRequest"];
 			};
 		};
 		responses: {
@@ -9268,7 +10914,48 @@ export interface operations {
 					[name: string]: unknown;
 				};
 				content: {
-					"application/json": components["schemas"]["PipelineRunHandle"];
+					"application/json":
+						| components["schemas"]["PipelineRunHandle"]
+						| {
+								[key: string]: unknown;
+						  };
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	validate_single_run_api_v1_runs_validate_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json":
+					| components["schemas"]["PipelineInputDTO"]
+					| {
+							[key: string]: unknown;
+					  };
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["InferredExecutionPlanDTO"];
 				};
 			};
 			/** @description Validation Error */
@@ -9746,6 +11433,61 @@ export interface operations {
 				};
 				content: {
 					"application/json": components["schemas"]["SandboxQueryResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_source_adapters_api_v1_sources_adapters_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["ConnectorUIManifestDTO"][];
+				};
+			};
+		};
+	};
+	inspect_data_source_api_v1_sources_inspect_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				"X-OpenDV-Role"?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["SourceInspectRequestDTO"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["SourceInspectResponseDTO"];
 				};
 			};
 			/** @description Validation Error */

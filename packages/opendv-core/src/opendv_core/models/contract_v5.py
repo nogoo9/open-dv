@@ -91,6 +91,13 @@ class ColumnTriageEntry(StrictContractModel):
     column_name: str
     elm_classification: ELMClassificationLiteral
     target_dv_entity: str
+    source_sql_type: str | None = Field(
+        default=None,
+        description=(
+            "Canonical physical SQL type recorded when the column was triaged "
+            "(used by Alg A.9a contract-diff drift)."
+        ),
+    )
 
 
 class BusinessKeySource(StrictContractModel):

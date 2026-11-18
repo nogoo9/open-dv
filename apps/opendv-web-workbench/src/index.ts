@@ -35,14 +35,20 @@ export function mountWorkbenchApp(container?: HTMLElement | null): Root | null {
 		return null;
 	}
 	const root = createRoot(target);
-	const element = isOntologyRoute()
-		? createElement(
-				Suspense,
-				{ fallback: createElement("div", { className: "studio-loading" }, "Loading Ontology Studio...") },
-				createElement(LazyOntologyStudioApp),
-			)
-		: createElement(OpenDVWorkbenchExplorer);
-	root.render(element);
+	const renderApp = () => {
+		const element = isOntologyRoute()
+			? createElement(
+					Suspense,
+					{ fallback: createElement("div", { className: "studio-loading" }, "Loading Ontology Studio...") },
+					createElement(LazyOntologyStudioApp),
+				)
+			: createElement(OpenDVWorkbenchExplorer);
+		root.render(element);
+	};
+	renderApp();
+	if (typeof window !== "undefined") {
+		window.addEventListener("popstate", renderApp);
+	}
 	return root;
 }
 

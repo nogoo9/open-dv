@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -11,6 +12,23 @@ class PathContainmentError(ValueError):
     """Raised when a path violates workspace directory containment or attempts path traversal."""
 
     pass
+
+
+def _match_permitted_root(cand_str: str, permitted_reals: list[str]) -> Path | None:
+    cand_real = os.path.realpath(cand_str)
+    cand_norm = os.path.normcase(cand_real)
+    for p_real in permitted_reals:
+        p_pfx = p_real if p_real.endswith(os.sep) else p_real + os.sep
+        if cand_real == p_real or cand_norm == os.path.normcase(p_real):
+            return Path(p_real)
+        if cand_real.startswith(p_pfx):
+            return Path(cand_real)
+        p_norm_pfx = os.path.normcase(p_pfx)
+        if cand_norm.startswith(p_norm_pfx):
+            reanchored = os.path.realpath(os.path.join(p_real, cand_real[len(p_pfx) :]))
+            if reanchored.startswith(p_pfx):
+                return Path(reanchored)
+    return None
 
 
 def resolve_workspace_path(
@@ -60,29 +78,35 @@ def resolve_workspace_path(
     if allow_temp:
         permitted.add(Path(tempfile.gettempdir()).resolve())
 
+    permitted_reals = [os.path.realpath(str(p)) for p in permitted]
+
     if candidate.is_absolute():
-        resolved = candidate.resolve()
+        matched = _match_permitted_root(str(candidate), permitted_reals)
+        if matched is not None:
+            return matched
+        resolved_preview = os.path.realpath(str(candidate))
     else:
         cand_list: list[Path] = []
         if base_dir is not None:
-            cand_list.append((base_dir / candidate).resolve())
+            cand_list.append(base_dir / candidate)
         if workspace_root is not None:
-            cand_list.append((workspace_root / candidate).resolve())
+            cand_list.append(workspace_root / candidate)
         if allowed_roots:
             for extra_root in allowed_roots:
-                cand_list.append((extra_root / candidate).resolve())
+                cand_list.append(extra_root / candidate)
 
-        resolved_match = None
         for cand in cand_list:
-            if cand.exists():
-                resolved_match = cand
-                break
-        resolved = resolved_match if resolved_match is not None else cand_list[0]
+            matched = _match_permitted_root(str(cand), permitted_reals)
+            if matched is not None and matched.exists():
+                return matched
 
-    if not any(resolved.is_relative_to(p) for p in permitted):
-        raise PathContainmentError(
-            f"Path '{raw_str}' is outside allowed workspace directories: resolves to '{resolved}', "
-            f"escaping permitted workspace roots: {[str(p) for p in sorted(permitted)]}"
-        )
+        fallback = _match_permitted_root(str(cand_list[0]), permitted_reals)
+        if fallback is not None:
+            return fallback
+        resolved_preview = os.path.realpath(str(cand_list[0]))
 
-    return resolved
+    raise PathContainmentError(
+        f"Path '{raw_str}' is outside allowed workspace directories: "
+        f"resolves to '{resolved_preview}', "
+        f"escaping permitted workspace roots: {[str(p) for p in sorted(permitted)]}"
+    )

@@ -64,29 +64,38 @@ export function createWorkbenchDevServer(
 		options.apiUrl ?? process.env.OPENDV_API_URL ?? DEFAULT_API_URL;
 	const workbenchRoot = resolve(import.meta.dir, "..");
 
-	let cachedBundle: string | null = null;
 	async function getBundle(): Promise<string> {
-		if (cachedBundle) {
-			return cachedBundle;
-		}
-		cachedBundle = await buildBrowserBundle(workbenchRoot);
-		return cachedBundle;
+		return await buildBrowserBundle(workbenchRoot);
 	}
 
 	return Bun.serve({
 		port,
 		hostname,
+		idleTimeout: 255,
 		async fetch(request) {
 			const url = new URL(request.url);
 
 			// 1. Proxy /api and /api/* requests to upstream Platform API
 			if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
 				const targetUrl = `${apiUrl.replace(/\/+$/, "")}${url.pathname}${url.search}`;
+				const targetOrigin = new URL(apiUrl).origin;
 				const headers = new Headers();
 				for (const [key, value] of request.headers.entries()) {
 					if (key.toLowerCase() !== "host") {
 						headers.set(key, value);
 					}
+				}
+				if (headers.has("origin")) {
+					headers.set("origin", targetOrigin);
+				}
+				if (headers.has("referer")) {
+					try {
+						const refUrl = new URL(headers.get("referer")!);
+						headers.set(
+							"referer",
+							`${targetOrigin}${refUrl.pathname}${refUrl.search}`,
+						);
+					} catch {}
 				}
 				const init: RequestInit = {
 					method: request.method,

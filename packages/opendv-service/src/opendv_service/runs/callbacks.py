@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from opendv_agent_harness import build_observability_event_dict
 from opendv_contracts import EventType
 from opendv_service.errors import PipelineAbortedError
 
@@ -38,20 +39,20 @@ def build_pipeline_callbacks(
 
         now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         evt_id = f"evt-{context.run_id}-{stage_id.lower()}-start-{uuid.uuid4().hex[:6]}"
-        evt = {
-            "event_id": evt_id,
-            "run_id": context.run_id,
-            "timestamp_utc": now_iso,
-            "stage_id": stage_id,
-            "event_type": EventType.STAGE_STARTED.value,
-            "payload": {
-                "wave_index": wave_idx,
-                "stage_id": stage_id,
-                "agent_persona": persona,
-                "model": model,
-                "status": "RUNNING",
-            },
-        }
+        evt = build_observability_event_dict(
+            event_id=evt_id,
+            event_type=EventType.STAGE_STARTED.value,
+            run_id=context.run_id,
+            trace_id=uuid.uuid4().hex,
+            span_id=uuid.uuid4().hex[:16],
+            timestamp_utc=now_iso,
+            stage_id=stage_id,
+            agent_persona=persona,
+            status="PASS",
+            headline=f"Stage {stage_id} started by {persona}.",
+            business_impact=f"Executing wave {wave_idx} with model {model}.",
+            summary_metrics={"wave_index": wave_idx, "model": model},
+        )
 
         if context.run_id in state.runs:
             curr = state.runs[context.run_id]
@@ -62,6 +63,7 @@ def build_pipeline_callbacks(
                 }
             )
 
+        state.run_events.setdefault(context.run_id, []).append(evt)
         engine.broadcast_event(context, evt)
 
     def _on_stage_complete(wave_idx: int, step_report: Any) -> None:
@@ -74,21 +76,26 @@ def build_pipeline_callbacks(
         status_raw = str(getattr(step_report, "status", "PASS"))
         passed = status_raw in {"PASS", "COMPLETED", "AUTO-FIX", "AUTO_REPAIRED"}
         ev_type = EventType.STAGE_COMPLETED.value if passed else EventType.STAGE_FAILED.value
+        p_name = getattr(step_report, "persona", "vault-first-mate")
 
-        evt = {
-            "event_id": evt_id,
-            "run_id": context.run_id,
-            "timestamp_utc": now_iso,
-            "stage_id": st_id,
-            "event_type": ev_type,
-            "payload": {
+        evt = build_observability_event_dict(
+            event_id=evt_id,
+            event_type=ev_type,
+            run_id=context.run_id,
+            trace_id=uuid.uuid4().hex,
+            span_id=uuid.uuid4().hex[:16],
+            timestamp_utc=now_iso,
+            stage_id=st_id,
+            agent_persona=p_name,
+            status="PASS" if passed else "REJECT-WITH-TRACE",
+            headline=f"Stage {st_id} completed: {status_raw}.",
+            business_impact=str(getattr(step_report, "summary", ""))[:200]
+            or f"Wave {wave_idx} stage complete.",
+            summary_metrics={
                 "wave_index": wave_idx,
-                "stage_id": st_id,
-                "status": status_raw,
-                "summary": str(getattr(step_report, "summary", "")),
                 "duration_ms": int(getattr(step_report, "duration_ms", 0)),
             },
-        }
+        )
 
         if context.run_id in state.runs:
             curr = state.runs[context.run_id]
@@ -96,6 +103,7 @@ def build_pipeline_callbacks(
                 update={"event_count": curr.event_count + 1}
             )
 
+        state.run_events.setdefault(context.run_id, []).append(evt)
         engine.broadcast_event(context, evt)
 
     def _on_stream_event(harness_event: Any) -> None:
@@ -115,15 +123,22 @@ def build_pipeline_callbacks(
             stage_id = state.runs[context.run_id].current_stage_id
 
         ev_type = EventType.THOUGHT_DELTA.value if thought_text else EventType.TOKEN_DELTA.value
-        payload = {"thought": thought_text} if thought_text else {"delta": delta_text}
-        evt = {
-            "event_id": f"evt-{context.run_id}-token-{uuid.uuid4().hex[:6]}",
-            "run_id": context.run_id,
-            "timestamp_utc": now_iso,
-            "stage_id": stage_id,
-            "event_type": ev_type,
-            "payload": payload,
-        }
+        summary_txt = (thought_text or delta_text or "").strip()
+        evt = build_observability_event_dict(
+            event_id=f"evt-{context.run_id}-token-{uuid.uuid4().hex[:6]}",
+            event_type=ev_type,
+            run_id=context.run_id,
+            trace_id=uuid.uuid4().hex,
+            span_id=uuid.uuid4().hex[:16],
+            timestamp_utc=now_iso,
+            stage_id=stage_id,
+            agent_persona="vault-first-mate",
+            status="PASS",
+            headline="Stream delta checkpoint.",
+            business_impact=summary_txt[:100] or "LLM stream activity.",
+            summary_metrics={"delta_length": len(summary_txt)},
+        )
+        state.run_events.setdefault(context.run_id, []).append(evt)
         engine.broadcast_event(context, evt)
 
     return PipelineCallbacks(

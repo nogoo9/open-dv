@@ -24,6 +24,7 @@ import {
 	createEmptyDocDraft,
 	createEmptySourceDraft,
 	createEmptyWaveDraft,
+	createOntologyStudioPipelineDraft,
 	draftToInputSpecObject,
 	draftToStagedSpec,
 	draftToYamlOrJsonText,
@@ -36,6 +37,7 @@ import {
 	executeSubmitRun,
 	executeValidate,
 } from "../src/explorer/modals/useNewRunActions";
+import { buildExplorerUrl } from "../src/explorer/url-router";
 
 function findElementByTestId(
 	node: unknown,
@@ -591,6 +593,89 @@ describe("Wave 2 — Track B2: Interactive Pipeline Builder & Two-Step Execution
 				createElement(OpenDVWorkbenchExplorer, { store }),
 			);
 			expect(settingsHtml).toContain('data-testid="platform-settings-view"');
+		});
+	});
+
+	describe("6. Feature 10: 1-Click Pipeline Builder Deep-Link Hand-Off", () => {
+		it("parses deep-link query parameters from /builder URL", () => {
+			const parsed = parseExplorerUrlState(
+				"/builder",
+				"?session_id=am-walkthrough&source=ontology_studio&domain_namespace=asset_management&pipeline_id=pl_am_walkthrough",
+			);
+			expect(parsed.view).toBe("builder");
+			expect(parsed.builderSessionId).toBe("am-walkthrough");
+			expect(parsed.builderSource).toBe("ontology_studio");
+			expect(parsed.builderDomain).toBe("asset_management");
+			expect(parsed.builderPipelineId).toBe("pl_am_walkthrough");
+		});
+
+		it("round-trips builder query parameters through buildExplorerUrl", () => {
+			const url = buildExplorerUrl({
+				view: "builder",
+				stageIdx: 5,
+				fullId: null,
+				fullTab: "split",
+				activeWave: "all",
+				builderSessionId: "sess-123",
+				builderSource: "ontology_studio",
+				builderDomain: "asset_management",
+				builderPipelineId: "pl_test",
+			});
+			expect(url).toContain("/builder?");
+			expect(url).toContain("session_id=sess-123");
+			expect(url).toContain("source=ontology_studio");
+			expect(url).toContain("domain_namespace=asset_management");
+			expect(url).toContain("pipeline_id=pl_test");
+		});
+
+		it("creates Asset Management pipeline draft with target Data Vault 2.0 hubs", () => {
+			const draft = createOntologyStudioPipelineDraft({
+				sessionId: "sess-custom",
+				source: "ontology_studio",
+				domainNamespace: "asset_management",
+				pipelineId: "pl_custom",
+			});
+
+			expect(draft.pipelineId).toBe("pl_custom");
+			expect(draft.domainNamespace).toBe("asset_management");
+			expect(draft.graphAOntologyPath).toContain("am_graph_a_ontology.yaml");
+			expect(draft.ontologyPolicy).toBe("recommend");
+
+			const sources = draft.waves[0]?.sources ?? [];
+			const targetHubs = sources.map((s) => s.targetHubName);
+			expect(targetHubs).toContain("hub_security");
+			expect(targetHubs).toContain("hub_investor");
+			expect(targetHubs).toContain("hub_rate_index");
+
+			const docs = draft.waves[0]?.unstructuredDocuments ?? [];
+			expect(docs.some((d) => d.targetHubName === "hub_document")).toBe(true);
+		});
+
+		it("pre-populates draft and auto-stages spec when source is ontology_studio", () => {
+			let capturedStaged: StagedPipelineSpec | null = null;
+			const html = renderToStaticMarkup(
+				createElement(PipelineBuilderView, {
+					sessionId: "sess-e2e",
+					source: "ontology_studio",
+					initialDomainNamespace: "asset_management",
+					initialPipelineId: "pl_am_walkthrough",
+					onStageSpec: (staged) => {
+						capturedStaged = staged;
+					},
+				}),
+			);
+
+			expect(html).toContain('data-testid="pipeline-builder-view"');
+			expect(html).toContain("Asset Management Data Vault 2.0 Pipeline");
+			expect(html).toContain("hub_security");
+			expect(html).toContain("hub_investor");
+			expect(html).toContain("hub_rate_index");
+
+			expect(capturedStaged).not.toBeNull();
+			const inputSpec = (capturedStaged as unknown as StagedPipelineSpec | null)
+				?.inputSpec;
+			expect(inputSpec?.pipeline_id).toBe("pl_am_walkthrough");
+			expect(inputSpec?.domain_namespace).toBe("asset_management");
 		});
 	});
 });

@@ -47,10 +47,10 @@ describe("sse-follower (Decision D2)", () => {
 
 		expect(lines.length).toBe(2);
 		expect(lines[0]).toBe(
-			"[Wave 1][STAGE 01] Starting STAGE_01_PROFILING (BronzeProfiler, model=gemini-2.5-pro)...",
+			"[STAGE 01] Starting STAGE_01_PROFILING (BronzeProfiler, model=gemini-2.5-pro)...",
 		);
 		expect(lines[1]).toBe(
-			"[Wave 1][STAGE 01] STAGE_01_PROFILING (BronzeProfiler, model=gemini-2.5-pro) -> COMPLETED: Profile generated (1250ms)",
+			"[STAGE 01] STAGE_01_PROFILING (BronzeProfiler, model=gemini-2.5-pro) -> COMPLETED: Profile generated (1250ms)",
 		);
 
 		expect(tokens.join("")).toBe("Analyzing CSV...");

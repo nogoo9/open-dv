@@ -93,6 +93,16 @@ def normalize_for_parity(
                 result[key] = re.sub(r"evt-[a-zA-Z0-9_\-]+-[0-9a-f]{6,12}", "<EVENT_ID>", val)
                 continue
 
+            # 2e. Plan IDs
+            if (
+                (key in ("plan_id",) or key.endswith(("_plan_id",)))
+                and isinstance(val, str)
+                and val
+            ):
+                placeholder = run_id_map.setdefault(val, f"<PLAN_ID_{len(run_id_map) + 1}>")
+                result[key] = placeholder
+                continue
+
             # 3. Run ID rewriting with consistent cross-referencing
             if (key == "run_id" or key.endswith("_run_id")) and isinstance(val, str) and val:
                 placeholder = run_id_map.setdefault(val, f"<RUN_ID_{len(run_id_map) + 1}>")
@@ -186,23 +196,27 @@ def normalize_pipeline_report(
             art["sha256"] = "<VOLATILE_SHA256>"
             art["byte_length"] = 0
 
-    # 2. Mask volatile intermediate artifacts
-    for art in res.get("intermediate_artifacts", []):
-        name = art.get("name", "")
-        if name in volatile_names or name.endswith(
-            (
-                "graph_b_profile.json",
-                "unstructured_grounding.json",
-                "ontology_coverage.json",
-            )
-        ):
-            if art.get("sha256"):
-                volatile_shas.add(art["sha256"])
-            art["sha256"] = "<VOLATILE_SHA256>"
-            art["byte_length"] = 0
+    # 2. Mask volatile intermediate artifacts and top-level artifacts
+    for art_list_key in ("intermediate_artifacts", "artifacts"):
+        for art in res.get(art_list_key, []):
+            name = art.get("name", "")
+            if name in volatile_names or name.endswith(
+                (
+                    "graph_b_profile.json",
+                    "unstructured_grounding.json",
+                    "ontology_coverage.json",
+                )
+            ):
+                if art.get("sha256"):
+                    volatile_shas.add(art["sha256"])
+                art["sha256"] = "<VOLATILE_SHA256>"
+                art["byte_length"] = 0
 
-    # 3. Mask volatile artifact references in step_reports
-    for step in res.get("step_reports", []):
+    # 3. Mask volatile artifact references in step_reports and wave_reports[*].step_reports
+    all_step_reports = list(res.get("step_reports", [])) + [
+        s for w in res.get("wave_reports", []) for s in w.get("step_reports", [])
+    ]
+    for step in all_step_reports:
         if step.get("stage_id") == "STAGE_01_SCOUT_SOURCE":
             step["output_artifact_sha256s"] = ["<VOLATILE_SHA256>"]
         else:

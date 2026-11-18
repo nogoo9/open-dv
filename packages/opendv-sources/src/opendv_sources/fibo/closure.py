@@ -32,12 +32,12 @@ from typing import Any, Final
 from pydantic import BaseModel, ConfigDict, Field
 
 from opendv_contracts.errors import ErrorCode
+from opendv_sources.config.defaults import GROUNDING_THRESHOLD
 from opendv_sources.exceptions import SourceError, SourceNotFoundError
 
 logger = logging.getLogger(__name__)
 
 # Authoritative Constants (docs/19 §4.3 & §7.3, ADR-003)
-GROUNDING_THRESHOLD: Final[Decimal] = Decimal("0.6500")
 DEFAULT_MAX_DEPTH: Final[int] = 32
 BROAD_MATCH_PREDICATE: Final[str] = "skos:broadMatch"
 DEFAULT_PROVENANCE: Final[str] = "deterministic"

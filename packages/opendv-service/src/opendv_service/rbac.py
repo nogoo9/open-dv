@@ -10,6 +10,7 @@ from opendv_telemetry import (
 )
 
 _ROLE_ALIAS_MAP: dict[str, RbacRole] = {
+    "ADMIN": RbacRole.DATA_STEWARD,
     "MNPI_CLEARED_STEWARD": RbacRole.AUDITOR_FINANCE,
     "LP_CONFIDENTIAL_STEWARD": RbacRole.DATA_STEWARD,
     "COMPLIANCE_AUDITOR": RbacRole.INTERNAL_MODELER,
@@ -20,8 +21,11 @@ def normalize_rbac_role(
     role: RbacRole | str | None,
     *,
     default: RbacRole = RbacRole.PUBLIC,
+    authenticated: bool = True,
 ) -> RbacRole:
     """Validate and normalize a 5-Tier RBAC role string or enum value."""
+    if not authenticated:
+        return default
     if isinstance(role, RbacRole):
         return role
     if role is None or str(role).strip() == "":

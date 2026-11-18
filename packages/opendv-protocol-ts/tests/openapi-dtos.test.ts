@@ -56,7 +56,6 @@ import type {
 	StepDTO,
 	VerifyRequest,
 	VerifyResponse,
-	WaveMetadataSpecDTO,
 } from "../src/types/api-dtos";
 
 describe("OpenAPI 3.1 & TypeScript SDK Synchronization (Task P10.1 / Issue #121)", () => {
@@ -143,13 +142,12 @@ describe("OpenAPI 3.1 & TypeScript SDK Synchronization (Task P10.1 / Issue #121)
 			project_id: "proj-ecommerce-01",
 			harness_provider: "antigravity",
 			initial_contract: "contract_v5: true\n",
-			wave_id: "W0",
 			assertion_cutoff_ts: "2026-11-07T09:00:00Z",
 			execute_duckdb_sandbox: true,
 			max_repair_retries: 3,
 			run_sandbox_batches: true,
 		};
-		expect(createRun.wave_id).toBe("W0");
+		expect(createRun.project_id).toBe("proj-ecommerce-01");
 
 		const runHandle: PipelineRunHandle = {
 			run_id: "run-01",
@@ -209,12 +207,5 @@ describe("OpenAPI 3.1 & TypeScript SDK Synchronization (Task P10.1 / Issue #121)
 			sub: "Ingest and profile bronze datasets",
 		};
 		expect(phase.index).toBe(0);
-
-		const wave: WaveMetadataSpecDTO = {
-			id: "W0",
-			name: "Core Foundation Wave",
-			description: "Foundational Hubs and Links",
-		};
-		expect(wave.id).toBe("W0");
 	});
 });

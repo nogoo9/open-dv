@@ -79,7 +79,6 @@ def test_get_explorer_bundle_endpoint_success(tmp_path: Path) -> None:
     assert bundle.project_id == "test-explorer-rest"
     assert len(bundle.stages) == 8
     assert len(bundle.phases) == 4
-    assert len(bundle.waves) == 4
     assert len(bundle.artifacts) == 24
 
     # Verify stages in order
@@ -107,7 +106,7 @@ def test_get_explorer_bundle_wave_filter(tmp_path: Path) -> None:
     assert resp_w1.status_code == 200
     bundle_w1 = ExplorerBundleDTO.model_validate(resp_w1.json())
     for art in bundle_w1.artifacts.values():
-        assert "W1" in art.waves
+        assert art.wave_index == 1
 
     # Numeric wave filter ?wave_id=1
     resp_1 = client.get(f"/api/v1/runs/{run_a_id}/explorer?wave_id=1")

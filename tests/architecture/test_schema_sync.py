@@ -104,6 +104,9 @@ def test_cli_spec_matches_definitions() -> None:
         "export",
         "promote",
         "bundle",
+        "text",
+        "starter-pack",
+        "staged",
     }
     actual_studio_groups = {s["name"] for s in studio_subs.get("subcommands", [])}
     assert actual_studio_groups == expected_studio_groups, (

@@ -11,6 +11,10 @@ export interface ExplorerUrlState {
 	fullId: string | null;
 	fullTab: ArtifactFullTab;
 	activeWave: WaveFilterId;
+	builderSessionId?: string | null;
+	builderSource?: string | null;
+	builderDomain?: string | null;
+	builderPipelineId?: string | null;
 }
 
 export const VALID_WAVES: readonly WaveFilterId[] = [
@@ -68,7 +72,22 @@ export function parseExplorerUrlState(
 		? rawWave
 		: "all";
 
-	return { view, stageIdx, fullId, fullTab, activeWave };
+	const builderSessionId = params.get("session_id")?.trim() || undefined;
+	const builderSource = params.get("source")?.trim() || undefined;
+	const builderDomain = params.get("domain_namespace")?.trim() || undefined;
+	const builderPipelineId = params.get("pipeline_id")?.trim() || undefined;
+
+	return {
+		view,
+		stageIdx,
+		fullId,
+		fullTab,
+		activeWave,
+		...(builderSessionId ? { builderSessionId } : {}),
+		...(builderSource ? { builderSource } : {}),
+		...(builderDomain ? { builderDomain } : {}),
+		...(builderPipelineId ? { builderPipelineId } : {}),
+	};
 }
 
 /**
@@ -80,6 +99,10 @@ export function buildExplorerUrl(state: {
 	fullId: string | null;
 	fullTab: ArtifactFullTab;
 	activeWave: WaveFilterId;
+	builderSessionId?: string | null | undefined;
+	builderSource?: string | null | undefined;
+	builderDomain?: string | null | undefined;
+	builderPipelineId?: string | null | undefined;
 }): string {
 	const path =
 		state.view === "stage"
@@ -90,6 +113,20 @@ export function buildExplorerUrl(state: {
 					? "/settings"
 					: "/";
 	const params = new URLSearchParams();
+	if (state.view === "builder") {
+		if (state.builderSessionId) {
+			params.set("session_id", state.builderSessionId);
+		}
+		if (state.builderSource) {
+			params.set("source", state.builderSource);
+		}
+		if (state.builderDomain) {
+			params.set("domain_namespace", state.builderDomain);
+		}
+		if (state.builderPipelineId) {
+			params.set("pipeline_id", state.builderPipelineId);
+		}
+	}
 	if (state.fullId) {
 		params.set("artifact", state.fullId);
 		if (state.fullTab !== "split") {

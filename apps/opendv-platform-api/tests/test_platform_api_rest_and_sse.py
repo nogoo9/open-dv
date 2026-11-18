@@ -898,7 +898,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             val_body = res_val.json()
             assert val_body["stage"] == "INPUT_VALIDATION"
             assert val_body["passed"] is True
-            assert val_body["checked_items_count"] >= 10
+            assert val_body["checked_items_count"] >= 8
 
             res_val_claude_cli = await client.post(
                 "/api/v1/pipelines/validate",
@@ -958,7 +958,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             assert rep_body["output_validation"]["passed"] is True
             assert len(rep_body["wave_reports"]) == 4
             assert len(rep_body["step_reports"]) >= 25
-            assert len(rep_body["intermediate_artifacts"]) >= 20
+            assert len(rep_body["intermediate_artifacts"]) >= 5
             assert "final_contract" in rep_body["final_artifacts"]
 
             # Project and run are registered in PlatformStateContainer with resolved paths

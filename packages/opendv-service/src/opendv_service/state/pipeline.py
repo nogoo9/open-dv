@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +31,51 @@ from opendv_service.state.base import _load_structured_mapping
 
 if TYPE_CHECKING:
     from opendv_service.state.base import BaseStateContainer
+
+
+_PRUNED_WALK_DIRS = frozenset(
+    {
+        "node_modules",
+        ".venv",
+        "venv",
+        ".git",
+        ".moon",
+        "dist",
+        "worktrees",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".opendv",
+        "playwright-report",
+        "test-results",
+    }
+)
+
+
+def _find_ontology_base_dir(repo_root: Path, rel_ont_path: str) -> Path | None:
+    """Bounded search for a workspace-relative ontology file while pruning heavy build/env dirs."""
+    search_roots = []
+    examples_dir = repo_root / "examples"
+    if examples_dir.is_dir():
+        search_roots.append(examples_dir)
+    search_roots.append(repo_root)
+
+    seen: set[Path] = set()
+    for root in search_roots:
+        for dirpath, dirnames, _ in os.walk(root, topdown=True):
+            dirnames[:] = sorted(d for d in dirnames if d not in _PRUNED_WALK_DIRS)
+            if root == repo_root and dirpath == str(repo_root):
+                dirnames[:] = [d for d in dirnames if d != "examples"]
+            p = Path(dirpath)
+            if p in seen:
+                continue
+            seen.add(p)
+            cand = p / rel_ont_path
+            if cand.is_file():
+                # Preserve relative base_dir resolution (`base_dir / ont_p == cand`).
+                return p.resolve()
+    return None
 
 
 class PipelineStateMixin:
@@ -114,8 +161,56 @@ class PipelineStateMixin:
             base_dir = self.repo_root
             raw_spec = dict(req.input_spec)
 
+        ont_p = raw_spec.get("graph_a_ontology_path") or raw_spec.get("ontology_path")
+        if ont_p and isinstance(ont_p, str) and not Path(ont_p).is_absolute():
+            cand = base_dir / ont_p
+            if not cand.is_file():
+                matched_base = _find_ontology_base_dir(self.repo_root, ont_p)
+                if matched_base is not None:
+                    base_dir = matched_base
+
+        if raw_spec.get("ontology_source") and not raw_spec.get("graph_a_source"):
+            raw_spec["graph_a_source"] = raw_spec.get("ontology_source")
+
         if getattr(req, "graph_a_source", None) is not None and not raw_spec.get("graph_a_source"):
             raw_spec["graph_a_source"] = dict(req.graph_a_source)  # type: ignore[arg-type]
+
+        cas_store = getattr(self, "cas_store", None)
+        if cas_store is not None and hasattr(cas_store, "base_dir"):
+            cas_base = Path(cas_store.base_dir).resolve()
+            sources_list = raw_spec.get("sources") or getattr(req, "sources", None)
+            if sources_list and isinstance(sources_list, list):
+                resolved_sources: list[dict[str, Any]] = []
+                for s in sources_list:
+                    s_dict = (
+                        dict(s)
+                        if isinstance(s, dict)
+                        else (s.model_dump(mode="json") if hasattr(s, "model_dump") else dict(s))
+                    )
+                    s_uri = str(s_dict.get("uri") or "").strip()
+                    if s_uri.startswith("cas://"):
+                        raw_target = s_uri[len("cas://") :].split("?")[0].split("#")[0].strip()
+                        c_hash = raw_target.split("/")[0].strip().lower()
+                        cands = [cas_base / c_hash.upper(), cas_base / c_hash.lower()]
+                        cand_p = next((c for c in cands if c.is_file()), None)
+                        if cand_p is not None:
+                            is_sqlite = False
+                            with contextlib.suppress(OSError), open(cand_p, "rb") as bf:
+                                if bf.read(16).startswith(b"SQLite format 3\x00"):
+                                    is_sqlite = True
+                            s_sys = s_dict.get("source_system") or "cas_store"
+                            s_opts = dict(s_dict.get("options") or {})
+                            s_opts["source_system"] = s_sys
+                            s_dict["options"] = s_opts
+                            s_dict["source_system"] = s_sys
+                            if is_sqlite:
+                                s_dict["uri"] = f"sqlite:///{cand_p.as_posix()}"
+                                s_dict["adapter"] = "sqlite"
+                            else:
+                                s_dict["uri"] = cand_p.as_posix()
+                                s_dict.setdefault("adapter", "file")
+                    resolved_sources.append(s_dict)
+                raw_spec["sources"] = resolved_sources
 
         if initial_contract_path is not None:
             resolved_init_path = resolve_workspace_path(
@@ -125,15 +220,14 @@ class PipelineStateMixin:
             )
             raw_spec["initial_contract_path"] = str(resolved_init_path)
 
-        init_contract_val = getattr(req, "initial_contract", None) or getattr(
-            req, "initial_contract_content", None
-        )
-        if init_contract_val is not None:
-            raw_spec["initial_contract"] = str(init_contract_val)
-
-        target_wave = getattr(req, "wave_id", None)
-        if target_wave is not None:
-            raw_spec["wave_id"] = str(target_wave)
+        if getattr(req, "initial_contract_content", None) is not None:
+            raw_spec["initial_contract_content"] = str(req.initial_contract_content)
+        elif getattr(req, "initial_contract", None) is not None:
+            init_contract_val = req.initial_contract
+            if isinstance(init_contract_val, str):
+                raw_spec["initial_contract_content"] = init_contract_val
+            else:
+                raw_spec["initial_contract"] = init_contract_val
 
         if getattr(req, "run_id", None):
             raw_spec["run_id"] = req.run_id
@@ -159,8 +253,24 @@ class PipelineStateMixin:
 
         if provider_override is not None:
             raw_setup["provider"] = provider_override
+        gov_pol = raw_spec.get("governance_policy")
+        if isinstance(gov_pol, dict):
+            if gov_pol.get("stage_output_policy"):
+                raw_setup["stage_output_policy"] = str(gov_pol["stage_output_policy"])
+            if steward_hold_policy is None and gov_pol.get("steward_hold_policy"):
+                steward_hold_policy = str(gov_pol["steward_hold_policy"])
+        elif steward_hold_policy is None and raw_spec.get("steward_hold_policy"):
+            steward_hold_policy = str(raw_spec["steward_hold_policy"])
         if steward_hold_policy is not None:
             raw_setup["steward_hold_policy"] = steward_hold_policy
+
+        target_dialect = (
+            getattr(req, "target_dialect", None)
+            or raw_spec.get("target_dialect")
+            or raw_spec.get("dialect")
+        )
+        if target_dialect:
+            raw_spec["target_dialect"] = str(target_dialect)
 
         return raw_spec, raw_setup, base_dir
 
@@ -175,8 +285,11 @@ class PipelineStateMixin:
             setup_obj = (
                 HarnessSetupConfig.model_validate(raw_setup) if raw_setup else HarnessSetupConfig()
             )
-        except (FileNotFoundError, ValidationError) as exc:
+        except FileNotFoundError as exc:
             raise ValueError(str(exc)) from exc
+        except ValidationError as exc:
+            err_details = exc.errors(include_input=False)
+            raise ValueError(f"Validation error: {err_details}") from exc
         return spec_obj, setup_obj, base_dir
 
     def validate_agentic_pipeline(
@@ -264,10 +377,23 @@ class PipelineStateMixin:
             rep["status"] = status_lit
             if run_dto.completed_at_utc:
                 rep["completed_at"] = run_dto.completed_at_utc
+            if run_dto.gate_scorecard:
+                sc_dump = run_dto.gate_scorecard.model_dump(mode="json")
+                if "gate_scorecard" not in rep:
+                    rep["gate_scorecard"] = sc_dump
+                elif (
+                    isinstance(rep["gate_scorecard"], dict)
+                    and "shadow_passed" not in rep["gate_scorecard"]
+                ):
+                    rep["gate_scorecard"].update(sc_dump)
+                    g5_pass = run_dto.gate_scorecard.gate_5_duckdb_sandbox in ("PASS", "AUTO-FIX")
+                    rep["gate_scorecard"].setdefault("shadow_passed", g5_pass)
+                    rep["gate_scorecard"].setdefault("sandbox_passed", g5_pass)
+                    rep["gate_scorecard"].setdefault("four_zone_passed", g5_pass)
             events = list(self.run_events.get(run_id, rep.get("observability_events", [])))
             rep["observability_events"] = events
-            in_passed = bool(rep.get("input_validation", {}).get("passed", False))
-            out_val = dict(rep.get("output_validation", {}))
+            in_passed = bool((rep.get("input_validation") or {}).get("passed", False))
+            out_val = dict(rep.get("output_validation") or {})
             out_val["verified_events_count"] = len(events)
             rep["output_validation"] = out_val
             out_passed = bool(out_val.get("passed", False))

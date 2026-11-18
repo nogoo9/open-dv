@@ -9,6 +9,7 @@ from opendv_cli.commands.pipeline import run_pipeline_command
 from opendv_cli.commands.profile import run_profile_command
 from opendv_cli.commands.run import run_run_command
 from opendv_cli.commands.sandbox import run_sandbox_command
+from opendv_cli.commands.source import run_source_command
 from opendv_cli.commands.verify import run_verify_command
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "run_profile_command",
     "run_run_command",
     "run_sandbox_command",
+    "run_source_command",
     "run_verify_command",
 ]

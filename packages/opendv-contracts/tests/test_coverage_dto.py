@@ -21,7 +21,6 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 def test_ontology_coverage_artifact_creation_and_defaults() -> None:
     art = OntologyCoverageArtifact(
         artifact_id="art-w0-stage01-ontology-coverage",
-        wave_id="wave_0",
         domain_namespace="logistics_and_commerce",
         graph_a_version="1.0.0",
         graph_a_sha256="abc1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
@@ -58,7 +57,6 @@ def test_ontology_coverage_schema_validation() -> None:
 
     art = OntologyCoverageArtifact(
         artifact_id="art-w0-stage01-ontology-coverage",
-        wave_id="wave_0",
         domain_namespace="private_equity",
         graph_a_version="1.0.0",
         graph_a_sha256="0" * 64,

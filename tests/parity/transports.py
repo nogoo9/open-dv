@@ -131,6 +131,14 @@ class Transport(Protocol):
         """Record steward decision and accept/reject ontology delta."""
         ...
 
+    def inspect_source(
+        self,
+        uri: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Inspect catalog/tabular source metadata."""
+        ...
+
 
 def _is_fixture_dict(doc: Any) -> bool:
     return (
@@ -359,12 +367,26 @@ class StandaloneCliTransport:
             argv.extend(["--initial-contract", str(kwargs["initial_contract"])])
         elif kwargs.get("initial_contract_path"):
             argv.extend(["--initial-contract", str(kwargs["initial_contract_path"])])
+        if kwargs.get("blueprint"):
+            argv.extend(["--blueprint", str(kwargs["blueprint"])])
+        elif kwargs.get("blueprint_path"):
+            argv.extend(["--blueprint", str(kwargs["blueprint_path"])])
+        if kwargs.get("source"):
+            argv.extend(["--source", str(kwargs["source"])])
+        if kwargs.get("dialect"):
+            argv.extend(["--dialect", str(kwargs["dialect"])])
         if kwargs.get("harness_config"):
             argv.extend(["--harness-config", str(kwargs["harness_config"])])
         if kwargs.get("output_dir"):
             argv.extend(["--output-dir", str(kwargs["output_dir"])])
-        if kwargs.get("wave_id"):
-            argv.extend(["--wave-id", str(kwargs["wave_id"])])
+        return self._invoke(argv)
+
+    def inspect_source(self, uri: str, **kwargs: Any) -> dict[str, Any]:
+        argv = ["source", "inspect", str(uri), "--json"]
+        if kwargs.get("table"):
+            argv.extend(["--table", str(kwargs["table"])])
+        if kwargs.get("adapter"):
+            argv.extend(["--adapter", str(kwargs["adapter"])])
         return self._invoke(argv)
 
     def _resolve_delta_arg(self, delta: Any, filename: str = "delta.json") -> str:
@@ -817,12 +839,26 @@ class ClientCliTransport:
             argv.extend(["--initial-contract", str(kwargs["initial_contract"])])
         elif kwargs.get("initial_contract_path"):
             argv.extend(["--initial-contract", str(kwargs["initial_contract_path"])])
+        if kwargs.get("blueprint"):
+            argv.extend(["--blueprint", str(kwargs["blueprint"])])
+        elif kwargs.get("blueprint_path"):
+            argv.extend(["--blueprint", str(kwargs["blueprint_path"])])
+        if kwargs.get("source"):
+            argv.extend(["--source", str(kwargs["source"])])
+        if kwargs.get("dialect"):
+            argv.extend(["--dialect", str(kwargs["dialect"])])
         if kwargs.get("harness_config"):
             argv.extend(["--harness-config", str(kwargs["harness_config"])])
         if kwargs.get("output_dir"):
             argv.extend(["--output-dir", str(kwargs["output_dir"])])
-        if kwargs.get("wave_id"):
-            argv.extend(["--wave-id", str(kwargs["wave_id"])])
+        return self._invoke(argv)
+
+    def inspect_source(self, uri: str, **kwargs: Any) -> dict[str, Any]:
+        argv = ["source", "inspect", str(uri), "--json"]
+        if kwargs.get("table"):
+            argv.extend(["--table", str(kwargs["table"])])
+        if kwargs.get("adapter"):
+            argv.extend(["--adapter", str(kwargs["adapter"])])
         return self._invoke(argv)
 
     def _resolve_delta_arg(self, delta: Any, filename: str = "delta.json") -> str:
@@ -1252,8 +1288,12 @@ class DirectRestTransport:
             body["initial_contract_path"] = str(kwargs["initial_contract_path"])
         elif kwargs.get("initial_contract"):
             body["initial_contract"] = kwargs["initial_contract"]
-        if kwargs.get("wave_id"):
-            body["wave_id"] = str(kwargs["wave_id"])
+        if kwargs.get("blueprint"):
+            body["blueprint"] = kwargs["blueprint"]
+        elif kwargs.get("blueprint_path"):
+            body["blueprint_path"] = str(kwargs["blueprint_path"])
+        if kwargs.get("dialect"):
+            body["dialect"] = str(kwargs["dialect"])
 
         res = self.client.post("/api/v1/pipelines/runs", json=body)
         if res.status_code not in (200, 201, 202):
@@ -1494,6 +1534,15 @@ class DirectRestTransport:
             body["accepted_op_ids"] = op_id if isinstance(op_id, list) else [op_id]
 
         res = self.client.post("/api/v1/ontology/decisions", json=body)
+        return self._wrap_res(res)
+
+    def inspect_source(self, uri: str, **kwargs: Any) -> dict[str, Any]:
+        body: dict[str, Any] = {"uri": str(uri)}
+        if kwargs.get("table"):
+            body["table"] = kwargs["table"]
+        if kwargs.get("adapter"):
+            body["adapter"] = kwargs["adapter"]
+        res = self.client.post("/api/v1/sources/inspect", json=body)
         return self._wrap_res(res)
 
 

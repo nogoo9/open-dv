@@ -65,6 +65,7 @@ logger = logging.getLogger(__name__)
 
 MAX_PHYSICAL_SLUG_CHARS: int = 55
 MAX_ENUM_CARDINALITY: int = 20
+DEFAULT_MAX_PROSE_HUBS: int = 24
 
 
 def _to_slug(name: str) -> str:
@@ -551,11 +552,17 @@ class DeterministicConstructionPipeline:
                     staged_candidates=staged_candidates,
                 )
 
-        # Step 2: Also evaluate evidence text chunks for explicit candidate entities if no tables
-        if not table_list and evidence_chunks:
+        # Step 2: Also evaluate evidence text chunks for explicit candidate entities
+        # when no structured table surrogate keys were discovered (ISS-13)
+        max_prose_hubs = DEFAULT_MAX_PROSE_HUBS
+        if (not table_list or not discovered_table_keys) and evidence_chunks:
             for chk in evidence_chunks:
+                if len(accepted_hubs) >= max_prose_hubs:
+                    break
                 phrases = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b", chk.text)
                 for phrase in phrases:
+                    if len(accepted_hubs) >= max_prose_hubs:
+                        break
                     phrase_clean = phrase[4:].strip() if phrase.startswith("The ") else phrase
                     words = phrase_clean.split()
                     if len(words) == 1 and words[0].lower() in STOPWORDS:
@@ -917,9 +924,19 @@ class DeterministicConstructionPipeline:
 
         author = (
             f"{opts.actor}:{opts.principal}"
-            if (opts.actor and opts.principal and opts.principal != "system:deterministic")
+            if (
+                opts.actor
+                and opts.principal
+                and opts.principal != opts.actor
+                and opts.principal != "system:deterministic"
+            )
             else (opts.actor if opts.actor else "deterministic:pipeline")
         )
+
+        staged_dicts = [c.model_dump(mode="json") for c in staged_candidates]
+        delta_metadata: dict[str, Any] = {"staged_candidates": staged_dicts}
+        if opts.steering_prompt:
+            delta_metadata["steering_prompt"] = opts.steering_prompt
 
         delta = OntologyDelta(
             delta_id=f"delta-{_det_id('delta', base_sha, target_ver, op_content_hash)}",
@@ -929,8 +946,20 @@ class DeterministicConstructionPipeline:
             domain_namespace=base_ontology.domain_namespace or "default",
             author=author,
             operations=accepted_ops,
-            rationale="Automated zero-API-key deterministic fallback construction.",
+            rationale=(
+                f"Automated zero-API-key deterministic fallback construction. "
+                f"Steering: '{opts.steering_prompt}'."
+                if opts.steering_prompt
+                else "Automated zero-API-key deterministic fallback construction."
+            ),
+            metadata=delta_metadata,
         )
+
+        diagnostics_list = [
+            f"staged_candidates_count:{len(staged_candidates)}",
+        ]
+        if opts.steering_prompt:
+            diagnostics_list.append(f"deterministic_steering:{opts.steering_prompt[:100]}")
 
         proposal = OntologyProposal(
             proposal_id=f"prop-{_det_id('proposal', delta.delta_id)}",
@@ -939,8 +968,13 @@ class DeterministicConstructionPipeline:
             base_ontology_sha256=base_sha,
             delta=delta,
             confidence_score=1.0 if accepted_ops else 0.0,
-            rationale="Deterministic fallback construction from evidence chunks and tables.",
+            rationale=(
+                f"Deterministic fallback construction. Steering: '{opts.steering_prompt}'."
+                if opts.steering_prompt
+                else "Deterministic fallback construction from evidence chunks and tables."
+            ),
             created_at_utc=datetime.now(UTC).isoformat(),
+            diagnostics=diagnostics_list,
         )
 
         return proposal

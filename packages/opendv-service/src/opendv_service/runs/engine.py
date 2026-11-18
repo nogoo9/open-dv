@@ -101,7 +101,6 @@ class RunExecutionEngine:
         has_initial_contract = run_opts.has_initial_contract
         initial_contract_path = run_opts.initial_contract_path
         lifecycle_stage = run_opts.lifecycle_stage
-        target_wave_id = run_opts.target_wave_id
 
         run_dto = ProjectRunDTO(
             run_id=run_id,
@@ -119,7 +118,6 @@ class RunExecutionEngine:
             decisions_url=f"/api/v1/runs/{run_id}/decisions",
             has_initial_contract=has_initial_contract,
             initial_contract_path=initial_contract_path,
-            wave_id=target_wave_id,
             lifecycle_stage=lifecycle_stage,
         )
         state.runs[run_id] = run_dto
@@ -161,9 +159,21 @@ class RunExecutionEngine:
                 )
                 final_status = RunStatus.FAILED
                 now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+                failed_scorecard = GateScorecardSummary(
+                    gate_0_profile_drift="REJECT-WITH-TRACE",
+                    gate_1_contract_grain="REJECT-WITH-TRACE",
+                    gate_2_sqlglot_ast="REJECT-WITH-TRACE",
+                    gate_3_networkx_dag="REJECT-WITH-TRACE",
+                    gate_4_yagni_cost_guard="REJECT-WITH-TRACE",
+                    gate_5_duckdb_sandbox="REJECT-WITH-TRACE",
+                )
                 if run_id in state.runs:
                     state.runs[run_id] = state.runs[run_id].model_copy(
-                        update={"status": RunStatus.FAILED, "completed_at_utc": now_iso}
+                        update={
+                            "status": RunStatus.FAILED,
+                            "completed_at_utc": now_iso,
+                            "gate_scorecard": failed_scorecard,
+                        }
                     )
             finally:
                 with context.lock:
@@ -203,7 +213,6 @@ class RunExecutionEngine:
             harness_provider=provider,
             has_initial_contract=has_initial_contract,
             initial_contract_path=initial_contract_path,
-            wave_id=target_wave_id,
             lifecycle_stage=lifecycle_stage,
         )
 
@@ -220,7 +229,6 @@ class RunExecutionEngine:
         has_initial_contract = run_opts.has_initial_contract
         initial_contract_path = run_opts.initial_contract_path
         lifecycle_stage = run_opts.lifecycle_stage
-        target_wave_id = run_opts.target_wave_id
 
         if req.pipeline_input_path is not None:
             return self.submit_pipeline_run(
@@ -231,7 +239,6 @@ class RunExecutionEngine:
                     provider_override=provider_override,
                     initial_contract_path=req.initial_contract_path,
                     initial_contract=req.initial_contract,
-                    wave_id=target_wave_id,
                 ),
                 pipeline_runner=pipeline_runner,
             )
@@ -264,7 +271,6 @@ class RunExecutionEngine:
                     steward_hold_policy="auto_approve_top_candidate",
                     initial_contract_path=req.initial_contract_path,
                     initial_contract=req.initial_contract,
-                    wave_id=target_wave_id,
                 ),
                 pipeline_runner=pipeline_runner,
             )
@@ -280,7 +286,6 @@ class RunExecutionEngine:
             started_at_utc=now_iso,
             has_initial_contract=has_initial_contract,
             initial_contract_path=initial_contract_path,
-            wave_id=target_wave_id,
             lifecycle_stage=lifecycle_stage,
         )
         context = RunContext(run_id=run_id, created_at_utc=now_iso)
@@ -314,7 +319,6 @@ class RunExecutionEngine:
             harness_provider=req.harness_provider,
             has_initial_contract=has_initial_contract,
             initial_contract_path=initial_contract_path,
-            wave_id=target_wave_id,
             lifecycle_stage=lifecycle_stage,
         )
 

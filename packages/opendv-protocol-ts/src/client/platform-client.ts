@@ -54,15 +54,25 @@ export type {
 	SandboxQueryRequest,
 };
 
+function trimTrailingSlashes(raw: string): string {
+	let end = raw.length;
+	while (end > 0 && raw.charCodeAt(end - 1) === 47) {
+		end--;
+	}
+	return raw.slice(0, end);
+}
+
 export class OpenDVPlatformClient {
 	private readonly baseUrl: string;
 	private readonly headers: Record<string, string>;
 	private readonly fetchImpl: typeof fetch;
 
 	constructor(options: OpenDVClientOptions) {
-		this.baseUrl = options.baseUrl
-			.replace(/\/api\/v1\/?$/, "")
-			.replace(/\/+$/, "");
+		let base = trimTrailingSlashes(options.baseUrl);
+		if (base.endsWith("/api/v1")) {
+			base = trimTrailingSlashes(base.slice(0, -7));
+		}
+		this.baseUrl = base;
 		this.headers = {
 			"Content-Type": "application/json",
 			Accept: "application/json",

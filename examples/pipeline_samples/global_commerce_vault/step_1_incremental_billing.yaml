@@ -1,0 +1,15 @@
+pipeline_id: "pipe-global-commerce-step1-incremental-billing"
+project_id: "proj-global-commerce-001"
+run_id: "run-global-commerce-step1"
+display_name: "Global Commerce Vault — Step 1 Incremental Source (Stripe Billing)"
+domain_namespace: "global_commerce"
+graph_a_ontology_path: "ontology/commerce_graph_a_ontology.yaml"
+assertion_cutoff_ts: "2026-12-31 23:59:59"
+
+sources:
+  - source_system: "billing_stripe"
+    table_name: "stripe_invoices"
+    source:
+      adapter: "file"
+      uri: "sources/wave1_incremental_billing/stripe_invoices.csv"
+    data_path: "sources/wave1_incremental_billing/stripe_invoices.csv"

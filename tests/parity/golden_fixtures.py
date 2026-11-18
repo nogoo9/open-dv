@@ -98,6 +98,11 @@ def build_gt03_06_schema_invalid() -> dict[str, Any]:
 
 def render_explorer_text_snapshot(bundle: dict[str, Any]) -> str:
     """Render a deterministic, human-readable text snapshot of an Explorer bundle (GT-05)."""
+    waves_val = (
+        bundle.get("waves_count")
+        if bundle.get("waves_count") is not None
+        else bundle.get("wavesCount")
+    )
     lines = [
         "============================================================",
         "OPEN-DV PIPELINE EXPLORER SNAPSHOT",
@@ -106,7 +111,7 @@ def render_explorer_text_snapshot(bundle: dict[str, Any]) -> str:
         "Run ID:      <NORMALIZED_RUN_ID>",
         f"Spec File:   {bundle.get('spec_file') or bundle.get('specFile')}",
         f"Status:      {bundle.get('status_label') or bundle.get('statusLabel')}",
-        f"Waves:       {bundle.get('waves_count') if bundle.get('waves_count') is not None else bundle.get('wavesCount')}",
+        f"Waves:       {waves_val if waves_val is not None else ''}",
         f"RBAC Role:   {bundle.get('rbac_role') or bundle.get('rbacRole')}",
         f"Gates:       {bundle.get('gates_passed', bundle.get('gatesPassed', 0))}/{bundle.get('gates_total', bundle.get('gatesTotal', 6))} passed",
     ]
@@ -193,18 +198,22 @@ def run_gt01_lifecycle_waves(
     prior_contract: Path | None = None
     wave3_bundle_dict: dict[str, Any] = {}
 
-    for w_idx, w_spec, w_id in waves:
+    for w_idx, w_spec, _w_id in waves:
         out_dir = workspace_dir / f"wave{w_idx}"
         req = PipelineRunRequest(
             input_spec_path=str(w_spec),
             harness_config_path=str(harness_cfg),
             output_dir=str(out_dir),
             initial_contract_path=str(prior_contract) if prior_contract else None,
-            wave_id=w_id,
             provider_override="agy",
         )
         res = service.execute_pipeline_run_sync(req)
-        run_id = str(res.get("run_id", ""))
+        rep_dict = (
+            res.report
+            if hasattr(res, "report") and isinstance(res.report, dict)
+            else (res.get("report") if isinstance(res, dict) and "report" in res else (res.model_dump(mode="json") if hasattr(res, "model_dump") else dict(res)))
+        )
+        run_id = str(getattr(res, "run_id", rep_dict.get("run_id", "")))
 
         # 1. final_contract.yaml
         final_contract_path = out_dir / "final_contract.yaml"
@@ -235,7 +244,13 @@ def run_gt01_lifecycle_waves(
         )
 
         # 4. pipeline_report.json (normalized)
-        norm_rep = normalize_pipeline_report(res, path_root=str(repo_root))
+        if (
+            "inference_plan" in rep_dict
+            and isinstance(rep_dict["inference_plan"], dict)
+            and "plan_id" in rep_dict["inference_plan"]
+        ):
+            rep_dict["inference_plan"]["plan_id"] = "<PLAN_ID>"
+        norm_rep = normalize_pipeline_report(rep_dict, path_root=str(repo_root))
         rep_bytes = (json.dumps(norm_rep, indent=2, sort_keys=True) + "\n").encode("utf-8")
         golden_manager.assert_golden_byte_equality(
             golden_id="GT-01",
@@ -247,6 +262,12 @@ def run_gt01_lifecycle_waves(
         # 5. explorer_bundle.json (normalized)
         bundle_obj = service.get_explorer_bundle(run_id, role=RbacRole.DATA_STEWARD)
         raw_bundle = bundle_obj.model_dump(mode="json")
+        if (
+            "inference_plan" in raw_bundle
+            and isinstance(raw_bundle["inference_plan"], dict)
+            and "plan_id" in raw_bundle["inference_plan"]
+        ):
+            raw_bundle["inference_plan"]["plan_id"] = "<PLAN_ID>"
         if w_idx == 3:
             wave3_bundle_dict = raw_bundle
         norm_bundle = normalize_for_parity(raw_bundle, path_root=str(repo_root))
@@ -268,7 +289,7 @@ def run_gt01_lifecycle_waves(
                 },
                 sort_keys=True,
             )
-            for st in res.get("step_reports", [])
+            for st in rep_dict.get("step_reports", [])
         ]
         events_bytes = ("\n".join(event_lines) + "\n").encode("utf-8")
         golden_manager.assert_golden_byte_equality(

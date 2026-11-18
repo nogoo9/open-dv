@@ -386,8 +386,8 @@ describe("Task P9.3 (#117): Top Bar Run Selector, New Run Modal, Wave Filter & L
 		});
 	});
 
-	describe("4. Wave Segmented Filter (All | W0 | W1 | W2 | W3)", () => {
-		it("renders wave control with all 5 segments and active indicator", () => {
+	describe("4. Wave Segmented Filter Cleanup (Single-Run Architecture ADR-017, ADR-019)", () => {
+		it("omits wave filter control from topbar in single-run architecture", () => {
 			const store = createExplorerStore({
 				bundle: GLOBAL_COMMERCE_EXPLORER_BUNDLE,
 				syncBrowserUrl: false,
@@ -396,12 +396,8 @@ describe("Task P9.3 (#117): Top Bar Run Selector, New Run Modal, Wave Filter & L
 				createElement(OpenDVWorkbenchExplorer, { store }),
 			);
 
-			expect(html).toContain('data-testid="wave-filter-control"');
-			expect(html).toContain('data-testid="btn-wave-all"');
-			expect(html).toContain('data-testid="btn-wave-W0"');
-			expect(html).toContain('data-testid="btn-wave-W1"');
-			expect(html).toContain('data-testid="btn-wave-W2"');
-			expect(html).toContain('data-testid="btn-wave-W3"');
+			expect(html).not.toContain('data-testid="wave-filter-control"');
+			expect(html).not.toContain('data-testid="btn-wave-all"');
 		});
 
 		it("filters input and output artifacts based on active wave filter", () => {

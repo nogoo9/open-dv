@@ -185,13 +185,21 @@ class SSEJournalWriter:
         *,
         max_segment_bytes: int = MAX_JOURNAL_SEGMENT_BYTES,
     ) -> None:
-        self.session_dir = Path(session_dir)
+        sdir_real = os.path.realpath(session_dir)
+        self.session_dir = Path(sdir_real)
         self.job_id = job_id
         self.session_id = session_id or self.session_dir.name
-        self.jobs_dir = self.session_dir / "jobs"
-        self.jobs_dir.mkdir(parents=True, exist_ok=True)
-        self.journal_file = self.jobs_dir / f"{job_id}.events.jsonl"
-        self.lock_file = self.jobs_dir / f".journal_{job_id}.lock"
+        jdir_cand = os.path.join(sdir_real, "jobs")
+        os.makedirs(jdir_cand, exist_ok=True)
+        jdir_real = os.path.realpath(jdir_cand)
+        jdir_pfx = jdir_real if jdir_real.endswith(os.sep) else jdir_real + os.sep
+        jfile_real = os.path.realpath(os.path.join(jdir_real, f"{job_id}.events.jsonl"))
+        lfile_real = os.path.realpath(os.path.join(jdir_real, f".journal_{job_id}.lock"))
+        if not jfile_real.startswith(jdir_pfx) or not lfile_real.startswith(jdir_pfx):
+            raise ValueError(f"Path traversal detected in journal job_id: '{job_id}'")
+        self.jobs_dir = Path(jdir_real)
+        self.journal_file = Path(jfile_real)
+        self.lock_file = Path(lfile_real)
         self.max_segment_bytes = max_segment_bytes
 
         self._mu = threading.RLock()

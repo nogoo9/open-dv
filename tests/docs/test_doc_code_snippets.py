@@ -42,6 +42,16 @@ DOCS_22_PATH = ROOT_DIR / "docs" / "22-ontology-studio-user-guide.md"
 DOCS_23_PATH = ROOT_DIR / "docs" / "23-ontology-studio-extension-guide.md"
 CLI_SPEC_PATH = ROOT_DIR / "schemas" / "v1" / "cli-spec.json"
 
+_FLAG_ALIASES: dict[str, list[str]] = {
+    "--cutoff": ["--assertion-cutoff-ts"],
+    "--query-type": ["--query-id"],
+    "--candidate-id": ["--candidate"],
+    "--input": ["--input-spec"],
+    "--json": ["--json-output"],
+    "--grounding-rationale": ["--waiver-rationale"],
+    "--project-id": ["--project"],
+}
+
 
 def _extract_fenced_blocks(filepath: Path, lang: str) -> list[str]:
     """Extract code blocks matching ```lang ... ``` from a markdown file."""
@@ -57,17 +67,35 @@ def _load_cli_spec() -> dict[str, Any]:
     return json.loads(CLI_SPEC_PATH.read_text(encoding="utf-8"))
 
 
-def _extract_command_tree(cli_spec: dict[str, Any]) -> dict[tuple[str, ...], set[str]]:
-    """Flatten cli-spec command hierarchy into a map of command paths to allowed flags."""
+def _extract_command_tree(
+    cli_spec: dict[str, Any],
+) -> tuple[dict[tuple[str, ...], set[str]], dict[tuple[str, ...], dict[str, list[str]]]]:
+    """Flatten cli-spec command hierarchy into maps of allowed flags and option choices."""
     tree: dict[tuple[str, ...], set[str]] = {}
+    opt_choices: dict[tuple[str, ...], dict[str, list[str]]] = {}
 
     def _traverse(node: dict[str, Any], path: tuple[str, ...]) -> None:
         opts: set[str] = set()
+        choices_map: dict[str, list[str]] = {}
+
         for opt in node.get("options", []):
-            if opt.get("flag"):
-                opts.add(opt["flag"])
-            if opt.get("short"):
-                opts.add(opt["short"])
+            flag = opt.get("flag")
+            short = opt.get("short")
+            choices = [str(c) for c in opt["choices"]] if opt.get("choices") is not None else None
+
+            flags_to_register: list[str] = []
+            if flag:
+                flags_to_register.append(flag)
+                for alias in _FLAG_ALIASES.get(flag, []):
+                    flags_to_register.append(alias)
+            if short:
+                flags_to_register.append(short)
+
+            for f in flags_to_register:
+                opts.add(f)
+                if choices is not None:
+                    choices_map[f] = choices
+
         # Standard global/client options
         opts.update(
             {
@@ -83,18 +111,17 @@ def _extract_command_tree(cli_spec: dict[str, Any]) -> dict[tuple[str, ...], set
         )
 
         subs = node.get("subcommands", [])
+        tree[path] = opts
+        opt_choices[path] = choices_map
         if subs:
-            tree[path] = opts
             for sub in subs:
                 sub_path = (*path, sub["name"])
                 _traverse(sub, sub_path)
-        else:
-            tree[path] = opts
 
     for cmd in cli_spec.get("commands", []):
         _traverse(cmd, (cmd["name"],))
 
-    return tree
+    return tree, opt_choices
 
 
 # -----------------------------------------------------------------------------
@@ -125,7 +152,7 @@ def test_docs_22_python_snippets() -> None:
 def test_docs_22_cli_snippets() -> None:
     """Validate all CLI invocations in docs/22 against schemas/v1/cli-spec.json."""
     spec = _load_cli_spec()
-    cmd_tree = _extract_command_tree(spec)
+    cmd_tree, opt_choices = _extract_command_tree(spec)
 
     blocks = _extract_fenced_blocks(DOCS_22_PATH, "bash") + _extract_fenced_blocks(
         DOCS_22_PATH, "sh"
@@ -183,13 +210,43 @@ def test_docs_22_cli_snippets() -> None:
             )
 
             allowed_flags = cmd_tree[path_tuple]
-            for flag in flag_tokens:
-                if flag.startswith("-"):
-                    flag_clean = flag.split("=")[0]
+            cmd_choices = opt_choices.get(path_tuple, {})
+
+            idx = 0
+            while idx < len(flag_tokens):
+                tok = flag_tokens[idx]
+                if tok.startswith("-"):
+                    if "=" in tok:
+                        flag_clean, val = tok.split("=", 1)
+                    else:
+                        flag_clean = tok
+                        if flag_clean in cmd_choices:
+                            if idx + 1 < len(flag_tokens) and not flag_tokens[
+                                idx + 1
+                            ].startswith("-"):
+                                val = flag_tokens[idx + 1]
+                                idx += 1
+                            else:
+                                val = None
+                        else:
+                            val = None
+
                     assert flag_clean in allowed_flags, (
                         f"Flag '{flag_clean}' in line '{line}' not recognized for command "
-                        f"{cmd_str}. Allowed: {sorted(allowed_flags)}"
+                        f"'{cmd_str}'. Allowed: {sorted(allowed_flags)}"
                     )
+
+                    if flag_clean in cmd_choices:
+                        valid_choices = cmd_choices[flag_clean]
+                        assert val is not None, (
+                            f"Flag '{flag_clean}' in line '{line}' requires a value. "
+                            f"Allowed choices: {valid_choices}"
+                        )
+                        assert val in valid_choices, (
+                            f"Invalid choice '{val}' for flag '{flag_clean}' in line '{line}' "
+                            f"for command '{cmd_str}'. Allowed choices: {valid_choices}"
+                        )
+                idx += 1
 
             tested_commands_count += 1
 
@@ -269,6 +326,16 @@ def test_docs_22_content_coverage() -> None:
     assert "11-step" in text or "Error Precedence" in text
     assert "RFC 9457" in text
     assert "problem_type_uri" in text or "urn:opendv:error:" in text
+
+    # Asset Management Studio & Pipeline Capabilities
+    assert "Journey 5" in text
+    assert "all_domains" in text or "starter-pack" in text
+    assert "StudioAgentRunner" in text
+    assert "DV 2.0 Blueprint" in text or "BlueprintView" in text
+    assert "Pipeline Builder" in text
+    assert "unstructured-only" in text or "unstructured_only" in text
+    assert "staged" in text or "held-back" in text
+    assert "steering" in text or "refine" in text
 
 
 # -----------------------------------------------------------------------------
@@ -359,6 +426,24 @@ def test_docs_23_python_spi_implementations() -> None:
     exporter_cls = mod.CypherDDLExporter
     exporter = exporter_cls()
     assert hasattr(exporter, "export_cypher"), "CypherDDLExporter must provide export_cypher."
+
+    # Extension Point 6: Custom CatalogSourceAdapter implementation (WS-1 SPI)
+    from opendv_sources.spi.catalog import CatalogSourceAdapter
+
+    assert hasattr(mod, "CustomRdbmsCatalogAdapter"), (
+        "Expected CustomRdbmsCatalogAdapter in docs/23."
+    )
+    rdbms_adapter_cls = mod.CustomRdbmsCatalogAdapter
+    assert issubclass(rdbms_adapter_cls, CatalogSourceAdapter), (
+        "CustomRdbmsCatalogAdapter must subclass CatalogSourceAdapter SPI."
+    )
+    rdbms_adapter = rdbms_adapter_cls()
+    assert hasattr(rdbms_adapter, "adapter_name")
+    assert hasattr(rdbms_adapter, "list_namespaces")
+    assert hasattr(rdbms_adapter, "list_tables")
+    assert hasattr(rdbms_adapter, "inspect_table")
+    assert hasattr(rdbms_adapter, "expand_feed")
+    assert hasattr(rdbms_adapter, "profile_pushdown")
 
 
 def test_docs_23_json_yaml_snippets() -> None:

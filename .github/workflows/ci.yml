@@ -228,6 +228,10 @@ jobs:
         run: |
           uv run pytest -m golden
 
+      - name: Ensure Chromium available for Playwright E2E
+        run: |
+          cd apps/opendv-web-workbench && bun x playwright install chromium
+
       - name: Run normative pytest test suite
         run: |
           uv run pytest -v
@@ -269,7 +273,7 @@ jobs:
 
       - name: Run Bun unit & contract tests (restricted roots)
         run: |
-          bun test --path-ignore-patterns "**/dist/**" --path-ignore-patterns "**/worktrees/**"
+          bun test --path-ignore-patterns "**/dist/**" --path-ignore-patterns "**/worktrees/**" --path-ignore-patterns "**/tests/e2e/**"
 
       - name: Typecheck TypeScript project references (tsc -b)
         run: |

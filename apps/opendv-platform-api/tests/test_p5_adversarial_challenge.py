@@ -96,7 +96,6 @@ async def test_challenge_1a_async_only_all_shapes_return_202(
         },
         {
             "input_spec_path": sample_input,
-            "wave_id": "W1",
             "steward_hold_policy": "auto_approve_top_candidate",
         },
     ]

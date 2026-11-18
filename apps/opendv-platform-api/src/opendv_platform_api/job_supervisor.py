@@ -30,6 +30,7 @@ from opendv_contracts.errors import ErrorCode, OpenDVError
 from opendv_platform_api.security.error_catalog import StudioAPIError
 from opendv_service.studio.atomic_commit import SourceNotFoundError
 from opendv_service.studio.job_runners import (
+    load_active_session_evidence,
     run_clarify_session,
     run_construct_session,
     run_parse_session_sources,
@@ -58,6 +59,9 @@ from opendv_sources.exceptions import (
 logger = logging.getLogger(__name__)
 
 MAX_IN_MEMORY_JOBS: Final[int] = 256
+DEFAULT_PREVIEW_CHUNKS_PER_SOURCE: Final[int] = 6
+DEFAULT_MAX_PREVIEW_CHUNKS: Final[int] = 24
+DEFAULT_PREVIEW_SNIPPET_MAX_CHARS: Final[int] = 240
 _TERMINAL_JOB_STATUSES: Final[frozenset[str]] = frozenset({"completed", "failed", "cancelled"})
 _VALID_ERROR_CODES: Final[frozenset[str]] = frozenset(e.value for e in ErrorCode)
 
@@ -112,6 +116,19 @@ def _validate_job_id(job_id: str) -> None:
             "SYNTAX_INVALID_ARGUMENT",
             f"Invalid job identifier '{job_id}'.",
         )
+
+
+def _resolve_job_child(jobs_dir: Path, child_name: str, job_id: str) -> Path:
+    _validate_job_id(job_id)
+    jdir_real = os.path.realpath(jobs_dir)
+    jdir_pfx = jdir_real if jdir_real.endswith(os.sep) else jdir_real + os.sep
+    cand_real = os.path.realpath(os.path.join(jdir_real, child_name))
+    if not cand_real.startswith(jdir_pfx):
+        raise StudioAPIError(
+            "SYNTAX_INVALID_ARGUMENT",
+            f"Path traversal detected in job_id: '{job_id}'",
+        )
+    return Path(cand_real)
 
 
 def _translate_runner_error(exc: Exception) -> StudioAPIError:
@@ -193,7 +210,9 @@ class JobSupervisor:
         for m in session_mgr.list_sessions():
             sdir = session_mgr.get_session_dir(m.session_id)
             jdir = sdir / "jobs"
-            if (jdir / f"{job_id}.json").is_file() or (jdir / f"{job_id}.events.jsonl").is_file():
+            jf = _resolve_job_child(jdir, f"{job_id}.json", job_id)
+            ef = _resolve_job_child(jdir, f"{job_id}.events.jsonl", job_id)
+            if jf.is_file() or ef.is_file():
                 return m.session_id
 
         raise StudioAPIError("JOB_NOT_FOUND", f"Job '{job_id}' not found.")
@@ -316,15 +335,8 @@ class JobSupervisor:
         job_id: str,
         create: bool = False,
     ) -> Path:
-        _validate_job_id(job_id)
-        jdir = self._get_jobs_dir(session_mgr, session_id, create=create).resolve()
-        job_file = (jdir / f"{job_id}.json").resolve()
-        if not job_file.is_relative_to(jdir):
-            raise StudioAPIError(
-                "SYNTAX_INVALID_ARGUMENT",
-                f"Path traversal detected in job_id: '{job_id}'",
-            )
-        return job_file
+        jdir = self._get_jobs_dir(session_mgr, session_id, create=create)
+        return _resolve_job_child(jdir, f"{job_id}.json", job_id)
 
     def _write_job_data_atomic(
         self,
@@ -335,7 +347,9 @@ class JobSupervisor:
     ) -> None:
         jdir = self._get_jobs_dir(session_mgr, session_id, create=True)
         job_file = self._get_job_file(session_mgr, session_id, job_id, create=True)
-        tmp_file = jdir / f".{job_id}.json.{uuid.uuid4().hex[:8]}.tmp"
+        tmp_file = _resolve_job_child(
+            jdir, f".{job_id}.json.{uuid.uuid4().hex[:8]}.tmp", job_id
+        )
         with open(tmp_file, "w", encoding="utf-8") as fp:
             json.dump(data, fp, indent=2)
             fp.flush()
@@ -668,7 +682,9 @@ class JobSupervisor:
 
         status = str(data.get("status", "")).upper()
         if status in ("PENDING", "RUNNING"):
-            lock_file = session_dir / "jobs" / f".job_{job_id}.lock"
+            lock_file = _resolve_job_child(
+                session_dir / "jobs", f".job_{job_id}.lock", job_id
+            )
             abandoned = False
             try:
                 with studio_lock(lock_file, level=L2_JOB, session_id=session_id, timeout=0.01):
@@ -685,7 +701,9 @@ class JobSupervisor:
                     self._write_job_data_atomic(session_mgr, session_id, job_id, data)
                     with contextlib.suppress(Exception):
                         writer = SSEJournalWriter(
-                            session_dir=session_dir, job_id=job_id, session_id=session_id
+                            session_dir=session_dir,
+                            job_id=job_file.stem,
+                            session_id=session_dir.name,
                         )
                         writer.buffer_event(
                             "job_failed",
@@ -709,8 +727,10 @@ class JobSupervisor:
         """Atomically persist cooperative `.{job_id}.cancel` marker file on disk."""
         jobs_dir = session_dir / "jobs"
         jobs_dir.mkdir(parents=True, exist_ok=True)
-        cancel_marker = jobs_dir / f".{job_id}.cancel"
-        tmp_marker = jobs_dir / f".{job_id}.cancel.{uuid.uuid4().hex[:8]}.tmp"
+        cancel_marker = _resolve_job_child(jobs_dir, f".{job_id}.cancel", job_id)
+        tmp_marker = _resolve_job_child(
+            jobs_dir, f".{job_id}.cancel.{uuid.uuid4().hex[:8]}.tmp", job_id
+        )
         try:
             with open(tmp_marker, "w", encoding="utf-8") as fp:
                 fp.write("cancelled")
@@ -811,7 +831,9 @@ class JobSupervisor:
         # so an active worker in another process immediately observes ctx.is_cancelled() == True.
         cancel_marker = self._write_cancel_marker_atomic(session_dir, job_id)
 
-        lock_file = session_dir / "jobs" / f".job_{job_id}.lock"
+        lock_file = _resolve_job_child(
+            session_dir / "jobs", f".job_{job_id}.lock", job_id
+        )
         lock_file.parent.mkdir(parents=True, exist_ok=True)
         try:
             with studio_lock(lock_file, level=L2_JOB, session_id=session_id, timeout=0.05):
@@ -852,7 +874,9 @@ class JobSupervisor:
 
                     with contextlib.suppress(Exception):
                         writer = SSEJournalWriter(
-                            session_dir=session_dir, job_id=job_id, session_id=session_id
+                            session_dir=session_dir,
+                            job_id=job_file.stem,
+                            session_id=session_dir.name,
                         )
                         writer.buffer_event(
                             "job_cancelled",
@@ -919,12 +943,9 @@ class JobSupervisor:
         if not session_dir.is_dir() or not (session_dir / "session.json").is_file():
             raise StudioAPIError("SESSION_NOT_FOUND", f"Session '{session_id}' not found.")
         job_file = self._get_job_file(session_mgr, session_id, job_id, create=False)
-        journal_file = (session_dir / "jobs" / f"{job_id}.events.jsonl").resolve()
-        if not journal_file.is_relative_to((session_dir / "jobs").resolve()):
-            raise StudioAPIError(
-                "SYNTAX_INVALID_ARGUMENT",
-                f"Path traversal detected in job_id: '{job_id}'",
-            )
+        journal_file = _resolve_job_child(
+            session_dir / "jobs", f"{job_id}.events.jsonl", job_id
+        )
 
         with self._lock:
             ctx = self._jobs.get(job_id)
@@ -983,7 +1004,7 @@ def run_parse_job(
             get_job_supervisor()._persist_job_status(session_mgr, ctx.session_id, ctx)
 
     try:
-        return run_parse_session_sources(
+        result = run_parse_session_sources(
             session_manager=session_mgr,
             session_id=ctx.session_id,
             job_id=ctx.job_id,
@@ -994,6 +1015,68 @@ def run_parse_job(
             is_cancelled=lambda: ctx.is_cancelled(session_mgr),
             on_progress=_on_progress,
         )
+        # Attach balanced preview evidence_chunks across sources for Chunk Inspector (ISS-11)
+        active_chunks, active_tables = load_active_session_evidence(
+            session_mgr.get_session_dir(ctx.session_id)
+        )
+        tabular_pages_by_src: set[tuple[str, int]] = {
+            (str((t.metadata or {}).get("source_id") or ""), int(t.page_number))
+            for t in active_tables
+            if getattr(t, "page_number", None) is not None
+        }
+        grouped: dict[str, list[Any]] = {}
+        for chk in active_chunks:
+            meta = chk.metadata or {}
+            sid = str(meta.get("source_id") or chk.document_id or "unknown")
+            grouped.setdefault(sid, []).append(chk)
+
+        preview_chunks: list[dict[str, Any]] = []
+        max_per_source = DEFAULT_PREVIEW_CHUNKS_PER_SOURCE
+        max_total_preview = DEFAULT_MAX_PREVIEW_CHUNKS
+        # Interleave across sources so every uploaded document is visible in preview
+        bucket_lists = list(grouped.values())
+        for slot in range(max_per_source):
+            for bucket in bucket_lists:
+                if len(preview_chunks) >= max_total_preview:
+                    break
+                if slot >= len(bucket):
+                    continue
+                chk = bucket[slot]
+                meta = chk.metadata or {}
+                sid = str(meta.get("source_id") or chk.document_id or "")
+                fname = str(meta.get("filename") or chk.document_id or "document")
+                page_num = getattr(chk, "page_number", None)
+                source_label = f"{fname} (p. {page_num})" if page_num else fname
+                complexity = str(meta.get("layout_complexity") or "").upper()
+                if complexity not in {"SIMPLE", "TABULAR", "MULTI_COLUMN", "COMPLEX"}:
+                    is_tabular_page = (
+                        page_num is not None and (sid, int(page_num)) in tabular_pages_by_src
+                    )
+                    if is_tabular_page or "|" in (chk.text or ""):
+                        complexity = "TABULAR"
+                    else:
+                        complexity = "SIMPLE"
+                raw_text = chk.text or ""
+                if len(raw_text) > DEFAULT_PREVIEW_SNIPPET_MAX_CHARS:
+                    snippet = f"{raw_text[:DEFAULT_PREVIEW_SNIPPET_MAX_CHARS]}…"
+                else:
+                    snippet = raw_text
+                preview_chunks.append(
+                    {
+                        "chunk_id": chk.chunk_id,
+                        "source_id": sid,
+                        "source_file": source_label,
+                        "text_snippet": snippet,
+                        "token_count": max(1, len(raw_text.split())),
+                        "layout_complexity": complexity,
+                        "start_char": chk.start_offset,
+                        "end_char": chk.end_offset,
+                    }
+                )
+            if len(preview_chunks) >= max_total_preview:
+                break
+        result["evidence_chunks"] = preview_chunks
+        return result
     except Exception as exc:
         raise _translate_runner_error(exc) from exc
 
@@ -1034,6 +1117,7 @@ def run_construct_job(
     fibo_modules: list[str] | None = None,
     mode: str = "deterministic",
     if_match: str | None = None,
+    steering_prompt: str | None = None,
     actor_role: str | None = None,
     agent_runner: Any = None,
 ) -> dict[str, Any]:
@@ -1073,6 +1157,7 @@ def run_construct_job(
             fibo_modules=fibo_modules,
             mode=eff_mode,
             if_match=if_match,
+            steering_prompt=steering_prompt,
             actor=ctx.principal,
             actor_role=actor_role or ctx.role,
             require_admin_for_auto_commit=False,

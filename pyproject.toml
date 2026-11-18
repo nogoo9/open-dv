@@ -56,6 +56,7 @@ dev = [
     "sqlglot>=26.0.0",
     "pylint>=3.0.0",
     "rdflib>=7.0.0",
+    "tiktoken>=0.8.0",
 ]
 
 [tool.ruff]
@@ -84,6 +85,29 @@ ignore = [
     "TRY004",
     "TRY300",
     "TRY301",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "E501",
+    "F401",
+    "F841",
+    "B007",
+    "B905",
+    "N806",
+    "I001",
+    "RUF002",
+    "RUF003",
+    "RUF012",
+    "RUF015",
+    "RUF019",
+    "RUF043",
+    "RUF059",
+    "BLE001",
+    "E741",
+    "UP034",
+    "S110",
+    "S112",
 ]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]

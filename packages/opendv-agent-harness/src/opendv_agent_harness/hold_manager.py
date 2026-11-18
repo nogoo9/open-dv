@@ -84,7 +84,7 @@ class StewardHoldManager:
             holds_dir = self._state_dir / "holds"
             holds_dir.mkdir(parents=True, exist_ok=True)
             target = holds_dir / f"{record.decision_id}.json"
-            target.write_text(record.model_dump_json(indent=2), encoding="utf-8")
+            target.write_text(record.model_dump_json(indent=2), encoding="utf-8", newline="\n")
 
     def _index_record(self, record: StewardHoldRecord, *, persist: bool = True) -> None:
         self._holds_by_id[record.decision_id] = record

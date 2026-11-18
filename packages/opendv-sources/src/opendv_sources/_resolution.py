@@ -8,14 +8,25 @@ from typing import Any
 
 from opendv_core.paths import resolve_workspace_path
 
-_CREDENTIAL_PATTERN = re.compile(r"([^/:@\s]*):([^/:@\s]+)@")
+
+def _redact_segment(seg: str) -> str:
+    at_idx = seg.rfind("@")
+    if at_idx <= 0:
+        return seg
+    colon_idx = seg.find(":", 0, at_idx)
+    if colon_idx <= 0:
+        return seg
+    return f"{seg[:colon_idx]}:***@{seg[at_idx + 1 :]}"
 
 
 def redact_credentials(text: str) -> str:
-    """Mask userinfo password/token segments in URIs and error strings."""
-    if not text:
+    """Mask userinfo password/token segments in URIs, filesystem paths, and error strings."""
+    if not text or "@" not in text or ":" not in text:
         return text
-    return _CREDENTIAL_PATTERN.sub(r"\1:***@", text)
+    return "".join(
+        _redact_segment(part) if idx % 2 == 0 else part
+        for idx, part in enumerate(re.split(r"([/\\'\"\s]+)", text))
+    )
 
 
 def resolve_adapter_path(

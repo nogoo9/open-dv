@@ -19,7 +19,6 @@ from opendv_service.errors import NotFoundError, OpenDVError
 from opendv_service.state import StateStore
 from opendv_service.use_cases.explorer_artifacts import build_bundle_artifacts
 from opendv_service.use_cases.explorer_canonical import (
-    DEFAULT_WAVES,
     EXPLORER_PHASES,
     build_canonical_stages,
 )
@@ -104,11 +103,10 @@ def get_explorer_bundle(
             if not match:
                 raise NotFoundError(f"Wave '{wave_id}' not found for run '{run_id}'.")
             target_idx = int(match.group(1))
-            target_key = f"W{target_idx}"
 
             filtered_artifacts: dict[str, ArtifactDTO] = {}
             for k, art in artifacts.items():
-                if art.wave_index == target_idx or (art.waves and target_key in art.waves):
+                if art.wave_index == target_idx:
                     filtered_artifacts[k] = art.model_copy(update={"wave_index": target_idx})
             artifacts = filtered_artifacts
             setting_ids = [k for k in setting_ids if k in artifacts]
@@ -132,8 +130,6 @@ def get_explorer_bundle(
         displayName=display_name,
         runId=run_id,
         specFile="pipeline_input.yaml",
-        wavesCount=len(DEFAULT_WAVES),
-        waves=DEFAULT_WAVES,
         statusLabel=status_label,
         gatesPassed=5 if is_hold else (6 if run_dto.status != RunStatus.FAILED else 4),
         gatesTotal=6,

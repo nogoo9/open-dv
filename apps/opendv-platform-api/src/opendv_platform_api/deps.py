@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import Header, Request
 
+from opendv_platform_api.security.studio_auth import is_authenticated_request
 from opendv_service import (
     OpenDVService,
     OpenDVSettings,
@@ -51,15 +52,16 @@ def get_rbac_role(
 ) -> RbacRole:
     """Extract and normalize 5-Tier RBAC role context from request headers (docs/08 §5.2).
 
-    SECURITY ARCHITECTURE BOUNDARY (H5):
-    In production deployments, the Open-DV Platform API is designed to sit behind an
-    authenticating reverse proxy or API Gateway (e.g., OAuth2/OIDC, mTLS, Envoy) that
-    authenticates callers and asserts verified role claims via the `X-OpenDV-Role` header.
-    Direct untrusted callers should not have direct network access to this endpoint without
-    gateway authentication.
+    Only honors `X-OpenDV-Role` when accompanied by valid session/bearer/loopback auth.
     """
     header_val = x_opendv_role or request.headers.get("x-opendv-role")
-    return normalize_rbac_role(header_val)
+    is_auth = is_authenticated_request(request)
+    default_role = (
+        RbacRole.INTERNAL_MODELER
+        if (is_auth and request.method not in ("GET", "HEAD"))
+        else RbacRole.PUBLIC
+    )
+    return normalize_rbac_role(header_val, default=default_role, authenticated=is_auth)
 
 
 __all__ = [

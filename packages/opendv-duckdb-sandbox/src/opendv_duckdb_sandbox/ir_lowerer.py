@@ -249,9 +249,9 @@ def _lower_hub(
         else None
     )
     excluded_hub_bkcc = {"bkcc", *([hub_bkcc_col_expr] if hub_bkcc_col_expr else [])}
-    filtered_primary_key_cols = [
-        c for c in primary_key_cols if c.strip() not in excluded_hub_bkcc
-    ] or list(primary_key_cols)
+    filtered_primary_key_cols = list(
+        dict.fromkeys(c for c in primary_key_cols if c.strip() not in excluded_hub_bkcc)
+    ) or list(dict.fromkeys(primary_key_cols))
     business_keys: list[IRBusinessKeyColumn] = [
         IRBusinessKeyColumn(
             name="bkcc",
@@ -261,14 +261,17 @@ def _lower_hub(
             is_tenant_id=True if hub_bkcc_col_expr else None,
         )
     ]
+    seen_bks = {"bkcc"}
     for key_col in filtered_primary_key_cols:
-        business_keys.append(
-            IRBusinessKeyColumn(
-                name=key_col,
-                data_type=_infer_sql_data_type(key_col, profile_types),
-                nullable=False,
+        if key_col not in seen_bks:
+            seen_bks.add(key_col)
+            business_keys.append(
+                IRBusinessKeyColumn(
+                    name=key_col,
+                    data_type=_infer_sql_data_type(key_col, profile_types),
+                    nullable=False,
+                )
             )
-        )
 
     source_mappings: list[IRHubSourceMapping] = []
     bronze_to_rec_src: dict[str, str] = {}

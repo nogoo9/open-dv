@@ -746,3 +746,37 @@ def test_cas_put_file_and_list_blobs(tmp_path: Path) -> None:
     assert cas.delete(d1) is True
     assert cas.has(d1) is False
     assert cas.delete(d1) is False
+
+
+def test_list_sessions_sorted_most_recently_updated_first(tmp_path: Path) -> None:
+    """[ISS-07]: list_sessions sorts sessions by updated_at descending (newest activity first)."""
+    import json
+
+    mgr = StudioSessionManager(studio_root=tmp_path / "studio")
+    mgr.create_session("alpha-oldest")
+    mgr.create_session("zeta-middle")
+    mgr.create_session("beta-newest")
+    mgr.create_session("gamma-tie-newer-id")
+    mgr.create_session("delta-tie-older-id")
+
+    timestamps = {
+        "alpha-oldest": "2026-11-10T08:00:00+00:00",
+        "zeta-middle": "2026-11-12T12:00:00Z",
+        "beta-newest": "2026-11-13T18:30:00+00:00",
+        "gamma-tie-newer-id": "2026-11-11T09:00:00+00:00",
+        "delta-tie-older-id": "2026-11-11T09:00:00+00:00",
+    }
+    for sid, ts in timestamps.items():
+        sjson = mgr.get_session_dir(sid) / "session.json"
+        data = json.loads(sjson.read_text(encoding="utf-8"))
+        data["updated_at"] = ts
+        sjson.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    ordered_ids = [s.session_id for s in mgr.list_sessions()]
+    assert ordered_ids == [
+        "beta-newest",
+        "zeta-middle",
+        "gamma-tie-newer-id",
+        "delta-tie-older-id",
+        "alpha-oldest",
+    ]

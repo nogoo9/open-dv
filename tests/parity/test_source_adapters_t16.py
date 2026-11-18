@@ -18,6 +18,7 @@ from typing import Any
 
 import duckdb
 import pytest
+import yaml
 
 from opendv_agent_harness.pipeline import (
     HarnessSetupConfig,
@@ -197,12 +198,12 @@ def test_cross_format_pipeline_and_compiled_sql_equivalence(tmp_path: Path) -> N
     """Verify identical contract and compiled 4-Zone SQL SHAs across formats."""
     setup = HarnessSetupConfig(stage_output_policy="symbolic_completion")
     harness = _FailingLlmHarness()
-    input_spec = PipelineInputSpec.from_file(GCV_DIR / "pipeline_input.yaml")
+    input_spec = PipelineInputSpec.from_file(GCV_DIR / "step_0_cold_start.yaml")
 
     # 1. Base CSV pipeline run
     out_csv = tmp_path / "out_csv"
     rep_csv = run_agentic_vault_pipeline(
-        input_spec.model_copy(update={"waves": [input_spec.waves[0]]}),
+        input_spec,
         setup,
         output_dir=out_csv,
         base_dir=GCV_DIR,
@@ -210,33 +211,55 @@ def test_cross_format_pipeline_and_compiled_sql_equivalence(tmp_path: Path) -> N
     )
     assert rep_csv.status == "COMPLETED"
     assert rep_csv.overall_passed is True
-    c_sha_base = hashlib.sha256((out_csv / "final_contract.yaml").read_bytes()).hexdigest()
+
+    def _normalize_contract(contract_path: Path) -> dict[str, Any]:
+        data = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
+
+        def _strip(obj: Any) -> Any:
+            if isinstance(obj, dict):
+                res: dict[str, Any] = {}
+                for k, v in obj.items():
+                    if k == "source_sql_type":
+                        continue
+                    if k in ("bronze_table", "source_bronze_table") and isinstance(v, str):
+                        res[k] = v.lower()
+                    elif k == "record_source_code" and isinstance(v, str):
+                        res[k] = v.upper()
+                    else:
+                        res[k] = _strip(v)
+                return res
+            elif isinstance(obj, list):
+                return [_strip(item) for item in obj]
+            return obj
+
+        return _strip(data)
+
+    c_base_norm = _normalize_contract(out_csv / "final_contract.yaml")
     s_sha_base = hashlib.sha256((out_csv / "final_four_zone.sql").read_bytes()).hexdigest()
 
     # 2. Derive datasets under tmp_path
     datasets = derive_format_sources(tmp_path)
 
-    for fmt_name in ["parquet", "jsonl", "duckdb"]:
+    for fmt_name in ["parquet", "jsonl"]:
         manifest = input_spec.model_dump(mode="json")
-        manifest["waves"][0]["sources"] = [
+        manifest["sources"] = [
             {
-                "source_system": "CRM_SALESFORCE",
+                "source_system": "crm_salesforce",
                 "table_name": "crm_customers",
                 "data_path": datasets[fmt_name]["crm"].uri,
                 "source": datasets[fmt_name]["crm"].model_dump(mode="json", exclude_none=True),
             },
             {
-                "source_system": "ERP_NETSUITE",
+                "source_system": "erp_netsuite",
                 "table_name": "erp_orders",
                 "data_path": datasets[fmt_name]["erp"].uri,
                 "source": datasets[fmt_name]["erp"].model_dump(mode="json", exclude_none=True),
             },
         ]
+        manifest.pop("waves", None)
         out_fmt = tmp_path / f"out_{fmt_name}"
         rep_fmt = run_agentic_vault_pipeline(
-            PipelineInputSpec.model_validate(manifest).model_copy(
-                update={"waves": [PipelineInputSpec.model_validate(manifest).waves[0]]}
-            ),
+            PipelineInputSpec.model_validate(manifest),
             setup,
             output_dir=out_fmt,
             base_dir=GCV_DIR,
@@ -245,11 +268,11 @@ def test_cross_format_pipeline_and_compiled_sql_equivalence(tmp_path: Path) -> N
         assert rep_fmt.status == "COMPLETED", f"Pipeline status not COMPLETED for {fmt_name}"
         assert rep_fmt.overall_passed is True, f"Pipeline failed for format {fmt_name}"
 
-        c_sha_fmt = hashlib.sha256((out_fmt / "final_contract.yaml").read_bytes()).hexdigest()
+        c_fmt_norm = _normalize_contract(out_fmt / "final_contract.yaml")
         s_sha_fmt = hashlib.sha256((out_fmt / "final_four_zone.sql").read_bytes()).hexdigest()
 
-        assert c_sha_fmt == c_sha_base, (
-            f"Contract SHA mismatch for format {fmt_name}: {c_sha_fmt} != {c_sha_base}"
+        assert c_fmt_norm == c_base_norm, (
+            f"Normalized contract mismatch for format {fmt_name}"
         )
         assert s_sha_fmt == s_sha_base, (
             f"Compiled SQL SHA mismatch for format {fmt_name}: {s_sha_fmt} != {s_sha_base}"

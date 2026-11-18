@@ -39,10 +39,7 @@
       "short": "Wave 0 \u00b7 1,000 customers",
       "type": "RelationalSourceTable",
       "viz": "table",
-      "wave_index": 0,
-      "waves": [
-        "W0"
-      ]
+      "wave_index": 0
     },
     "crm2": {
       "checks": null,
@@ -83,10 +80,7 @@
       "short": "Wave 2 \u00b7 Schema drift",
       "type": "RelationalSourceTable",
       "viz": "table",
-      "wave_index": 2,
-      "waves": [
-        "W2"
-      ]
+      "wave_index": 2
     },
     "draft_contract": {
       "checks": null,
@@ -120,10 +114,10 @@
         "nodes": [
           {
             "h": 50.0,
-            "id": "h_cust",
+            "id": "h_party",
             "kind": "hub",
-            "label": "hub_customer",
-            "sub": "HK_CUSTOMER",
+            "label": "hub_party",
+            "sub": "HK_PARTY",
             "w": 140.0,
             "x": 60.0,
             "y": 80.0
@@ -140,30 +134,30 @@
           },
           {
             "h": 40.0,
-            "id": "l_ord_cust",
+            "id": "l_ord_party",
             "kind": "link",
-            "label": "lnk_order_customer",
-            "sub": "HK_LNK_ORDER_CUST",
+            "label": "lnk_order_party",
+            "sub": "HK_LNK_ORDER_PARTY",
             "w": 170.0,
             "x": 170.0,
             "y": 80.0
           },
           {
             "h": 45.0,
-            "id": "s_cust_core",
+            "id": "s_party_core",
             "kind": "sat",
-            "label": "sat_customer_core",
-            "sub": "HD_CUST_CORE",
+            "label": "sat_party_core",
+            "sub": "HD_PARTY_CORE",
             "w": 140.0,
             "x": 60.0,
             "y": 180.0
           },
           {
             "h": 45.0,
-            "id": "s_cust_pii",
+            "id": "s_party_pii",
             "kind": "sat_pii",
-            "label": "sat_customer_pii",
-            "sub": "HD_CUST_PII",
+            "label": "sat_party_pii",
+            "sub": "HD_PARTY_PII",
             "w": 140.0,
             "x": 60.0,
             "y": 250.0
@@ -185,13 +179,7 @@
       "short": "5 Hubs, 4 Links, 7 Sats",
       "type": "DataVaultModelContract",
       "viz": "dv",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "drift": {
       "checks": null,
@@ -235,10 +223,7 @@
       "short": "3 drift changes classified",
       "type": "SchemaDriftReport",
       "viz": "table",
-      "wave_index": 2,
-      "waves": [
-        "W2"
-      ]
+      "wave_index": 2
     },
     "erp": {
       "checks": null,
@@ -279,10 +264,7 @@
       "short": "Wave 0 \u00b7 5,000 orders",
       "type": "RelationalSourceTable",
       "viz": "table",
-      "wave_index": 0,
-      "waves": [
-        "W0"
-      ]
+      "wave_index": 0
     },
     "extract": {
       "checks": null,
@@ -351,10 +333,7 @@
       "short": "2 spans \u00b7 1 U1 match, 1 hold",
       "type": "UnstructuredExtractionLedger",
       "viz": "doc",
-      "wave_index": 3,
-      "waves": [
-        "W3"
-      ]
+      "wave_index": 3
     },
     "final_contract": {
       "checks": null,
@@ -388,10 +367,10 @@
         "nodes": [
           {
             "h": 50.0,
-            "id": "h_cust",
+            "id": "h_party",
             "kind": "hub",
-            "label": "hub_customer",
-            "sub": "HK_CUSTOMER",
+            "label": "hub_party",
+            "sub": "HK_PARTY",
             "w": 140.0,
             "x": 60.0,
             "y": 80.0
@@ -408,30 +387,30 @@
           },
           {
             "h": 40.0,
-            "id": "l_ord_cust",
+            "id": "l_ord_party",
             "kind": "link",
-            "label": "lnk_order_customer",
-            "sub": "HK_LNK_ORDER_CUST",
+            "label": "lnk_order_party",
+            "sub": "HK_LNK_ORDER_PARTY",
             "w": 170.0,
             "x": 170.0,
             "y": 80.0
           },
           {
             "h": 45.0,
-            "id": "s_cust_core",
+            "id": "s_party_core",
             "kind": "sat",
-            "label": "sat_customer_core",
-            "sub": "HD_CUST_CORE",
+            "label": "sat_party_core",
+            "sub": "HD_PARTY_CORE",
             "w": 140.0,
             "x": 60.0,
             "y": 180.0
           },
           {
             "h": 45.0,
-            "id": "s_cust_pii",
+            "id": "s_party_pii",
             "kind": "sat_pii",
-            "label": "sat_customer_pii",
-            "sub": "HD_CUST_PII",
+            "label": "sat_party_pii",
+            "sub": "HD_PARTY_PII",
             "w": 140.0,
             "x": 60.0,
             "y": 250.0
@@ -453,13 +432,7 @@
       "short": "Verified DV 2.0 contract",
       "type": "DataVaultModelContract",
       "viz": "dv",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "final_ir": {
       "checks": null,
@@ -478,30 +451,24 @@
       "outline": [
         [
           "Hubs",
-          "hub_customer, hub_order"
+          "hub_party, hub_order"
         ],
         [
           "Links",
-          "lnk_order_customer"
+          "lnk_order_party"
         ],
         [
           "Satellites",
-          "sat_customer_core, sat_customer_pii"
+          "sat_party_core, sat_party_pii"
         ]
       ],
-      "raw": "{\n  \"hubs\": [\n    \"hub_customer\",\n    \"hub_order\"\n  ]\n}",
+      "raw": "{\n  \"hubs\": [\n    \"hub_party\",\n    \"hub_order\"\n  ]\n}",
       "rows": null,
-      "sha256": "17a2fd966b049758608986d234768b5eac7c8899d54509f4ac858dc2c5aeb334",
+      "sha256": "cc13312670a0f9a7ea1b817af6dd3607b23ca34e32f2f91dba15a034321472e4",
       "short": "Draft 2020-12 IR",
       "type": "CanonicalDataVaultIR",
       "viz": "code",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "final_sql": {
       "checks": null,
@@ -541,13 +508,7 @@
       "short": "Zones 0-3 DDL + DML",
       "type": "FourZoneDuckDBSQL",
       "viz": "code",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "gate_sandbox": {
       "checks": [
@@ -576,13 +537,7 @@
       "short": "4 zones compiled \u00b7 PASS",
       "type": "SandboxExecutionScorecard",
       "viz": "checks",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "gate_static": {
       "checks": [
@@ -631,13 +586,7 @@
       "short": "99/99 checks PASS",
       "type": "StaticGatesScorecard",
       "viz": "checks",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "grounding": {
       "checks": null,
@@ -684,13 +633,7 @@
       "short": "100% tables grounded",
       "type": "ConceptGroundingLedger",
       "viz": "table",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "harness": {
       "checks": null,
@@ -750,13 +693,7 @@
       "short": "agy \u00b7 pro + flash \u00b7 3 retries",
       "type": "AgentHarnessConfig",
       "viz": "kv",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "ledger": {
       "checks": null,
@@ -767,57 +704,17 @@
       "events": [
         [
           "STAGE_00",
-          "[REDACTED INTERNAL] Stage STAGE_00_ORCHESTRATION masked for role 'VIEWER'.",
-          "PASS"
-        ],
-        [
-          "STAGE_00",
-          "[REDACTED INTERNAL] Stage STAGE_00_ORCHESTRATION masked for role 'VIEWER'.",
-          "PASS"
-        ],
-        [
-          "STAGE_01",
-          "[REDACTED INTERNAL] Stage STAGE_01_SCOUT_SOURCE masked for role 'VIEWER'.",
-          "PASS"
-        ],
-        [
-          "STAGE_02",
-          "[REDACTED INTERNAL] Stage STAGE_02_SCOUT_UNSTRUCTURED masked for role 'VIEWER'.",
-          "PASS"
-        ],
-        [
-          "STAGE_03",
-          "[REDACTED INTERNAL] Stage STAGE_03_SHIP_VAULT_PASS1 masked for role 'VIEWER'.",
-          "PASS"
-        ],
-        [
-          "STAGE_04",
-          "[REDACTED INTERNAL] Stage STAGE_04_SHIP_VAULT_PASS2 masked for role 'VIEWER'.",
+          "Session start",
           "PASS"
         ],
         [
           "STAGE_05",
-          "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
-          "PASS"
-        ],
-        [
-          "STAGE_05",
-          "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
-          "PASS"
-        ],
-        [
-          "STAGE_05",
-          "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
-          "PASS"
-        ],
-        [
-          "STAGE_06",
-          "[REDACTED INTERNAL] Stage STAGE_06_AXI_DV_DYNAMIC_SANDBOX masked for role 'VIEWER'.",
+          "Static verification complete",
           "PASS"
         ],
         [
           "STAGE_07",
-          "[REDACTED INTERNAL] Stage STAGE_07_DETERMINISTIC_COMPILER masked for role 'VIEWER'.",
+          "Deterministic compile complete",
           "PASS"
         ]
       ],
@@ -835,13 +732,7 @@
       "short": "Observability event log",
       "type": "VaultObservabilityLedger",
       "viz": "events",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "msa": {
       "checks": null,
@@ -910,10 +801,7 @@
       "short": "Wave 3 \u00b7 Unstructured MSA",
       "type": "UnstructuredContractDocument",
       "viz": "doc",
-      "wave_index": 3,
-      "waves": [
-        "W3"
-      ]
+      "wave_index": 3
     },
     "ontology": {
       "checks": null,
@@ -1042,13 +930,7 @@
       "short": "5 concepts \u00b7 Customer, Order, Invoice\u2026",
       "type": "GraphAOntologySpec",
       "viz": "ontology",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "profile": {
       "checks": null,
@@ -1099,13 +981,7 @@
       "short": "24 columns profiled",
       "type": "RelationalProfileReport",
       "viz": "table",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "report": {
       "checks": [
@@ -1149,13 +1025,7 @@
       "short": "8 stages \u00b7 sealed execution",
       "type": "AgenticPipelineReport",
       "viz": "checks",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "runopts": {
       "checks": null,
@@ -1199,13 +1069,7 @@
       "short": "auto_approve_top \u00b7 INTERNAL_MODELER",
       "type": "PipelineExecutionOptions",
       "viz": "kv",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "sandbox_report": {
       "checks": [
@@ -1244,13 +1108,7 @@
       "short": "15 dynamic assertions PASS",
       "type": "SandboxVerificationReport",
       "viz": "checks",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "spec": {
       "checks": null,
@@ -1302,13 +1160,7 @@
       "short": "4 waves \u00b7 W0 cold \u2192 W3 MSA",
       "type": "AgenticPipelineInputSpec",
       "viz": "kv",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "stripe": {
       "checks": null,
@@ -1349,10 +1201,7 @@
       "short": "Wave 1 \u00b7 3,200 invoices",
       "type": "RelationalSourceTable",
       "viz": "table",
-      "wave_index": 1,
-      "waves": [
-        "W1"
-      ]
+      "wave_index": 1
     },
     "toon": {
       "checks": null,
@@ -1384,13 +1233,7 @@
       "short": "44 tokens \u00b7 closed repair",
       "type": "AxiVerifierDiagnosticTrace",
       "viz": "code",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     },
     "triage": {
       "checks": null,
@@ -1437,13 +1280,7 @@
       "short": "24/24 columns assigned",
       "type": "ColumnTriageLedger",
       "viz": "table",
-      "wave_index": 0,
-      "waves": [
-        "W0",
-        "W1",
-        "W2",
-        "W3"
-      ]
+      "wave_index": 0
     }
   },
   "displayName": "Global Commerce Vault \u2014 Wave 0 Cold Start (CRM & ERP)",
@@ -2243,28 +2080,5 @@
       "tier": "deterministic"
     }
   ],
-  "statusLabel": "Sealed \u00b7 6/6 gates PASS",
-  "waves": [
-    {
-      "description": "Cold Start (CRM + ERP)",
-      "id": "W0",
-      "name": "wave_0_cold_start_crm_erp"
-    },
-    {
-      "description": "Incremental Stripe Invoices",
-      "id": "W1",
-      "name": "wave_1_incremental_stripe"
-    },
-    {
-      "description": "Intra-Source Schema Drift",
-      "id": "W2",
-      "name": "wave_2_crm_schema_drift"
-    },
-    {
-      "description": "Unstructured MSA Extraction",
-      "id": "W3",
-      "name": "wave_3_unstructured_msa"
-    }
-  ],
-  "wavesCount": 4
+  "statusLabel": "Sealed \u00b7 6/6 gates PASS"
 }

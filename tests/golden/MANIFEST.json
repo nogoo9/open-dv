@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.0",
-  "generated_at": "2026-11-07T09:04:33.585855+00:00",
+  "generated_at": "2026-11-16T18:39:52.292908+00:00",
   "generator_transport": "STANDALONE_CLI",
   "entries": [
     {
@@ -14,194 +14,194 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/explorer_bundle.json",
-      "sha256": "68d9a19d1828bb901ecf782affc61bac646a121c8573b5504f930f029be48c16",
-      "byte_size": 66067,
+      "sha256": "e4fe12ee708bb083f1a91add43681d9de0028ee9075ade2ee93646d753a974c4",
+      "byte_size": 62462,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/final_canonical_ir.json",
-      "sha256": "830502bcebffdaf2a82b01c290a6f27a872fe14c7a59dbbc6ac5c3a3d7af1332",
-      "byte_size": 15444,
+      "sha256": "7325a729f57e08d1c6a6af678862cb80586ee3933b59f3eaca3be95cfc3ec249",
+      "byte_size": 18173,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/final_contract.yaml",
-      "sha256": "7ff31cd296a524ac2c05236f277fe84f7385dd56766037deed470d7a8bbdf913",
-      "byte_size": 5506,
+      "sha256": "d5f207b10f9f52abaafa8d53750d6f32cfcff6f80a34aac9fb4150dfb26011e0",
+      "byte_size": 6964,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/final_four_zone.sql",
-      "sha256": "3a6ed2e6859739230d76e162087463dcd47a319475f60260074107eb0db77c8e",
-      "byte_size": 43624,
+      "sha256": "9ee1f1f1d0d0470ff99a84dac5ec425c9bcc657a462f477aafe4004ae992f849",
+      "byte_size": 47516,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/pipeline_report.json",
-      "sha256": "b7fadcb47daac9fbc8bdc0976aa34e34c7d7ff8b99af9a23be3071dac0280b25",
-      "byte_size": 40024,
+      "sha256": "5ee284e5fb806dda3ab1606f34b28e017806344ea5324859e84318afe83097b5",
+      "byte_size": 226020,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#113] Drop legacy view identifiers per Decision D3"
+      "last_justified_change": "[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/events.jsonl",
-      "sha256": "18df992afb1b94c907b1e07c71780ad17a5229957b8b05da92ea59dcb92ab5b1",
-      "byte_size": 626,
+      "sha256": "a3712ae0a0f92eb8c82c97a97cd730c20f3b6e6ec3d4058735b4ad023ee01921",
+      "byte_size": 635,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/explorer_bundle.json",
-      "sha256": "bcb170715866dc017f86045f7182c178dff4cd76b9ef3388975bd5fd009c1e89",
-      "byte_size": 66049,
+      "sha256": "16e3cd3867dda169fd2400fb5f4bebb96dd96a42d4dea4c4ff8b3fd3ef8d5f78",
+      "byte_size": 62462,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/final_canonical_ir.json",
-      "sha256": "4e587b201c404654e989be6f3497349d8f37d5f8551892e6272e4975453d24dd",
-      "byte_size": 20690,
+      "sha256": "41c5404930223187d9f2f93a32e94993c61293da58eda30e01f046afb5ff5b96",
+      "byte_size": 21258,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/final_contract.yaml",
-      "sha256": "81e70f3dc172844b26403266ee7e1abdc751179cde6786c01707e11ff68f2c72",
-      "byte_size": 7585,
+      "sha256": "5529b53a2d753c85a897f18a2adc277e264b58449694977781bd3e241423989e",
+      "byte_size": 8931,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/final_four_zone.sql",
-      "sha256": "c4c61c7f30a318801acf1c7d6fe8e6c80718bbd657cd97df6d738de5f235c621",
-      "byte_size": 55576,
+      "sha256": "141630cf74e8cef0698952b4f2cbcb7f32a31d5a800ca473029158e4eda63c98",
+      "byte_size": 53898,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/pipeline_report.json",
-      "sha256": "4a93f0603d4ce4ee2daf6b959b94a08cb80c8ab8df8f5eb69d9fac9ebadb9e47",
-      "byte_size": 38378,
+      "sha256": "b62650906f163fdee78ee8adf0aeed5db0294a677f9f0c79eadd68307e158259",
+      "byte_size": 253887,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#113] Drop legacy view identifiers per Decision D3"
+      "last_justified_change": "[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/events.jsonl",
-      "sha256": "5007407b851033d69c644ffb1718999de6299eef57dfeab39f366245d76bfc38",
-      "byte_size": 644,
+      "sha256": "31e17c5cac96ddd9025d6fc72fa5b59dfdff3330666e60c071b99e733048d9c9",
+      "byte_size": 626,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/explorer_bundle.json",
-      "sha256": "de5906fcabea67a9a555a166d7233ef5435092a7e2e8f75fd98d34f848e3a119",
-      "byte_size": 66232,
+      "sha256": "198aca472ac0dd211dbbd6a55012d003f746913ab67bbb7f662111c42cf61239",
+      "byte_size": 62462,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/final_canonical_ir.json",
-      "sha256": "8cea66c733003301520220e7fb1d62c1865f80b88f5c47b240b943ad31872d79",
-      "byte_size": 22139,
+      "sha256": "484a1bdf41ce5e2ff6167f6e9e59930ea953ee2594ba0ce5f5e70bceac7b9baf",
+      "byte_size": 23336,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/final_contract.yaml",
-      "sha256": "d19c00f565f27c55d1a166b32ae4fbb947a01aed53588145a1727d672e776afb",
-      "byte_size": 8242,
+      "sha256": "ca6620ddf09fda2cf958e7d5c73587e489fb22097a969fe27ff8a0af67fa8b28",
+      "byte_size": 9779,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/final_four_zone.sql",
-      "sha256": "10e338804ca75d6ad821f3f9127587f146f726f6e85213aec708a791456cefb6",
-      "byte_size": 61439,
+      "sha256": "4aa69a558ce5a8a9d6f4b1c9e87f852afd7f06841fce4abb7947c59fc01b214d",
+      "byte_size": 60037,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/pipeline_report.json",
-      "sha256": "18d82be0d192f2d82d5ab49ba78978971709138c1fdcc109d8f9e7b3632ed78a",
-      "byte_size": 43143,
+      "sha256": "2edd647eee485947f64227ece598c491c229d43c726ef1cdaa98d2e6e2c894df",
+      "byte_size": 278289,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#113] Drop legacy view identifiers per Decision D3"
+      "last_justified_change": "[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/events.jsonl",
-      "sha256": "eef46cf0f458950c0a6c7cac56e6c44ac8816d8c5b1a4499850c19ebd988e97c",
-      "byte_size": 635,
+      "sha256": "31e17c5cac96ddd9025d6fc72fa5b59dfdff3330666e60c071b99e733048d9c9",
+      "byte_size": 626,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/explorer_bundle.json",
-      "sha256": "fc41a41d75c5e77ab0d42d9d4e74d0ce158a7fd52f382264ecbb87f1a4c73cbc",
-      "byte_size": 66058,
+      "sha256": "3231b3d1e65ea3c24121446a70f1ab34d4d48d72bc4640c7176772a713419917",
+      "byte_size": 62462,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/final_canonical_ir.json",
-      "sha256": "5bbcb9ecedb09d9da6daf024402dfe1d877eaa8791250f3dd15a7710a9f2c736",
-      "byte_size": 29214,
+      "sha256": "2329b7d68c40ae9c06b31d4e6ab368c2986c6723e4cea1534d00fe4d8d44b09a",
+      "byte_size": 30528,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/final_contract.yaml",
-      "sha256": "c051b71db0021aa70b3cb9b31b494fd67c51486685bd5e77e2f2b70dc9a9f134",
-      "byte_size": 9837,
+      "sha256": "d9bb6a6695dbd1f044eccb3e3a3ddb0b2dd69746e498541e609d56b889bfe3d8",
+      "byte_size": 11402,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#234] Update golden for Round 3 single-run pipeline report parity"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/final_four_zone.sql",
-      "sha256": "bf4901fa9310edfe6f16c01da73fe7491ba0cbe578d953800287a35a2ffd81a6",
-      "byte_size": 82574,
+      "sha256": "37240620599c186a7180c14d6e0dbe81a415e9943b49b8c219654dd0a4ad2037",
+      "byte_size": 82701,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/hold_record.json",
-      "sha256": "4fcfebb408044695bf18a25c28b6e31c5184413f5e2c21223ed39ff2c3c5e717",
-      "byte_size": 958,
+      "sha256": "29c7ea69e46e8715e470f59d61a8ba3c23c747c86c3b902e878d244d58a8c4f1",
+      "byte_size": 953,
       "generated_from": "PAR-S8-W3: opendv hold list",
-      "last_justified_change": "[#113] Drop legacy view identifiers per Decision D3"
+      "last_justified_change": "[#234] Update golden for Round 3 single-run pipeline report parity"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/pipeline_report.json",
-      "sha256": "581a473df3ca55e9aeb5405c6487d1dfb64810af26d692de1e8cdf2d1b94ef1c",
-      "byte_size": 39693,
+      "sha256": "ac893848916ea24c109e8ee56f0928427d74bfce970fb03ac517c7fbee8e93d2",
+      "byte_size": 354959,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#113] Drop legacy view identifiers per Decision D3"
+      "last_justified_change": "[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism"
     },
     {
       "golden_id": "GT-02",
@@ -326,18 +326,18 @@
     {
       "golden_id": "GT-03",
       "file": "GT-03/06_schema_invalid/problem.json",
-      "sha256": "e0bd5c1be236f15abfecdbf44bdb154ecd25f50fd35823efd5b50f80e4a0183a",
-      "byte_size": 22351,
+      "sha256": "326bc93f72b4585be711fc6c9b6bc720c13bebbdd8259623129c22689a04c472",
+      "byte_size": 24420,
       "generated_from": "GT-03: opendv verify 06_schema_invalid",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
     },
     {
       "golden_id": "GT-05",
       "file": "GT-05/render_snapshot.txt",
-      "sha256": "05e8f9c7fee9d44a7fa60a2333d00756749c41ce11be26f94e2c2317495d111b",
-      "byte_size": 2855,
+      "sha256": "e89f2e332b5d5a838b6c36804b2d4a5b440a152e61819b9a24f07d80e71560ca",
+      "byte_size": 2854,
       "generated_from": "PAR-S8-W3: opendv explorer render snapshot",
-      "last_justified_change": "[#114] Fix GT-05 renderer reading genuine stage tag and artifact fmt"
+      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
     },
     {
       "golden_id": "GT-06",

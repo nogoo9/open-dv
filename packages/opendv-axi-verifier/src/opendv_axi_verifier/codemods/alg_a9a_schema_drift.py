@@ -1,22 +1,4 @@
-"""Algorithm A.9a: Intra-Source Schema Drift Detector & Additive Satellite Evolution Codemod.
-
-Detects and handles intra-source schema drift across 5 canonical categories without
-breaking historical `hash_diff` chains or executing destructive Raw Vault DDL:
-  1. `ADDITIVE` (`ADD_COLUMN`): Isolates newly added columns into an additive companion
-     Satellite (`sat_<base>_ext_<epoch>` or domain-tagged companion such as
-     `sat_fund_investran_esg`) with `volatility_tier = "ADDITIVE_DRIFT_COMPANION"`.
-  2. `SOFT_DEPRECATED` (`DROP_COLUMN`): Retains missing source columns in the deployed
-     Satellite's `payload_columns`, records them in `soft_deprecated_columns`, and
-     rewrites the staging projection to `CAST(NULL AS <type>) AS <col>`.
-  3. `RENAMED` (`RENAME_COLUMN`): Detects renamed columns via normalized Levenshtein
-     similarity `>= 0.85` (or value sample Jaccard overlap `>= 0.90`), emitting a
-     staging alias `new_col AS old_col` with zero Vault DDL mutation.
-  4. `TYPE_WIDENED` (`TYPE_WIDENING`): Detects lossless data-type widening (e.g.,
-     `VARCHAR(64) -> VARCHAR(255)`, `INT -> BIGINT`, `NUMERIC(12,2) -> NUMERIC(18,2)`),
-     absorbing it transparently via canonical `TRIM(CAST(col AS VARCHAR))` hashing.
-  5. `KEY_DRIFT` (`SEMANTIC_TYPE_CHANGE` / `KEY_DRIFT`): Detects Business Key column
-     mutation or narrowing/incompatible type changes, halting for `ASK-USER`.
-"""
+"""Algorithm A.9a: Intra-Source Schema Drift Detector & Additive Satellite Evolution Codemod."""
 
 from __future__ import annotations
 
@@ -24,6 +6,10 @@ import copy
 import re
 from dataclasses import asdict, dataclass
 from typing import Any
+
+from opendv_core.config import get_core_modeling_config
+
+_CORE_CFG = get_core_modeling_config()
 
 _VARCHAR_RE = re.compile(r"^(?:VAR)?CHAR\s*\(\s*(\d+)\s*\)$", re.IGNORECASE)
 _NUMERIC_RE = re.compile(r"^(?:NUMERIC|DECIMAL)\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)$", re.IGNORECASE)
@@ -39,9 +25,7 @@ _INT_RANK: dict[str, int] = {
 
 @dataclass(frozen=True)
 class DriftFinding:
-    """Structured diagnostic record for a single intra-source schema drift event."""
-
-    category: str  # ADDITIVE | SOFT_DEPRECATED | RENAMED | TYPE_WIDENED | KEY_DRIFT
+    category: str
     source_table: str
     target_entity: str
     column_name: str
@@ -58,74 +42,147 @@ class DriftFinding:
 
 
 def levenshtein_distance(s1: str, s2: str) -> int:
-    """Compute the exact Levenshtein edit distance between two strings."""
-    a = s1.lower()
-    b = s2.lower()
+    a, b = s1.lower(), s2.lower()
     if a == b:
         return 0
-    if not a:
-        return len(b)
-    if not b:
-        return len(a)
-
-    prev_row = list(range(len(b) + 1))
-    for i, ch_a in enumerate(a, start=1):
-        curr_row = [i]
-        for j, ch_b in enumerate(b, start=1):
-            insert_cost = curr_row[j - 1] + 1
-            delete_cost = prev_row[j] + 1
-            replace_cost = prev_row[j - 1] + (0 if ch_a == ch_b else 1)
-            curr_row.append(min(insert_cost, delete_cost, replace_cost))
-        prev_row = curr_row
-    return prev_row[-1]
+    if not a or not b:
+        return len(b) or len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        curr = [i]
+        for j, cb in enumerate(b, start=1):
+            cost = 0 if ca == cb else 1
+            curr.append(min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost))
+        prev = curr
+    return prev[-1]
 
 
 def levenshtein_similarity(s1: str, s2: str) -> float:
-    """Compute normalized Levenshtein similarity in `[0.0, 1.0]`."""
-    max_len = max(len(s1), len(s2))
-    if max_len == 0:
-        return 1.0
-    dist = levenshtein_distance(s1, s2)
-    return 1.0 - (dist / max_len)
+    m = max(len(s1), len(s2))
+    return 1.0 if m == 0 else 1.0 - (levenshtein_distance(s1, s2) / m)
 
 
 def is_lossless_type_widening(old_type: str, new_type: str) -> bool:
-    """Return True if `old_type -> new_type` is a lossless SQL type widening."""
-    old_u = old_type.strip().upper()
-    new_u = new_type.strip().upper()
-    if old_u == new_u:
+    ou, nu = old_type.strip().upper(), new_type.strip().upper()
+    if ou == nu:
         return False
-
-    # VARCHAR(n) -> VARCHAR(m) with m > n, or VARCHAR(n) -> VARCHAR / TEXT
-    m_old_vc = _VARCHAR_RE.match(old_u)
-    m_new_vc = _VARCHAR_RE.match(new_u)
-    if m_old_vc and m_new_vc:
-        return int(m_new_vc.group(1)) > int(m_old_vc.group(1))
-    if m_old_vc and new_u in {"VARCHAR", "TEXT", "STRING"}:
+    mo, mn = _VARCHAR_RE.match(ou), _VARCHAR_RE.match(nu)
+    if mo and mn:
+        return int(mn.group(1)) > int(mo.group(1))
+    if mo and nu in {"VARCHAR", "TEXT", "STRING"}:
         return True
-
-    # Integer widening: SMALLINT -> INT -> BIGINT
-    if old_u in _INT_RANK and new_u in _INT_RANK:
-        return _INT_RANK[new_u] > _INT_RANK[old_u]
-
-    # NUMERIC(p1, s1) -> NUMERIC(p2, s2) where s2 >= s1 and (p2 - s2) >= (p1 - s1)
-    m_old_num = _NUMERIC_RE.match(old_u)
-    m_new_num = _NUMERIC_RE.match(new_u)
-    if m_old_num and m_new_num:
-        p1, s1 = int(m_old_num.group(1)), int(m_old_num.group(2))
-        p2, s2 = int(m_new_num.group(1)), int(m_new_num.group(2))
+    if ou in _INT_RANK and nu in _INT_RANK:
+        return _INT_RANK[nu] > _INT_RANK[ou]
+    mno, mnn = _NUMERIC_RE.match(ou), _NUMERIC_RE.match(nu)
+    if mno and mnn:
+        p1, s1 = int(mno.group(1)), int(mno.group(2))
+        p2, s2 = int(mnn.group(1)), int(mnn.group(2))
         return (p2 > p1 or s2 > s1) and s2 >= s1 and (p2 - s2) >= (p1 - s1)
-
-    return old_u == "DATE" and new_u in {"TIMESTAMP", "TIMESTAMPTZ"}
+    return ou == "DATE" and nu in {"TIMESTAMP", "TIMESTAMPTZ"}
 
 
 def are_types_compatible(old_type: str | None, new_type: str | None) -> bool:
-    """Return True if `old_type` and `new_type` are identical or losslessly widened."""
     if not old_type or not new_type:
         return True
     if old_type.strip().upper() == new_type.strip().upper():
         return True
     return is_lossless_type_widening(old_type, new_type)
+
+
+def reconstruct_baseline_metadata_from_contract(
+    contract: dict[str, Any] | Any,
+    source_table: str,
+    source_system: str | None = None,
+) -> tuple[set[str], dict[str, str], set[str]]:
+    c = contract.model_dump(mode="json") if hasattr(contract, "model_dump") else (contract or {})
+    dep_cols: set[str] = set()
+    old_types: dict[str, str] = {}
+    key_cols: set[str] = set()
+    tbl_l = source_table.lower()
+    tbl_b = tbl_l.split(".")[-1]
+
+    def _m(t: Any) -> bool:
+        if not t or not isinstance(t, str):
+            return False
+        tl = t.lower()
+        if tl == tbl_l:
+            return True
+        if source_system and "." in tl:
+            sys_part, base_part = tl.split(".", 1)
+            if sys_part == source_system.lower() and base_part == tbl_b:
+                return True
+            if sys_part != source_system.lower() and base_part == tbl_b:
+                return False
+        return tl.split(".")[-1] == tbl_b
+
+    for e in c.get("column_triage_ledger") or []:
+        if isinstance(e, dict) and _m(e.get("bronze_table") or e.get("source_table")):
+            col = str(e.get("column_name", ""))
+            if col:
+                dep_cols.add(col)
+                if e.get("source_sql_type"):
+                    old_types[col] = str(e["source_sql_type"])
+                if str(e.get("elm_classification") or e.get("dv_target_role") or "") in {
+                    "BUSINESS_KEY",
+                    "FOREIGN_KEY_REF",
+                    "OPTIONAL_FOREIGN_KEY_REF",
+                    "DEGENERATE_KEY",
+                }:
+                    key_cols.add(col)
+    for h in c.get("hubs") or []:
+        if isinstance(h, dict):
+            for bks in h.get("business_key_sources") or []:
+                if isinstance(bks, dict) and _m(bks.get("bronze_table")):
+                    for k in bks.get("key_columns") or []:
+                        dep_cols.add(str(k))
+                        key_cols.add(str(k))
+    for lnk in c.get("links") or []:
+        if isinstance(lnk, dict) and _m(lnk.get("source_bronze_table")):
+            for hr in lnk.get("hub_references") or []:
+                if isinstance(hr, dict):
+                    for fk in hr.get("source_fk_columns") or []:
+                        dep_cols.add(str(fk))
+                        key_cols.add(str(fk))
+            for d in lnk.get("degenerate_columns") or []:
+                dep_cols.add(str(d))
+                key_cols.add(str(d))
+    for s in c.get("satellites") or []:
+        if isinstance(s, dict) and _m(s.get("source_bronze_table")):
+            for p in s.get("payload_columns") or []:
+                dep_cols.add(str(p))
+            for sd in s.get("soft_deprecated_columns") or []:
+                dep_cols.add(str(sd))
+            if isinstance(s.get("column_types"), dict):
+                for ck, cv in s["column_types"].items():
+                    old_types[str(ck)] = str(cv)
+    return dep_cols, old_types, key_cols
+
+
+def detect_schema_drift_from_contract(
+    contract: dict[str, Any] | Any,
+    source_table: str,
+    candidate_columns: list[str] | set[str],
+    candidate_types: dict[str, str] | None = None,
+    *,
+    target_entity: str | None = None,
+    similarity_threshold: float | None = None,
+    value_jaccard: dict[tuple[str, str], float] | None = None,
+) -> list[DriftFinding]:
+    dep_cols, old_types, key_cols = reconstruct_baseline_metadata_from_contract(
+        contract, source_table
+    )
+    tgt = target_entity or f"sat_{source_table.split('.')[-1]}"
+    return detect_intra_source_schema_drift(
+        deployed_columns=dep_cols,
+        candidate_columns=candidate_columns,
+        source_table=source_table,
+        target_entity=tgt,
+        key_columns=key_cols,
+        old_types=old_types,
+        new_types=candidate_types or {},
+        value_jaccard=value_jaccard,
+        similarity_threshold=similarity_threshold,
+    )
 
 
 def detect_intra_source_schema_drift(
@@ -138,183 +195,154 @@ def detect_intra_source_schema_drift(
     old_types: dict[str, str] | None = None,
     new_types: dict[str, str] | None = None,
     value_jaccard: dict[tuple[str, str], float] | None = None,
-    similarity_threshold: float = 0.85,
+    similarity_threshold: float | None = None,
 ) -> list[DriftFinding]:
-    """Classify column-level schema drift across the 5 canonical categories:
-    `ADDITIVE`, `SOFT_DEPRECATED`, `RENAMED`, `TYPE_WIDENED`, and `KEY_DRIFT`.
-    """
-    dep_set = set(deployed_columns)
-    cand_set = set(candidate_columns)
+    core_cfg = get_core_modeling_config()
+    sim_thresh = (
+        similarity_threshold
+        if similarity_threshold is not None
+        else core_cfg.levenshtein_rename_threshold
+    )
+    jaccard_thresh = core_cfg.jaccard_similarity_threshold
+    dep_set, cand_set = set(deployed_columns), set(candidate_columns)
     keys = set(key_columns or set())
-    old_t = old_types or {}
-    new_t = new_types or {}
-    jaccard_map = value_jaccard or {}
+    old_t, new_t = old_types or {}, new_types or {}
+    jmap = value_jaccard or {}
+    out: list[DriftFinding] = []
 
-    findings: list[DriftFinding] = []
+    def _df(cat: str, col: str, **kw: Any) -> None:
+        out.append(DriftFinding(cat, source_table, target_entity, col, **kw))
 
-    # 1. Check for KEY_DRIFT on business/foreign key columns first
-    for k_col in sorted(keys):
-        if k_col in dep_set and k_col not in cand_set:
-            findings.append(
-                DriftFinding(
-                    category="KEY_DRIFT",
-                    source_table=source_table,
-                    target_entity=target_entity,
-                    column_name=k_col,
-                    old_type=old_t.get(k_col),
-                    action="ASK-USER",
-                    message=(
-                        f"Business/Foreign key column '{k_col}' on '{target_entity}' "
-                        f"is missing from source table '{source_table}'."
-                    ),
-                )
+    for k in sorted(keys):
+        if k in dep_set and k not in cand_set:
+            _df(
+                "KEY_DRIFT",
+                k,
+                old_type=old_t.get(k),
+                action="ASK-USER",
+                message=f"Key column '{k}' missing from '{source_table}'.",
             )
         elif (
-            k_col in dep_set
-            and k_col in cand_set
-            and k_col in old_t
-            and k_col in new_t
-            and not are_types_compatible(old_t[k_col], new_t[k_col])
+            k in dep_set
+            and k in cand_set
+            and k in old_t
+            and k in new_t
+            and not are_types_compatible(old_t[k], new_t[k])
         ):
-            findings.append(
-                DriftFinding(
-                    category="KEY_DRIFT",
-                    source_table=source_table,
-                    target_entity=target_entity,
-                    column_name=k_col,
-                    old_type=old_t[k_col],
-                    new_type=new_t[k_col],
-                    action="ASK-USER",
-                    message=(
-                        f"Key column '{k_col}' on '{target_entity}' underwent "
-                        f"incompatible type drift: {old_t[k_col]} -> {new_t[k_col]}."
-                    ),
-                )
+            _df(
+                "KEY_DRIFT",
+                k,
+                old_type=old_t[k],
+                new_type=new_t[k],
+                action="ASK-USER",
+                message=f"Key column '{k}' drifted: {old_t[k]} -> {new_t[k]}.",
             )
 
-    # 2. Check retained columns for TYPE_WIDENED vs incompatible KEY_DRIFT
-    retained_cols = sorted((dep_set & cand_set) - keys)
-    for col in retained_cols:
+    for col in sorted((dep_set & cand_set) - keys):
         if col in old_t and col in new_t and old_t[col].upper() != new_t[col].upper():
             if is_lossless_type_widening(old_t[col], new_t[col]):
-                findings.append(
-                    DriftFinding(
-                        category="TYPE_WIDENED",
-                        source_table=source_table,
-                        target_entity=target_entity,
-                        column_name=col,
-                        old_type=old_t[col],
-                        new_type=new_t[col],
-                        action="AUTO-FIX",
-                        staging_sql_rewrite=f"TRIM(CAST({col} AS VARCHAR))",
-                        message=(
-                            f"Lossless type widening on '{col}': {old_t[col]} -> {new_t[col]}."
-                        ),
-                    )
+                _df(
+                    "TYPE_WIDENED",
+                    col,
+                    old_type=old_t[col],
+                    new_type=new_t[col],
+                    staging_sql_rewrite=f"TRIM(CAST({col} AS VARCHAR))",
+                    message=f"Lossless widening on '{col}': {old_t[col]} -> {new_t[col]}.",
                 )
             else:
-                findings.append(
-                    DriftFinding(
-                        category="KEY_DRIFT",
-                        source_table=source_table,
-                        target_entity=target_entity,
-                        column_name=col,
-                        old_type=old_t[col],
-                        new_type=new_t[col],
-                        action="ASK-USER",
-                        message=(
-                            f"Incompatible semantic type change on '{col}': "
-                            f"{old_t[col]} -> {new_t[col]}."
-                        ),
-                    )
+                _df(
+                    "KEY_DRIFT",
+                    col,
+                    old_type=old_t[col],
+                    new_type=new_t[col],
+                    action="ASK-USER",
+                    message=f"Incompatible type change on '{col}': {old_t[col]} -> {new_t[col]}.",
                 )
 
-    # 3. Match removed and added non-key columns for RENAMED (similarity >= 0.85 or Jaccard >= 0.90)
-    raw_removed = sorted((dep_set - cand_set) - keys)
-    raw_added = sorted((cand_set - dep_set) - keys)
+    raw_rem = sorted((dep_set - cand_set) - keys)
+    raw_add = sorted((cand_set - dep_set) - keys)
+    m_rem, m_add = set(), set()
 
-    matched_removed: set[str] = set()
-    matched_added: set[str] = set()
-
-    for old_col in raw_removed:
-        best_new: str | None = None
-        best_score = 0.0
-        for new_col in raw_added:
-            if new_col in matched_added:
+    for oc in raw_rem:
+        b_new, b_sc = None, 0.0
+        for nc in raw_add:
+            if nc in m_add or not are_types_compatible(old_t.get(oc), new_t.get(nc)):
                 continue
-            if not are_types_compatible(old_t.get(old_col), new_t.get(new_col)):
-                continue
-            lev_sim = levenshtein_similarity(old_col, new_col)
-            jac_sim = jaccard_map.get((old_col, new_col), jaccard_map.get((new_col, old_col), 0.0))
-            effective_sim = max(lev_sim, jac_sim)
-            if (lev_sim >= similarity_threshold or jac_sim >= 0.90) and effective_sim > best_score:
-                best_score = effective_sim
-                best_new = new_col
-
-        if best_new is not None:
-            matched_removed.add(old_col)
-            matched_added.add(best_new)
-            findings.append(
-                DriftFinding(
-                    category="RENAMED",
-                    source_table=source_table,
-                    target_entity=target_entity,
-                    column_name=old_col,
-                    new_column_name=best_new,
-                    old_type=old_t.get(old_col),
-                    new_type=new_t.get(best_new),
-                    similarity=round(best_score, 4),
-                    action="AUTO-FIX",
-                    staging_sql_rewrite=f"{best_new} AS {old_col}",
-                    message=(
-                        f"Column '{old_col}' renamed to '{best_new}' "
-                        f"(similarity={best_score:.2f} >= {similarity_threshold:.2f}); "
-                        f"aliased in staging as '{best_new} AS {old_col}'."
-                    ),
-                )
+            sc = max(levenshtein_similarity(oc, nc), jmap.get((oc, nc), jmap.get((nc, oc), 0.0)))
+            if (sc >= sim_thresh or jmap.get((oc, nc), 0.0) >= jaccard_thresh) and sc > b_sc:
+                b_sc, b_new = sc, nc
+        if b_new is not None:
+            m_rem.add(oc)
+            m_add.add(b_new)
+            _df(
+                "RENAMED",
+                oc,
+                new_column_name=b_new,
+                old_type=old_t.get(oc),
+                new_type=new_t.get(b_new),
+                similarity=round(b_sc, 4),
+                staging_sql_rewrite=f"{b_new} AS {oc}",
+                message=f"Column '{oc}' renamed to '{b_new}' (sim={b_sc:.2f}).",
             )
 
-    # 4. Remaining removed columns -> SOFT_DEPRECATED
-    for old_col in raw_removed:
-        if old_col in matched_removed:
-            continue
-        col_dtype = old_t.get(old_col, "VARCHAR")
-        findings.append(
-            DriftFinding(
-                category="SOFT_DEPRECATED",
-                source_table=source_table,
-                target_entity=target_entity,
-                column_name=old_col,
-                old_type=col_dtype,
-                action="AUTO-FIX",
-                staging_sql_rewrite=f"CAST(NULL AS {col_dtype}) AS {old_col}",
-                message=(
-                    f"Column '{old_col}' missing from '{source_table}'; "
-                    f"soft-deprecated in '{target_entity}' via NULL projection."
-                ),
+    for oc in raw_rem:
+        if oc not in m_rem:
+            dt = old_t.get(oc, "VARCHAR")
+            _df(
+                "SOFT_DEPRECATED",
+                oc,
+                old_type=dt,
+                staging_sql_rewrite=f"CAST(NULL AS {dt}) AS {oc}",
+                message=f"Column '{oc}' missing from '{source_table}'; soft-deprecated.",
             )
+
+    for nc in raw_add:
+        if nc not in m_add:
+            _df(
+                "ADDITIVE",
+                nc,
+                new_type=new_t.get(nc),
+                message=f"Additive column '{nc}' detected on '{source_table}'.",
+            )
+
+    return out
+
+
+def _sync_ledger_target(
+    entry: dict[str, Any], entity: str, classification: str, sql_type: str | None = None
+) -> None:
+    if "target_dv_entity" in entry or "target_entity" not in entry:
+        entry["target_dv_entity"] = entity
+    if "target_entity" in entry:
+        entry["target_entity"] = entity
+    if "elm_classification" in entry or "dv_target_role" not in entry:
+        entry["elm_classification"] = classification
+    if "dv_target_role" in entry:
+        entry["dv_target_role"] = (
+            "SATELLITE_PAYLOAD" if classification == "DESCRIPTIVE_PAYLOAD" else classification
         )
+    if sql_type and not entry.get("source_sql_type"):
+        entry["source_sql_type"] = sql_type
 
-    # 5. Remaining added columns -> ADDITIVE
-    for new_col in raw_added:
-        if new_col in matched_added:
-            continue
-        findings.append(
-            DriftFinding(
-                category="ADDITIVE",
-                source_table=source_table,
-                target_entity=target_entity,
-                column_name=new_col,
-                new_type=new_t.get(new_col),
-                action="AUTO-FIX",
-                message=(
-                    f"Additive column '{new_col}' detected on '{source_table}'; "
-                    f"routed to companion satellite."
-                ),
-            )
-        )
 
-    return findings
+def _make_ledger_item(bt: str, col: str, cname: str, is_v5: bool, ct: str | None) -> dict[str, Any]:
+    if is_v5:
+        res: dict[str, Any] = {
+            "bronze_table": bt,
+            "column_name": col,
+            "elm_classification": "DESCRIPTIVE_PAYLOAD",
+            "target_dv_entity": cname,
+        }
+        if ct:
+            res["source_sql_type"] = ct
+        return res
+    return {
+        "source_table": bt,
+        "column_name": col,
+        "dv_target_role": "SATELLITE_PAYLOAD",
+        "target_entity": cname,
+        "disposition_rationale": f"Auto-routed additive column to {cname}.",
+    }
 
 
 def codemod_intra_source_schema_drift(
@@ -322,77 +350,64 @@ def codemod_intra_source_schema_drift(
     candidate_contract: dict[str, Any],
     schema_epoch_tag: str = "v2",
     *,
-    similarity_threshold: float = 0.85,
+    similarity_threshold: float | None = None,
     companion_name_override: str | None = None,
 ) -> dict[str, Any]:
-    """Algorithm A.9a: Zero-Rehash Intra-Source Schema Drift Codemod.
-
-    When an already-deployed Satellite gains new descriptive columns, experiences column
-    renames (`similarity >= 0.85`), or loses columns in a subsequent schema epoch:
-      - Keeps the deployed Satellite's `payload_columns` 100% immutable so historical
-        `hash_diff` values never invalidate.
-      - Maps renamed columns (`new_col -> old_col`) back to the deployed Satellite in
-        `column_triage_ledger` with zero Vault DDL mutation.
-      - Records dropped columns in `soft_deprecated_columns`.
-      - Spins off genuinely new columns into an additive companion Satellite
-        (`sat_<entity>_ext_<schema_epoch_tag>` or `companion_name_override`).
-      - Escalates `KEY_DRIFT` (`action == "ASK-USER"`) findings into `unmapped_escalations`.
-    """
+    core_cfg = get_core_modeling_config()
+    sim_thresh = (
+        similarity_threshold
+        if similarity_threshold is not None
+        else core_cfg.levenshtein_rename_threshold
+    )
     ir = copy.deepcopy(candidate_contract)
-    deployed_sats = {
-        str(s["name"]): s for s in deployed_contract.get("satellites", []) if "name" in s
-    }
+    dep_sats = {str(s["name"]): s for s in deployed_contract.get("satellites", []) if "name" in s}
     updated_satellites: list[dict[str, Any]] = []
     ledger: list[dict[str, Any]] = ir.get("column_triage_ledger", [])
-    use_v5_ledger = str(ir.get("contract_version", "")) in {"5.0", "5.0.0"} or any(
+    use_v5 = str(ir.get("contract_version", "")) in {"5.0", "5.0.0"} or any(
         "bronze_table" in e or "target_dv_entity" in e for e in ledger if isinstance(e, dict)
     )
     escalations: list[dict[str, Any]] = list(ir.get("unmapped_escalations") or [])
-
-    # Check deployed Hubs for business key column drift (KEY_DRIFT -> ASK-USER)
-    deployed_hubs = {str(h["name"]): h for h in deployed_contract.get("hubs", []) if "name" in h}
+    dep_hubs = {str(h["name"]): h for h in deployed_contract.get("hubs", []) if "name" in h}
     for hub in ir.get("hubs", []):
-        h_name = str(hub.get("name", ""))
-        if h_name not in deployed_hubs:
-            continue
-        dep_hub = deployed_hubs[h_name]
-        dep_sources = {
-            (str(s.get("bronze_table", "")), str(s.get("record_source_code", ""))): s
-            for s in dep_hub.get("business_key_sources", [])
-        }
-        for src in hub.get("business_key_sources", []):
-            s_key = (str(src.get("bronze_table", "")), str(src.get("record_source_code", "")))
-            if s_key not in dep_sources:
-                continue
-            dep_src = dep_sources[s_key]
-            dep_kcols = list(dep_src.get("key_columns", []))
-            cand_kcols = list(src.get("key_columns", []))
-            if dep_kcols != cand_kcols:
-                b_tbl = s_key[0]
-                drifted_cols = sorted(set(dep_kcols) ^ set(cand_kcols)) or cand_kcols
-                escalations.append(
-                    {
-                        "bronze_table": b_tbl,
-                        "columns": [str(c) for c in drifted_cols],
-                        "escalation_reason": "COMPETING_NATURAL_KEYS",
-                        "architect_question": (
-                            f"Business key columns on '{h_name}' ({b_tbl}) drifted from "
-                            f"{dep_kcols} to {cand_kcols}."
-                        ),
-                    }
+        hn = str(hub.get("name", ""))
+        if hn in dep_hubs:
+            d_sources = {
+                (str(s.get("bronze_table", "")), str(s.get("record_source_code", ""))): list(
+                    s.get("key_columns", [])
                 )
+                for s in dep_hubs[hn].get("business_key_sources", [])
+            }
+            for src in hub.get("business_key_sources", []):
+                skey = (str(src.get("bronze_table", "")), str(src.get("record_source_code", "")))
+                if skey in d_sources and d_sources[skey] != list(src.get("key_columns", [])):
+                    dr = sorted(set(d_sources[skey]) ^ set(src.get("key_columns", []))) or list(
+                        src.get("key_columns", [])
+                    )
+                    escalations.append(
+                        {
+                            "bronze_table": skey[0],
+                            "columns": [str(c) for c in dr],
+                            "escalation_reason": "COMPETING_NATURAL_KEYS",
+                            "architect_question": (
+                                f"Key columns on '{hn}' ({skey[0]}) drifted: "
+                                f"{d_sources[skey]} -> {src.get('key_columns')}."
+                            ),
+                        }
+                    )
 
     for sat in ir.get("satellites", []):
-        s_name = str(sat.get("name", ""))
-        if s_name not in deployed_sats:
+        sn = str(sat.get("name", ""))
+        if sn not in dep_sats:
             updated_satellites.append(sat)
             continue
 
-        dep_sat = deployed_sats[s_name]
+        dep_sat = dep_sats[sn]
         dep_cols = set(dep_sat.get("payload_columns", []))
         cand_cols = set(sat.get("payload_columns", []))
-        b_table = str(sat.get("source_bronze_table", ""))
+        bt = str(sat.get("source_bronze_table", ""))
         old_types = dep_sat.get("column_types")
+        if not old_types:
+            _, old_types, _ = reconstruct_baseline_metadata_from_contract(deployed_contract, bt)
         new_types = sat.pop("column_types", None)
         val_jaccard = sat.pop("value_jaccard", None)
         sat.pop("staging_column_aliases", None)
@@ -400,12 +415,12 @@ def codemod_intra_source_schema_drift(
         findings = detect_intra_source_schema_drift(
             deployed_columns=dep_cols,
             candidate_columns=cand_cols,
-            source_table=b_table,
-            target_entity=s_name,
+            source_table=bt,
+            target_entity=sn,
             old_types=old_types,
             new_types=new_types,
             value_jaccard=val_jaccard,
-            similarity_threshold=similarity_threshold,
+            similarity_threshold=sim_thresh,
         )
 
         added_cols = sorted(f.column_name for f in findings if f.category == "ADDITIVE")
@@ -415,116 +430,69 @@ def codemod_intra_source_schema_drift(
             for f in findings
             if f.category == "RENAMED" and f.new_column_name is not None
         }
-        key_drift_findings = [
-            f for f in findings if f.category == "KEY_DRIFT" or f.action == "ASK-USER"
-        ]
 
-        for kd in key_drift_findings:
-            escalations.append(
-                {
-                    "bronze_table": b_table,
-                    "columns": [kd.column_name],
-                    "escalation_reason": "COMPETING_NATURAL_KEYS",
-                    "architect_question": kd.message,
-                }
-            )
-            for entry in ledger:
-                e_table = str(entry.get("bronze_table") or entry.get("source_table") or "")
-                if e_table == b_table and entry.get("column_name") == kd.column_name:
-                    if "target_dv_entity" in entry or "target_entity" not in entry:
-                        entry["target_dv_entity"] = "ESCALATED"
-                    if "target_entity" in entry:
-                        entry["target_entity"] = "ESCALATED"
-                    if "elm_classification" in entry or "dv_target_role" not in entry:
-                        entry["elm_classification"] = "ESCALATED_AMBIGUOUS"
-                    if "dv_target_role" in entry:
-                        entry["dv_target_role"] = "ESCALATED_AMBIGUOUS"
+        for kd in findings:
+            if kd.category == "KEY_DRIFT" or kd.action == "ASK-USER":
+                escalations.append(
+                    {
+                        "bronze_table": bt,
+                        "columns": [kd.column_name],
+                        "escalation_reason": "COMPETING_NATURAL_KEYS",
+                        "architect_question": kd.message,
+                    }
+                )
+                for entry in ledger:
+                    if (
+                        str(entry.get("bronze_table") or entry.get("source_table") or "") == bt
+                        and entry.get("column_name") == kd.column_name
+                    ):
+                        _sync_ledger_target(entry, "ESCALATED", "ESCALATED_AMBIGUOUS")
 
-        # Preserve original payload columns on the deployed Satellite
         sat["payload_columns"] = sorted(dep_cols)
         if removed_cols:
-            existing_soft = list(sat.get("soft_deprecated_columns") or [])
-            sat["soft_deprecated_columns"] = sorted(set(existing_soft + removed_cols))
+            sat["soft_deprecated_columns"] = sorted(
+                set(sat.get("soft_deprecated_columns") or ()).union(removed_cols)
+            )
         if renamed_pairs:
             for entry in ledger:
-                e_table = str(entry.get("bronze_table") or entry.get("source_table") or "")
-                e_col = str(entry.get("column_name", ""))
-                if e_table == b_table and (
-                    e_col in renamed_pairs or e_col in renamed_pairs.values()
-                ):
-                    if "target_dv_entity" in entry or "target_entity" not in entry:
-                        entry["target_dv_entity"] = s_name
-                    if "target_entity" in entry:
-                        entry["target_entity"] = s_name
-                    if "elm_classification" in entry or "dv_target_role" not in entry:
-                        entry["elm_classification"] = "DESCRIPTIVE_PAYLOAD"
-                    if "dv_target_role" in entry:
-                        entry["dv_target_role"] = "SATELLITE_PAYLOAD"
+                et = str(entry.get("bronze_table") or entry.get("source_table") or "")
+                ec = str(entry.get("column_name", ""))
+                if et == bt and (ec in renamed_pairs or ec in renamed_pairs.values()):
+                    _sync_ledger_target(entry, sn, "DESCRIPTIVE_PAYLOAD")
 
         updated_satellites.append(sat)
 
-        # Spin off newly added columns into an additive companion Satellite
         if added_cols:
-            companion_name = (
-                companion_name_override
-                if companion_name_override
-                else f"{s_name}_ext_{schema_epoch_tag}"
+            cname = companion_name_override or f"{sn}_ext_{schema_epoch_tag}"
+            updated_satellites.append(
+                {
+                    "name": cname,
+                    "satellite_type": sat.get("satellite_type", "STANDARD_SATELLITE"),
+                    "parent_entity": sat["parent_entity"],
+                    "source_bronze_table": bt,
+                    "security_classification": sat.get("security_classification", "CONFIDENTIAL"),
+                    "volatility_tier": "ADDITIVE_DRIFT_COMPANION",
+                    "payload_columns": added_cols,
+                    "soft_deprecated_columns": [],
+                }
             )
-            companion_sat: dict[str, Any] = {
-                "name": companion_name,
-                "satellite_type": sat.get("satellite_type", "STANDARD_SATELLITE"),
-                "parent_entity": sat["parent_entity"],
-                "source_bronze_table": b_table,
-                "security_classification": sat.get("security_classification", "CONFIDENTIAL"),
-                "volatility_tier": "ADDITIVE_DRIFT_COMPANION",
-                "payload_columns": added_cols,
-                "soft_deprecated_columns": [],
-            }
-            updated_satellites.append(companion_sat)
 
-            existing_ledger_cols = {
+            existing_ledger = {
                 (
                     str(e.get("bronze_table") or e.get("source_table") or ""),
                     str(e.get("column_name", "")),
-                )
+                ): e
                 for e in ledger
             }
             for col in added_cols:
-                updated_in_place = False
-                for entry in ledger:
-                    e_table = str(entry.get("bronze_table") or entry.get("source_table") or "")
-                    if e_table == b_table and entry.get("column_name") == col:
-                        if "target_dv_entity" in entry or "target_entity" not in entry:
-                            entry["target_dv_entity"] = companion_name
-                        if "target_entity" in entry:
-                            entry["target_entity"] = companion_name
-                        if "elm_classification" in entry or "dv_target_role" not in entry:
-                            entry["elm_classification"] = "DESCRIPTIVE_PAYLOAD"
-                        if "dv_target_role" in entry:
-                            entry["dv_target_role"] = "SATELLITE_PAYLOAD"
-                        updated_in_place = True
-                if not updated_in_place and (b_table, col) not in existing_ledger_cols:
-                    if use_v5_ledger:
-                        ledger.append(
-                            {
-                                "bronze_table": b_table,
-                                "column_name": col,
-                                "elm_classification": "DESCRIPTIVE_PAYLOAD",
-                                "target_dv_entity": companion_name,
-                            }
-                        )
-                    else:
-                        ledger.append(
-                            {
-                                "source_table": b_table,
-                                "column_name": col,
-                                "dv_target_role": "SATELLITE_PAYLOAD",
-                                "target_entity": companion_name,
-                                "disposition_rationale": (
-                                    f"Auto-routed additive schema drift column to {companion_name}."
-                                ),
-                            }
-                        )
+                col_type = new_types.get(col) if new_types else None
+                entry = existing_ledger.get((bt, col))
+                if entry is not None:
+                    _sync_ledger_target(entry, cname, "DESCRIPTIVE_PAYLOAD", col_type)
+                else:
+                    item = _make_ledger_item(bt, col, cname, use_v5, col_type)
+                    ledger.append(item)
+                    existing_ledger[(bt, col)] = item
 
     if escalations or "unmapped_escalations" in ir:
         ir["unmapped_escalations"] = escalations
@@ -533,3 +501,16 @@ def codemod_intra_source_schema_drift(
 
 
 codemod_6_additive_schema_drift_evolution = codemod_intra_source_schema_drift
+
+__all__ = [
+    "DriftFinding",
+    "are_types_compatible",
+    "codemod_6_additive_schema_drift_evolution",
+    "codemod_intra_source_schema_drift",
+    "detect_intra_source_schema_drift",
+    "detect_schema_drift_from_contract",
+    "is_lossless_type_widening",
+    "levenshtein_distance",
+    "levenshtein_similarity",
+    "reconstruct_baseline_metadata_from_contract",
+]

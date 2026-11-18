@@ -162,7 +162,12 @@ Execute end-to-end 8-stage synthesis pipeline run
 
 | Option | Short | Type | Required | Default | Inline Upload | Description |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| `--input` | `-i` | `path` | Yes | — | Yes | Path to pipeline input specification YAML |
+| `--input` | `-i` | `path` | No | — | Yes | Path to pipeline input specification YAML |
+| `--blueprint` | `-b` | `path` | No | — | Yes | Path to vault_blueprint.yaml |
+| `--ontology` | — | `path` | No | — | Yes | Path to Graph A business ontology YAML or JSON |
+| `--contract` | — | `path` | No | — | Yes | Path to existing Data Vault contract YAML or JSON |
+| `--source` | — | `array` | No | — | No | Source URI or file path (can be specified multiple times) |
+| `--dialect` | — | `string` | No | `duckdb` | No | Target SQL output dialect (default: duckdb) |
 | `--harness-config` | `-c` | `path` | No | — | No | Path to agent harness configuration YAML |
 | `--initial-contract` | — | `path` | No | — | Yes | Path to starting contract YAML |
 | `--provider` | `-p` | `string` | No | — | No | Target harness provider override |
@@ -170,7 +175,7 @@ Execute end-to-end 8-stage synthesis pipeline run
 | `--output-dir` | `-o` | `path` | No | — | No | Target directory for generated artifacts and reports |
 | `--stream` | `-s` | `boolean` | No | `True` | No | Stream live stage execution progress |
 | `--stream-tokens` | — | `boolean` | No | `False` | No | Stream live LLM tokens and thinking deltas |
-| `--wave-id` | `-w` | `string` | No | — | No | Target wave identifier (e.g. W0, W1, W2) |
+| `--unstructured-only` | — | `boolean` | No | `False` | No | Enable unstructured-only mode without relational source prerequisites |
 
 - **Request DTO:** `PipelineRunRequest`
 - **Response DTO:** `PipelineRunHandle`
@@ -190,11 +195,17 @@ Deterministically validate pipeline input specifications, sources, and harness c
 
 | Option | Short | Type | Required | Default | Inline Upload | Description |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| `--input` | `-i` | `path` | Yes | — | Yes | Path to input spec file |
+| `--input` | `-i` | `path` | No | — | Yes | Path to input spec file |
+| `--blueprint` | `-b` | `path` | No | — | Yes | Path to vault_blueprint.yaml |
+| `--ontology` | — | `path` | No | — | Yes | Path to Graph A business ontology YAML or JSON |
+| `--contract` | — | `path` | No | — | Yes | Path to existing Data Vault contract YAML or JSON |
+| `--source` | — | `array` | No | — | No | Source URI or file path (can be specified multiple times) |
+| `--dialect` | — | `string` | No | `duckdb` | No | Target SQL output dialect (default: duckdb) |
 | `--harness-config` | `-c` | `path` | No | — | No | Path to harness config file |
 | `--initial-contract` | — | `path` | No | — | Yes | Path to initial contract YAML |
 | `--provider` | `-p` | `string` | No | — | No | Target harness provider override |
 | `--hold-policy` | — | `string` | No | — | No | Steward hold policy |
+| `--unstructured-only` | — | `boolean` | No | `False` | No | Validate in unstructured-only mode without relational prerequisites |
 
 - **Request DTO:** `PipelineValidateRequest`
 
@@ -279,7 +290,6 @@ Create and initialize a run
 | `--contract` | `-c` | `path` | No | — | Yes | Contract YAML path |
 | `--initial-contract-path` | — | `path` | No | — | Yes | Path to initial contract YAML file |
 | `--initial-contract` | — | `string` | No | — | No | Inline starting contract YAML or JSON string |
-| `--wave-id` | `-w` | `string` | No | — | No | Target wave identifier |
 
 - **Request DTO:** `CreateRunRequest`
 - **Response DTO:** `PipelineRunHandle`
@@ -338,7 +348,6 @@ Fetch 3-Level Explorer bundle for a completed or active run
 | Option | Short | Type | Required | Default | Inline Upload | Description |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
 | `--run-id` | `-r` | `string` | Yes | — | No | Target run ID |
-| `--wave-id` | `-w` | `string` | No | — | No | Target wave identifier |
 
 - **Response DTO:** `ExplorerBundleDTO`
 
@@ -834,6 +843,7 @@ Trigger dual-mode ontology construction pipeline (deterministic or agent)
 | `--auto-commit` | — | `boolean` | No | `False` | No | Automatically commit constructed delta without proposal staging (requires pinned base) |
 | `--stream` | — | `boolean` | No | `False` | No | Follow live SSE event stream |
 | `--wait` | — | `boolean` | No | `False` | No | Block until construct completes |
+| `--steering-prompt` | — | `string` | No | — | No | Optional natural language steering prompt for construction |
 
 
 **Example Invocations:**
@@ -1023,6 +1033,30 @@ opendv ontology studio proposal rebase --help
 opendvctl ontology studio proposal rebase --api-url $OPENDV_API_URL --json
 ```
 
+###### `ontology studio proposal refine` *(Both CLIs)*
+
+Iteratively refine a pending proposal using natural-language steering instructions
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+| `--proposal-id` | `-p` | `string` | Yes | — | No | Target proposal identifier to refine |
+| `--steering-prompt` | — | `string` | Yes | — | No | Natural language steering refinement instructions |
+| `--mode` | `-m` | `string` | No | `deterministic` | No | Proposal refinement execution mode |
+| `--stream` | — | `boolean` | No | `False` | No | Stream agent refinement events |
+
+- **Request DTO:** `RefineProposalRequest`
+- **Response DTO:** `OntologyProposal`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio proposal refine --help
+
+# Client execution
+opendvctl ontology studio proposal refine --api-url $OPENDV_API_URL --json
+```
+
 ###### `ontology studio export` *(Both CLIs)*
 
 Export constructed Graph A ontology to YAML, JSON, OWL 2/Turtle, or JSON-LD
@@ -1139,6 +1173,130 @@ opendv ontology studio bundle clone --help
 opendvctl ontology studio bundle clone --api-url $OPENDV_API_URL --json
 ```
 
+###### `ontology studio starter-pack` *(Both CLIs)*
+
+Inspect and apply Asset Management starter packs
+
+###### Subcommands of `ontology studio starter-pack`
+
+###### `ontology studio starter-pack list` *(Both CLIs)*
+
+List available Asset Management vertical starter packs
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | No | — | No | Optional session identifier for context |
+
+- **Response DTO:** `list[StarterPackSummaryDTO]`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio starter-pack list --help
+
+# Client execution
+opendvctl ontology studio starter-pack list --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio starter-pack apply` *(Both CLIs)*
+
+Apply a vertical starter pack to the active studio session
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Target studio session identifier |
+| `--pack` | `-p` | `string` | Yes | — | No | Starter pack identifier to apply |
+
+- **Request DTO:** `ApplyStarterPackRequest`
+- **Response DTO:** `ApplyStarterPackResponse`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio starter-pack apply --help
+
+# Client execution
+opendvctl ontology studio starter-pack apply --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio text` *(Both CLIs)*
+
+Ingest free-form natural language text notes into CAS storage
+
+###### Subcommands of `ontology studio text`
+
+###### `ontology studio text add` *(Both CLIs)*
+
+Add free-form text or document text into session CAS storage
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Target studio session identifier |
+| `--text` | `-t` | `string` | No | — | No | Inline text content to ingest |
+| `--file` | `-f` | `path` | No | — | Yes | Path to text or markdown file to ingest |
+| `--source-name` | — | `string` | No | `domain_notes.txt` | No | Logical source document name in manifest |
+
+- **Request DTO:** `AddTextSourceRequest`
+- **Response DTO:** `SourceUploadResponse`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio text add --help
+
+# Client execution
+opendvctl ontology studio text add --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio staged` *(Both CLIs)*
+
+Query and promote held-back candidate concepts
+
+###### Subcommands of `ontology studio staged`
+
+###### `ontology studio staged list` *(Both CLIs)*
+
+List held-back candidate concepts (< 0.65 BM25 match score)
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Target studio session identifier |
+
+- **Response DTO:** `StagedCandidatesQueryResponse`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio staged list --help
+
+# Client execution
+opendvctl ontology studio staged list --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio staged promote` *(Both CLIs)*
+
+Promote a held-back candidate concept via Path A or Path B
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Target studio session identifier |
+| `--candidate-id` | `-c` | `string` | Yes | — | No | Identifier of the staged candidate to promote |
+| `--synonyms` | — | `string` | No | — | No | Comma-separated synonyms for Path A re-scoring (>= 0.6500) |
+| `--waiver` | — | `boolean` | No | `False` | No | Enable Path B admin waiver promotion |
+| `--rationale` | — | `string` | No | — | No | Mandatory business rationale for Path B waiver (>= 10 chars) |
+
+- **Request DTO:** `PromoteCandidateRequest`
+- **Response DTO:** `PromoteCandidateResponse`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio staged promote --help
+
+# Client execution
+opendvctl ontology studio staged promote --api-url $OPENDV_API_URL --json
+```
+
 ### `opendv config` / `opendvctl config`
 
 **Availability:** *(Both CLIs)*  
@@ -1232,6 +1390,38 @@ opendvctl config validate --api-url $OPENDV_API_URL --json
 ```bash
 # Standalone execution
 opendv serve --help
+```
+
+### `opendv source` / `opendvctl source`
+
+**Availability:** *(Both CLIs)*  
+**Description:** Inspect and discover external source systems, catalogs, and schemas  
+**Summary:** Inspect source catalogs, tables, and constraints
+
+#### Subcommands of `source`
+
+##### `source inspect` *(Both CLIs)*
+
+Inspect tables, columns, primary keys, and foreign keys in a source
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--uri` | `-u` | `string` | No | — | No | Source URI or file path to inspect (e.g. sqlite:///path/to/db.sqlite) |
+| `--adapter` | `-a` | `string` | No | — | No | Target source adapter identifier (e.g. sqlite, databricks, duckdb, file) |
+| `--namespace` | `-n` | `string` | No | — | No | Namespace, schema, or catalog name to scope inspection |
+| `--table` | `-t` | `string` | No | — | No | Target physical table name to inspect |
+| `--credentials-ref` | — | `string` | No | — | No | Credentials reference (e.g. env:VAR_NAME) |
+
+- **Request DTO:** `SourceInspectRequestDTO`
+- **Response DTO:** `SourceInspectResponseDTO`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv source inspect --help
+
+# Client execution
+opendvctl source inspect --api-url $OPENDV_API_URL --json
 ```
 
 ---

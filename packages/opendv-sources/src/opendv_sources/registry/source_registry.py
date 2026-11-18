@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import inspect
 import logging
 import threading
 from collections.abc import Sequence
@@ -124,6 +125,9 @@ class SourceAdapterRegistry:
         workspace_root: Path | None = None,
         allowed_roots: Sequence[Path] | None = None,
         allow_temp: bool = False,
+        allowed_hosts: Sequence[str] | set[str] | None = None,
+        is_server: bool = False,
+        **kwargs: Any,
     ) -> TabularSourceAdapter:
         """Retrieve a registered TabularSourceAdapter, optionally configured with server jail."""
         self._discover()
@@ -142,17 +146,40 @@ class SourceAdapterRegistry:
                     available=available,
                 )
             base = self._tabular_adapters[key]
-            if workspace_root is not None or allowed_roots is not None or allow_temp:
+            if (
+                workspace_root is not None
+                or allowed_roots is not None
+                or allow_temp
+                or allowed_hosts is not None
+                or is_server
+                or kwargs
+            ):
                 try:
                     adapter_cls: Any = type(base)
-                    return cast(
-                        TabularSourceAdapter,
-                        adapter_cls(
-                            workspace_root=workspace_root,
-                            allowed_roots=allowed_roots,
-                            allow_temp=allow_temp,
-                        ),
+                    sig = inspect.signature(adapter_cls.__init__)
+                    params = sig.parameters
+                    has_var_kw = any(
+                        p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
                     )
+                    candidate_kwargs: dict[str, Any] = {
+                        "workspace_root": workspace_root,
+                        "allowed_roots": allowed_roots,
+                        "allow_temp": allow_temp,
+                        "allowed_hosts": allowed_hosts,
+                        "is_server": is_server,
+                        **kwargs,
+                    }
+                    call_kwargs: dict[str, Any] = {}
+                    for k, v in candidate_kwargs.items():
+                        if has_var_kw or k in params:
+                            if k == "allow_temp":
+                                call_kwargs[k] = allow_temp
+                            elif k == "is_server":
+                                call_kwargs[k] = is_server
+                            elif v is not None:
+                                call_kwargs[k] = v
+                    if call_kwargs:
+                        return cast(TabularSourceAdapter, adapter_cls(**call_kwargs))
                 except TypeError:
                     return base
             return base
@@ -164,6 +191,8 @@ class SourceAdapterRegistry:
         workspace_root: Path | None = None,
         allowed_roots: Sequence[Path] | None = None,
         allow_temp: bool = False,
+        is_server: bool = False,
+        **kwargs: Any,
     ) -> DocumentSourceAdapter:
         """Retrieve a registered DocumentSourceAdapter, optionally configured with server jail."""
         self._discover()
@@ -182,17 +211,38 @@ class SourceAdapterRegistry:
                     available=available,
                 )
             base = self._document_adapters[key]
-            if workspace_root is not None or allowed_roots is not None or allow_temp:
+            if (
+                workspace_root is not None
+                or allowed_roots is not None
+                or allow_temp
+                or is_server
+                or kwargs
+            ):
                 try:
                     doc_adapter_cls: Any = type(base)
-                    return cast(
-                        DocumentSourceAdapter,
-                        doc_adapter_cls(
-                            workspace_root=workspace_root,
-                            allowed_roots=allowed_roots,
-                            allow_temp=allow_temp,
-                        ),
+                    sig = inspect.signature(doc_adapter_cls.__init__)
+                    params = sig.parameters
+                    has_var_kw = any(
+                        p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
                     )
+                    candidate_kwargs = {
+                        "workspace_root": workspace_root,
+                        "allowed_roots": allowed_roots,
+                        "allow_temp": allow_temp,
+                        "is_server": is_server,
+                        **kwargs,
+                    }
+                    call_kwargs = {}
+                    for k, v in candidate_kwargs.items():
+                        if has_var_kw or k in params:
+                            if k == "allow_temp":
+                                call_kwargs[k] = allow_temp
+                            elif k == "is_server":
+                                call_kwargs[k] = is_server
+                            elif v is not None:
+                                call_kwargs[k] = v
+                    if call_kwargs:
+                        return cast(DocumentSourceAdapter, doc_adapter_cls(**call_kwargs))
                 except TypeError:
                     return base
             return base

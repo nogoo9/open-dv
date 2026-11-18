@@ -28,7 +28,7 @@ def _art(
     viz: VizKind,
     desc: str,
     raw: str,
-    waves: list[str],
+    waves: list[str] | None = None,
     wave_index: int = 0,
     **kwargs: Any,
 ) -> ArtifactDTO:
@@ -43,7 +43,6 @@ def _art(
         viz=viz,
         desc=desc,
         raw=raw,
-        waves=waves,
         wave_index=wave_index,
         **kwargs,
     )

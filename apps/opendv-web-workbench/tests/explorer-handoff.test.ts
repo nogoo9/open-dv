@@ -268,12 +268,12 @@ describe("3-Level Pipeline Explorer Workbench (HANDOFF.md)", () => {
 	});
 
 	describe("5. Wave Filter, URL Deep-Linking, Live Runs & Steward Hold Resolution", () => {
-		it("filters inputs and stage counts by Wave (All, W0, W1, W2, W3) and round-trips deep-link URLs", () => {
+		it("shows inputs unconditionally in single-run architecture and round-trips deep-link URLs", () => {
 			const store = createExplorerStore({
 				bundle: GLOBAL_COMMERCE_EXPLORER_BUNDLE,
 				syncBrowserUrl: false,
 			});
-			expect(store.getState().getVisibleInputIds()).toEqual([
+			const expectedAllInputs = [
 				"spec",
 				"ontology",
 				"crm",
@@ -281,22 +281,15 @@ describe("3-Level Pipeline Explorer Workbench (HANDOFF.md)", () => {
 				"stripe",
 				"crm2",
 				"msa",
-			]);
+			];
+			expect(store.getState().getVisibleInputIds()).toEqual(expectedAllInputs);
 
+			// In single-run architecture, inputs are shown unconditionally for the active run
 			store.getState().setWaveFilter("W0");
-			expect(store.getState().getVisibleInputIds()).toEqual([
-				"spec",
-				"ontology",
-				"crm",
-				"erp",
-			]);
+			expect(store.getState().getVisibleInputIds()).toEqual(expectedAllInputs);
 
 			store.getState().setWaveFilter("W3");
-			expect(store.getState().getVisibleInputIds()).toEqual([
-				"spec",
-				"ontology",
-				"msa",
-			]);
+			expect(store.getState().getVisibleInputIds()).toEqual(expectedAllInputs);
 
 			// URL deep-linking
 			store.getState().openStage(5);

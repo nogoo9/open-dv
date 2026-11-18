@@ -2,7 +2,7 @@
   "created_at_utc": "<TIMESTAMP>",
   "decision_id": "<HOLD_ID_1>",
   "escalation_reason": "TIER_U3_AMBIGUOUS_ENTITY",
-  "event_id": "<EVENT_ID>",
+  "event_id": "evt-0",
   "headline": "Tier-U3 ambiguous entity extraction 'ext_doc_msa_2026_089_tax_de_800202_u3' in document 'DOC-MSA-2026-089' (confidence=0.68).",
   "hold_id": "<HOLD_ID_1>",
   "options": [

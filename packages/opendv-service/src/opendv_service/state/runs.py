@@ -43,7 +43,6 @@ class RunStateMixin:
         started_at_utc: str,
         has_initial_contract: bool = False,
         initial_contract_path: str | None = None,
-        wave_id: str | None = None,
         lifecycle_stage: str = "COLD_START_N1",
     ) -> ProjectRunDTO:
         ledger_path = self.ledger_dir / f"{run_id}.jsonl"
@@ -84,7 +83,6 @@ class RunStateMixin:
             decisions_url=f"/api/v1/runs/{run_id}/decisions",
             has_initial_contract=has_initial_contract,
             initial_contract_path=initial_contract_path,
-            wave_id=wave_id,
             lifecycle_stage=lifecycle_stage,
         )
         self.runs[run_id] = run_dto
@@ -100,11 +98,13 @@ class RunStateMixin:
     def _build_default_gate_report(
         self: BaseStateContainer,
         run_id: str,
+        *,
+        run_dto: ProjectRunDTO | None = None,
     ) -> dict[str, Any]:
         """Construct the 6-Gate scorecard and theorem verification report for a run."""
-        run_dto = self.runs[run_id]
-        scorecard = run_dto.gate_scorecard.model_dump(mode="json")
-        overall_passed = run_dto.status != RunStatus.FAILED and all(
+        eff_dto = run_dto if run_dto is not None else self.runs[run_id]
+        scorecard = eff_dto.gate_scorecard.model_dump(mode="json")
+        overall_passed = eff_dto.status != RunStatus.FAILED and all(
             status in {"PASS", "AUTO-FIX", "AUTO_REPAIRED", "ASK-USER"}
             for status in scorecard.values()
         )
@@ -116,7 +116,7 @@ class RunStateMixin:
             verdict = "PASS"
         return {
             "run_id": run_id,
-            "project_id": run_dto.project_id,
+            "project_id": eff_dto.project_id,
             "evaluated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "overall_passed": overall_passed,
             "verdict": verdict,
@@ -124,31 +124,31 @@ class RunStateMixin:
             "gates": {
                 "G0_PROFILE_DRIFT": {
                     "gate_id": "G0",
-                    "status": run_dto.gate_scorecard.gate_0_profile_drift,
+                    "status": eff_dto.gate_scorecard.gate_0_profile_drift,
                     "sample_rules": ["ALG-A9A", "EVO-01", "EVO-02", "EVO-03", "EVO-04"],
                 },
                 "G1_CONTRACT_AND_GRAIN": {
                     "gate_id": "G1",
-                    "status": run_dto.gate_scorecard.gate_1_contract_grain,
+                    "status": eff_dto.gate_scorecard.gate_1_contract_grain,
                     "sample_rules": ["DV-COL-001", "DV-COL-012", "KEY-01", "KEY-04"],
                 },
                 "G2_SQLGLOT_AST": {
                     "gate_id": "G2",
-                    "status": run_dto.gate_scorecard.gate_2_sqlglot_ast,
+                    "status": eff_dto.gate_scorecard.gate_2_sqlglot_ast,
                     "sample_rules": ["DV-AST-001", "DV-AST-002", "DV-AST-004", "ALG-A5"],
                 },
                 "G3_NETWORKX_DAG": {
                     "gate_id": "G3",
-                    "status": run_dto.gate_scorecard.gate_3_networkx_dag,
+                    "status": eff_dto.gate_scorecard.gate_3_networkx_dag,
                     "sample_rules": ["DV-STR-001", "DV-STR-014", "INV-01", "INV-03"],
                 },
                 "G4_YAGNI_COST_GUARD": {
                     "gate_id": "G4",
-                    "status": run_dto.gate_scorecard.gate_4_yagni_cost_guard,
+                    "status": eff_dto.gate_scorecard.gate_4_yagni_cost_guard,
                 },
                 "G5_DUCKDB_SANDBOX": {
                     "gate_id": "G5",
-                    "status": run_dto.gate_scorecard.gate_5_duckdb_sandbox,
+                    "status": eff_dto.gate_scorecard.gate_5_duckdb_sandbox,
                 },
             },
         }
@@ -192,15 +192,8 @@ class RunStateMixin:
             "display_name": proj.display_name,
             "domain_namespace": proj.domain_namespace,
             "graph_a_ontology_path": str(self._resolve_repo_path(proj.graph_a_ontology_path)),
-            "waves": [
-                {
-                    "wave_index": 0,
-                    "wave_name": "Dynamic Project Discovery Wave",
-                    "wave_type": "COLD_START",
-                    "sources": feeds,
-                    "unstructured_documents": docs,
-                }
-            ],
+            "sources": feeds,
+            "unstructured_documents": docs,
         }
 
     def create_run(
@@ -213,7 +206,6 @@ class RunStateMixin:
         has_initial_contract = run_opts.has_initial_contract
         initial_contract_path = run_opts.initial_contract_path
         lifecycle_stage = run_opts.lifecycle_stage
-        target_wave_id = run_opts.target_wave_id
 
         if req.pipeline_input_path is not None:
             rep_dict = self.execute_agentic_pipeline_run(
@@ -223,7 +215,6 @@ class RunStateMixin:
                     provider_override=provider_override,
                     initial_contract_path=req.initial_contract_path,
                     initial_contract=req.initial_contract,
-                    wave_id=target_wave_id,
                 )
             )
             return self.runs[str(rep_dict["run_id"])]
@@ -255,7 +246,6 @@ class RunStateMixin:
                     steward_hold_policy="auto_approve_top_candidate",
                     initial_contract_path=req.initial_contract_path,
                     initial_contract=req.initial_contract,
-                    wave_id=target_wave_id,
                 )
             )
             return self.runs[str(rep_dict["run_id"])]
@@ -270,7 +260,6 @@ class RunStateMixin:
             started_at_utc=now_iso,
             has_initial_contract=has_initial_contract,
             initial_contract_path=initial_contract_path,
-            wave_id=target_wave_id,
             lifecycle_stage=lifecycle_stage,
         )
 

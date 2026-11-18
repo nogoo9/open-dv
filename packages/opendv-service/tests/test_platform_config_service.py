@@ -39,7 +39,7 @@ def test_default_platform_config_and_provider_readiness_no_secret_leak(
     assert cfg.workspace_root == str(ws_root.resolve())
     assert cfg.state_dir == str(state_dir.resolve())
     assert cfg.harness.provider == "agy"
-    assert cfg.harness.steward_hold_policy == "auto_approve_top_candidate"
+    assert cfg.harness.steward_hold_policy == "pause"
     assert cfg.harness.ontology_policy == "off"
     assert cfg.harness.stage_output_policy == "llm_only"
     assert cfg.harness.allow_cli_schema_omission_retry is False

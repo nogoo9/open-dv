@@ -1,0 +1,15 @@
+pipeline_id: "pipe-global-commerce-step3-unstructured-msa"
+project_id: "proj-global-commerce-001"
+run_id: "run-global-commerce-step3"
+display_name: "Global Commerce Vault — Step 3 Unstructured MSA Onboarding"
+domain_namespace: "global_commerce"
+graph_a_ontology_path: "ontology/commerce_graph_a_ontology.yaml"
+assertion_cutoff_ts: "2026-12-31 23:59:59"
+
+unstructured_documents:
+  - doc_id: "DOC-MSA-2026-089"
+    source:
+      adapter: "text"
+      uri: "sources/wave3_unstructured_msa/enterprise_msa_addendum_2026.txt"
+    document_path: "sources/wave3_unstructured_msa/enterprise_msa_addendum_2026.txt"
+    record_source: "LEGAL_DOC_VAULT"

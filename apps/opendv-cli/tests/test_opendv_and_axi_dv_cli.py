@@ -613,8 +613,8 @@ def test_wp24_opendv_pipeline_run_live_stage_progress_and_token_streaming(
     )
     assert rc_human == 0
     captured_human = capsys.readouterr()
-    assert "[Wave 0][STAGE 00]" in captured_human.out
-    assert "[Wave 0][STAGE 07]" in captured_human.out
+    assert "[STAGE 00]" in captured_human.out
+    assert "[STAGE 07]" in captured_human.out
     assert "[opendv pipeline] status=COMPLETED" in captured_human.out
 
     # 2. JSON mode (--json): stdout is pure JSON while stage progress streams to stderr
@@ -640,8 +640,8 @@ def test_wp24_opendv_pipeline_run_live_stage_progress_and_token_streaming(
     parsed_json = json.loads(captured_json.out)
     assert parsed_json["status"] == "COMPLETED"
     assert parsed_json["overall_passed"] is True
-    assert "[Wave 0][STAGE 00]" in captured_json.err
-    assert "[Wave 0][STAGE 07]" in captured_json.err
+    assert "[STAGE 00]" in captured_json.err
+    assert "[STAGE 07]" in captured_json.err
 
 
 def test_opendv_cli_run_explorer_artifact_and_hold_decide(

@@ -11,6 +11,7 @@
 
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { GROUNDING_MIN_CONFIDENCE, MIN_RATIONALE_LENGTH } from "../constants";
 import { deriveGroundingStatus, useStudioStore } from "../store/studio-store";
 import type { ExternalMapping, QualityCheck } from "../store/types";
 
@@ -174,8 +175,13 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 			setWaiverError("Waiver key is mandatory for steward authorization.");
 			return;
 		}
-		if (!waiverRationale || waiverRationale.trim().length < 10) {
-			setWaiverError("Waiver rationale must be at least 10 characters.");
+		if (
+			!waiverRationale ||
+			waiverRationale.trim().length < MIN_RATIONALE_LENGTH
+		) {
+			setWaiverError(
+				`Waiver rationale must be at least ${MIN_RATIONALE_LENGTH} characters.`,
+			);
 			return;
 		}
 
@@ -277,7 +283,8 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 					<div className="gauge-meter-track">
 						<div
 							className={`gauge-meter-fill ${
-								groundingPct !== null && groundingPct >= 65.0
+								groundingPct !== null &&
+								groundingPct >= GROUNDING_MIN_CONFIDENCE * 100
 									? "fill-pass"
 									: "fill-fail"
 							}`}
@@ -286,7 +293,9 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 							}}
 						/>
 					</div>
-					<span className="gauge-target">Target: ≥ 65% (BM25)</span>
+					<span className="gauge-target">
+						Target: ≥ {GROUNDING_MIN_CONFIDENCE * 100}% (BM25)
+					</span>
 				</div>
 
 				<div className="gauge-card">
@@ -368,7 +377,8 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 				<h3 className="section-title">Administrative Steward Waiver</h3>
 				<p className="section-desc">
 					Steward/Admin override for ungrounded concepts or low-confidence
-					proposals requiring explicit rationale (≥ 10 chars).
+					proposals requiring explicit rationale (≥ {MIN_RATIONALE_LENGTH}{" "}
+					chars).
 				</p>
 
 				{qualityScorecard.waiver_applied && (
@@ -452,7 +462,7 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 							)}
 							<div className="form-group">
 								<label htmlFor="waiver-rationale-input">
-									Waiver Rationale (minimum 10 characters):
+									Waiver Rationale (minimum {MIN_RATIONALE_LENGTH} characters):
 								</label>
 								<textarea
 									id="waiver-rationale-input"
@@ -462,7 +472,7 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 									value={waiverRationale}
 									onChange={(e) => {
 										setWaiverRationale(e.target.value);
-										if (e.target.value.trim().length >= 10) {
+										if (e.target.value.trim().length >= MIN_RATIONALE_LENGTH) {
 											setWaiverError(null);
 										}
 									}}
@@ -470,9 +480,10 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 								/>
 								<div className="char-count-row">
 									<span
-										className={`char-count ${waiverRationale.trim().length < 10 ? "text-fail" : "text-pass"}`}
+										className={`char-count ${waiverRationale.trim().length < MIN_RATIONALE_LENGTH ? "text-fail" : "text-pass"}`}
 									>
-										{waiverRationale.trim().length} / 10 chars minimum
+										{waiverRationale.trim().length} / {MIN_RATIONALE_LENGTH}{" "}
+										chars minimum
 									</span>
 								</div>
 							</div>
@@ -506,7 +517,8 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 								type="submit"
 								className="btn-primary"
 								disabled={
-									isSubmittingWaiver || waiverRationale.trim().length < 10
+									isSubmittingWaiver ||
+									waiverRationale.trim().length < MIN_RATIONALE_LENGTH
 								}
 								data-testid="submit-waiver-btn"
 							>
