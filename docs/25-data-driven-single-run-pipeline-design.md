@@ -3,7 +3,10 @@
 **Status:** Normative Architecture & Technical Design Specification  
 **Target Repository:** `open-dv` (`packages/opendv-core`, `packages/opendv-contracts`, `packages/opendv-sources`, `packages/opendv-axi-verifier`, `packages/opendv-duckdb-sandbox`, `packages/opendv-agent-harness`, `packages/opendv-service`, `packages/opendv-testkit`, `apps/opendv-platform-api`, `apps/opendv-cli`, `apps/opendvctl`, `apps/opendv-web-workbench`)  
 **Specification Dialect:** OpenDV Architecture v2 / Data Vault 2.0 Modeling Standard / `VaultBlueprint` v1.0  
-**Governing Cross-References:** [`docs/00`](00-mission-vision-and-functional-requirements.md) · [`docs/01`](01-core-modelling-spec.md) · [`docs/02`](02-schema-stability-and-evolution.md) · [`docs/03`](03-verification-and-agentic-architecture.md) · [`docs/05`](05-elm-calculus-and-reference-algorithms.md) · [`docs/19`](19-ontology-studio-architecture.md) · [`docs/20`](20-ontology-studio-spec.md) · [`docs/22`](22-ontology-studio-user-guide.md) · [`docs/26`](26-data-driven-pipeline-team-implementation-plan.md)
+**Governing Cross-References:** [`docs/00`](00-mission-vision-and-functional-requirements.md) · [`docs/01`](01-core-modelling-spec.md) · [`docs/02`](02-schema-stability-and-evolution.md) · [`docs/03`](03-verification-and-agentic-architecture.md) · [`docs/05`](05-elm-calculus-and-reference-algorithms.md) · [`docs/19`](19-ontology-studio-architecture.md) · [`docs/20`](20-ontology-studio-spec.md) · [`docs/22`](22-ontology-studio-user-guide.md) · [`docs/26`](26-data-driven-pipeline-team-implementation-plan.md) · [`docs/27`](27-unified-ontology-pipeline-requirements-and-uat.md) · [`docs/28`](28-unified-ontology-pipeline-design-and-plan.md)
+
+> [!NOTE]
+> **Superseded UI & 5-Zone Standard (`D19`):** The 4-Step `/builder` `WizardShell.tsx` UI described in `§4` and `§5.4` below has been superseded and replaced by the **Unified 6-Step Wizard + 4-View DV Schema Explorer** in [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](27-unified-ontology-pipeline-requirements-and-uat.md) and [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md). User-facing UI and SQL explorer surfaces standardize on **5-Zone (`Z0–Z4`)** (`bronze`, `staging`, `raw_vault`, `business_vault`, `information_mart`), while internal `four_zone_sql` / `compiler_4zone` symbols, `VaultBlueprint`, `CatalogSourceAdapter`, `mode_detector.py`, and the `< 5,000`-token pipeline split remain active.
 
 ---
 
@@ -229,9 +232,11 @@ All remote sample URLs, headers, expected schemas, and SHA-256 checksums live de
 
 ---
 
-## 4. 4-Step Wizard Pipeline Builder UX (`/builder`)
+## 4. 4-Step Wizard Pipeline Builder UX (`/builder`) *(Superseded by Unified 6-Step Wizard — `D19`)*
 
-The flat, multi-wave [`InteractiveSpecForm.tsx`](../apps/opendv-web-workbench/src/explorer/builder/InteractiveSpecForm.tsx) is replaced by a guided **4-Step Wizard** (`PipelineWizardView.tsx`) synced bi-directionally with an optional **YAML Run Spec Drawer**:
+> **Superseded UI Note:** Under Decision `D19` ([`docs/27`](27-unified-ontology-pipeline-requirements-and-uat.md) & [`docs/28`](28-unified-ontology-pipeline-design-and-plan.md)), `/builder` routes directly into the Unified 6-Step Wizard (`OntologyWizardShell.tsx`) + 4-View `DV Schema Explorer` (`/dv-schema`) using the **5-Zone (`Z0–Z4`)** + `information_mart` standard, replacing the earlier 4-Step `WizardShell.tsx` / `PipelineWizardView.tsx` screens.
+
+The flat, multi-wave historical `apps/opendv-web-workbench/src/explorer/builder/InteractiveSpecForm.tsx` was first replaced by a guided **4-Step Wizard** (`PipelineWizardView.tsx`) synced bi-directionally with an optional **YAML Run Spec Drawer**:
 
 ```mermaid
 flowchart LR
@@ -299,7 +304,7 @@ Companion decompositions apply the same `< 5,000` token ceiling to:
 | **WS-2A** | `VaultBlueprint` v1.0 & JCS Lineage Tracking | `opendv-core`: `models/vault_blueprint.py`, `opendv-contracts`: `dtos/blueprint.py`, `schemas/vault-blueprint-v1.schema.json` | Verified (`test_vault_blueprint.py`, `test_single_run_dtos.py`) |
 | **WS-2B** | Zero-Data Execution & Contract-Only Drift | `opendv-agent-harness/pipeline`: `mode_detector.py` (7-row matrix), `COLD_START_N1`, `VERIFIED_NO_OP`, `Alg A.9a` contract-diff | Verified (`test_mode_detector.py`, `test_alg_a9a_contract_diff.py`) |
 | **WS-3** | Pipeline Harness Decomposition & Single-Run Purity | `opendv-agent-harness/pipeline/` (15 modules strictly `< 5,000` tokens `cl100k_base`), `pipeline.py` backward-compat facade (965 tokens) | Verified (`test_pipeline_modules.py`, `test_single_run_invariants.py`, `test_module_token_budget.py`) |
-| **WS-4** | REST APIs, Dual-CLI Parity & 4-Step Wizard UI | `/api/v1/sources/inspect`, `/api/v1/ontology/studio/sessions/{id}/export-blueprint`, `opendv source inspect`, `apps/opendv-web-workbench/src/explorer/builder/` | Verified (`test_sources_inspect_api.py`, `test_single_run_api.py`, `wizard-shell.test.tsx`, `catalog-table-picker.test.tsx`) |
+| **WS-4** | REST APIs, Dual-CLI Parity & 4-Step Wizard UI *(Superseded by `D19`)* | `/api/v1/sources/inspect`, `/api/v1/ontology/studio/sessions/{id}/export-blueprint`, `opendv source inspect`, `apps/opendv-web-workbench/src/ontology/wizard/` (superseding `explorer/builder/` per [`docs/28`](28-unified-ontology-pipeline-design-and-plan.md)) | Verified (`test_sources_inspect_api.py`, `test_single_run_api.py`, `UnifiedWizard.test.tsx`, `catalog-table-picker.test.tsx`) |
 | **WS-5** | Multi-Wave Scenario Migration & Testkit | `opendv-testkit`: `multi_wave_runner.py`, `uc_emulator.py` (<5,000 tokens) | Verified (`test_multi_wave_runner.py`, `test_databricks_conformance.py`) |
 | **WS-6.3** | Architecture CI Gates & Schema Sync | `tests/architecture/test_module_token_budget.py`, `tests/architecture/test_no_hardcoded_literals.py`, `tests/architecture/test_schema_sync.py`, `tests/docs/test_doc_code_snippets.py` | Verified (`uv run pytest tests/architecture/ -v`, `uv run pytest tests/docs/ -v`) |
 | **WS-6.5** | Documentation Sync | `docs/16-cli-reference.md`, `docs/22-ontology-studio-user-guide.md`, `docs/23-ontology-studio-extension-guide.md`, `docs/25`, `docs/26` | Verified |

@@ -22,13 +22,14 @@ export function VideoTourSection({
 					<div className="section-head-copy">
 						<p className="eyebrow">VIDEO WALKTHROUGH · 2:45 END-TO-END</p>
 						<h2 id="tour-heading">
-							See Ontology Studio, 6-Gate proofs, and Databricks UC drift in
+							See the 6-Step Wizard, DV Schema Explorer, and Session Logs in
 							action.
 						</h2>
 					</div>
 					<p className="section-intro">
-						Jump directly to any of the six chapters or open the full searchable
-						transcript page with downloadable MP4 and WebVTT captions.
+						Jump directly to any of the six chapters across 5-Zone (Z0–Z4) SQL
+						compilation or open the full searchable transcript page with
+						downloadable MP4 and WebVTT captions.
 					</p>
 				</div>
 
@@ -38,13 +39,13 @@ export function VideoTourSection({
 							<div
 								className="youtube-facade"
 								data-youtube-facade={embedUrl}
-								data-youtube-title="Open-DV v6.0 Technical Walkthrough"
+								data-youtube-title="Open-DV Technical Walkthrough"
 							>
 								<img
 									src={withBase("/video/opendv-tour-poster.webp", basePath)}
 									width={1920}
 									height={1080}
-									alt="Open-DV v6.0 2:45 walkthrough poster"
+									alt="Open-DV 2:45 walkthrough poster"
 									loading="lazy"
 								/>
 								<button

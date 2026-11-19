@@ -33,81 +33,98 @@
 :root {
 	color-scheme: light;
 
-	/* Surfaces & Warm Drafting Paper */
-	--bg-canvas: #f6f4ee;
-	--bg-header: rgba(250, 248, 243, 0.92);
-	--bg-header-solid: #faf8f3;
-	--bg-card: #ffffff;
-	--bg-subtle: #faf8f3;
-	--bg-code: #f1eee6;
-	--bg-muted: #ece7dc;
-	--grid-line: rgba(20, 18, 16, 0.045);
+	/* Claude DESIGN.md Warm Cream & Dark Obsidian Chrome Surfaces */
+	--bg-canvas: #faf9f5;
+	--surface-soft: #f5f0e8;
+	--bg-subtle: #f5f0e8;
+	--bg-card: #efe9de;
+	--surface-cream-strong: #e8e0d2;
+	--bg-header: rgba(250, 249, 245, 0.94);
+	--bg-header-solid: #faf9f5;
 
-	/* Ink & Borders (WCAG 1.4.3 / 1.4.11 compliant) */
-	--ink: #141210;
-	--ink-muted: #57534e;
-	--border: #e4e0d5;
-	--border-strong: #cfc9ba;
-	--border-control: #857d70;
+	--surface-dark: #181715;
+	--surface-dark-soft: #1f1e1b;
+	--surface-dark-elevated: #252320;
+	--bg-code: #181715;
+	--on-dark: #faf9f5;
+	--on-dark-soft: #a09d96;
+	--dark-divider: #33312d;
 
-	/* Brand & Editorial Emphasis */
-	--gold: #9a680c;
-	--gold-ink: #825607;
-	--gold-fill: #fef7e6;
-	--gold-stroke: #9a680c;
+	/* Warm Inks & Hairlines */
+	--ink: #141413;
+	--body-strong: #252523;
+	--body: #3d3d3a;
+	--ink-muted: #6c6a64;
+	--muted-soft: #8e8b82;
+	--border: #e6dfd8;
+	--border-soft: #ebe6df;
+	--border-strong: #d5cdc2;
+	--border-control: #8e8b82;
 
-	/* Dual-Encoded Data Vault 2.0 Semantic Tokens */
-	--hub-fill: #eff6ff;
-	--hub-stroke: #1d4ed8;
-	--hub-ink: #1e40af;
+	/* Brand Coral & Semantic Accents */
+	--primary: #cc785c;
+	--primary-active: #a9583e;
+	--primary-disabled: #e6dfd8;
+	--on-primary: #ffffff;
+	--primary-ring: rgba(204, 120, 92, 0.15);
 
-	--lnk-fill: #ecfdf5;
-	--lnk-stroke: #047857;
-	--lnk-ink: #065f46;
+	--gold: #cc785c;
+	--gold-ink: #a9583e;
+	--gold-fill: #efe9de;
+	--gold-stroke: #cc785c;
 
-	--sal-fill: #f0fdfa;
-	--sal-stroke: #0f766e;
-	--sal-ink: #115e59;
+	--accent-teal: #5db8a6;
+	--accent-amber: #e8a55a;
+	--success: #5db872;
+	--warning: #d4a017;
+	--error: #c64545;
 
-	--sat-fill: #fffbeb;
-	--sat-stroke: #b45309;
-	--sat-ink: #92400e;
+	/* Data Vault 2.0 Bipartite Topology Tokens (DESIGN.md) */
+	--hub-fill: #181715;
+	--hub-stroke: #181715;
+	--hub-ink: #faf9f5;
 
-	--pii-fill: #faf5ff;
-	--pii-stroke: #7e22ce;
-	--pii-ink: #6b21a8;
+	--lnk-fill: #efe9de;
+	--lnk-stroke: #e8a55a;
+	--lnk-ink: #141413;
 
-	/* Verification Verdict Tokens */
-	--pass-fill: #ecfdf5;
-	--pass-stroke: #0f7661;
-	--pass-ink: #065f46;
+	--sal-fill: #eef8f5;
+	--sal-stroke: #5db8a6;
+	--sal-ink: #145349;
 
-	--danger-fill: #fef2f2;
-	--danger-stroke: #b93822;
-	--danger-ink: #991b1b;
+	--sat-fill: #faf9f5;
+	--sat-stroke: #e8a55a;
+	--sat-ink: #8a5112;
 
-	--work-fill: #eff6ff;
-	--work-stroke: #2563eb;
-	--work-ink: #1d4ed8;
+	--pii-fill: #fdf4f0;
+	--pii-stroke: #cc785c;
+	--pii-ink: #a9583e;
 
-	/* Typography & Layout Scales */
+	--pass-fill: #eef8f1;
+	--pass-stroke: #5db872;
+	--pass-ink: #1b5e2d;
+
+	--danger-fill: #fdf2f2;
+	--danger-stroke: #c64545;
+	--danger-ink: #8c2323;
+
+	/* Typography & Layout Scale */
 	--font-title: "Instrument Serif", Georgia, "Times New Roman", serif;
 	--font-sans: "DM Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
-	--font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas,
-		monospace;
+	--font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-	--wrap-max: 72rem;
-	--prose-max: 40rem;
-	--header-h: 4.25rem;
-	--radius-sm: 0.375rem;
-	--radius: 0.5rem;
-	--radius-lg: 0.875rem;
+	--wrap-max: 75rem;
+	--prose-max: 42rem;
+	--header-h: 4rem;
+	--radius-xs: 4px;
+	--radius-sm: 6px;
+	--radius: 8px;
+	--radius-card-sm: 10px;
+	--radius-lg: 12px;
+	--radius-xl: 16px;
 
-	--shadow-card: 0 1px 2px rgba(20, 18, 16, 0.04), 0 12px 28px -20px
-		rgba(20, 18, 16, 0.16);
-	--shadow-float: 0 20px 48px -18px rgba(20, 18, 16, 0.24), 0 2px 10px
-		rgba(20, 18, 16, 0.08);
-	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+	--shadow-card: 0 1px 2px rgba(20, 20, 19, 0.04);
+	--shadow-float: 0 18px 40px -16px rgba(20, 20, 19, 0.24);
 }
 
 *,
@@ -133,16 +150,10 @@ body {
 	margin: 0;
 	min-block-size: 100dvh;
 	background-color: var(--bg-canvas);
-	background-image: linear-gradient(
-			to right,
-			var(--grid-line) 1px,
-			transparent 1px
-		), linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
-	background-size: 48px 48px;
-	color: var(--ink);
+	color: var(--body);
 	font-family: var(--font-sans);
-	font-size: 1.0625rem;
-	line-height: 1.6;
+	font-size: 1rem;
+	line-height: 1.55;
 	font-synthesis-weight: none;
 	overflow-x: clip;
 }
@@ -166,7 +177,7 @@ kbd {
 }
 
 a {
-	color: var(--gold-ink);
+	color: var(--primary-active);
 	text-underline-offset: 0.2em;
 }
 
@@ -175,8 +186,9 @@ a:hover {
 }
 
 :where(a, button, summary, input, [tabindex]):focus-visible {
-	outline: 3px solid var(--gold);
-	outline-offset: 3px;
+	outline: 2px solid var(--primary-active);
+	outline-offset: 2px;
+	box-shadow: 0 0 0 4px var(--primary-ring);
 }
 
 [tabindex="-1"]:focus:not(:focus-visible) {
@@ -204,11 +216,11 @@ a:hover {
 	align-items: center;
 	min-block-size: 44px;
 	padding: 0.6rem 1rem;
-	background: var(--bg-card);
+	background: var(--bg-canvas);
 	color: var(--ink);
-	border: 2px solid var(--gold);
+	border: 2px solid var(--primary);
 	border-radius: var(--radius-sm);
-	font-weight: 600;
+	font-weight: 500;
 	text-decoration: none;
 	box-shadow: var(--shadow-float);
 }
@@ -218,10 +230,6 @@ a:hover {
 }
 
 @media (forced-colors: active) {
-	body {
-		background-image: none;
-	}
-
 	:where(a, button, summary, input, [tabindex]):focus-visible {
 		outline: 3px solid Highlight;
 	}

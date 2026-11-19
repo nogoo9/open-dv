@@ -23,9 +23,9 @@ export function QuickStartSection(): React.JSX.Element {
 						</h2>
 					</div>
 					<p className="section-intro">
-						Start the unified Ontology Studio and Pipeline Builder on{" "}
-						<code>http://127.0.0.1:8420</code>, or copy the setup prompt for
-						your coding agent.
+						Start the 4-Tab Workbench on loopback{" "}
+						<code>http://127.0.0.1:8420</code> with zero login tokens, or copy
+						the setup prompt for your coding agent.
 					</p>
 				</div>
 
@@ -57,7 +57,7 @@ export function QuickStartSection(): React.JSX.Element {
 					))}
 				</ol>
 
-				<div className="card" style={{ marginBlockStart: "1.5rem" }}>
+				<div className="card" style={{ marginBlockStart: "1.75rem" }}>
 					<div className="section-head" style={{ marginBlockEnd: "0.9rem" }}>
 						<div className="section-head-copy">
 							<div className="badge-row" style={{ marginBlockEnd: "0.45rem" }}>
@@ -83,7 +83,7 @@ export function QuickStartSection(): React.JSX.Element {
 					</div>
 				</div>
 
-				<div style={{ marginBlockStart: "2.25rem" }}>
+				<div style={{ marginBlockStart: "2.5rem" }}>
 					<div className="section-head" style={{ marginBlockEnd: "1rem" }}>
 						<h3>Architecture &amp; Mathematical Specifications</h3>
 						<a

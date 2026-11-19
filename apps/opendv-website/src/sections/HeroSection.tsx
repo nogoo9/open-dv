@@ -9,21 +9,21 @@ const HERO_PILLARS: readonly {
 }[] = [
 	{
 		num: "01",
-		title: "1. Ontology Studio",
+		title: "1. Unified 6-Step Wizard",
 		detail:
-			"Ground domain concepts against EDM Council FIBO, resolve clarification Q&A, and commit immutable CAS VaultBlueprints.",
+			"Agent-only UI (D28) from Scope & 6 Starter Packs, Multi-Connector + OCR + Inline Notes, <= 50-row/chunk Preview, and 422 Agent Gate through Step 5 Diff Graph & Export.",
 	},
 	{
 		num: "02",
-		title: "2. Data-Driven Pipeline",
+		title: "2. 6-Gate axi-dv + 5-Zone Compiler",
 		detail:
-			"Connect SQLite, Databricks UC, DuckDB, Parquet/CSV, and PDF filings. Actions are inferred per source with zero manual waves.",
+			"Auto-binds deployed_contract (D12), proves 3-Tier BKCC grain, Alg A.5 SHA-256, NetworkX DAG, and 4-Batch DuckDB before emitting 5-Zone (Z0–Z4) + information_mart SQL.",
 	},
 	{
 		num: "03",
-		title: "3. 6-Gate axi-dv Compiler",
+		title: "3. 4-View DV Schema Explorer & Live Logs",
 		detail:
-			"Prove 3-Tier BKCC grain, injective SHA-256 hashing, NetworkX DAG topology, and 4-Batch DuckDB execution before SQL emits.",
+			"Inspect Hub-Link-Sat-PIT topology, 100% Column Triage, W1->W3 wave diffs, Safe Read-Only SQL (D11), live Cost Meter, and SessionLogsInspector EventSource traces.",
 	},
 ];
 
@@ -39,26 +39,27 @@ export function HeroSection(): React.JSX.Element {
 				<div className="split">
 					<div>
 						<p className="eyebrow">
-							NEURO-SYMBOLIC DATA VAULT 2.0 · {SITE_META.license.toUpperCase()}{" "}
-							· {SITE_META.version}
+							AGENT-FIRST DATA VAULT 2.0 · {SITE_META.license.toUpperCase()} ·{" "}
+							{SITE_META.version}
 						</p>
 						<h1 id="main-title" className="display-title" tabIndex={-1}>
 							Enterprise Data Vault 2.0, <em>verified</em> before a single SQL
 							line runs.
 						</h1>
 						<p className="lede">
-							Agents discover enterprise semantics and propose declarative{" "}
-							<code>VaultBlueprint</code> contracts. The deterministic 6-gate{" "}
-							<code>axi-dv</code> verifier and DuckDB shadow sandbox prove every
-							invariant before multi-dialect 4-Zone SQL compiles.
+							Launch the 4-Tab Workbench on loopback <code>127.0.0.1:8420</code>{" "}
+							with zero login friction. Agents ground semantics in the Unified
+							6-Step Wizard while 6-Gate <code>axi-dv</code> proves every
+							invariant before 5-Zone (Z0–Z4) <code>information_mart</code> SQL
+							compiles.
 						</p>
 
 						<div className="btn-row">
-							<a className="btn btn-primary" href="#tour">
-								Watch 2:45 Tour
+							<a className="btn btn-primary" href="#workbench">
+								Explore 12-Screen Tour
 							</a>
-							<a className="btn btn-secondary" href="#quickstart">
-								Quick Start →
+							<a className="btn btn-secondary" href="#tour">
+								Watch 2:45 Tour
 							</a>
 							<a
 								className="btn btn-secondary"
@@ -81,6 +82,14 @@ export function HeroSection(): React.JSX.Element {
 								Copy
 							</button>
 						</div>
+						<p
+							className="prose"
+							style={{ fontSize: "0.84rem", marginBlockStart: "0.6rem" }}
+						>
+							Loopback zero-auth open access by default; non-loopback binds fail
+							closed (exit 40) without{" "}
+							<code>--allow-remote-unauthenticated</code>.
+						</p>
 					</div>
 
 					<div>

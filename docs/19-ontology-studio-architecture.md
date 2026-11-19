@@ -1,9 +1,9 @@
 # 19 — Open-DV Ontology Construction Studio: System Architecture & Subsystem Specification
 
-**Status:** Normative Architecture Reference (Milestone M2 Deliverable)  
+**Status:** Normative Architecture Reference (Updated for Unified Phases 1–4)  
 **Target Repository:** `open-dv` (`packages/opendv-core`, `packages/opendv-contracts`, `packages/opendv-sources`, `packages/opendv-agent-harness`, `packages/opendv-service`, `apps/opendv-platform-api`, `apps/opendv-cli`, `apps/opendvctl`, `apps/opendv-web-workbench`)  
 **Specification Dialect:** OpenDV Architecture v1 / Data Vault 2.0 Modeling Standard  
-**Normative Cross-References:** `docs/design/ontology-studio/master-plan.md`, `research.md`, `ADR-001` through `ADR-016`, `HANDOFF.md`, `docs/20-ontology-studio-spec.md`
+**Normative Cross-References:** [`DESIGN.md`](../DESIGN.md), [`docs/20-ontology-studio-spec.md`](20-ontology-studio-spec.md), [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](27-unified-ontology-pipeline-requirements-and-uat.md), [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md), `ADR-001` through `ADR-016`
 
 ---
 
@@ -20,10 +20,10 @@ The Studio is structured into architectural tiers governed by the unidirectional
 | Architectural Tier | Component Packages | Key Responsibilities & Capabilities | Dependency Flow |
 |---|---|---|---|
 | **Foundation** | `opendv-core`, `opendv-contracts` | Immutable domain models, RFC 8785 JCS hashing, closed error codes, DTOs | Zero upward dependencies |
-| **1. Presentation** | `opendv-web-workbench`, `opendv-cli`, `opendvctl` | React 19 SPA (`/ontology`), in-process CLI (`LocalExecutor`), remote Bun CLI (`RemoteExecutor`) | Calls Tier 2 REST/SSE or imports Tier 3 service |
-| **2. Platform Service** | `opendv-platform-api` | FastAPI application (`/api/v1/ontology/studio/*`), SSE engine, auth guard, job supervisors | Calls Tier 3 service modules |
-| **3. Core Engine & Service** | `opendv-service` | Dual-mode construction, Okapi BM25 matcher, CAS engine, 2-phase validation, `OntologyDelta` engine | Injects Tier 4a via SPI; calls Tier 4b |
-| **4a. Agent Harness** | `opendv-agent-harness` | 3-Persona SPI (`@term-scout`, `@domain-clarifier`, `@ontology-architect`), prompt rendering | Depends on Foundation (core & contracts) |
+| **1. Presentation** | `opendv-web-workbench`, `opendv-cli`, `opendvctl` | Claude `DESIGN.md` 4-tab React 19 SPA (`/`, `/ontology`, `/builder`, `/dv-schema`, `/explorer`, `/settings`) decomposed into `< 5,000`-token store slices (`D16`, `D19`), in-process CLI (`LocalExecutor`), remote Bun CLI (`RemoteExecutor`) | Calls Tier 2 REST/SSE or imports Tier 3 service |
+| **2. Platform Service** | `opendv-platform-api` | FastAPI application decomposed into `< 5,000`-token routers (`routers/ontology_studio_{sessions,evidence,citations,proposals,logs,exports,blueprint}.py` + `routers/dv_schema_explorer.py`, `D16`), W3C SSE engine, loopback open-access + remote host guard (`D18`), job concurrency lock (`D27`) | Calls Tier 3 service modules |
+| **3. Core Engine & Service** | `opendv-service` | Agent-first + CLI deterministic construction (`StudioAgentRunner`), Okapi BM25 matcher, CAS engine (`atomic_commit_*.py`), 2-phase validation (`validator*.py`), `wizard_workflows.py`, `session_logs_service.py`, `dv_schema_explorer.py` | Injects Tier 4a via SPI; calls Tier 4b |
+| **4a. Agent Harness** | `opendv-agent-harness` | 3-Persona SPI (`@term-scout`, `@domain-clarifier`, `@ontology-architect`), `VaultAgentHarness.run_task` + `stdin` piping, `HarnessBudget` (`D21`), `HarnessStreamEvent` | Depends on Foundation (core & contracts) |
 | **4b. Ingestion & Sources** | `opendv-sources` | LiteParse document adapter, OCR complexity routing, LibreOffice conversion, curated FIBO core pack | Ingestion adapters; depends on Foundation |
 
 
@@ -42,7 +42,7 @@ To preserve long-term maintainability, zero-dependency deployment capabilities, 
    All entity hashes and ontology SHA-256 digests are computed exclusively over RFC 8785 canonical JSON bytes. Optional extension fields across core models default strictly to `None`. Mapping confidence scores are rounded to 4 decimals strictly at the matcher boundary before assignment; core models do not round or coerce loaded floats. Serialization uses existing `compute_ontology_sha256` behavior: `model_dump(mode="json", exclude_none=True)` with recursive empty collection pruning (`_norm_empty`), guaranteeing that the Private Equity reference benchmark (`pe_graph_a_ontology.yaml`) preserves its certified SHA-256 digest bit-for-bit:
    $$\text{compute\_ontology\_sha256}(\text{load}(\text{pe\_graph\_a\_ontology.yaml})) = \mathtt{1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81}$$
 6. **Zero UI Platform Coupling**:
-   The Web Workbench SPA at `/ontology` interacts with the platform strictly via public REST and SSE API contracts defined in `schemas/v1/openapi.json`. It possesses no backchannel access to the server filesystem or Python runtimes.
+   The Web Workbench SPA (`/`, `/ontology`, `/builder`, `/dv-schema`, `/explorer`, `/settings`) interacts with the platform strictly via public REST and SSE API contracts defined in `schemas/v1/openapi.json` (kept byte-synchronized with `schemas/openapi-v1.json`). It possesses no backchannel access to the server filesystem or Python runtimes.
 
 ---
 
@@ -70,18 +70,21 @@ To support concurrent proposals, proposal rebasing (ONT-EVO-003), and continuous
 
 | Endpoint / Operation | Allowed Session State | Proposal State Transition | Target Session State | Preconditions & Persistence Actions |
 |---|---|---|---|---|
-| `POST /init` | System `UNINITIALIZED` | N/A | `INITIALIZED` | Loopback only; mints `.local_token` (0600) under L1 |
-| `POST /sessions` | Platform `INITIALIZED` | N/A | `EMPTY` / `SEEDED` | Creates CAS directory layout; seeds genesis `0.0.0` or workspace contract |
-| `POST .../sources` | Active | N/A | Unchanged | Ingests blobs into CAS (`inputs/cas/<sha256>`), updates `manifest.json` |
-| `POST .../parse` | Active | N/A | Unchanged | Spawns async layout parser; streams SSE events; writes `chunks.jsonl` |
+| `POST /init` | Any (Shim) | N/A | Unchanged | Benign `200 OK` loopback compatibility shim (`D18` zero-auth open access) |
+| `POST /sessions` & `/sessions/import-ontology` | Active | N/A | `EMPTY` / `SEEDED` | Creates CAS directory layout with `wizard_schema_version` (`D25`); seeds genesis `0.0.0`, workspace contract, or imported `.yaml`/`.json`/`.ttl` |
+| `POST .../sources` & `.../sources/connectors` & `/text` | Active | N/A | Unchanged | Ingests files/inline notes/connectors (`sources_inspect` + `GraphBProfiler`, `P1`) into CAS (`inputs/cas/<sha256>`), updates `manifest.json` |
+| `POST .../parse` & `GET .../evidence/{tables,chunks}` | Active | N/A | Unchanged | Spawns async parser; streams SSE events; serves Step 3a (`<= 50` rows) & Step 3b parsed chunks/tables |
 | `POST .../clarify` | Active | N/A | Unchanged | Dispatches `@domain-clarifier`; generates questions in `clarifications/` |
 | `POST .../answers` | Active | N/A | Unchanged | Persists steward responses into `clarifications/answers.json` |
-| `POST .../construct` | Active | New proposal: `PENDING` (or direct `COMMITTED` if `--auto-commit`) | Current (or `COMMITTED` if auto-commit) | In Agent mode, creates `ProposalRecord` (`PENDING`). In deterministic `--auto-commit`, commits directly to `COMMITTED` |
-| `POST .../proposals/{id}/accept` | Active | `PENDING` $\to$ `ACCEPTED` (intervening pending $\to$ `STALE`) | `COMMITTED` (`vX.Y.Z`) | Requires `If-Match: base_sha256`. 2-phase validation; atomic snapshot commit. Concurrent proposals become `STALE` |
+| `POST .../construct` | Active | New proposal: `PENDING` (or direct `COMMITTED` if CLI `--mode deterministic --auto-commit`) | Current (or `COMMITTED` if auto-commit) | Fails closed with `422 AGENT_NOT_CONFIGURED` if unconfigured or `409 SESSION_JOB_ACTIVE` if session busy (`D27`). In Agent mode (`StudioAgentRunner`), invokes live `VaultAgentHarness.run_task` (`D1`, `D21`) |
+| `POST .../citations/resolve` & `.../fibo-qa` | Active | N/A | Unchanged | Batch-resolves Step 4c spans/FIBO definitions (`FR-CIT-02`) and cited `Ask FIBO & Sources` answers (`D2`) |
+| `POST .../proposals/{id}/accept` | Active | `PENDING` $\to$ `ACCEPTED` (intervening pending $\to$ `STALE`) | `COMMITTED` (`vX.Y.Z`) | Requires `If-Match: base_sha256`. 2-phase Path A/B validation; atomic snapshot commit. Concurrent proposals become `STALE` |
 | `POST .../proposals/{id}/reject` | Active | `PENDING` / `STALE` $\to$ `REJECTED` | Unchanged | Marks proposal `REJECTED`; session remains completely active for deltas, sources, or promotion |
 | `POST .../proposals/{id}/rebase` | Active | `STALE` $\to$ `PENDING` | Unchanged | Re-evaluates conflict keys against new head SHA; validates AST; resets to `PENDING` |
 | `POST .../delta` | `EMPTY`, `SEEDED`, `COMMITTED`, `PROMOTED` | Intervening pending $\to$ `STALE` | `COMMITTED` (`vX.Y.Z`) | Direct delta or admin steward revision: validates, commits immutable snapshot. Pending proposals become `STALE` |
 | `POST .../promote` | `COMMITTED`, `PROMOTED` | N/A | `PROMOTED` | Verifies containment, acquires `graph_a.lock` [L4], verifies OCC, writes workspace contract |
+| `GET .../logs` & `.../logs/stream` & `.../logs/export` | Active | N/A | Unchanged | Merged monotonic session/stage telemetry (`STAGE_00..07` & pills `00..06`), W3C SSE `EventSource`, `.jsonl` export (`D24`) |
+| `GET /runs/{id}/dv-schema*` & `POST .../query` | Run Certified | N/A | Unchanged | Projects `CanonicalIR` + `final_contract.yaml` + `?compare=` wave diff (`P3`) and executes `validate_safe_sql()` read-only DuckDB SQL (`D11`) |
 
 
 ### 2.2 End-to-End Data Pipeline Trace
@@ -96,7 +99,7 @@ The execution of an end-to-end ontology construction cycle follows a rigorous se
 4. **Clarification Generation & Q&A**:
    If semantic ambiguities or competing reference alignments exist, `@domain-clarifier` (or deterministic heuristic rules) generates structured questions stored in `<session_dir>/clarifications/questions.json`. The user submits answers via `POST .../answers`, which are written into `<session_dir>/clarifications/answers.json`.
 5. **Construction & Delta Synthesis**:
-   `POST .../construct` triggers the construction pipeline. In Agent-First mode, `@ontology-architect` synthesizes Canonical Business Concepts (CBCs), attributes, relationships, and external mappings. In Deterministic mode, schema heuristics (`_id`, `_pk`, `_fk`) and top-1 BM25 hits assemble the model (holding back ungrounded candidates). The output is framed as a `ProposalRecord` containing an additive `OntologyDelta` stored in `<session_dir>/proposals/<pid>.json`.
+   `POST .../construct` enforces single-job concurrency per session (`409 SESSION_JOB_ACTIVE`, `D27`) and triggers the construction pipeline. By default (`mode="agent"` + `stage_output_policy="strict"`), if no real LLM provider is configured, construction **fails closed with HTTP `422 AGENT_NOT_CONFIGURED`** (`FR-AGT-01`). When configured, `StudioAgentRunner` invokes `VaultAgentHarness.run_task(..., on_event=...)` across `@term-scout` $\to$ `@domain-clarifier` $\to$ `@ontology-architect` in a coordinated single pass (`D1`), passing full context via `stdin`, capping prompts at `<= 5` PII-masked sample values per column (`<MASKED_PII>`, `D6`), excluding `do_not_send_to_agent` sources, enforcing `HarnessBudget` (`D21` BudgetHold on token/cost/timeout limits), and synthesizing Beyond-FIBO custom concepts (`D3`) and zero-floor `1x · Semantic` document rules (`D4`) alongside `Q1..Qn`. Explicit `--mode deterministic` exists solely in CLI/API for offline CI benchmarks (`D28`, tagged `mode=deterministic` in logs), using schema heuristics (`_id`, `_pk`, `_fk`) and top-1 BM25 hits while holding back ungrounded candidates. The output is framed as a `ProposalRecord` containing an additive `OntologyDelta` stored in `<session_dir>/proposals/<pid>.json`.
 6. **Governance Gates & Version Commit**:
    Upon human approval (`POST .../proposals/{pid}/accept`), the system acquires `.session.lock` [L5], verifies `If-Match: "<head_sha256>"`, runs `structural_validator` and `governance_validator`, stages artifacts in `.staging-<u>/`, renames staging to `<session_dir>/versions/vX.Y.Z/` via `os.replace`, commits `session.json` via `.session.json.<u>.tmp` $\to$ `os.replace` (the commit point), marks proposal `ACCEPTED` in `proposals/<pid>.json`, appends the commit event to `audit.jsonl` under L5, and flushes directory sync.
 7. **Workspace Promotion (Two-Phase Intent Protocol)**:
@@ -313,16 +316,17 @@ Under `.session.lock` [L5], crash recovery is executed at server startup and at 
    Under L5, the supervisor inspects `audit.jsonl`. The physical tail record (`tail_sha256`) is accepted as the new session anchor if and only if `session.audit_chain_head_sha256` appears in the chain as an ancestor of `tail_sha256` (verified by tracing `prev_audit_sha256` links backward from the tail). If verified, the supervisor advances `session.audit_chain_head_sha256 = tail_sha256` in `session.json`. If `tail_sha256 != session.audit_chain_head_sha256` and the session anchor is missing from the chain (indicating truncation, data loss, or tampering), the supervisor raises `TAMPER_EVIDENT_CHAIN_CORRUPT` (HTTP 422, exit code 4), quarantines the session, blocks mutating operations, and rejects synthetic recovery appends. Next, for `versions/<session.active_version>/meta.json`: if `meta.proposal_id` exists and `proposals/<meta.proposal_id>.json` status is not `"ACCEPTED"`, update its status to `"ACCEPTED"`. If no commit record exists in `audit.jsonl` (or historical `audit.checkpoint.*.json` archives) for `(session.active_version, meta.target_sha256)`, construct and append the missing commit event chained directly to `tail_sha256`, advancing `session.audit_chain_head_sha256`.
 
 ### 6.3 Total Lock Hierarchy & Concurrency Protection
-To guarantee deadlock-free operation across asynchronous workers, background job runners, and CLI invocations, locks must be acquired in a strict, total global order:
+To guarantee deadlock-free operation across asynchronous workers, background job runners, and CLI invocations, locks must be acquired in a strict, total global order (noting legacy `L1` `.local_token` locking was retired under Phase 1 loopback open access `D18`):
 
-$$\mathbf{L}_1: \mathtt{.local\_token.lock} \;\longrightarrow\; \mathbf{L}_2: \mathtt{.job\_<jid>.lock} \;\longrightarrow\; \mathbf{L}_3: \mathtt{.journal\_<jid>.lock} \;\longrightarrow\; \mathbf{L}_4: \mathtt{graph\_a.lock} \;\longrightarrow\; \mathbf{L}_5: \mathtt{.session.lock}$$
+$$\mathbf{L}_2: \mathtt{.job\_<jid>.lock} \;\longrightarrow\; \mathbf{L}_3: \mathtt{.journal\_<jid>.lock} \;\longrightarrow\; \mathbf{L}_4: \mathtt{graph\_a.lock} \;\longrightarrow\; \mathbf{L}_5: \mathtt{.session.lock}$$
 
+- **One Active Job per Session (`D27`, `FR-RUN-01`)**: Before spawning a Studio construction/parsing job or linked pipeline run, the service checks active job leases under `.session.lock` ($\mathbf{L}_5$). Any second concurrent job targeting the same `session_id` is rejected immediately with HTTP `409 SESSION_JOB_ACTIVE` (CLI exit `20`), while independent sessions run concurrently.
 - All lock acquisitions enforce a default 30-second timeout.
 - Failure to acquire a lock within the timeout window raises `LockTimeoutError("LOCK_TIMEOUT")` (HTTP 409, exit code 6).
 - **Multi-Session Lock Ordering**: When an operation requires acquiring locks on multiple sessions simultaneously (such as workspace promotion intent recovery involving another session), session locks are acquired strictly in lexicographical order of their session ID strings (`min(s1, s2) -> max(s1, s2)`), preventing cross-session deadlocks.
 - **Session-Scoped State Mutation Under $\mathbf{L}_5$**: All mutations of session state files (`inputs/manifest.json`, `taint_index.json`, `evidence/chunks.jsonl` tombstones, `clarifications/*`, `proposals/*`, `staged_candidates.json`, `feedback.jsonl`) are serialized exclusively under `.session.lock` [$\mathbf{L}_5$]. Each write uses atomic temporary file plus `os.replace` and executes §6.2.1 recovery. Source registration writes taint directly into manifest entries and `taint_index.json` atomically in the same $\mathbf{L}_5$ write. Proposal state transitions (`PENDING \to ACCEPTED`, `PENDING \to REJECTED`, `STALE \to PENDING`) execute as atomic compare-and-set operations under $\mathbf{L}_5$.
 - **Subsystem Concurrency & Replay Starvation Prevention**: Jobs holding active job lease $\mathbf{L}_2$ must release journal lock $\mathbf{L}_3$ before acquiring $\mathbf{L}_4$ or $\mathbf{L}_5$. SSE telemetry events are buffered in memory and flushed to `jobs/<job_id>.events.jsonl` under $\mathbf{L}_3$ only after releasing $\mathbf{L}_5$, strictly preventing starvation of SSE replay readers and lock-order inversion.
-- **Reverse Release Order**: Locks are released in reverse order of acquisition ($\mathbf{L}_5 \to \dots \to \mathbf{L}_1$). As an explicit exception, early release of a temporary foreign session lock ($\mathbf{L}_5(s_{\text{intent}})$) during promotion recovery is permitted while retaining local $\mathbf{L}_5(s_{\text{curr}})$ to minimize foreign lock hold time.
+- **Reverse Release Order**: Locks are released in reverse order of acquisition ($\mathbf{L}_5 \to \dots \to \mathbf{L}_2$). As an explicit exception, early release of a temporary foreign session lock ($\mathbf{L}_5(s_{\text{intent}})$) during promotion recovery is permitted while retaining local $\mathbf{L}_5(s_{\text{curr}})$ to minimize foreign lock hold time.
 
 ### 6.4 Crash Recovery & Job Leases
 Background tasks (parsing, clarification question generation, construction) write active job leases to `jobs/.job_<jid>.lock`:
@@ -397,10 +401,10 @@ The authoritative source of truth for deployed physical tables is the **Deployme
 ### 7.3 ONT-EVO-002: Positive Grounding & Anti-Silo Mandate
 To prevent the proliferation of ungrounded, proprietary data silos, every concept in an evolved ontology must satisfy positive grounding:
 
-1. **Grounding Dual-Path Model**:
-   Every concept touched or added in a delta must satisfy positive grounding through at least **one** of the following two authoritative paths:
-   - **Path A (Reference Pack Grounding)**: At least one direct `skos:exactMatch` or `skos:closeMatch` external mapping to a registered reference ontology (e.g. FIBO). The governance validator recomputes BM25 confidence scores using canonical query `tokens(concept_name) \cup synonyms` via the pinned in-memory `ConceptMatcher` and verifies target URI existence in the registered reference pack (`baseline-digests.json`), requiring verified score $\ge 0.6500$. (Transitive `skos:broadMatch` superclass closures are excluded from satisfying Path A).
-   - **Path B (Administrative Grounding Waiver)**: An explicit administrative waiver recorded in `meta.json` with a mandatory rationale $\ge 10$ characters (`low_confidence_grounding_waiver=True`), validated at Error Precedence Step 3 (requiring admin role; non-admin triggers `FORBIDDEN_ADMIN_REQUIRED` exit 7) and Step 8 (`INVALID_GROUNDING_WAIVER` exit 4). Supporting CAS evidence citations (`EvidenceRef` spans) may optionally be attached in metadata to substantiate the waiver rationale, but evidence citations alone without an administrative waiver do not bypass ONT-EVO-002.
+1. **Grounding Dual-Path Model (`FR-AGT-07`, `D3`, `D4`)**:
+   Every concept touched or added in a delta must satisfy positive grounding through at least **one** of the following two authoritative paths under `GovernanceValidator` (`packages/opendv-service/src/opendv_service/ontology/validator*.py`):
+   - **Path A (Reference Pack Grounding)**: At least one direct `skos:exactMatch` or `skos:closeMatch` external mapping to a registered reference ontology (e.g. FIBO). The governance validator recomputes BM25 confidence scores using canonical query `tokens(concept_name) \cup synonyms` via the pinned in-memory `ConceptMatcher` and verifies target URI existence in the registered reference pack (`baseline-digests.json`), requiring verified score $\ge 0.6500$. (Transitive `skos:broadMatch` superclass closures are optional structural links and are excluded from satisfying Path A).
+   - **Path B (Empirical Citation Grounding / Governance Rationale)**: Domain concepts synthesized beyond FIBO (`grounding_origin="STRUCTURED_SCHEMA"` or `"DOCUMENT_OBSERVED"`, including zero-floor `1x · Semantic` unstructured rules `D4`) satisfy Path B when backed by verifiable non-empty `EvidenceRef` citations (`source_label`, `chunk_id`, `page_number`, `table_id`) resolving to ingested session evidence—or, in CLI governance flows, an explicit grounding rationale ($\ge 10$ characters). Legacy `K_waiver` HMAC signing barriers were removed in Phase 1 (`D18`).
 2. **Ungrounded Concept Rejection**:
    A concept touched or added in a delta that satisfies neither Path A nor Path B is rejected with `ONT_EVO_UNGROUNDED_CONCEPT` (HTTP 422, exit code 4). Concepts with zero qualifying reference mappings and zero administrative waivers fail grounding and are strictly rejected.
 3. **Grandfathered Seed Concept Exemption & Mutation Invalidation Rule**:
@@ -423,7 +427,7 @@ To ensure deterministic error responses across both `opendv` and `opendvctl`, er
 | Step | Phase Name | Evaluation Scope | HTTP Status | CLI Exit Code | Canonical Error Examples |
 |---|---|---|---|---|---|
 | 0 | CLI Syntax | Argument parsing, missing required flags, mutually exclusive flags | 400 | **2** | `SYNTAX_INVALID_ARGUMENT`, `MISSING_AUTO_COMMIT_PRECONDITION` |
-| 1 | Authentication | Token presence, validity, loopback header verification | 401 | **7** | `UNAUTHENTICATED`, `TOKEN_EXPIRED` |
+| 1 | Loopback Principal & Origin Guard | Synthesize `StudioPrincipal(subject="human:local_user", role="admin")` on loopback (`D18`); reject cross-site `Host`/`Origin` DNS-rebinding attempts | 403 / 401 | **7** | `CSRF_ORIGIN_DENIED`, `LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE` |
 | 2 | Lexical Preconditions | URI regex formatting, stateless offset ordering ($0 \le \text{start} < \text{end}$) | 400 | **2** | `SYNTAX_INVALID_ARGUMENT` |
 | 3 | RBAC Authorization | Static role clearance (viewer, editor, admin), automated actor restrictions, administrative waiver checks (`--low-confidence-waiver` and `--allow-self-accepted-proposals` require `admin` role; automated actors strictly forbidden from issuing waivers). State-dependent RBAC (e.g. destructive classification requiring admin for `AddAttributeOp(optional=False)` on existing concepts, or proposal author check) is evaluated deterministically after session/proposal resource resolution (Step 7). | 403 | **7** | `FORBIDDEN_ADMIN_REQUIRED`, `AGENT_OPERATION_FORBIDDEN` |
 | 4 | Target Containment | Workspace root containment check evaluated strictly after RBAC | 400 | **2** | `INVALID_WORKSPACE_PATH`, `REMOTE_SERVER_PATH_FORBIDDEN` |
@@ -469,29 +473,20 @@ The Studio operates under zero-trust data protection principles to prevent confi
    $$\mathtt{Concept\_Pseudonym} = \mathtt{HMAC\_SHA256}(\mathtt{session\_secret}, \mathtt{concept\_uri})[:16]$$
 4. **PII & Data Scrubbing**: Prompts emitted to agents are scanned for confidential leakage. Raw tainted spans, unpseudonymized URIs, or unresolved markers trigger `REDACTED_PLACEHOLDER_LEAK` (exit 4), halting execution.
 
-### 8.2 Explicit Server Modes & Authentication Guard
-To eliminate authentication bypass risks behind reverse proxies and cleanly support remote CLI modes, the platform defines an explicit server mode configured at startup:
+### 8.2 Loopback Open-Access & Remote Guard (`D18`, `FR-AUTH-01..04`)
+In Phase 1 (`D18`), all `.local_token`, `#token=<nonce>`, `X-OpenDV-Workbench` CSRF header, and `K_waiver` barriers were removed from loopback execution in favor of zero-auth loopback open access paired with strict server-binding and anti-rebinding guards:
 
-```python
-ServerMode = Literal["local_standalone", "remote_platform"]
-```
-
-1. **`local_standalone` Mode (Default for Local Developers & Workbench)**:
-   - The server binds strictly to loopback interfaces (`127.0.0.1` and `::1`).
-   - Reverse proxy forwarding headers (`X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Host`) are **strictly ignored**.
-   - Host header allowlist is locked to `{"localhost", "127.0.0.1", "[::1]"}`, parsed as `host[:port]` where port must match the configured platform bind port.
-   - `POST /init` issues `.local_token` (permissions `0600`).
-   - `init --force` authorization: For HTTP route `POST /init?force=true`, token rotation requires possession of the existing token (`Authorization: Bearer <local_token>`), preventing unprivileged loopback callers from rotating the token. The OS caller process UID/SID filesystem ownership check applies to the in-process CLI path (`LocalExecutor` in `opendv ontology studio init --force`), where the CLI directly verifies `os.getuid()` / Windows token SID matching `.local_token` owner without network indirection.
-2. **`remote_platform` Mode (Shared Enterprise / Hosted Deployment)**:
-   - Enabled via startup configuration (`server_mode: remote_platform` or `--remote`).
-   - Loopback administrative elevation and `POST /init` are **completely disabled at the routing layer** (`LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE` HTTP 403, exit code 7).
-   - Authentication relies strictly on standard HTTP `Authorization: Bearer <token>` headers or mTLS certificates.
-   - In M2, the interactive Web Workbench SPA (`/ontology`) is supported in `local_standalone` mode via loopback and launch nonce; in `remote_platform` mode, remote interaction is driven via `opendvctl` with Bearer tokens; browser SSO (OIDC/SAML to secure HttpOnly cookie) is scheduled for Milestone M4.
-   - The Host header allowlist is configured dynamically via `OPENDV_ALLOWED_HOSTS`.
-3. **Single-Use Browser Launch Nonce & Authenticated Out-of-Band Minting**:
-   Launch nonces are NEVER minted as an unauthenticated side effect of HTTP GET requests to `/ontology` (unauthenticated GET requests redirect to auth gate without a nonce). Nonces are minted strictly through authenticated channels: (1) CLI `init` (`opendv ontology studio init`), outputting launch URL with fragment (`http://localhost:8000/ontology#token=<nonce>`) to stdout; (2) platform startup in local mode (stdout); or (3) authenticated loopback `POST /auth/launch-nonce` with `Authorization: Bearer <local_token>`. The nonce is a 256-bit token with 60s TTL in server memory. Landing page sets `Referrer-Policy: no-referrer` and exchanges nonce via `POST .../auth/token` for an `HttpOnly`, `SameSite=Strict` session cookie, invalidating the nonce to reject replays.
-4. **CSRF Origin Protection**:
-   State-mutating HTTP requests (`POST`, `PUT`, `DELETE`) authenticated via browser session cookie require the custom header `X-OpenDV-Workbench: 1`. Requests authenticated via HTTP `Authorization: Bearer <token>` headers do not require the CSRF header, maintaining full CLI parity for `opendvctl`.
+1. **Loopback Zero-Auth Open Access (`127.0.0.1` / `::1`, Default)**:
+   - `opendv serve` binds strictly to loopback (`127.0.0.1`, port `8420` by default) and `opendv serve --open` launches the clean URL `http://127.0.0.1:8420/` with zero `#token=` URL fragments.
+   - Loopback requests bypass token authentication and synthesize `StudioPrincipal(subject="human:local_user", role="admin")` / `RbacRole.PRIVILEGED_CUSTODIAN`.
+   - Reverse proxy forwarding headers (`X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Host`) are **strictly ignored** on loopback, and the `Host` / `Origin` allowlist stays locked to loopback hosts (`localhost`, `127.0.0.1`, `[::1]`) matching the bind port to defeat DNS rebinding.
+   - `/api/v1/ontology/studio/init` and `/auth/*` remain benign `200 OK` compatibility shims for legacy scripts; `opendvctl` operates zero-token against loopback `http://127.0.0.1:8420` (tolerating legacy `--token` / `OPENDV_TOKEN` as harmless no-ops).
+2. **Non-Loopback Refusal & `--allow-remote-unauthenticated` (Exit Code `40`)**:
+   - `opendv serve` and `opendv-platform-api` (`apps/opendv-platform-api/src/opendv_platform_api/cli.py`, `opendv_service/settings.py`) **refuse** any non-loopback `--host` (`0.0.0.0`, `::`, LAN IPs) with **exit code `40`** unless `--allow-remote-unauthenticated` is explicitly passed.
+   - When `--allow-remote-unauthenticated` is active, startup emits a loud CLI warning and the Web Workbench displays a persistent coral warning banner (`RemoteUnauthenticatedBanner`).
+3. **Fail-Closed Agent & Concurrency Gates (`FR-AGT-01`, `D21`, `D27`)**:
+   - `POST .../construct` and `POST /api/v1/pipelines/runs` default to `mode="agent"` + `stage_output_policy="strict"`, failing closed with HTTP `422 AGENT_NOT_CONFIGURED` if no configured real LLM provider is ready (`<AgentHarnessConfigCard />` inline setup in Step 4a and `Settings`).
+   - One active job per session (`409 SESSION_JOB_ACTIVE`, CLI exit `20`, `D27`); `HarnessBudget` exhaustion (`TOKEN_BUDGET_EXCEEDED`, `COST_BUDGET_EXCEEDED`, timeout) pauses cleanly in a fail-closed `BudgetHold` (`D21`).
 
 ### 8.3 Workspace Containment & Path Traversal Guards
 1. **Workspace Boundary Enforcement**:
@@ -507,4 +502,4 @@ All state transitions, grounding decisions, user answers, and administrative wai
 - **Lock-Protected Appends**: Appends to `audit.jsonl` are serialized exclusively under `.session.lock` (L5), preventing concurrent forks of the hash chain.
 - Each record captures `timestamp`, `session_id`, `actor`, `action`, `target_version`, `head_sha256`, `details`, and `prev_audit_sha256`.
 - **Audit Anchoring**: Each audit entry hashes preceding record bytes, forming a tamper-evident hash chain. The latest audit chain head SHA-256 is anchored directly in each committed version's `meta.json` (`audit_chain_head_sha256`), preventing retroactive ledger rewriting.
-- **Retention & Checkpoint Chains**: In accordance with the 90-day retention policy, log rotation archives older entries into signed/hashed checkpoint records (`audit.checkpoint.<ts>.json`). Checkpoints cover and record historical commit anchors (and their Merkle root). The active ledger begins from `checkpoint_root_sha256`, allowing bundle import and forensic auditing to verify the cryptographic chain from genesis forward through all checkpoints to the active ledger.
+- **Session-Lifetime Log Retention & Bundle Portability (`D24`, `FR-LOG-07`)**: Full PII-masked prompts (`<MASKED_PII>`, `0` `do_not_send_to_agent` leaks) and full LLM responses per turn are retained in `session_logs_service.py` / `sse_journal.py` for the entire lifetime of the session (deleted when the session is deleted), rotating segments at `50 MB` into `.jsonl.gz` archives and exporting/restoring cleanly inside `.odvstudio.zip` bundles (and via `GET .../logs/export` `.jsonl` download). Historical audit entries continue using signed/hashed checkpoint records (`audit.checkpoint.<ts>.json`) anchored via `checkpoint_root_sha256` for end-to-end cryptographic verification.

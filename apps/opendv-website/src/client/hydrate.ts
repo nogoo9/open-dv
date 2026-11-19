@@ -48,6 +48,7 @@ function activateTab(list: El, sel: El, focus: boolean) {
 		if (dia && sid && on) dia.dataset.activeScenario = sid;
 		if (sp) sp.hidden = !on;
 	}
+	sel.scrollIntoView({ block: "nearest", inline: "nearest" });
 	if (focus) sel.focus();
 }
 

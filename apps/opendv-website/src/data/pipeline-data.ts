@@ -41,7 +41,7 @@ export const PIPELINE_STAGES: readonly PipelineStage[] = [
 		actor: "@vault-first-mate",
 		temp: "T=0.1",
 		summary:
-			"Validates inputs, infers execution mode, and grounds sources against Graph A.",
+			"Validates inputs, binds deployed_contract (D12), and grounds sources against Graph A.",
 	},
 	{
 		id: "STAGE_01",
@@ -72,7 +72,7 @@ export const PIPELINE_STAGES: readonly PipelineStage[] = [
 	},
 	{
 		id: "STAGE_04",
-		code: "STAGE_04_SHIP_VAULT_PASS2_3",
+		code: "STAGE_04_SHIP_VAULT_PASS2",
 		phase: "Modelling",
 		actor: "@ship-vault",
 		temp: "T=0.1",
@@ -90,12 +90,12 @@ export const PIPELINE_STAGES: readonly PipelineStage[] = [
 	},
 	{
 		id: "STAGE_06",
-		code: "STAGE_06_DUCKDB_DYNAMIC_SANDBOX",
+		code: "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
 		phase: "Verification",
 		actor: "DuckDB Sandbox",
 		temp: "Deterministic",
 		summary:
-			"Gate G5 tests 4 adversarial batches + Query D.10 PIT audit in :memory: DuckDB.",
+			"Gate G5 tests 4 adversarial batches + Query D.10b PIT audit in :memory: DuckDB.",
 	},
 	{
 		id: "STAGE_07",
@@ -104,7 +104,7 @@ export const PIPELINE_STAGES: readonly PipelineStage[] = [
 		actor: "Compiler",
 		temp: "Deterministic",
 		summary:
-			"Seals Canonical IR, VaultBlueprint, and multi-dialect 4-Zone SQL bundles.",
+			"Seals Canonical IR, VaultBlueprint, and multi-dialect 5-Zone (Z0–Z4) + information_mart SQL.",
 	},
 ];
 
@@ -154,11 +154,10 @@ export const AXI_GATES: readonly AxiGate[] = [
 	{
 		id: "G5",
 		name: "4-Batch DuckDB Sandbox",
-		rules: "DV-DYN-001..015 · Query D.10",
+		rules: "DV-DYN-001..015 · Query D.10b",
 		check:
 			"Executes Ghost Record INNER JOIN, Replay delta_rows=0, Boundary-Shift ('AB','C'!='A','BC'), and BKCC isolation.",
-		repair:
-			"Halts release and surfaces failing SQL + batch trace on violation.",
+		repair: "Halts release or triggers inline Steward Hold on violation.",
 	},
 ];
 

@@ -5,7 +5,7 @@
 
 import type React from "react";
 import { CLAUDE_TOKENS, EXPLORER_FONTS } from "../../explorer/design-tokens";
-import { safeUseState } from "../../explorer/modals/safeHooks";
+import { safeUseEffect, safeUseState } from "../../explorer/modals/safeHooks";
 import { GraphCanvas } from "../components/GraphCanvas";
 import { VisualEditorDrawer } from "../components/VisualEditorDrawer";
 import type { WizardDiffSummary } from "./wizard-types";
@@ -51,8 +51,19 @@ export const Step5DiffGraphExport: React.FC<Step5DiffGraphExportProps> = ({
 		"yaml",
 	);
 	const [commitRationale, setCommitRationale] = safeUseState("");
-	const effectiveWidth =
-		viewportWidth ?? (typeof window !== "undefined" ? window.innerWidth : 1280);
+	const [measuredWidth, setMeasuredWidth] = safeUseState<number>(
+		typeof window !== "undefined" ? window.innerWidth : 1280,
+	);
+	safeUseEffect(() => {
+		if (viewportWidth !== undefined || typeof window === "undefined") {
+			return;
+		}
+		setMeasuredWidth(window.innerWidth);
+		const onResize = () => setMeasuredWidth(window.innerWidth);
+		window.addEventListener("resize", onResize);
+		return () => window.removeEventListener("resize", onResize);
+	}, [viewportWidth]);
+	const effectiveWidth = viewportWidth ?? measuredWidth;
 	const isMobileReadOnly = effectiveWidth < 768;
 
 	return (

@@ -132,6 +132,8 @@ export const Step1ScopeAndBaseline: React.FC<Step1ScopeAndBaselineProps> = ({
 							display: "flex",
 							justifyContent: "space-between",
 							alignItems: "center",
+							flexWrap: "wrap",
+							gap: "8px",
 						}}
 					>
 						<h2 className="claude-h2" style={{ margin: 0 }}>
@@ -295,6 +297,8 @@ export const Step1ScopeAndBaseline: React.FC<Step1ScopeAndBaselineProps> = ({
 							display: "flex",
 							justifyContent: "space-between",
 							alignItems: "center",
+							flexWrap: "wrap",
+							gap: "8px",
 						}}
 					>
 						<h2 className="claude-h2" style={{ margin: 0 }}>
@@ -432,7 +436,8 @@ export const Step1ScopeAndBaseline: React.FC<Step1ScopeAndBaselineProps> = ({
 						display: "flex",
 						justifyContent: "space-between",
 						alignItems: "center",
-						gap: "16px",
+						flexWrap: "wrap",
+						gap: "8px",
 					}}
 				>
 					<div>

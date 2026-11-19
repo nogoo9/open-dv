@@ -128,13 +128,6 @@ export function partitionPipelineSources(
 	return { sources: feeds, unstructured_documents: docs };
 }
 
-export function buildPipelineSourceFeeds(
-	sources: SourceDocument[],
-	overrideUris?: string[],
-): SourceFeedDTO[] {
-	return partitionPipelineSources(sources, [], overrideUris).sources;
-}
-
 function mapZoneBundle(raw: unknown): Record<string, string> {
 	if (!raw || typeof raw !== "object") return {};
 	const obj = raw as Record<string, unknown>;

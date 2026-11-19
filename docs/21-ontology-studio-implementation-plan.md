@@ -1,9 +1,17 @@
 # 21 — Implementation Plan: Open-DV Ontology Construction Studio (Wave 1, Wave 2, Wave 3)
 
 > **Module:** `docs/21-ontology-studio-implementation-plan.md` · **Revision:** v1.1 (2026-11-09)  
-> **Status:** Execution Ready across Wave 1 (Phase 4), Wave 2 (Phase 5), and Wave 3 (Phase 6).  
-> **Governing docs:** [`docs/00`](00-mission-vision-and-functional-requirements.md) (mission & FRs) · [`docs/18`](18-implementation-plan-platform-parity-and-architecture.md) (platform parity blueprint) · [`docs/19`](19-ontology-studio-architecture.md) (architecture) · [`docs/20`](20-ontology-studio-spec.md) (functional spec) · [`master-plan.md`](design/ontology-studio/master-plan.md) · [`ADR-001..016`](design/ontology-studio/)  
-> **How to use this document:** Future agents and engineers pick up a **task issue** (`Task <Track>.<N>`), verify listed predecessors in §1, implement changes within the designated track boundaries, and deliver PRs passing full monorepo CI and the scoped Claude CLI Opus 5.5 critique loop (§1.1). Requirements, architecture decisions (`ADR-001..016`), binding contracts, error codes, and test commands are referenced normatively.
+> **Status:** **Historical Archive (M0–M6 Baseline — Superseded by `docs/27` & `docs/28`)**  
+> **Active Specifications:** [`DESIGN.md`](../DESIGN.md) · [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](27-unified-ontology-pipeline-requirements-and-uat.md) · [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md)  
+
+> [!IMPORTANT]
+> **Historical Archive & Superseded Status Banner:** This document records the completed Milestone M0–M6 implementation plan for the initial Ontology Studio delivery (`dev/ontology-studio`, Issues #193–#239). It is retained strictly for historical traceability and **must NOT be used as the active architecture or UI guide**. The active Phase 0–6 specification and execution plan live in [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](27-unified-ontology-pipeline-requirements-and-uat.md) and [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md), which supersede this plan across three areas:
+> - **Loopback Zero-Auth (`D18`):** `.local_token`, `#token=` launch-nonce exchange, `X-OpenDV-Workbench` CSRF enforcement, and `K_waiver` HMAC barriers were removed in Phase 1 (`opendv serve` uses loopback open access and refuses non-loopback `--host` without `--allow-remote-unauthenticated` with exit `40`).
+> - **Legacy Screen Retirement & 5-Zone Standard (`D19`):** Legacy `/ontology` (`OntologyStudioApp.tsx`, `BlueprintView.tsx`, `ProposalDetailsView.tsx`, `SourcesPanel.tsx`, `ClarificationPanel.tsx`, `DiffOverlay.tsx`) and standalone `/builder` (`PipelineBuilderView.tsx`, `WizardShell.tsx`) were deleted in Phase 4 and unified into the Claude `DESIGN.md` 4-tab Web Workbench (`Ontology & Pipeline` 6-Step Wizard, 4-View `DV Schema Explorer` at `/dv-schema` standardizing on `5-Zone Z0–Z4` + `information_mart`, `Run Explorer`, and `Settings`) with live `SessionLogsInspector`.
+> - **`< 5,000`-Token Decomposition (`D16`):** Monolithic `routers/ontology_studio.py`, `commands/ontology_studio.py`, `ontology/validator.py`, `studio/atomic_commit.py`, and `studio-store.ts` were decomposed into `< 5,000`-token domain modules/slices across Phases 1–4.
+
+> **Governing docs (Historical M0–M6):** [`docs/00`](00-mission-vision-and-functional-requirements.md) (mission & FRs) · [`docs/18`](18-implementation-plan-platform-parity-and-architecture.md) (platform parity blueprint) · [`docs/19`](19-ontology-studio-architecture.md) (architecture) · [`docs/20`](20-ontology-studio-spec.md) (functional spec) · [`master-plan.md`](design/ontology-studio/master-plan.md) · [`ADR-001..016`](design/ontology-studio/)  
+> **How to use this archive:** Reference the Phase 0–6 Unified Wizard plan in [`docs/28`](28-unified-ontology-pipeline-design-and-plan.md) for current module paths and tasks; retain the §0–§11 tables below as the historical M0–M6 record.
 
 ---
 

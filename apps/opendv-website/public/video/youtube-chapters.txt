@@ -1,7 +1,7 @@
-Open-DV v6.0 — Neuro-Symbolic Data Vault 2.0 Architecture Walkthrough (2:45)
+Open-DV — Neuro-Symbolic Data Vault 2.0 & Unified 6-Step Wizard Walkthrough (2:45)
 
 Turn messy enterprise data into verified Data Vault 2.0 — before a single SQL line runs.
-Open-DV pairs multi-agent semantic discovery (@vault-first-mate, @scout-source, @scout-unstructured, @ship-vault) with a deterministic 6-gate formal verifier (axi-dv, Gates G0-G5) and in-memory DuckDB 4-Zone shadow sandbox.
+Open-DV pairs Agent-first discovery in the 4-Tab Workbench with a deterministic 6-gate formal verifier (axi-dv, Gates G0-G5), in-memory DuckDB shadow sandbox, and 5-Zone (Z0-Z4) compiler (bronze, staging, raw_vault, business_vault, information_mart).
 
 Quick Start (Apache-2.0):
   git clone https://github.com/nogoo9/open-dv.git
@@ -9,26 +9,28 @@ Quick Start (Apache-2.0):
   uv sync --all-packages && bun install
   uv run opendv serve --open
 
-Web UI (Ontology Studio, 4-Step Pipeline Builder & 3-Level Explorer):
-  http://127.0.0.1:8420
+Web Workbench (Ontology & Pipeline | DV Schema Explorer | Run Explorer | Settings):
+  http://127.0.0.1:8420  (loopback zero-auth open access; --allow-remote-unauthenticated required for non-loopback)
 
-Headless CI Verification (Dual CLIs):
+Headless CI Verification & New Subcommands (Dual CLIs):
   uv run opendv verify -c final_contract.yaml --json
-  opendvctl pipeline run --api-url "$OPENDV_API_URL" -i pipeline_input.yaml --json
+  uv run opendv run dv-schema --run-id run_09f4c2 --sql "SELECT * FROM information_mart.vw_position_current LIMIT 20"
+  opendvctl ontology studio logs --session <id> --follow
 
 Chapters:
 0:00 Why LLM SQL Fails
-0:28 Ontology Studio & FIBO
-1:02 Run 1: SQLite Greenfield
-1:38 6-Gate axi-dv & Sandbox
-2:05 Run 2: Databricks UC + Drift
-2:32 Multi-Dialect SQL & CLIs
+0:28 Loopback Access & Steps 1-3
+1:02 Agent Gate, Cost Meter & Diff Graph
+1:38 Step 6 Console & 6-Gate axi-dv
+2:05 DV Schema Explorer & Session Logs
+2:32 5-Zone SQL & Dual-CLI Parity
 
 Resources & Specifications:
 - GitHub Repository: https://github.com/nogoo9/open-dv
+- Unified Wizard Requirements & UAT (docs/27): https://github.com/nogoo9/open-dv/blob/main/docs/27-unified-ontology-pipeline-requirements-and-uat.md
+- Unified Wizard Design & Plan (docs/28): https://github.com/nogoo9/open-dv/blob/main/docs/28-unified-ontology-pipeline-design-and-plan.md
 - Core Modelling Spec (3-Tier BKCC, PII Isolation): https://github.com/nogoo9/open-dv/blob/main/docs/01-core-modelling-spec.md
 - Schema Stability & Evolution (Alg A.7, A.9a Drift): https://github.com/nogoo9/open-dv/blob/main/docs/02-schema-stability-and-evolution.md
 - Verification & Agentic Architecture (6-Gate axi-dv, DuckDB Sandbox): https://github.com/nogoo9/open-dv/blob/main/docs/03-verification-and-agentic-architecture.md
 - ELM Calculus & Reference Algorithms (Alg A.1-A.9b, SHA-256): https://github.com/nogoo9/open-dv/blob/main/docs/05-elm-calculus-and-reference-algorithms.md
-- Dual-CLI Reference (opendv & opendvctl): https://github.com/nogoo9/open-dv/blob/main/docs/16-cli-reference.md
-- Ontology Construction Studio & FIBO Grounding: https://github.com/nogoo9/open-dv/blob/main/docs/20-ontology-studio-spec.md
+- Dual-CLI Reference (opendv & opendvctl): https://github.com/nogoo9/open-dv/blob/main/docs/16-human-and-agent-usage-guide.md

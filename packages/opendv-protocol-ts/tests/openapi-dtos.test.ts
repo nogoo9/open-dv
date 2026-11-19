@@ -110,7 +110,9 @@ describe("OpenAPI 3.1 & TypeScript SDK Synchronization (Task P10.1 / Issue #121)
 		};
 
 		expect(requestWithHoldOption.action).toBe("APPROVE");
-		expect(requestWithHoldOption.hold_option?.kind).toBe("accept_ontology_delta");
+		expect(requestWithHoldOption.hold_option?.kind).toBe(
+			"accept_ontology_delta",
+		);
 	});
 
 	it("validates typed CaptainHoldDecisionResponse structure", () => {

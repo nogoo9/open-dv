@@ -1,8 +1,8 @@
 # 22 — Open-DV Ontology Construction Studio: Comprehensive End-User Guide
 
-**Document Status:** Normative User & Operational Guide  
-**Milestone:** Phase 6 Wave 3 Integration & Release (Task 6C.1 / Issue #233)  
-**Governing Documents:** `docs/19-ontology-studio-architecture.md`, `docs/20-ontology-studio-spec.md`, `docs/21-ontology-studio-implementation-plan.md`  
+**Document Status:** Normative User & Operational Guide (Updated for Phases 1–4 Unified Workbench)  
+**Design System & Active Specs:** [`DESIGN.md`](../DESIGN.md), [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](27-unified-ontology-pipeline-requirements-and-uat.md), [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md)  
+**Governing Documents:** [`docs/19-ontology-studio-architecture.md`](19-ontology-studio-architecture.md), [`docs/20-ontology-studio-spec.md`](20-ontology-studio-spec.md)  
 **Interface Dialects:** CLI Specification v1 (`schemas/v1/cli-spec.json`), OpenAPI 3.1.0 (`schemas/v1/openapi.json`), RFC 8785 JCS, RFC 9457 Problem Details  
 
 ---
@@ -15,47 +15,45 @@ Whether deployed as an embedded local developer tool or a multi-tenant platform 
 
 ```
 +----------------------------------------------------------------------------------------------------+
-|                                 Open-DV Ontology Construction Studio                               |
+|                      Open-DV Unified Ontology & Data Vault 2.0 Studio (DESIGN.md)                  |
 +----------------------------------------------------------------------------------------------------+
 |                                                                                                    |
-|  [ Sources & Evidence ]                                      [ Dual-Mode Engine ]                  |
-|  - PDF / MD / CSV / XSD       CAS Storage                    - Agent-First (3 Personas)            |
-|  - LiteParse layout engine    .opendv/ontology_studio/       - Deterministic Fallback (< 2.5s)     |
-|  - Character offset tracking   └── <session_id>/             - Curated FIBO Core Alignment         |
+|  [ Sources, Connectors & Notes ]                             [ Dual-Mode Engine (Agent UI / CLI) ] |
+|  - SQLite / DuckDB / UC / CSV   CAS Storage                  - Web UI: Agent-Only (422 if unset)   |
+|  - PDF / DOCX / MD / Notes      .opendv/ontology_studio/     - StudioAgentRunner (3 Personas)      |
+|  - LiteParse + OCR (auto/force) └── <session_id>/            - CLI CI: --mode deterministic (<2.5s)|
 |                                                                                                    |
 |                                       │                                      │                     |
 |                                       ▼                                      ▼                     |
-|  [ Clarification & Feedback ] ─────────────────────────────► [ Interactive Web Workbench ]         |
-|  - Ambiguity Q&A cards                                       - Route: /ontology                    |
-|  - Business rationale                                        - React Flow + elkjs (<300ms SLA)     |
-|  - CAS immutable responses                                   - 3-tier Level-of-Detail (LOD)        |
-|                                                              - Color-coded Diff Overlay            |
+|  [ Clarification & Ask FIBO ] ─────────────────────────────► [ 4-Tab Web Workbench (:8420) ]       |
+|  - Single-pass Q&A cascade                                   - Ontology & Pipeline (6-Step Wizard) |
+|  - Ask FIBO & Citation Drawer                                - DV Schema Explorer (/dv-schema)     |
+|  - Empirical Path B Citations                                - Run Explorer & Settings             |
 |                                                                                                    |
 |                                       │                                      │                     |
 |                                       ▼                                      ▼                     |
-|  [ Additive Evolution ] ───────────────────────────────────► [ Multi-Format Export & Promotion ]   |
-|  - 24-Op Delta Calculus                                      - YAML, JCS JSON, Turtle, JSON-LD, NT |
-|  - ONT-EVO Governance                                        - Atomic Workspace Promotion          |
-|  - Concurrency Control (OCC)                                 - Two-Phase Lock (L4/L5)              |
+|  [ Additive Evolution & Locks ] ───────────────────────────► [ 5-Zone (Z0–Z4) Vault & Logs ]       |
+|  - 24-Op Delta Calculus                                      - 7-Pill Console (00..06 -> STAGE_00..07)|
+|  - ONT-EVO Governance + OCC                                  - Safe Read-Only SQL & DuckDB Rows    |
+|  - 409 Single-Job Session Lock                               - Live EventSource SessionLogsInspector|
 +----------------------------------------------------------------------------------------------------+
 ```
 
 ### 1.1 Dual-Mode Engine
 
-The Studio features a dual-mode construction architecture that gracefully balances generative AI reasoning with zero-credential deterministic guarantees:
+The Studio features a **Dual-Mode Engine** separating the interactive **Agent-only UI (`D28`)** from headless CLI CI regression runs:
 
-1. **Agent-First Mode (3-Persona LLM via `StudioAgentRunner`)**:
-   - Orchestrates three specialized cognitive personas wired via the `StudioAgentRunner` runtime (`packages/opendv-service/src/opendv_service/studio/agent_runner.py`) using the platform harness adapter (`AgyCliHarnessAdapter`, default `agy`):
-     - `@term-scout`: Fast extraction of candidate business concepts, attributes, and domain terminology from parsed evidence chunks.
-     - `@domain-clarifier`: Detects ambiguous conceptual alignments against the normative Polysemy Catalog (`packages/opendv-contracts/src/opendv_contracts/catalogs/polysemy.py`) and synthesizes targeted clarification questions. The catalog disambiguates 18 financial terms across multiple industry meanings, including 8 core Asset Management terms (`portfolio`, `security`, `order`, `trade`, `fund`, `benchmark`, `mandate`, `instrument`) alongside cross-domain terms (`account`, `position`, `facility`, `party`, `yield`, `settlement`, `coupon`, `spread`, `collateral`, `nav`).
-     - `@ontology-architect`: Reasoning-intensive synthesis of Canonical Business Concepts (CBCs), Links, Satellites, and formal OWL 2 axioms, guided by natural-language steering prompts.
-   - Operates with strict data isolation: PII and sensitive fields are masked using keyed HMAC-SHA256 pseudonymization (`K_pseudo`).
+1. **Agent-First Mode (3-Persona LLM via `StudioAgentRunner` — Default & UI-Exclusive)**:
+   - In the Web Workbench, construction is strictly Agent-only (`D28`): there is no deterministic mode toggle in the Wizard or `Settings`. If no real LLM provider is configured, construction **fails closed with HTTP `422 AGENT_NOT_CONFIGURED`** (`<AgentHarnessConfigCard />` inline setup in Step 4a).
+   - Orchestrates three specialized cognitive personas in a coordinated single pass (`D1`) via `StudioAgentRunner` (`packages/opendv-service/src/opendv_service/studio/agent_runner.py`) and `VaultAgentHarness.run_task`:
+     - `@term-scout`: Extracts domain entities, typed attributes, and semantic rules (`1x · Semantic` with zero mention-count floor `D4`) from parsed chunks (`<= 5` PII-masked sample rows per column, excluding `do_not_send_to_agent` sources).
+     - `@domain-clarifier`: Evaluates ambiguities against the normative Polysemy Catalog (`packages/opendv-contracts/src/opendv_contracts/catalogs/polysemy.py`, covering 18 financial terms across multiple meanings) and emits `Q1..Qn` whose answers cascade live across dependent proposals.
+     - `@ontology-architect`: Synthesizes Canonical Business Concepts (CBCs) — including Beyond-FIBO domain concepts with optional `skos:broadMatch` (`D3`) — Links, Satellites, and `OntologyDelta` proposals (`MAJOR` breaking changes isolated in an unchecked `MAJOR · Opt-In` bucket `D7`).
+   - Enforces `HarnessBudget` token/USD limits with live cost meter telemetry and fail-closed `BudgetHold` (`D21`).
 
-2. **Deterministic Fallback Mode (Zero-Credential CI)**:
-   - Runs in fully air-gapped environments without external LLM API keys or network dependencies.
-   - Utilizes Okapi BM25 candidate retrieval (`bm25_fibo_v1`) against bundled FIBO reference packs (`fibo-core-pack.json`) paired with strict Path A `ONT-EVO-002` verification (`skos:exactMatch` or `skos:closeMatch` with confidence $\ge 0.6500$; `skos:broadMatch` closure excluded).
-   - Guarantees complete execution in $< 2.5$ seconds with deterministic, byte-for-byte reproducible outputs.
-   - Candidates lacking a verified Path A FIBO `skos:exactMatch` / `skos:closeMatch` mapping at confidence $\ge 0.6500$ (and touched grandfathered concepts whose exemption was revoked by mutation) are automatically routed to `evidence/staged_candidates.json`, preventing ungrounded pollution.
+2. **Deterministic Fallback Mode (CLI/API-Only Zero-Credential CI)**:
+   - Available exclusively via explicit CLI/API `--mode deterministic` (`FR-CLI-07`, `D28`; tagged `mode=deterministic` in logs and rejected as UAT evidence) for air-gapped CI regression suites.
+   - Executes Okapi BM25 candidate retrieval (`bm25_fibo_v1`) against bundled FIBO reference packs paired with Path A `ONT-EVO-002` verification ($\ge 0.6500$) in $< 2.5$ seconds, placing ungrounded candidates in `evidence/staged_candidates.json` (`staged` / held-back area).
 
 ### 1.2 Content-Addressable Storage (CAS) Lifecycle
 
@@ -87,8 +85,8 @@ Every Studio session resides in an isolated directory structure under `.opendv/o
 
 Ontology versioning is governed by the closed 24-operation delta calculus and the three normative `ONT-EVO` invariants (`docs/20-ontology-studio-spec.md` §7.3):
 - **ONT-EVO-001 (Immutability & Additive Delta Evolution / Deployed Table Guard)**: Committed ontology snapshots (`versions/vX.Y.Z/`) and their canonical RFC 8785 JCS SHA-256 digests are cryptographically immutable. Standard modeling evolves strictly via additive `OntologyDelta` operations (`MINOR`/`PATCH` SemVer bumps); destructive structural revisions (`remove_concept`, `remove_relationship`, `remove_attribute`, `update_concept_urn`, or overwriting an existing `elm_archetype` / `parent_concept_uri`) require `admin` privileges, trigger a `MAJOR` SemVer bump, and are unconditionally blocked (`ONT_EVO_CONTRACT_VIOLATION`, exit code `4`) whenever targeting deployed Data Vault physical tables.
-- **ONT-EVO-002 (Path A FIBO Grounding & Waiver Integrity)**: Every newly added or mutated concept must either (a) carry at least one server-verified `FIBO` external mapping with predicate `skos:exactMatch` or `skos:closeMatch` (`skos:broadMatch` closure is strictly excluded) and numeric confidence $\ge 0.6500$, or (b) be covered by an explicit per-concept administrative waiver (`OPENDV_WAIVER_KEY`) with a $\ge 10$-character business rationale. Workspace-seeded concepts recorded in `grandfathered_concept_uris` are exempt while untouched, and immediately lose their grandfather exemption if touched by any of the 17 existing-concept-mutating operations (`18` total in `CONCEPT_MUTATING_OP_TYPES`, comprising `add_concept` plus `17` existing-concept-mutating ops including `update_relationship_endpoint`).
-- **ONT-EVO-003 (Optimistic Concurrency Control, 24-Op Rebase & Lock Hierarchy)**: Every state-mutating request enforces cryptographic OCC preconditions (`If-Match` / `base_sha256`), supports deterministic proposal rebasing across the 24-operation conflict matrix, and acquires filesystem locks strictly in canonical order (`L1 .local_token.lock -> L2 .job_<id>.lock -> L3 .journal_<id>.lock -> L4 graph_a.lock -> L5 .session.lock`).
+- **ONT-EVO-002 (Dual Path A/B Grounding, `FR-AGT-07`, `D3`, `D4`)**: Every newly added or mutated concept must either (a) satisfy **Path A** via a server-verified `FIBO` external mapping with predicate `skos:exactMatch` or `skos:closeMatch` (`skos:broadMatch` is optional and excluded from Path A) and numeric confidence $\ge 0.6500$, or (b) satisfy **Path B** via empirical `EvidenceRef` citations (`grounding_origin="STRUCTURED_SCHEMA"` or `"DOCUMENT_OBSERVED"` with verifiable `source_label`/`chunk_id`/`table_id`, including zero-floor `1x · Semantic` rules) or an explicit CLI `--grounding-rationale` ($\ge 10$ characters; legacy HMAC waiver keys were retired in Phase 1 `D18`). Workspace-seeded concepts in `grandfathered_concept_uris` are exempt while untouched, and lose their exemption if mutated by `CONCEPT_MUTATING_OP_TYPES`.
+- **ONT-EVO-003 (Optimistic Concurrency Control, 24-Op Rebase & Lock Hierarchy)**: Every state-mutating request enforces cryptographic OCC preconditions (`If-Match` / `base_sha256`), enforces one active job per session (`409 SESSION_JOB_ACTIVE`, `D27`), supports deterministic proposal rebasing across the 24-operation conflict matrix, and acquires filesystem locks strictly in canonical order (`L2 .job_<id>.lock -> L3 .journal_<id>.lock -> L4 graph_a.lock -> L5 .session.lock`).
 
 ### 1.4 Asset Management Core Spine & Vertical Packs
 
@@ -157,44 +155,43 @@ In standard Data Vault 2.0 pipelines, specifications lacking relational source t
 
 ## 2. Getting Started
 
-### 2.1 Deployment Modes
+### 2.1 Loopback Open Access & Remote Guard (`D18`, `FR-AUTH-01..04`)
 
-The Studio operates in two primary modes configured via `OPENDV_SERVER_MODE`:
+Open-DV operates with **loopback-only zero-auth open access** by default and guards non-loopback network bindings fail-closed:
 
-| Mode (`OPENDV_SERVER_MODE`) | Target User | Authentication | Network Binding | Storage |
-|---|---|---|---|---|
-| **Local Standalone** (`local_standalone`) | Individual modeler / data architect | `OPENDV_TOKEN` or auto-generated `.local_token` (DACL 0600) | Loopback only (`127.0.0.1`) | Local filesystem |
-| **Remote Platform** (`remote_platform`) | Enterprise teams / centralized CI/CD | RS256 JWT / Bearer Token (`OPENDV_TOKEN`) / mTLS | External interface (`0.0.0.0`) | Managed server volume |
+| Binding Mode | Command | Authentication & Guards | Network Binding |
+|---|---|---|---|
+| **Loopback Open Access (Default)** | `opendv serve --port 8420 --open` | Zero login tokens, cookies, or CSRF headers on loopback (`human:local_user` / `admin`); `Host`/`Origin` anti-rebinding checks remain active | `127.0.0.1:8420` |
+| **Non-Loopback Refusal (Guard)** | `opendv serve --host 0.0.0.0` | **Refused with exit code `40`** unless `--allow-remote-unauthenticated` is explicitly supplied (`D18`) | Blocked at startup |
+| **Explicit Unauthenticated Remote** | `opendv serve --host 0.0.0.0 --allow-remote-unauthenticated` | Emits loud startup warning + persistent coral `RemoteUnauthenticatedBanner` in the Web Workbench | Explicit `--host` |
 
 ### 2.2 Launching the Web Workbench
 
-To launch the integrated local Web Workbench:
+To launch the integrated local 4-tab Web Workbench (`DESIGN.md` shell):
 
 ```bash
-# Start local Open-DV API and Web Workbench server
-opendv serve --port 8420
+# Start local Open-DV API and open clean Web Workbench URL (no token fragments)
+opendv serve --host 127.0.0.1 --port 8420 --open
 ```
 
-Once running, open your modern browser (Chrome, Edge, Firefox, Safari) and navigate to:
-```
-http://127.0.0.1:8420/ontology
+Once running, navigate to any unified route (desktop-first at `1440×920` / `1024×768`; stacked view-only mode below `768px` `D26`):
+```text
+http://127.0.0.1:8420/            (Ontology & Pipeline — 6-Step Unified Wizard; /ontology & /builder alias here)
+http://127.0.0.1:8420/dv-schema   (DV Schema Explorer — 4-View Bipartite Graph, Triage, Safe SQL & 5-Zone Z0–Z4)
+http://127.0.0.1:8420/explorer    (Run Explorer — Stage 00..07 execution artifacts)
+http://127.0.0.1:8420/settings    (Settings — Shared <AgentHarnessConfigCard /> & budgets)
 ```
 
-### 2.3 Dual CLI Configuration
+### 2.3 Dual CLI Configuration (`opendv` & `opendvctl`)
 
-Open-DV provides operational parity between the standalone Python CLI (`opendv`) and the Bun-compiled remote platform client (`opendvctl`):
+Open-DV provides operational parity between the standalone Python CLI (`opendv`) and the Bun-compiled remote platform client (`opendvctl`), operating zero-token against loopback `http://127.0.0.1:8420`:
 
 ```bash
 # In-process Python CLI execution
 opendv ontology studio list
 
-# Loopback client execution (resolves OPENDV_STUDIO_TOKEN -> OPENDV_TOKEN -> .local_token)
-export OPENDV_TOKEN="<your-loopback-or-platform-token>"
+# Loopback remote client execution (zero-token open access)
 opendvctl ontology studio list --api-url http://127.0.0.1:8420
-
-# Remote platform execution (non-loopback URLs ONLY read OPENDV_TOKEN to prevent leaking local tokens)
-export OPENDV_TOKEN="<your-platform-jwt-or-bearer-token>"
-opendvctl ontology studio list --api-url https://studio.enterprise.example
 
 # Inspect available Asset Management starter packs via opendv
 opendv ontology studio starter-pack list --session am-walkthrough
@@ -467,52 +464,49 @@ opendv ontology studio construct \
 
 ---
 
-### 3.4 Journey 4: Human-in-the-Loop Clarification & Administrative Waivers
+### 3.4 Journey 4: Human-in-the-Loop Clarification & Path B Empirical Grounding
 
-When a domain concept cannot satisfy `ONT-EVO-002` Path A FIBO grounding (`skos:exactMatch` or `skos:closeMatch` with confidence $\ge 0.6500$; `skos:broadMatch` is excluded—for example, proprietary internal instruments), an Enterprise Architect can sign a per-concept administrative grounding waiver using `OPENDV_WAIVER_KEY`:
+When a domain concept cannot satisfy `ONT-EVO-002` Path A FIBO grounding (`skos:exactMatch` or `skos:closeMatch` with confidence $\ge 0.6500$; `skos:broadMatch` is optional and excluded from Path A—for example, proprietary internal instruments or non-financial domain schemas `D3`), the Studio supports **Path B Empirical Citation Grounding (`FR-AGT-07`)** backed by verifiable `EvidenceRef` citations (`source_label`, `chunk_id`, `page_number`, `table_id`), or an explicit CLI governance rationale (`>= 10` characters; legacy HMAC waiver keys were retired in Phase 1 `D18`):
 
 ```bash
-export OPENDV_WAIVER_KEY="<admin-waiver-secret>"
 HEAD_SHA=$(opendv ontology studio status --session wealth-sec-2024 --json | jq -r .head_sha256)
 opendv ontology studio proposal accept \
   --session wealth-sec-2024 \
   --proposal-id prop-9902 \
   --base-sha256 "$HEAD_SHA" \
-  --low-confidence-waiver \
-  --grounding-rationale "Proprietary bespoke investment vehicle authorized under Board Resolution 2026-B" \
-  --ungrounded-concept "urn:ontology:entity:bespoke_mezzanine_fund"
+  --evidence-grounding-file evidence_refs.json \
+  --grounding-rationale "Proprietary bespoke investment vehicle grounded in Board Resolution 2026-B"
 ```
 
-Administrative waivers require:
-1. `low_confidence_waiver=True`
-2. `grounding_rationale` of at least 10 characters detailing the governance reason.
-3. Explicit per-concept list of `ungrounded-concept` URIs covered by the waiver (subsequent mutations to any waived or grandfathered concept revoke its exemption).
-4. Authenticated `OPENDV_WAIVER_KEY` credential and `admin` role authorization (missing/invalid credentials or non-admin callers are denied with exit code `7` `FORBIDDEN_ADMIN_REQUIRED`).
+Path B empirical grounding requires:
+1. Non-empty `EvidenceRef` citations (`source_label`, `chunk_id`, `page_number`, or `table_id`) resolving to ingested session evidence (or `>= 10`-character `--grounding-rationale`).
+2. Explicit concept scope (subsequent mutations to any grandfathered concept re-evaluate Path A/B grounding).
+3. Zero `do_not_send_to_agent` payload leaks across agent prompts or logs (`FR-AGT-04`).
 
 ---
 
-### 3.5 Journey 5: End-to-End Asset Management Lifecycle (From Starter Pack to 4-Zone Pipeline)
+### 3.5 Journey 5: End-to-End Asset Management Lifecycle (Unified 6-Step Wizard to 5-Zone Vault & DV Schema Explorer)
 
-In this journey, an Asset Management Data Architect establishes an institutional Data Vault 2.0 architecture spanning public equities, fixed income rates, private credit lending covenants, and unstructured SEC filings:
+In this journey, an Asset Management Data Architect establishes an institutional Data Vault 2.0 architecture spanning public equities, fixed income rates, private credit lending covenants, and unstructured SEC filings—flowing seamlessly through the **Unified 6-Step Wizard**, **5-Zone (`Z0–Z4`)** SQL compiler (`information_mart`), and **DV Schema Explorer (`/dv-schema`)**:
 
 ```
 +───────────────────────────────────────────────────────────────────────────────────────────+
-| Journey 5: Starter Pack -> Text Ingestion -> Steering -> Promotion -> DV 2.0 Pipeline      |
+| Journey 5: Starter Pack -> Connectors & Notes -> Agent Q&A -> 5-Zone Pipeline -> Explorer |
 +───────────────────────────────────────────────────────────────────────────────────────────+
-| 1. Apply Starter Pack: 1-Click 'all_domains' Preset (31 CBCs, 29 Rels, 7 Enums)           |
-| 2. Ingest Free-Form CAS Notes: Analyst Commentary & Covenant Summaries (SHA-256 CAS)      |
-| 3. Polysemy Disambiguation: 3-Persona Agent Runner resolves 'portfolio', 'security', etc.  |
-| 4. Iterative Steering Refinement: Refine proposal with natural language steering prompt    |
-| 5. Staged Candidate Promotion: Path A (synonyms >= 0.65) & Path B (admin signed waiver)    |
-| 6. DV 2.0 Blueprint Inspection: Preview & export Zone 2 Raw Vault DDL and VaultBlueprint v1.0 |
-| 7. 1-Click Hand-Off: Deep-link to 4-Step Pipeline Builder Wizard                              |
-| 8. Execute Single-Run Pipeline: Multi-connector data-driven execution (SQLite & Databricks)  |
-| 9. Parity Verification: Verify identical results across opendv and opendvctl                  |
+| 1. Apply Starter Pack (Step 1): 1-Click 'all_domains' Preset (31 CBCs, 29 Rels, 7 Enums)  |
+| 2. Attach Connectors & Notes (Step 2): SQLite/DuckDB/UC + Analyst Notes & Regulatory PDFs |
+| 3. Preview Evidence (Step 3): <=50 Sample Rows (3a) & Parsed Chunks (3b) or Fast-Forward  |
+| 4. Agent Discovery & Ask FIBO (Step 4): Single-pass StudioAgentRunner + Citation Drawer   |
+| 5. Diff, DAG & Export/Commit (Step 5): Visual Diff, elkjs DAG, Optional VisualEditorDrawer|
+| 6. DV 2.0 Build & Run (Step 6): Auto-bound deployed_contract, 00..06 Console, 5-Zone SQL  |
+| 7. Interactive DV Schema Explorer (/dv-schema): Bipartite Graph, Triage, Safe SQL (D11)   |
+| 8. SessionLogsInspector (07): Live EventSource Stream & 50 MB/.jsonl Bundle Retention     |
+| 9. Parity Verification: Verify identical JCS outputs across opendv, opendvctl & REST      |
 +───────────────────────────────────────────────────────────────────────────────────────────+
 ```
 
 #### Step 1: Initialize Session & Apply 1-Click "All Domains" Starter Pack
-Create an asset management session and immediately apply the composite `all_domains` preset, bootstrapping 31 CBCs, 29 relationships, and 7 enums in a single operation:
+Create an asset management session (recorded with `wizard_schema_version` per `D25`) and apply the composite `all_domains` preset, bootstrapping 31 CBCs, 29 relationships, and 7 enums:
 
 ```bash
 # Initialize Asset Management studio session
@@ -525,26 +519,29 @@ opendv ontology studio create \
 # Apply 1-Click "All Domains" starter pack via opendv
 opendv ontology studio starter-pack apply --session am-fund --pack all_domains
 
-# Equivalent execution via opendvctl
+# Equivalent execution via opendvctl (loopback zero-token)
 opendvctl ontology studio starter-pack apply --session am-fund --pack all_domains --api-url http://127.0.0.1:8420
 ```
 
 The session instantly stages an initial delta resulting in canonical SHA-256 digest `6cdd5c7c084cecfc0de6b7b82599b3bc50a1767aa4e9910866116d276638ead2`.
 
-Over REST, this corresponds to:
+Over REST (zero-token loopback), this corresponds to:
 ```bash
 curl -s -X POST "http://127.0.0.1:8420/api/v1/ontology/studio/sessions/am-fund/starter-packs/apply" \
-  -H "Authorization: Bearer dev-token" \
   -H "Content-Type: application/json" \
   -d '{
     "pack_id": "all_domains"
   }'
 ```
 
-#### Step 2: Ingest Free-Form Analyst Notes into CAS
-Ingest unstructured analyst commentary and debt covenant notes directly into Content-Addressable Storage (CAS):
+#### Step 2: Ingest Connectors, Regulatory PDFs & Free-Form Analyst Notes into CAS
+Attach structured connectors (`attach-source` `D13`) and ingest unstructured analyst commentary and debt covenant notes directly into Content-Addressable Storage (CAS):
 
 ```bash
+# Attach structured SQLite source via D13 attach-source (opendv & opendvctl)
+opendv ontology studio attach-source --session am-fund --adapter sqlite --uri data/public_am/am_sec_treasury_ibor.sqlite
+opendvctl ontology studio attach-source --session am-fund --adapter sqlite --uri data/public_am/am_sec_treasury_ibor.sqlite --api-url http://127.0.0.1:8420
+
 # Ingest inline analyst note (opendv)
 opendv ontology studio text add --session am-fund --text "Private Credit Direct Lending facility agreement with borrower covenant monitoring and variable SOFR spread." --source-name direct_lending_notes.txt
 
@@ -560,8 +557,8 @@ opendvctl ontology studio text add --session am-fund --file examples/asset_manag
 
 CAS hashes the ingested payloads, generates cryptographic SHA-256 provenance identifiers (`cas:text`), and records source metadata in `.opendv/ontology_studio/am-fund/evidence/manifest.json`.
 
-#### Step 3: 3-Persona Agent Runtime & Polysemy Disambiguation
-Invoke `StudioAgentRunner` to orchestrate `@term-scout`, `@domain-clarifier`, and `@ontology-architect`:
+#### Step 3: 3-Persona Agent Runtime, Polysemy Disambiguation & Ask FIBO
+Invoke `StudioAgentRunner` to orchestrate `@term-scout` $\to$ `@domain-clarifier` $\to$ `@ontology-architect` in a single pass (`D1`; fails closed with `422 AGENT_NOT_CONFIGURED` / exit `10` if unconfigured):
 
 ```bash
 # Execute 3-persona construction with steering guidance (opendv)
@@ -569,6 +566,9 @@ opendv ontology studio construct --session am-fund --mode agent --steering-promp
 
 # Equivalent execution via opendvctl
 opendvctl ontology studio construct --session am-fund --mode agent --steering-prompt "Ground all securities against FIBO SEC and link to CustodianAccount" --api-url http://127.0.0.1:8420
+
+# Ask live cited FIBO & evidence questions (D2 / D13)
+opendv ontology studio fibo-qa --session am-fund --question "Should Sovereign Repo map to fibo-sec-dbt or a custom entity?"
 ```
 
 During execution, `@domain-clarifier` consults `KNOWN_POLYSEMIC_DEFINITIONS` to disambiguate overloaded industry terms:
@@ -576,7 +576,7 @@ During execution, `@domain-clarifier` consults `KNOWN_POLYSEMIC_DEFINITIONS` to 
 - `security`: Disambiguates *Negotiable Financial Security* (`fibo-fnd-oac-cctl:Security`) from *Collateral Pledge* and *Information Security*.
 - `benchmark`: Disambiguates *Performance Index* from *Interest Rate Benchmark*.
 
-Clarification answers are submitted via `opendv ontology studio answer`, enabling `@ontology-architect` to synthesize proposal `prop-am-01`.
+Clarification answers are submitted via `opendv ontology studio answer`, cascading live across dependent proposals (`prop-am-01`).
 
 #### Step 4: Iterative Natural-Language Steering Prompt Refinement
 Refine the pending proposal iteratively using natural language instructions without crafting raw delta JSON by hand:
@@ -592,7 +592,7 @@ opendvctl ontology studio proposal refine --session am-fund --proposal-id prop-a
 The refinement endpoint marks `prop-am-01` as `SUPERSEDED`, generates a fresh proposal `prop-refine-02`, and preserves the instruction in `steering_history`.
 
 #### Step 5: Held-Back Candidate Promotion (Path A & Path B)
-Candidate concepts whose initial FIBO BM25 similarity score is $< 0.6500$ are automatically segregated into `evidence/staged_candidates.json`. Stewards promote them via two governance paths:
+In CLI deterministic mode, candidate concepts whose initial FIBO BM25 similarity score is $< 0.6500$ are segregated into `evidence/staged_candidates.json` (staged / held-back). Stewards promote them via synonym re-scoring or CLI governance rationale:
 
 ```bash
 # List staged candidate concepts held back due to low confidence (opendv)
@@ -607,39 +607,25 @@ opendv ontology studio staged promote --session am-fund --candidate-id cand-hold
 # Path A via opendvctl
 opendvctl ontology studio staged promote --session am-fund --candidate-id cand-holding-debt-001 --synonyms "NegotiableDebtSecurity, CorporateDebtBond" --api-url http://127.0.0.1:8420
 
-# Path B: Promote via Admin Signed Waiver (requires admin role & >=10 char rationale)
-export OPENDV_WAIVER_KEY="secret-admin-hmac-key"
+# Path B: Promote via explicit governance rationale (>=10 char rationale)
 opendv ontology studio staged promote --session am-fund --candidate-id cand-bespoke-002 --waiver --rationale "Authorized proprietary credit facility per board charter"
 
 # Path B via opendvctl
 opendvctl ontology studio staged promote --session am-fund --candidate-id cand-bespoke-002 --waiver --rationale "Authorized proprietary credit facility per board charter" --api-url http://127.0.0.1:8420
 ```
 
-#### Step 6: DV 2.0 Blueprint Inspection & VaultBlueprint Export
-In the Web Workbench at `/ontology`, open the right drawer and select the **DV 2.0 Blueprint** tab (`data-testid="right-tab-blueprint"`):
-1. Review the generated Target Raw Vault tables:
-   - Hubs: `hub_security`, `hub_investor`, `hub_rate_index`, `hub_document`.
-   - Links: `lnk_portfolio_holding`, `lnk_document_extraction`.
-   - Satellites: `sat_security_details`, `sat_investor_details`, `sat_document_metadata`.
-2. Click **Copy DDL** (`btn-copy-blueprint-ddl`) or **Download DDL** (`btn-download-blueprint-ddl`) to obtain `final_four_zone_am.sql`, containing 16 validated tables spanning `staging`, `raw_vault`, `business_vault`, and `marts`.
-3. Export the unified `VaultBlueprint` v1.0 YAML envelope via REST endpoint:
+#### Step 6: Unified Step 6 DV 2.0 Build, 5-Zone SQL (`Z0–Z4`) & `VaultBlueprint` Export
+Step 6 of the Unified 6-Step Wizard replaces the legacy standalone `DV 2.0 Blueprint` drawer tab and `/builder` `Pipeline Builder` hand-off (`D19`):
+1. Step 6 automatically binds the committed `VaultBlueprint` / `deployed_contract` (`D12`, with an inline Baseline Picker to pick prior runs, upload `contract.yaml`, or start a Fresh Cold-Start Vault).
+2. You can still export the portable `VaultBlueprint` v1.0 YAML envelope via REST for CLI runs:
    ```bash
    curl -s -X GET "http://127.0.0.1:8420/api/v1/ontology/studio/sessions/am-fund/export-blueprint" \
-     -H "Authorization: Bearer dev-token" \
      -o artifacts/vault_blueprint.yaml
    ```
+3. Running the pipeline inside Step 6 displays the live **7-pill (`00..06`) console** (projected over internal `STAGE_00..07`), compiles **5-Zone (`Z0–Z4`)** SQL across `bronze`, `staging`, `raw_vault`, `business_vault`, and `information_mart`, handles any `PAUSED_HOLD` inline via `StewardHoldModal` (`D14`) or `BudgetHold` (`D21`), and links straight to **`Explore Generated DV 2.0 Schema ➔`** (`/dv-schema`).
 
-#### Step 7: 1-Click Hand-Off to 4-Step Pipeline Builder Wizard
-Click **Open in Pipeline Builder ->** (`data-testid="btn-open-in-pipeline-builder"`). The Web Workbench automatically routes to:
-
-```
-/builder?session_id=am-fund&source=ontology_studio&domain_namespace=asset_management&pipeline_id=pl_am_fund
-```
-
-`WizardShell.tsx` and `specBuilderUtils.ts` parse the URL parameters, load target Hubs and Business Keys from the session ontology, and auto-populate Step 1 (Foundation) without manual re-entry.
-
-#### Step 8: Single-Run Data-Driven Pipeline Execution
-Execute the end-to-end data-driven pipeline using the exported `VaultBlueprint` envelope and multi-connector tabular sources:
+#### Step 7: Single-Run CLI Pipeline Execution & DV Schema Inspection (`D13`)
+Execute the end-to-end data-driven pipeline and inspect the generated Data Vault schema, populated rows, and session logs from the CLI:
 
 ```bash
 # Validate single-run pipeline with VaultBlueprint envelope (opendv)
@@ -656,13 +642,18 @@ opendv pipeline run --blueprint artifacts/vault_blueprint.yaml --source "uc://am
 
 # Execute single-run data-driven pipeline (opendvctl)
 opendvctl pipeline run --blueprint artifacts/vault_blueprint.yaml --source "data/public_am/am_sec_treasury_ibor.sqlite" --dialect duckdb --api-url http://127.0.0.1:8420
+
+# Inspect DV 2.0 schema & run bounded read-only DuckDB SQL (D11 / D13)
+opendv run dv-schema --run-id run_am_w1 --sql "SELECT * FROM information_mart.vw_security_current LIMIT 10"
+
+# Stream session & stage logs live (D13 / FR-LOG-04)
+opendv ontology studio logs --session am-fund --stage 03 --follow
 ```
 
-#### Step 9: Verifying Dual-CLI Parity
-Verify identical execution and output parity across both CLI environments:
-- Identical JSON schemas and exit codes (`0` for success).
+#### Step 8: Verifying Dual-CLI Parity
+Verify identical execution and output parity across `opendv`, `opendvctl`, and REST:
+- Identical RFC 8785 JCS JSON schemas and exit codes (`0`, `1..7`, `10`, `20`, `30`, `40`).
 - Shared canonical validation against `schemas/v1/cli-spec.json`.
-- Complete interoperability for local scripting (`opendv`) and containerized remote automation (`opendvctl`).
 
 ### 3.6 Multi-Connector Catalog Sources (SQLite CAS Upload & Databricks Unity Catalog)
 
@@ -680,10 +671,10 @@ opendvctl source inspect --uri "data/public_am/am_sec_treasury_ibor.sqlite" --ad
 ```
 
 #### Databricks Unity Catalog
-Databricks Unity Catalog connects via `databricks://` or `uc://` 3-level naming (`catalog.schema.table`):
-1. **Introspection**: Automatically queries `information_schema.tables`, `columns`, `table_constraints`, `key_column_usage`, and `column_tags`.
+Databricks Unity Catalog connects via `databricks://` or `uc://` 3-level naming (`catalog.schema.table`), alongside local real connectors (`SQLite`, `DuckDB`, `CSV`, `Parquet`, `XLSX`, `D17`):
+1. **Introspection**: Queries `information_schema.tables`, `columns`, `table_constraints`, `key_column_usage`, and `column_tags` against a live Databricks UC workspace when `DATABRICKS_HOST` is configured.
 2. **Pushdown Profiler**: Executes remote aggregate profiling inside Databricks SQL warehouse to extract min/max/null counts without moving raw data.
-3. **Air-Gapped Local Testing**: `DuckDBUnityCatalogEmulator` in `opendv-testkit` simulates the entire Unity Catalog hierarchy, Delta table metadata, and PyArrow record batch streaming locally without requiring live Databricks credentials.
+3. **Dual-Dialect SQL Parity**: Compiles and AST-verifies both `DuckDB` and `Databricks Delta` (`USING DELTA`, 3-part names, `CLUSTER BY`, `Algorithm A.5` `OCTET_LENGTH` SHA-256) from the exact same `CanonicalIR`.
 
 ```bash
 # Inspect Databricks Unity Catalog table (opendv)
@@ -697,181 +688,110 @@ opendvctl source inspect --uri "uc://am_prod/ibor" --adapter databricks --table 
 
 ---
 
-## 4. Interactive Web Workbench Walkthrough (`/ontology`)
+## 4. Interactive Web Workbench Walkthrough (`DESIGN.md` 4-Tab Shell)
 
-The Open-DV Web Workbench provides a visual, reactive single-page application at `/ontology`. The screenshots below walk step-by-step through a real live `1440x900` session (`regulatory-pdf-e2e-walkthrough`, domain `capital_markets`) built from all four PDFs in [`examples/sample_pdfs/`](../examples/sample_pdfs/README.md):
+The Open-DV Web Workbench implements the warm-canvas editorial [`DESIGN.md`](../DESIGN.md) design system (`#faf9f5` cream canvas, `#efe9de` cream cards, `#cc785c` coral CTAs, `#181715` dark obsidian chrome, weight-`400` `Instrument Serif` + `DM Sans` + `JetBrains Mono`) and unifies the legacy `/ontology` and `/builder` (`Pipeline Builder` and standalone `DV 2.0 Blueprint` drawer) workflows (`D19`) into a `54px` 4-tab shell:
 
-```
-+───────────────────────────────────────────────────────────────────────────────────────────────────+
-| Open-DV Workbench  [Session: pe-evolution ▼]  [State: COMMITTED]  [Active: v1.1.0] [Token: Valid] |
-+───────────────────────┬─────────────────────────────────────────────────┬─────────────────────────+
-| SOURCES & PARSE       | REACT FLOW + ELKJS GRAPH EXPLORER               | VISUAL EDITOR & DIFF    |
-|                       |                                                 |                         |
-| [Upload Files (+)]    |  ┌──────────────────┐     ┌──────────────────┐  | Selected: Hub LP Commit |
-| 📄 10k_sec_2024.pdf   |  |   hub_fund       |────►| hub_lp_commitment|  |                         |
-|   12 chunks | CONFID  |  └──────────────────┘     └──────────────────┘  | Archetype: State        |
-|                       |            │                 ▲ (Green: Added)   | Target Hub: hub_lp_com  |
-| 📄 lp_addendum.md     |            ▼                 │                  |                         |
-|   4 chunks | INTERNAL |  ┌──────────────────┐        │                  | Attributes:             |
-|                       |  | hub_investor     |────────┘                  | - commitment_amount     |
-| [Parse Status: OK]    |  └──────────────────┘                           | - pledge_date           |
-|                       |                                                 |                         |
-+───────────────────────┼─────────────────────────────────────────────────┼─────────────────────────+
-| CLARIFICATION Q&A     | LEVEL OF DETAIL (LOD): [ LOD-1 | LOD-2 | LOD-3 ] | QUALITY & EXPORT        |
-|                       |                                                 |                         |
-| Q: Align "Advisor"?   | Layout SLA: 142ms (< 300ms)                     | Score: 100% Validated   |
-| (•) InvestmentAdvisor | Zoom: 85% | Nodes: 6 | Edges: 8                 | Grounding: 0.8200 (OK)  |
-| ( ) FundManager       |                                                 | [Export OWL/TTL]        |
-| [Submit Response]     |                                                 | [Promote to Workspace]  |
-+───────────────────────┴─────────────────────────────────────────────────┴─────────────────────────+
-```
+- **Top-Bar Tabs**: **`Ontology & Pipeline`** (`/`, `/ontology`, `/builder` $\to$ 6-Step Unified Wizard) · **`DV Schema Explorer`** (`/dv-schema`) · **`Run Explorer`** (`/explorer`, `/stages/00..07`) · **`Settings`** (`/settings` with shared `<AgentHarnessConfigCard />`).
+- **Top-Bar Live Status**: `● Agent Ready` indicator, live **`cost meter`** pill (cumulative session tokens & USD, `D21`), **`Logs & Traces (<count>)`** button opening `SessionLogsInspector`, and dark session digest pill.
+- **Agent-Only UI (`D28`)**: Neither the Wizard nor `Settings` exposes a deterministic mode toggle; construction and DV modeling are 100% Agent-first (`422 AGENT_NOT_CONFIGURED` if unconfigured).
+- **Desktop-First Responsive (`D26`)**: Full editing density at `1440×920` and `1024×768`; below `768px` (verified at `390×844`), layout stacks cleanly with zero horizontal overflow (`scrollWidth <= clientWidth`), collapsible nav/stepper, and **view-only** graph and SQL runner modes.
 
-### 4.1 Local Launch, Authentication & RBAC Hydration
-- **Recommended Launch (`opendv serve --open`)**: Starts the local loopback server (`127.0.0.1`) and opens `/ontology#token=<nonce>`. The Web Workbench automatically exchanges the launch nonce via `POST /api/v1/ontology/studio/auth/token`, sets an `HttpOnly` cookie, scrubs the URL fragment from browser history, and hydrates your exact RBAC role (`admin`, `editor`, `viewer`, or `automated`) from `TokenExchangeResponse.role` and `X-OpenDV-Role` response headers.
-- **Manual Launch & HTTP `409` (`STUDIO_ALREADY_INITIALIZED`) Guidance**: If an instance previously initialized `.opendv/ontology_studio/.local_token`, clicking automatic loopback bootstrap returns HTTP `409`. The Workbench focuses the token input and displays inline instructions telling you either to paste the token stored in `.opendv/ontology_studio/.local_token` or relaunch with `opendv serve --open`.
-- **RBAC Role Badge**: Displays the active authenticated role (`admin`, `editor`, `viewer`, or `automated`; unauthenticated local store state initializes to `editor` until `/init`, `/auth/token`, or `X-OpenDV-Role` hydrates your server role). Read-only `viewer` and `automated` roles disable manual edit controls, while waivers, destructive deletions, and promotion require `admin`.
+### 4.1 Step 1 — Scope & Baseline (`wizard_schema_version`, `D25`)
+Launch with `opendv serve --port 8420 --open` (clean loopback URL `http://127.0.0.1:8420/`, zero login tokens; non-loopback `--host` is refused with **exit code `40`** unless `--allow-remote-unauthenticated` is passed `D18`, surfacing a coral warning banner).
+- Choose **Construct New** (`Blank v0.0.0`, `Workspace Seed`, or any of the 6 Asset-Management Starter Packs / `all_domains`) or **Evolve Existing** (new-schema `wizard_schema_version` sessions or `.yaml`/`.json`/`.ttl` ontology import via `POST /sessions/import-ontology`).
+- Older pre-wizard sessions are omitted from the wizard picker and summarized in a one-line CLI export notice (`legacy_session_count`, `D25`).
 
-### 4.2 Session Switcher & Recency Ordering
-- **Session Switcher**: Switch instantly between active sessions or create a new session with a workspace path (`--workspace`) or greenfield namespace.
-- **Most-Recent-First Ordering**: Backend `list_sessions()` sorts sessions by `(updated_at or created_at, session_id)` descending, ensuring newly created and recently edited sessions always appear at the top of the drawer even when more than 50 historical sessions exist.
-- **State Badges**: Color-coded lifecycle indicators (`EMPTY`, `INGESTED`, `CLARIFYING`, `CONSTRUCTED`, `COMMITTED`, `PROMOTED`):
-  - `EMPTY`: Initialized without committed versions (`v0.0.0`).
-  - `INGESTED` / `CLARIFYING` / `CONSTRUCTED`: Active ingestion, ambiguity Q&A, or candidate proposal synthesis in progress.
-  - `COMMITTED`: Version committed in session CAS (including sessions initialized from an existing workspace baseline).
-  - `PROMOTED`: Head version promoted to workspace Data Vault.
+![Step 1 — Scope & Baseline](assets/unified-wizard/studio_mockup_01_step1_baseline.png)
+*Step 1: Scope & Baseline selector with Starter Packs, `.yaml`/`.json`/`.ttl` import, dark session digest card, and `wizard_schema_version` session filtering.*
 
-### 4.3 Sources Panel, OCR Modes & Chunk Inspector (Stages 1–2)
-- **Drag-and-Drop Uploader**: Supports `.pdf`, `.docx`, `.xlsx`, `.html`/`.htm`, `.json`, `.csv`, `.md`/`.markdown` (including browsers that send `application/octet-stream` for Markdown), and `.txt` up to the `100 MiB` (`STUDIO_MAX_UPLOAD_BYTES`) per-file upload cap.
-- **OCR Mode Toggle**: `Auto`, `Force OCR`, and `Off`. Selecting `Force OCR` without Tesseract installed fails closed with `HTTP 501 OCR_UNAVAILABLE`, whereas `Auto` and `Off` extract vector pages and flag scanned/complex pages (`COMPLEX`, `ocr_skipped=True`) cleanly.
-- **Confidentiality Taint (`do_not_send_to_agent`)**: Mark sensitive documents via per-document **Privacy** classification (`public`, `internal`, `confidential`, `restricted`) to enforce redaction and taint tracking across CAS chunks.
-- **Chunk Inspector Drawer**: After parsing completes, inspect extracted evidence snippets with page/source headers, layout complexity badges (`SIMPLE`, `TABULAR`, `COMPLEX`), UTF-8 character offsets, Markdown tables, and token counts. For multi-document corpora, the workbench reports the full CAS total (for example, `761 chunks extracted`) while displaying a balanced preview sample (`Extracted Evidence Chunks (20)`) across all uploaded files so long multi-hundred-page filings stay responsive.
+### 4.2 Step 2 — Sources, Connectors & Notes (`Sources`, `P1`)
+- **Structured Connectors**: Attach `SQLite`, `DuckDB`, `Databricks UC`, `CSV`, `Parquet`, `XLSX`, or `JSONL` via `POST .../sources/connectors` (`sources_inspect` + `GraphBProfiler`).
+- **Multimodal Upload & Inline Notes**: Drag-and-drop `PDF` / `DOCX` / `MD` / `TXT` / `HTML` with `OCR Mode` (`auto` / `force` / `off`), toggle **`do_not_send_to_agent`** (`🔒 Local Only` taint protection), or enter **Inline Domain Notes** (`/sources/text`).
 
-![Stage 1 — Sources Panel, Privacy Classifications & OCR Mode Toggle](assets/ontology-studio/01-sources-and-ocr-mode.png)
-*Stage 1: All four sample regulatory PDFs uploaded into `regulatory-pdf-e2e-walkthrough` inside the `380px` Sources drawer alongside the `Privacy` taint selector and `OCR Mode` (`Auto` / `Force OCR` / `Off`) control prior to parsing.*
+![Step 2 — Add Diff Data Sources](assets/unified-wizard/studio_mockup_02_step2_sources.png)
+*Step 2: Structured connectors, multipart PDF/document upload with OCR mode & `do_not_send_to_agent` privacy flags, and Inline Domain Notes.*
 
-![Stage 2 — Parsed Regulatory PDF Evidence & Chunk Inspector](assets/ontology-studio/02-chunk-inspector-parsed-pdfs.png)
-*Stage 2: Completion status (`Parsing complete (761 chunks extracted)`) and the balanced `Extracted Evidence Chunks (20)` preview featuring layout complexity badges (`COMPLEX` on Page 2 of the scanned exhibit fixture), token counts, and preserved Markdown table syntax.*
+### 4.3 Step 3 — Preview Evidence & Fast-Forward (`3a`, `3b`, `D8`)
+- **Step 3a (Structured Schema & Rows)**: Inspect inferred SQL types, PK/FK constraints, surrogate quarantine hints, null%/distinctness/entropy stats, FIBO gap hints, and `<= 50` local sample rows (`/evidence/tables`, `D6`).
+- **Step 3b (Parsed Chunks & Embedded Tables)**: Inspect normalized document chunks with page numbers, `[start_char, end_char)` spans, embedded `table_data`, OCR confidence, and informational term counts (zero mention-count floor `D4`).
+- **`Fast-Forward to Step 6` (`D8`)**: Jump directly from Step 3 to Step 6 when starting from an already-finalized ontology baseline without creating empty versions.
 
-### 4.4 Clarification Q&A & Proposal Ratification (Stage 3)
-- **Ambiguity Questions**: Presents domain questions generated by the clarification step with certainty badges (e.g., `~79%`), candidate options, rationale notes, and scrollable source citations (`Citations (N)` inside a compact overflow-safe container), persisting answers via CAS (`clarifications/answers.json` + `If-Match`).
-- **Construct & Proposal List**: Triggers construction over extracted tables and regulatory prose chunks, showing each candidate proposal's operation count (`102 ops` badge for the 4-PDF corpus) and status (`PENDING`, `ACCEPTED`, `REJECTED`). Click **`Manage in Right Panel`** in the Q&A tab, **`Proposals (N)`** in the top toolbar, or **`View Details`** on any proposal card to open the full right-panel stewardship workspace.
-- **Two-Tab Right Workspace (`Ontology Viewer` | `Proposal Details`)**: The right panel pairs **`Ontology Viewer (N)`** (interactive React Flow graph + Visual Concept Editor) and **`Proposal Details (N)`** as persistent tabs (`✕ Return to Ontology Viewer` also returns you to the canvas). Switching tabs preserves your active `selectedProposalId`, operation search filter, and any unsaved proposal draft edits.
-- **Full Proposal Lifecycle in `Proposal Details`**:
-  - **What is a Candidate Proposal (`OntologyProposal`)?** An inline guide explains how Open-DV stages additive ontology deltas in CAS prior to human stewardship ratification, including `ONT-EVO-002` Path A grounding (`skos:exactMatch` / `skos:closeMatch`, whereas `skos:broadMatch` does not satisfy Path A alone).
-  - **Inline Q&A, Authoring & Operation Editing**: Expand or collapse (**Show Q&A** / **Hide Q&A**) to answer Domain Clarifications inline, click **`+ New Draft Proposal`** to draft a proposal from scratch, or click **`Edit`** / **`+ Add Concept Op`** / **`+ Add Mapping Op`** to modify rationale and delta operations (`add_concept`, `add_external_mapping`, `add_attribute`, `add_synonym`, `refine_definition`, `revise_description`), using **`Edit Node`** to inspect target concepts directly in the Concept Editor.
-  - **Unsaved-Edit Ratification Lock & Ratification**: While local proposal edits are unsaved, **`Accept Proposal`** and **`Rebase`** remain disabled with an inline reminder until you click **`Save Edited Proposal`** (persisting a new `PENDING` CAS revision) or **`Reset Edits`**. Once clean, ratify `PENDING` revisions via **`Accept Proposal`** (with optional Admin `self_acceptance_override` and `low_confidence_waiver`), **`Rebase`**, or **`Reject`**.
-- **Zero-Op Proposal Guard (`0 ops`)**: When a proposal contains `0` operations (for example, constructed before source documents were uploaded and parsed), the **Accept** button is automatically disabled with an inline reminder (`"0 operations — upload and parse source documents first"`), while **Reject** remains enabled so you can clean up empty proposals.
+![Step 3a — Structured Schema & Sample Rows](assets/unified-wizard/studio_mockup_03a_structured_preview.png)
+*Step 3a: Structured schema profiles, PK/FK/surrogate hints, `<= 50` row preview, and `Fast-Forward to Step 6` (`D8`).*
 
-![Stage 3 — Clarification Q&A & Domain Ontology Proposal](assets/ontology-studio/03-clarifications-and-proposals.png)
-*Stage 3: Resolved Domain Ambiguity Questions with compact scrollable citations and pending candidate proposal `prop-bd4a8c90b20e62e5` (`102 ops`, `PENDING`) ready for ratification via `Accept` or `Reject`.*
+![Step 3b — Parsed Chunks & Observed Terms](assets/unified-wizard/studio_mockup_03b_parsed_chunks_preview.png)
+*Step 3b: Parsed PDF & Inline Note chunks with exact character spans, embedded tables, and zero mention-floor term inspection.*
 
-![Stage 3b — Right-Panel Proposal Details Workspace & Two-Tab Switcher](assets/ontology-studio/08-proposal-details-right-panel.png)
-*Stage 3b: Persistent two-tab Right Panel switched to `Proposal Details (3)`, showing the `Proposals (3)` entry button, Candidate Proposal explanation card, collapsible Domain Clarifications summary (`3 Pending · 1 Answered`), and Lineage & Ratification controls alongside `Ontology Viewer (24)`.*
+### 4.4 Step 4 — Agent Setup Gate (`4a`), Discovery & Clarification (`4b`), Citation Drawer (`4c`)
+- **Step 4a (`422 AGENT_NOT_CONFIGURED`)**: If no real LLM provider is configured, construction fails closed with `422 AGENT_NOT_CONFIGURED` and renders the inline shared **`<AgentHarnessConfigCard />`** (`P2`). Clicking `Verify & Save` flips the header pill to green `● Agent Ready` live.
+- **Step 4b (`StudioAgentRunner`, `D1`–`D5`, `D7`, `D21`, `D27`)**:
+  - Single-pass `@term-scout` $\to$ `@domain-clarifier` $\to$ `@ontology-architect` synthesis (`<= 5` PII-masked samples/column, zero `do_not_send_to_agent` bytes). While active, concurrent starts are blocked with **`409 SESSION_JOB_ACTIVE`** (`Run in progress — view live logs`, `D27`); hitting token/cost limits opens a fail-closed **`BudgetHold`** card (`D21`).
+  - Synthesizes FIBO alignments, Beyond-FIBO custom concepts (`skos:broadMatch` optional `D3`), and single-mention `1x · Semantic` document rules (`D4`).
+  - Isolates breaking/drop proposals inside an unchecked-by-default red **`MAJOR · Opt-In`** bucket (`D7`); unchecking a parent cascades cleanly (`D5`), inline edits update proposal chips live, and **`Clarification`** answers (`Q1..Qn`) cascade live (`D1`).
+  - **`Ask FIBO`** (`AskFiboPanel`, `POST .../fibo-qa`, `D2`): Ask free-form domain/FIBO questions and apply cited 1-click `SuggestedDeltaAction`s.
+- **Step 4c (`CitationInspectorDrawer`)**: Click any citation chip (`btn-cite`) to open the `716×920` slide-over drawer displaying `<mark>` highlighted PDF/Note spans, table stats/samples, Jump-to-Step-3 links, and side-by-side `fibo-core` definitions.
 
-### 4.5 React Flow + elkjs Graph Canvas & Visual Editor Drawer (Stage 4)
-- **Dark-Mode Graph Canvas**: Powered by `@xyflow/react` and `elkjs` (`< 300 ms` layout SLA — observed `76.7 ms` for 24 regulatory concepts) featuring high-contrast dark zoom/fit/lock controls and minimap.
-- **3-Tier Level-of-Detail (LOD)**:
-  - **LOD-1 (`T1 Macro`)**: Compact concept chips and primary Link edges.
-  - **LOD-2 (`T2 Meso`)**: Archetype badge, target hub, and attribute/mapping counts.
-  - **LOD-3 (`T3 Micro`)**: Full definitions, attribute types, and clipped external mapping pills (`scheme:TerminalFragment`, e.g., `fibo:Collateral`, `fibo:CreditRatingModel`, `fibo:Asset`, `fibo:RealEstate`, `fibo:CreditAgreement`) with full-IRI hover tooltips (`title`).
-- **Visual Editor Drawer (`CONCEPT EDITOR`) & `ONT-EVO-002` Grounding Paths**: Click any node (e.g., `Collateral` / `urn:ontology:entity:collateral`) to edit concept metadata, ELM archetype, target hub (`hub_collateral`), attributes, synonyms, parent taxonomy (`ONT-DAG-001`), and external mappings. Under **FIBO / External Mappings**, inline guidance explains the two ways to pass `ONT-EVO-002`:
-  - **Path A (Auto-Verified)**: Supply a server-verified `FIBO` mapping using `skos:exactMatch` or `skos:closeMatch` (`skos:broadMatch` is excluded) with confidence $\ge 0.65$.
-  - **Path B (Admin Steward Waiver)**: For bespoke domain concepts or manually asserted mappings, authorize an Admin Steward Waiver in the **Quality** tab (`>= 10`-character rationale + `OPENDV_WAIVER_KEY`).
+![Step 4a — Mandatory Agent Setup Gate](assets/unified-wizard/studio_mockup_04a_agent_setup_gate.png)
+*Step 4a: Fail-closed `422 AGENT_NOT_CONFIGURED` coral setup callout with inline `<AgentHarnessConfigCard />`.*
 
-![Stage 4 — Graph Canvas (T3 Micro LOD) & Concept Editor Drawer](assets/ontology-studio/04-graph-canvas-and-visual-editor.png)
-*Stage 4: Accepted `v1.0.0` graph displaying 24 grounded regulatory concepts (`T3 Micro` LOD, `Layout: 76.7 ms`, Minimap enabled) with the slide-over `CONCEPT EDITOR` open on `Collateral` (`hub_collateral`).*
+![Step 4b — Cherry-Pick Discovery & Dual FIBO Q&A](assets/unified-wizard/studio_mockup_04b_agent_discovery_custom_concepts.png)
+*Step 4b: Single-pass Agent Discovery, Beyond-FIBO concepts, `1x · Semantic` rules, unchecked `MAJOR · Opt-In`, Clarification cascade, and `Ask FIBO`.*
 
-### 4.6 Visual Diff Overlay (Committed Versions & Uncommitted Working Draft) (Stage 5)
-- Compare any two committed versions (`v0.0.0`, `v1.0.0`, `v1.1.0`, ...) **or** inspect your uncommitted canvas edits live against the active committed baseline (`vX.Y.Z` vs `Working Draft (Uncommitted)`), toggling between **`Unified`** and **`Side-by-Side`** columns.
-- Displays the real-time contract verification banner (`STRICTLY ADDITIVE GUARANTEE (ONT-EVO-001)`) and delta summary (`+24 Added`, `Δ 0 Modified`, `-0 Deleted`).
-- When unsaved canvas modifications exist, clicking **Visual Diff** defaults immediately to `active_version -> draft` using in-memory graph state without making a failing server export request for `"draft"`:
-  - **Green (+)**: Newly added Conceptual Hubs, Links, or Attributes.
-  - **Amber (~)**: Modified descriptions, synonyms, or external mappings.
-  - **Red (-)**: Deprecated or removed elements (Admin Steward only under `ONT-EVO-001`).
+![Step 4c — Citation & FIBO Reference Drawer](assets/unified-wizard/studio_mockup_04c_citation_and_fibo_inspector.png)
+*Step 4c: `CitationInspectorDrawer` showing `<mark>` document spans, column stats, and side-by-side `fibo-core` definitions.*
 
-![Stage 5 — Side-by-Side Visual Diff (v0.0.0 to v1.0.0)](assets/ontology-studio/05-visual-diff-side-by-side.png)
-*Stage 5: Visual Diff comparing greenfield baseline `v0.0.0` against committed `v1.0.0` in `Side-by-Side` mode, verifying `+24 Added / Δ 0 Modified / -0 Deleted` and `ONT-EVO-001` compliance.*
+### 4.5 Step 5 — Diff Overlay, React Flow + `elkjs` Graph & Export (`D9`, `D15`)
+- **Visual `Diff Overlay` & `Level-of-Detail` (`LOD`)**: Inspect `+FIBO`, `+Custom`, and `~Enriched` changes alongside a warm dot-grid **React Flow** + **`elkjs`** DAG (`< 300 ms` layout SLA) with 3-tier `LOD` (`Macro` / `Meso` / `Micro`).
+- **Optional `VisualEditorDrawer` (`D15`)**: Click **`+ Add / Edit Concept`** to open `VisualEditorDrawer` for manual attribute/relationship refinements validated by `ONT-EVO-001..005`.
+- **`Export Ontology Only` (`D9`) & CAS Commit**: Download `.yaml` / `.json` / `.ttl` directly without running DV compilation, or atomically commit `vX.Y.Z` into CAS to unlock Step 6.
 
-### 4.7 Quality Scorecard, Multi-Format Exports & Atomic Promotion (Stages 6–7)
-- **Quality & Governance Scorecard**: Validates 100% of contract rules in real time, displaying **Grounding Ratio** (`100% (24/24)` vs `Target: >= 65% (BM25)`, or `N/A (No nodes)` when empty), **Acyclicity** (`PASS — Zero DAG inheritance cycles`), **Table Contracts** (`COMPLIANT — ONT-EVO-001 preserved`), the itemized **Contract Rules Checklist** (`ONT-EVO-001`, `ONT-EVO-002`, `ONT-DAG-001`, informational `YAGNI-001` attribute check), **Administrative Steward Waiver** controls, and **Steward Feedback** persistence.
-- **Multi-Format Export Modal**: Click **Export** in the top toolbar to preview, copy (`Copy`), and download (`Download File`) any committed snapshot (`v1.0.0 (Current Head)`) across five formats: **Graph A YAML (`.yaml`)**, **Canonical JSON / RFC 8785 JCS (`.json`)**, **W3C Turtle (`.ttl`)**, **JSON-LD (`.jsonld`)**, and **N-Triples (`.nt`)**.
-- **Atomic Workspace Promotion**: Switch to the **Workspace Promotion** tab (or click **Promote** in the top toolbar). Enforces dual OCC preconditions—session `head_sha256` (`If-Match`) and `Expected Workspace SHA-256` (`X-OpenDV-Workspace-If-Match`, with a one-click `Greenfield (64 zeros)` helper for new workspaces)—plus a minimum `10`-character `Promotion Rationale` and contract acknowledgment checkbox before enabling `Promote to Workspace`.
+![Step 5 — Visual Diff, Warm-Paper DAG & Commit](assets/unified-wizard/studio_mockup_05_diff_and_graph.png)
+*Step 5: Visual Diff Overlay, `elkjs` + React Flow DAG, optional `VisualEditorDrawer` (`D15`), `Export Ontology Only` (`D9`), and CAS commit.*
 
-![Stage 6 — Quality & Governance Scorecard](assets/ontology-studio/06-quality-and-governance.png)
-*Stage 6: Quality & Governance tab confirming `100% (24/24)` FIBO grounding, `PASS` DAG acyclicity, `COMPLIANT` `ONT-EVO-001` status, and Contract Rules Checklist.*
+### 4.6 Step 6 — DV 2.0 Build, 7-Pill Console (`00..06`), 5-Zone SQL (`Z0–Z4`) & Holds (`D10`, `D12`, `D14`)
+Step 6 unifies the retired standalone `Pipeline Builder` (`/builder`) and `DV 2.0 Blueprint` drawer (`D19`) into one integrated execution workbench:
+- **Auto-Bound `deployed_contract` (`D12`)**: Defaults to the session's latest certified DV 2.0 run (enforcing `INV-03/04` and `EVO-01..08` across waves), with an inline Baseline Picker to select prior runs, upload `contract.yaml`, or start a Fresh Cold-Start Vault.
+- **7-Pill Console (`00..06`) & 5-Zone (`Z0–Z4`) SQL**: Switch `DuckDB` / `Databricks Delta`, stream live stage telemetry across the 7 clickable pills `00..06` (projected over internal `STAGE_00..07`), and inspect compiled **5-Zone (`Z0–Z4`)** SQL (`bronze`, `staging`, `raw_vault`, `business_vault`, `information_mart`).
+- **Inline `StewardHoldModal` (`D14`), `BudgetHold` (`D21`) & `Sync Drift` (`D10`)**: Resolve `PAUSED_HOLD` (`Tier-U2` span review, `S3` Firewall, or `BudgetHold`) right inside Step 6 (`Approve / Reject & Resume` or `Raise budget & resume`), click **`↺ Sync Drift`** to loop Stage 02 unmodeled drift back to Step 4, or click **`Explore Generated DV 2.0 Schema ➔`** to open `/dv-schema`.
 
-![Stage 7 — Multi-Format Export Modal (W3C Turtle) & Workspace Promotion](assets/ontology-studio/07-export-and-promote.png)
-*Stage 7: Tabbed Export & Promotion dialog displaying `W3C Turtle (.ttl)` serialization for `v1.0.0 (Current Head)` with `Copy` and `Download File` actions alongside the `Workspace Promotion` tab.*
+![Step 6 — DV 2.0 Topology, 7-Pill Console & 5-Zone SQL](assets/unified-wizard/studio_mockup_06_blueprint_handoff.png)
+*Step 6: Auto-bound `deployed_contract`, `00..06` clickable console pills, 5-Zone (`Z0–Z4`) + `information_mart` SQL preview, inline `StewardHoldModal`, and `↺ Sync Drift`.*
 
-### 4.8 DV 2.0 Blueprint Drawer Tab & DDL Generation (Stage 8)
-- **3rd Persistent Right Drawer Tab (`data-testid="right-tab-blueprint"`)**: Complementing `Ontology Viewer` and `Proposal Details`, the right workspace includes the dedicated **DV 2.0 Blueprint** view (`apps/opendv-web-workbench/src/ontology/components/BlueprintView.tsx`).
-- **Target Raw Vault Summary Badges**: Instantly aggregates physical Data Vault 2.0 tables derived from the active conceptual ontology:
-  - `pill-hub-*`: Conceptual CBCs mapped to Raw Vault Hubs (`hub_security`, `hub_investor`, `hub_rate_index`, `hub_document`).
-  - `pill-link-*`: Conceptual relationships mapped to Raw Vault Links (`lnk_portfolio_holding`, `lnk_document_extraction`).
-  - `pill-sat-*`: Attributes and metadata mapped to Satellites (`sat_security_details`, `sat_investor_details`, `sat_document_metadata`).
-- **Syntax-Highlighted SQL DDL Preview (`SqlSyntaxHighlighter`)**: Renders clean, copyable ANSI SQL DDL generated directly from conceptual models, with automatic data type mapping, hash key generation (`MD5`/`SHA256`), load date timestamps (`ldts`), and record source tracking (`rsrc`).
-- **Action Buttons**:
-  - **Copy DDL** (`data-testid="btn-copy-blueprint-ddl"`): Copies the entire DDL script to the system clipboard.
-  - **Download DDL** (`data-testid="btn-download-blueprint-ddl"`): Downloads the 4-zone SQL schema file as `final_four_zone_am.sql`.
-  - **Open in Pipeline Builder** (`data-testid="btn-open-in-pipeline-builder"`): Triggers direct deep-link navigation into the Pipeline Builder.
-- **4-Zone Reference DDL**: Evaluates 16 tables across the standard Data Vault 2.0 architecture layers:
-  - `staging`: Raw intake views (`stg_sec_security_master`, `stg_sec_13f_holdings`, `stg_fred_treasury_rates`, `stg_document_intake`).
-  - `raw_vault`: Auditable immutable hubs, links, and satellites (`hub_security`, `hub_investor`, `hub_fund`, `hub_document`, `lnk_portfolio_holding`, `sat_security_details`, `sat_investor_details`, `sat_document_metadata`).
-  - `business_vault`: Point-in-Time (PIT) and Bridge constructs (`bv_pit_security`, `bv_bridge_holdings`).
-  - `marts`: Analytics-ready Dimensional and Fact views (`dim_security`, `fct_portfolio_positions`).
+### 4.7 4-View DV Schema Explorer (`/dv-schema`, `06b`, `06c`, `D11`)
+Navigate via the top bar **`DV Schema Explorer`** tab (`/dv-schema?run=<id>&compare=<base_run_id>`) or Step 6's `Explore Generated DV 2.0 Schema ➔` CTA:
+1. **Interactive DV 2.0 Graph (`06b`)**: Filterable `elkjs` + `@xyflow/react` bipartite graph (`All Zones`, `Z0 Refs`, `Z1 Staging`, `Z2 Hubs`, `Z2 Links & SAL`, `Z2 Satellites`, `Z3 PIT & Bridges`, `PII Split Only`, `+ Wave Delta`) and table inspector (`BKCC`, `Algorithm A.5` SQL, Gate `0–6` badges, DDL/DML `<dialog>`).
+2. **100% Triage & Wave Diff (`06c`)**: Filterable `100%` column triage ledger (`DV-G4-002`) with CSV export and `W1 -> W2 -> W3` diff (`EVO-01/02/03/07`).
+3. **Vault Rows & Safe SQL (`D11`)**: Browse live populated DuckDB rows (`/dv-schema/tables/{table}/rows`) and run custom read-only SQL (`/dv-schema/query`) enforced via `validate_safe_sql()` (`SELECT`/`UNION` allowlist, zero file/metadata scans). View-only below `768px` (`D26`).
+4. **5-Zone SQL (`Z0–Z4`) & IR**: Inspect and download per-zone (`Z0–Z4`, `information_mart`) `DuckDB` & `Databricks Delta` SQL alongside `final_contract.yaml` & `final_canonical_ir.json`.
 
-### 4.9 1-Click Hand-Off to Pipeline Builder & Spec Auto-Staging (Stage 9)
-- **Deep-Link Parameter Synchronization**: Clicking **`Open in Pipeline Builder ->`** (`btn-open-in-pipeline-builder`) navigates to:
-  ```
-  /builder?session_id=<session_id>&source=ontology_studio&domain_namespace=<domain>&pipeline_id=pl_<session_id>
-  ```
-- **State Pre-Population**:
-  `apps/opendv-web-workbench/src/explorer/builder/specBuilderUtils.ts` parses the URL parameters and instantiates an `InteractivePipelineDraft`:
-  - Pre-populates target Hubs (`hub_security`, `hub_investor`, `hub_rate_index`, `hub_document`) from active ontology CBCs.
-  - Automatically maps business keys (`ticker`, `cik`, `series_id`, `doc_id`).
-- **Zero-Click Automatic Staging (`onStageSpec`)**:
-  When `PipelineBuilderView.tsx` mounts, it detects incoming `ontology_studio` parameters and triggers `onStageSpec` automatically, staging a valid pipeline specification without requiring any manual clicks or schema re-entry. Stewards can immediately review source mappings, compile the schema, or run the pipeline.
+![DV Schema Explorer View 1 — Bipartite Graph & Inspector](assets/unified-wizard/studio_mockup_06b_dv_schema_explorer.png)
+*DV Schema Explorer View 1 (`06b`): Bipartite Hub–Link–Satellite–PIT–Bridge graph, Zone/PII/Delta filters, and physical `Algorithm A.5` / `BKCC` / Gate inspector.*
 
-### 4.10 The 4-Step Pipeline Builder Wizard (`/builder`)
+![DV Schema Explorer View 2 — 100% Triage Ledger & Wave Diff](assets/unified-wizard/studio_mockup_06c_dv_lineage_and_wave_diff.png)
+*DV Schema Explorer View 2 (`06c`): `100%` column triage ledger, `W1 -> W2 -> W3` schema diff, populated Vault row preview, and Safe SQL Runner (`validate_safe_sql()`).*
 
-The interactive Pipeline Builder (`apps/opendv-web-workbench/src/explorer/builder/WizardShell.tsx`) provides a guided 4-step workflow for configuring, inspecting, and executing single-run Data Vault 2.0 pipelines:
+### 4.8 Live Session & Per-Stage Logs Inspector (`SessionLogsInspector`, `07`, `D24`)
+Click **`Logs & Traces (<count>)`** in the header or **`View Stage Logs ↗`** / any Step 6 console pill (`00..06`):
+- **`EventSource` Live Tail**: Streams `/api/v1/ontology/studio/sessions/{id}/logs/stream` (`text/event-stream`, `Last-Event-ID` gapless replay, `● Follow Live Tail` / `⏸ Pause Auto-Scroll`), filtered by `wizard_step`, `stage_id`, `persona`, and `category`.
+- **4 Deep Tabs & Retention (`D24`)**: Inspect `Masked Prompt & Context`, `Streaming / Structured LLM Response`, `Tool Calls & @toon_v1 Traces`, and `Raw JSON Event`. Full PII-masked prompts and LLM responses are retained for the session lifetime with `50 MB` `.gz` rotation, `.jsonl` export, and `.odvstudio.zip` bundle inclusion.
 
-1. **Step 1: Foundation (`Step1Foundation.tsx`)**:
-   - **Contract & Lineage Source**: Choose between an active Studio Session (e.g. `am-fund`), an existing run's `VaultBlueprint` (`vault_blueprint.yaml`), or direct file/spec upload.
-   - **Target Hub Extraction**: Automatically maps CBCs, target Hub tables, and business keys with zero manual typing.
-2. **Step 2: Connector Sources (`Step2ConnectorSources.tsx` & `CatalogTablePickerModal.tsx`)**:
-   - **Multi-Connector Catalog**: Configure Files (CSV, Parquet, JSONL), Multi-Table SQLite (`.sqlite`), or Databricks Unity Catalog (`uc://`).
-   - **Interactive Table & Key Picker**: Select database tables, designate primary keys and business keys, and configure sampling policies (e.g., maximum rows sampled into DuckDB sandbox).
-3. **Step 3: Governance & Dialect (`Step3GovernanceAndDialect.tsx`)**:
-   - **Target SQL Dialect**: Choose between `duckdb` (for local shadow validation) and `databricks` (for Databricks Delta Lake 4-zone DDL).
-   - **Data Governance Controls**: Configure PII/MNPI column tagging, confidentiality masking rules, and zero-drift strictness.
-4. **Step 4: Validate & Run (`Step4ValidateAndRun.tsx`)**:
-   - **Single-Run Execution**: Compiles and verifies the 4-zone schema (`staging`, `raw_vault`, `business_vault`, `marts`).
-   - **Diff Inspector (`DiffInspector.tsx`)**: Displays an interactive schema diff highlighting added tables, companion satellites, and column renames.
-   - **Action Buttons**:
-     - **Download Artifacts**: Export `final_four_zone.sql`, `vault_blueprint.yaml`, `final_contract.yaml`, and `pipeline_report.json`.
-     - **Evolve Schema with New Data ->**: 1-click transition that feeds the output `VaultBlueprint` into a new run for progressive schema evolution.
-     - **Sync Ontology Delta to Studio Session**: Explicitly propagates newly discovered schema drift and table structures back into the Studio Session as an additive delta.
+![Session Agent & Execution Logs Inspector](assets/unified-wizard/studio_mockup_07_session_agent_logs.png)
+*`SessionLogsInspector` (`07`): Live `EventSource` stream, step/stage/persona filters, live token/cost meter, 4 deep inspection tabs, and `.jsonl` download.*
 
 ---
 
 ## 5. Dual-CLI Command Recipes
 
-Open-DV provides 15 studio subcommands (21 shared dual-CLI leaf commands + standalone-only `init`, 22 total in `schemas/v1/cli-spec.json`) across `opendv` and `opendvctl` under the `ontology studio` namespace. Below are working invocations for every command:
+Open-DV provides full operational parity across `opendv` and `opendvctl` under `ontology studio` (21 subcommand groups incl. `attach-source`, `fibo-qa`, and `logs`, plus `run dv-schema` and `serve`). Below are working invocations:
 
 ### 5.1 Session Lifecycle Commands
 
-#### `init` (standalone-only)
-Initialize the local studio loopback token and permissions:
+#### `init` (standalone compatibility shim)
+Benign loopback compatibility shim preserved for legacy automation (`D18` loopback zero-auth requires no tokens):
 
 ```bash
 opendv ontology studio init
-```
-
-Force rotation of existing local token:
-
-```bash
-opendv ontology studio init --force
 ```
 
 #### `create`
@@ -1247,8 +1167,7 @@ opendv ontology studio staged promote --session am-session-01 --candidate-id can
 # Path A via opendvctl
 opendvctl ontology studio staged promote --session am-session-01 --candidate-id cand-holding-debt-001 --synonyms "NegotiableDebtSecurity, CorporateDebtBond" --api-url http://127.0.0.1:8420
 
-# Path B: Promote via Admin Signed Waiver (requires admin role & >=10 char rationale)
-export OPENDV_WAIVER_KEY="secret-admin-hmac-key"
+# Path B: Promote via explicit governance rationale (>=10 char rationale)
 opendv ontology studio staged promote --session am-session-01 --candidate-id cand-bespoke-002 --waiver --rationale "Authorized proprietary credit facility per board charter"
 
 # Path B via opendvctl
@@ -1292,6 +1211,52 @@ opendvctl pipeline run --blueprint artifacts/vault_blueprint.yaml --source "data
 
 ---
 
+### 5.10 Phase 2 Unified Wizard, DV Schema & Logs Commands (`D13`, `D18`)
+
+#### `ontology studio attach-source`
+Attach and profile a tabular connector source (`sqlite`, `duckdb`, `databricks`, `csv`, `parquet`, `xlsx`, `jsonl`, `filesystem`) with secret-reference enforcement (`env:` / `secret:`):
+
+```bash
+opendv ontology studio attach-source --session am-session-01 --adapter sqlite --uri data/public_am/am_sec_treasury_ibor.sqlite
+opendvctl ontology studio attach-source --session am-session-01 --adapter csv --uri data/custody_feed.csv --do-not-send-to-agent --api-url http://127.0.0.1:8420
+```
+
+#### `ontology studio fibo-qa`
+Ask cited FIBO & evidence alignment questions (`D2`) via the live agent harness:
+
+```bash
+opendv ontology studio fibo-qa --session am-session-01 --question "Does Sovereign Repo map to fibo-sec-dbt or require a custom entity?"
+opendvctl ontology studio fibo-qa --session am-session-01 --question "What is the canonical key for CustodianAccount?" --api-url http://127.0.0.1:8420
+```
+
+#### `ontology studio logs`
+Inspect or live-stream (`--follow`) merged session & stage execution logs (`STAGE_00..07` or Step 6 pill aliases `00..06`):
+
+```bash
+opendv ontology studio logs --session am-session-01 --stage 03 --step 6 --category agent --json
+opendvctl ontology studio logs --session am-session-01 --stage STAGE_04_SHIP_VAULT_PASS2 --follow --api-url http://127.0.0.1:8420
+```
+
+#### `run dv-schema`
+Inspect the Data Vault 2.0 schema graph projection, multi-wave diffs (`--compare`), populated DuckDB table rows (`--table`), or execute bounded read-only SQL (`--sql`, guarded by `validate_safe_sql()`):
+
+```bash
+opendv run dv-schema --run-id run_am_w1
+opendv run dv-schema --run-id run_am_w2 --compare run_am_w1
+opendv run dv-schema --run-id run_am_w1 --table hub_security --limit 25 --offset 0
+opendvctl run dv-schema --run-id run_am_w1 --sql "SELECT * FROM information_mart.vw_security_current LIMIT 10" --api-url http://127.0.0.1:8420
+```
+
+#### `serve` (Loopback Open Access & Remote Refusal Guard `D18`)
+Start the platform server safely on loopback, or explicitly opt into unauthenticated remote binding (`exit code 40` if omitted on non-loopback `--host`):
+
+```bash
+opendv serve --host 127.0.0.1 --port 8420 --open
+opendv serve --host 0.0.0.0 --port 8420 --allow-remote-unauthenticated
+```
+
+---
+
 ## 6. Troubleshooting & Error Recovery Catalog
 
 ### 6.1 Canonical 11-Step Error Precedence Order
@@ -1302,7 +1267,7 @@ When validating any incoming operation or request, the Studio engine evaluates e
 [ Step 0: CLI-Local Syntax / Flags ] ────────► Exit 2 (SYNTAX_INVALID_ARGUMENT)
                    │
                    ▼
-[ Step 1: AuthN Token Resolution ] ──────────► Exit 7 (UNAUTHENTICATED / HTTP 401)
+[ Step 1: Loopback Principal & Origin ] ─────► Exit 7 (CSRF_ORIGIN_DENIED / HTTP 403)
                    │
                    ▼
 [ Step 2: Precondition Syntax ] ─────────────► Exit 2 (SYNTAX_INVALID_ARGUMENT / HTTP 400)
@@ -1317,13 +1282,13 @@ When validating any incoming operation or request, the Studio engine evaluates e
 [ Step 5: Envelope Segregation ] ────────────► Exit 4 (ONT_EVO_ENVELOPE_VIOLATION)
                    │
                    ▼
-[ Step 6: Lifecycle & Lock State ] ──────────► Exit 6 (LOCK_TIMEOUT / HTTP 409)
+[ Step 6: Lifecycle & Lock State ] ──────────► Exit 6 / 20 (LOCK_TIMEOUT / 409 SESSION_JOB_ACTIVE)
                    │
                    ▼
-[ Step 7: Field Authorization ] ─────────────► Exit 7 (Admin required before waiver check)
+[ Step 7: Field Authorization ] ─────────────► Exit 7 (Actor field permissions)
                    │
                    ▼
-[ Step 8: Semantic Waiver Validation ] ──────► Exit 4 (INVALID_GROUNDING_WAIVER / HTTP 422)
+[ Step 8: Grounding & Rationale Checks ] ────► Exit 4 (INVALID_GROUNDING_WAIVER / HTTP 422)
                    │
                    ▼
 [ Step 9: Concurrency Control (OCC) ] ───────► Exit 5 (OCC_CONFLICT / HTTP 412)
@@ -1339,11 +1304,15 @@ When validating any incoming operation or request, the Studio engine evaluates e
 | **0** | Success | `200`, `201`, `202` | Operation completed successfully. |
 | **1** | Operational Failure | `400`, `500`, `503` | OCR binary unavailable, external LLM failure, or missing required rationale. |
 | **2** | Syntax / Precondition | `400` | Unrecognized CLI flag, missing mandatory path, or invalid JSON syntax. |
-| **3** | Not Found | `404` | Session ID, source document ID, proposal ID, or question ID not found. |
-| **4** | Semantic / Contract | `422` | ONT-EVO grounding violation, envelope violation, corrupt source blob, or waiver error. |
+| **3** | Not Found | `404` | Session ID, run ID, source document ID, proposal ID, or question ID not found. |
+| **4** | Semantic / Contract | `422` | ONT-EVO grounding violation, envelope violation, or corrupt blob. |
 | **5** | OCC Concurrency Conflict | `412` | Head SHA-256 mismatch (`If-Match` conflict); concurrent edit committed. |
-| **6** | Lock State Conflict | `409` | Active background job lock timeout or concurrent promotion lock in progress. |
-| **7** | Authorization Denied | `401`, `403` | Missing token, non-admin attempting waiver or promotion, or CSRF origin denied. |
+| **6** | Lock State Conflict | `409` | Active background lock timeout or resolved proposal conflict. |
+| **7** | Origin / RBAC Denied | `403` | Cross-site DNS-rebinding `Origin` denied or restricted actor mutation. |
+| **10** | Agent Not Configured | `422` | `mode="agent"` invoked without a ready LLM provider (`AGENT_NOT_CONFIGURED`). |
+| **20** | Session Job Active | `409` | Concurrent job started in a busy session (`SESSION_JOB_ACTIVE`, `D27`). |
+| **30** | Steward / Budget Hold | `202` | Pipeline paused in `PAUSED_HOLD` awaiting inline Step 6 resolution (`D14`, `D21`). |
+| **40** | Remote Guard / Validation | Startup Abort / `400` | Non-loopback `--host` passed to `opendv serve` without `--allow-remote-unauthenticated` (`D18`), or `INVALID_REQUEST` (incl. blocked unsafe SQL) in `D13` wizard/`dv-schema` commands. |
 
 ### 6.3 RFC 9457 Problem Details Format
 
@@ -1372,24 +1341,24 @@ All Studio REST API errors return standard RFC 9457 `application/problem+json` p
    - *Fix*: Run `opendv ontology studio status --session <session_id>` to view the latest `head_sha256`, or rebase your proposal via `proposal rebase`.
 
 2. **`ONT_EVO_UNGROUNDED_CONCEPT` (Exit Code 4)**:
-   - *Cause*: A newly added concept (or a workspace-seeded grandfathered concept whose exemption was revoked by one of the 17 existing-concept-mutating operations—`18` total in `CONCEPT_MUTATING_OP_TYPES`) lacks a server-verified `FIBO` `skos:exactMatch` or `skos:closeMatch` mapping with confidence $\ge 0.6500$ (`skos:broadMatch` does not satisfy Path A).
-   - *Fix*: Select a verified `skos:exactMatch` / `skos:closeMatch` FIBO alignment via clarification Q&A, or authorize a per-concept administrative waiver (`OPENDV_WAIVER_KEY`) with `--low-confidence-waiver`, `--ungrounded-concept <uri>`, and `--grounding-rationale`.
+   - *Cause*: A newly added concept (or mutated grandfathered concept) lacks both Path A (`skos:exactMatch` / `skos:closeMatch >= 0.6500`) and Path B empirical `EvidenceRef` citations (`FR-AGT-07`, `D3`, `D4`).
+   - *Fix*: Select a verified `skos:exactMatch` / `skos:closeMatch` FIBO alignment via Clarification Q&A, attach verifiable `EvidenceRef` citations (`--evidence-grounding-file`), or supply `--grounding-rationale` ($\ge 10$ chars).
 
-3. **`LOCK_TIMEOUT` (Exit Code 6)**:
-   - *Cause*: A background parsing or construction job is currently running on the session.
-   - *Fix*: Check job status via `status --session <session_id>` or wait for the active worker to release the lock.
+3. **`LOCK_TIMEOUT` (Exit Code 6) & `SESSION_JOB_ACTIVE` (`HTTP 409` / Exit Code 20, `D27`)**:
+   - *Cause*: Another parsing, construction, or pipeline job is already active in the same session (`D27`). In the Web Workbench, start actions disable with `Run in progress — view live logs`.
+   - *Fix*: Wait for the active job to complete in `SessionLogsInspector` (or `opendv ontology studio logs --session <id> --follow`), or cancel it before starting a new run.
 
-4. **`FORBIDDEN_ADMIN_REQUIRED` (Exit Code 7)**:
-   - *Cause*: Operation requires Enterprise Architect / Admin privilege (e.g. waiver signing, promotion, concept deletion).
-   - *Fix*: Supply valid admin credentials or execute with an authorized local admin token.
+4. **`422 AGENT_NOT_CONFIGURED` (Exit Code 10, `FR-AGT-01`)**:
+   - *Cause*: Construction or pipeline execution ran in default `mode="agent"` + `stage_output_policy="strict"` without a configured/ready LLM provider (zero silent deterministic fallback in UI `D28`).
+   - *Fix*: Configure a valid provider inside Step 4a (`<AgentHarnessConfigCard />`) or `Settings` and click `Verify & Save` until the header pill turns green `● Agent Ready` (or pass `--mode deterministic` in CLI CI pipelines).
 
-5. **`STUDIO_ALREADY_INITIALIZED` (`HTTP 409`) / `UNAUTHENTICATED` (`HTTP 401`) in Web Workbench**:
-   - *Cause*: Clicking automatic loopback auth when `.opendv/ontology_studio/.local_token` was already created by an earlier session or server run, or opening `/ontology` without an exchanged cookie/bearer token.
-   - *Fix*: Paste the token stored in `.opendv/ontology_studio/.local_token` into the focused token prompt, or relaunch via `uv run opendv serve --open` so the launch nonce exchanges automatically and hydrates your RBAC role (`X-OpenDV-Role`).
+5. **Non-Loopback `opendv serve` Startup Aborted (`exit code 40`, `D18`)**:
+   - *Cause*: Passing a non-loopback `--host` (`0.0.0.0`, `::`, LAN IP) to `opendv serve` without `--allow-remote-unauthenticated`.
+   - *Fix*: Bind to loopback (`opendv serve --host 127.0.0.1 --port 8420 --open`), or pass `--allow-remote-unauthenticated` explicitly if exposing an unauthenticated remote preview (triggers coral `RemoteUnauthenticatedBanner`).
 
 6. **Zero-Operation Candidate Proposal (`0 ops`) in Web Workbench**:
    - *Cause*: Running ontology construction before source documents are uploaded and parsed (or after resolving no extractable entities) emits an empty candidate proposal; the **Accept** button stays disabled.
-   - *Fix*: Upload and parse your domain sources in the **Sources** tab first, re-run construction, and click **Reject** on the `0 ops` proposal to archive/clean it up.
+   - *Fix*: Upload and parse your domain sources in Step 2 (**Sources**) first, re-run construction, and click **Reject** on the `0 ops` proposal to archive/clean it up.
 
 7. **`PROPOSAL_ALREADY_RESOLVED` (`HTTP 409` / Exit Code 6)**:
    - *Cause*: Attempting to refine or accept a candidate proposal that has already reached a terminal state (`ACCEPTED`, `REJECTED`) or was `SUPERSEDED` by an iterative steering prompt refinement.
@@ -1399,10 +1368,10 @@ All Studio REST API errors return standard RFC 9457 `application/problem+json` p
    - *Cause*: Running or validating a Data Vault pipeline containing document sources but zero relational tables without enabling Wave 0 cold-start mode.
    - *Fix*: Supply `--unstructured-only` on the CLI (`opendv pipeline run --input <spec.yaml> --unstructured-only`) or set `unstructured_only: true` in your pipeline specification YAML.
 
-9. **`INVALID_GROUNDING_WAIVER` (Exit Code 4 / `HTTP 422`)**:
-   - *Cause*: Submitting an administrative grounding waiver with a rationale shorter than 10 characters or without verified admin privileges.
-   - *Fix*: Ensure the caller holds the `admin` role (via `OPENDV_TOKEN` or `OPENDV_WAIVER_KEY`) and provide a substantive `rationale` string of at least 10 characters explaining why the bespoke concept lacks a standard FIBO equivalent.
+9. **`INVALID_REQUEST` for Unsafe SQL in DV Schema Explorer (`HTTP 400` / Exit Code 40, `D11`)**:
+   - *Cause*: Submitting mutating SQL (`DROP`, `DELETE`, `INSERT`, `UPDATE`) or file/metadata scans to `/dv-schema/query` or `opendv run dv-schema --sql`.
+   - *Fix*: Restrict queries to read-only `SELECT` / `WITH` / `UNION` statements permitted by `validate_safe_sql()`.
 
 10. **`ONT_EVO_CONTRACT_VIOLATION` in Path A Promotion (Exit Code 4 / `HTTP 422`)**:
     - *Cause*: Attempting Path A candidate promotion with synonyms that fail to raise the FIBO BM25 similarity score to $\ge 0.6500$.
-    - *Fix*: Supply recognized financial synonyms (e.g. `"NegotiableDebtSecurity"`) to boost match confidence, or promote via Path B using an administrative signed waiver.
+    - *Fix*: Supply recognized financial synonyms (e.g. `"NegotiableDebtSecurity"`) to boost match confidence, or promote via Path B using verifiable citations / governance rationale.

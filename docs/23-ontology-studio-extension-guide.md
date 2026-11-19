@@ -167,7 +167,7 @@ class XmlSchemaDocumentAdapter(DocumentAdapter):
 ```
 
 ### 2.2 Registering Custom Document Adapters in `IngestionService`
-Register your `DocumentAdapter` directly with `IngestionService` (`opendv_sources.ingestion.service`) using `priority=True` so it takes precedence over generic text/markup fallbacks. (When exposing a brand-new file extension through the REST upload endpoint, also add the extension to `SUPPORTED_EXTENSIONS` in `opendv_platform_api/routers/ontology_studio.py`.)
+Register your `DocumentAdapter` directly with `IngestionService` (`opendv_sources.ingestion.service`) using `priority=True` so it takes precedence over generic text/markup fallbacks. For REST/Wizard ingestion, register adapters via `[project.entry-points."opendv.source_adapters"]` (`opendv_sources`); connector attachment and file upload routing live in `opendv_service/use_cases/sources_inspect.py` and `apps/opendv-platform-api/src/opendv_platform_api/routers/ontology_studio_evidence.py` (while `routers/ontology_studio.py` is a thin facade aggregating the decomposed domain sub-routers).
 
 ```python
 from opendv_sources.adapters import get_default_document_adapters
@@ -518,6 +518,8 @@ For multi-table relational databases, cloud lakehouses, and catalog metastores (
 3. Expand catalog feeds into per-table `ResolvedTableSource` descriptors.
 4. Execute pushdown profiling inside the source warehouse to avoid full data egress.
 
+Registered `CatalogSourceAdapter` plugins exposed via `[project.entry-points."opendv.source_adapters"]` and `SourceSchemeRegistry` surface automatically through `opendv_service/use_cases/sources_inspect.py` (`list_adapters`, `inspect_source`) and `routers/ontology_studio_evidence.py` (`/sources/connectors`), enforcing `_FORBIDDEN_SECRET_KEYS` and `CREDENTIALS_REF_RE` (`env:` / `secret:`) without UI hardcoding.
+
 ```python
 from __future__ import annotations
 
@@ -739,3 +741,7 @@ uv run ruff check tests/docs/
 - [x] Custom task specs and filters enforce sticky confidential tainting and `(?<![A-Za-z0-9])` `snake_case`-safe HMAC-SHA256 pseudonymization.
 - [x] Custom export serializers strictly validate/quote identifiers and strip CR/LF/`*/` from untrusted ontology text.
 - [x] Custom catalog source adapters implement `CatalogSourceAdapter` for multi-table catalog enumeration, PK/FK prior extraction, and warehouse pushdown profiling.
+
+### Phase 1–4 Projection & Telemetry Extension Hooks
+- **`DvSchemaProjection` (`DvSchemaProjectionDTO`):** `opendv_service/use_cases/dv_schema_explorer.py` projects `CanonicalIR`, `NoMistakeDataVault2ContractV5`, and wave-comparison diffs cleanly into the 4-view `DV Schema Explorer` (`GET /api/v1/runs/{run_id}/dv-schema`); custom SQL extensions or persisted DuckDB queries must continue routing through `validate_safe_sql()` (`opendv_duckdb_sandbox/sql_guard.py`, read-only `SELECT`/`WITH`/`UNION` AST allowlist + `enable_external_access=False`).
+- **`HarnessStreamEvent` Telemetry Hooks:** Real-agent runs dispatch `VaultAgentHarness.run_task(..., on_event=...)` emitting typed `HarnessStreamEvent`s (`SESSION_START`, `TEXT_DELTA`, `TOOL_CALL_START`, `TOOL_CALL_RESULT`, `STEWARD_HOLD`, `TURN_COMPLETE`) into `session_logs_service.py` / `SSEJournalWriter` (PII-masked via `(?<![A-Za-z0-9])` boundaries) for `SessionLogsInspector` and `opendv ontology studio logs --follow`.

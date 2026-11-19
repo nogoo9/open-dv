@@ -1,38 +1,38 @@
 # 20 — Open-DV Ontology Construction Studio: Functional Specification & Interface Reference
 
-**Status:** Normative Functional Specification (Milestone M2 Deliverable)  
+**Status:** Normative Functional Specification (Updated for Unified Phases 1–4)  
 **Target Repository:** `open-dv` (`packages/opendv-contracts`, `packages/opendv-sources`, `packages/opendv-agent-harness`, `packages/opendv-service`, `apps/opendv-platform-api`, `apps/opendv-cli`, `apps/opendvctl`, `apps/opendv-web-workbench`)  
-**Interface Dialects:** OpenAPI 3.1.0 (`schemas/v1/openapi.json`), CLI Specification v1 (`schemas/v1/cli-spec.json`), W3C Server-Sent Events, RFC 8785 JCS, RFC 9457 Problem Details  
-**Normative Cross-References:** `docs/19-ontology-studio-architecture.md`, `master-plan.md`, `ADR-001` through `ADR-016`, `HANDOFF.md`
+**Interface Dialects:** OpenAPI 3.1.0 (`schemas/v1/openapi.json` & `schemas/openapi-v1.json`), CLI Specification v1 (`schemas/v1/cli-spec.json`), W3C Server-Sent Events, RFC 8785 JCS, RFC 9457 Problem Details  
+**Normative Cross-References:** [`DESIGN.md`](../DESIGN.md), [`docs/19-ontology-studio-architecture.md`](19-ontology-studio-architecture.md), [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](27-unified-ontology-pipeline-requirements-and-uat.md), [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md), `ADR-001` through `ADR-016`
 
 ---
 
 ## 1. Functional Requirements & Personas
 
-### 1.1 Target System Personas & Role Hierarchy
-The Open-DV Ontology Construction Studio enforces a 4-tier role hierarchy: `viewer` $\subset$ `editor` $\subset$ `admin`, with `automated` (`INTERNAL_MODELER`) as a non-human service identity:
+### 1.1 Target System Personas & Open-Access Loopback Model (`D18`, `D28`)
+Under Phase 1 loopback zero-auth open access (`D18`, `FR-AUTH-01..04`), local loopback callers on `127.0.0.1` / `::1` require zero login tokens or CSRF headers and resolve directly to `StudioPrincipal(subject="human:local_user", role="admin")` (`RbacRole.PRIVILEGED_CUSTODIAN`). For CLI/platform auditability, the core role catalog spans `viewer`, `editor`, `admin`, and `automated` (`INTERNAL_MODELER`):
 
 | Persona | Role Clearance | Primary Objectives | Interface Surfaces | Constraints |
 |---|---|---|---|---|
-| **Viewer** | `viewer` | Read-only inspection (`list`, `status`, `proposal list/show`, `export`). | CLI / Workbench | Read-only; cannot mutate state. |
-| **Data Steward** | `DATA_STEWARD` / `editor` | Discovers semantics, answers clarifications, reviews proposals, applies additive deltas. | Web Workbench SPA (`/ontology`), interactive Q&A | Additive modeling only; admin waiver required for low confidence. |
-| **Enterprise Architect** | `RESTRICTED_PII_CUSTODIAN` / `admin` | Governs workspaces, grants waivers, executes steward revisions, authorizes promotion. | In-process CLI (`opendv`), `opendvctl`, admin dialogs | Full administrative elevation; accountable for audit trail. |
-| **Automated Modeler / CI** | `INTERNAL_MODELER` / `automated` | Headless CI/CD execution, zero-credential deterministic pipelines. Explicit allow-list: `create`, `upload`, `parse`, `construct --mode deterministic --auto-commit`. | Headless CLI / CI runner | Destructive ops, waivers, manual proposal accept, and promotion strictly forbidden. |
+| **Viewer** | `viewer` | Read-only inspection (`list`, `status`, `proposal list/show`, `export`, `logs`, `run dv-schema`). | CLI / Workbench | Read-only; cannot mutate state. |
+| **Data Steward** | `DATA_STEWARD` / `editor` | Ingests sources/connectors, inspects Step 3 evidence, runs Agent Discovery (`D28`), answers clarifications, cherry-picks proposals, applies additive deltas. | 4-Tab Web Workbench (`/` Unified Wizard, `/dv-schema`) | Additive modeling only; Path A/B grounding (`FR-AGT-07`) enforced. |
+| **Enterprise Architect** | `RESTRICTED_PII_CUSTODIAN` / `admin` | Default local loopback identity (`human:local_user`); governs workspaces, resolves Step 6 Steward/Budget Holds (`D14`, `D21`), executes steward revisions, authorizes promotion. | Loopback Web Workbench, `opendv`, `opendvctl` | Full administrative elevation; accountable for audit trail. |
+| **Automated Modeler / CI** | `INTERNAL_MODELER` / `automated` | Headless CLI CI/CD execution (`--mode deterministic` lives solely in CLI/API, never in UI `D28`). | Headless CLI / CI runner | Destructive ops and manual proposal accept restricted; tagged `mode=deterministic` in logs. |
 
-### 1.2 Functional Requirements (FR-1 through FR-10)
+### 1.2 Functional Requirements (FR-1 through FR-10 & Phase 1–4 Extensions)
 
 | Requirement ID | Name | Summary Description | Applicable Personas | Normative Exit Codes |
 |---|---|---|---|---|
-| **FR-1** | Multi-Format Document Ingestion | Ingest, hash, and index source files (PDF, MD, CSV, Parquet, JSON, Office) into CAS with NFC/LF normalization and codepoint offset extraction. | All personas | 0 (OK), 2 (Syntax), 4 (Corrupt), 1 (OCR/Office missing) |
-| **FR-2** | Reference Ontology Alignment | Search, score, and align discovered business concepts against curated FIBO core modules (`FND`, `BE`, `FBC`, `SEC`, `LOAN`, `IND`) using Okapi BM25 ($\ge 0.6500$). | All personas | 0 (OK), 4 (Grounding violation) |
-| **FR-3** | Dual-Mode Ontology Construction | Execute construction via Agent-First mode (3-persona LLM) or Deterministic Fallback mode (zero-API-key heuristics + BM25 + holding area). | All personas | 0 (OK), 1 (Agent down), 2 (Precondition mismatch) |
-| **FR-4** | Interactive Clarification Q&A | Automatically generate structured domain ambiguity questions with semantic rationale options, persisting human responses in CAS. | Steward | 0 (OK), 3 (Question not found) |
-| **FR-5** | Additive Delta Management | Calculate SemVer per 24-Op Calculus & Genesis Invariant (`0.0.0` $\to$ `1.0.0` on initial CBC, then additive bumps) and commit immutable snapshots. | Steward, Architect | 0 (OK), 4 (Envelope/contract violation), 5 (OCC) |
-| **FR-6** | Steward Revisions & Rebase | Apply destructive mutations under admin privilege; rebase proposals across concurrent head commits using 24-operation conflict matrix. | Architect | 0 (OK), 7 (Non-admin denied), 5 (Conflict) |
-| **FR-7** | Interactive Web Studio Workbench | Decoupled React 19 SPA at `/ontology` with React Flow graph canvas, background `elkjs` layout, Level-of-Detail (LOD), and diff badges. | Steward, Architect | N/A (Web UI) |
-| **FR-8** | Dual-CLI Platform Parity | Maintain bit-for-bit operational parity between in-process `opendv` (`LocalExecutor`) and Bun client `opendvctl` (`RemoteExecutor`). | All personas | 0..7 (Strict exit code mapping via error-codes.json) |
-| **FR-9** | Workspace Pipeline Promotion | Atomically promote committed session head ontologies into workspace pipelines under containment check, contract resolution, and `graph_a.lock`. | Architect | 0 (OK), 1 (Rationale missing), 2 (Path), 5 (OCC) |
-| **FR-10** | Secure Session Bundle Portability | Export CAS sessions to `.odvstudio.zip` archives; import archives with streaming decompression limits, ZIP bomb guards, and delta replay. | Steward, Architect | 0 (OK), 4 (Archive violation / replay mismatch) |
+| **FR-1** | Multi-Format Ingestion & Connectors | Ingest files (PDF, DOCX, MD, CSV, Parquet, JSON), inline domain notes, and structured connectors (`SQLite`, `DuckDB`, `Databricks UC`, tabular files via `sources_inspect` + `GraphBProfiler`, `P1`). | All personas | 0 (OK), 2 (Syntax), 4 (Corrupt), 1 (OCR/Office missing) |
+| **FR-2** | Reference Alignment & Empirical Grounding | Align concepts via FIBO BM25 (`>= 0.6500` Path A) or Path B empirical `EvidenceRef` citations (`FR-AGT-07`, `D3`, `D4` zero mention-count floor). | All personas | 0 (OK), 4 (Grounding violation) |
+| **FR-3** | Agent-First Synthesis (`422` Gate) & CLI CI Mode | Web UI is 100% Agent-only (`D28`); `mode="agent"` fails closed with `422 AGENT_NOT_CONFIGURED` if unconfigured; single-pass `@term-scout -> @domain-clarifier -> @ontology-architect` (`D1`), `HarnessBudget` cost meter + `BudgetHold` (`D21`), and CLI-only `--mode deterministic` for CI (`FR-CLI-07`). | All personas | 0 (OK), 10 (`422`), 20 (`409`), 1 (Agent down) |
+| **FR-4** | Dual FIBO Q&A & Citation Drawer | Structured `@domain-clarifier` Q&A (`Q1..Qn`) with live cascade (`D1`, `D5`) + interactive `Ask FIBO & Sources` (`POST .../fibo-qa`, `D2`) + batch `CitationInspectorDrawer` (`4c`). | Steward, Architect | 0 (OK), 3 (Question not found) |
+| **FR-5** | Additive Delta Management & Opt-In `MAJOR` | Calculate SemVer per 24-Op Calculus; isolate breaking ops into unchecked-by-default `MAJOR · Opt-In` (`D7`); optional Step 5 `VisualEditorDrawer` (`D15`) + `Export Ontology Only` (`D9`). | Steward, Architect | 0 (OK), 4 (Envelope/contract violation), 5 (OCC) |
+| **FR-6** | Steward Revisions, Rebase & Concurrency | Apply destructive mutations under admin privilege; rebase `STALE` proposals; enforce one active job per session (`409 SESSION_JOB_ACTIVE`, `D27`). | Architect | 0 (OK), 20 (`409` active job), 5 (Conflict) |
+| **FR-7** | Claude `DESIGN.md` 4-Tab Workbench & Explorer | Unified 4-tab shell (`Ontology & Pipeline`, `DV Schema Explorer`, `Run Explorer`, `Settings`) with 6-Step Wizard, 4-View `/dv-schema` (`D11` `validate_safe_sql`, `5-Zone Z0–Z4` + `information_mart`), `SessionLogsInspector` (`07`), and `<768px` view-only responsiveness (`D26`). | Steward, Architect | N/A (Web UI) |
+| **FR-8** | Dual-CLI Platform Parity (`D13`) | Maintain bit-for-bit JCS operational parity across `opendv`, `opendvctl`, and REST, including 4 new subcommands (`run dv-schema`, `ontology studio attach-source`, `ontology studio fibo-qa`, `ontology studio logs`). | All personas | Mapping via `error-codes.json` (`0, 1..7, 10, 20, 30, 40`) |
+| **FR-9** | Workspace Promotion & Step 6 Hold Resolution | Atomically promote head ontologies (`graph_a.lock`), auto-bind multi-wave `deployed_contract` (`D12`), resolve `StewardHoldModal` inline in Step 6 (`D14`), and `↺ Sync Drift` (`D10`). | Architect | 0 (OK), 1 (Rationale missing), 2 (Path), 5 (OCC), 30 (`PAUSED_HOLD`) |
+| **FR-10** | Secure Session Bundles & Log Retention (`D24`) | Export/import `.odvstudio.zip` archives with streaming ZIP bomb guards, delta replay, and session-lifetime `50 MB` `.gz`/`.jsonl` prompt/LLM logs (`D24`). | Steward, Architect | 0 (OK), 4 (Archive violation / replay mismatch) |
 
 ---
 
@@ -67,15 +67,15 @@ The Open-DV Ontology Construction Studio enforces a 4-tier role hierarchy: `view
 - **AC-3 (Dual-CLI Parity)**: `opendv --dump-cli-tree` and `opendvctl --dump-cli-tree` produce canonical JCS command trees matching identically across spec version, commands, options, and error maps.
 - **AC-4 (Construction Parity)**: Deterministic Fallback and Agent-First modes output valid `GraphAOntology` structures satisfying ONT-EVO rules.
 - **AC-5 (Zero Offset Drift)**: Character offsets in `PageMapEntry` and `EvidenceRef` extracted from identical text are bit-for-bit identical across Windows, Linux, and macOS.
-- **AC-6 (Security Perimeter Enforcement)**: Remote `/init`, `OPENDV_WORKSPACE_ROOTS` escapes, or ZIP bomb/symlinks reject with exit codes 7, 2, and 4 respectively.
+- **AC-6 (Security Perimeter & Loopback Guard Enforcement)**: Non-loopback `--host` without `--allow-remote-unauthenticated` aborts with exit code `40` (`D18`); `OPENDV_WORKSPACE_ROOTS` escapes and ZIP bomb/symlinks reject with exit codes 2 and 4 respectively; `validate_safe_sql()` enforces read-only `SELECT`/`UNION` SQL (`D11`).
 - **AC-7 (Deployed Table Contract Guard)**: Destructive operations targeting deployed Data Vault tables are blocked with HTTP 422 and exit code 4.
 - **AC-8 (Schema Synchronization)**: `error-codes.json`, `baseline-digests.json`, `openapi.json`, and `cli-spec.json` pass validation with zero undocumented tokens.
 
 ---
 
-## 3. REST API Specification (`/api/v1/ontology/studio`)
+## 3. REST API Specification (`/api/v1/ontology/studio` & `/api/v1/runs/{run_id}/dv-schema`)
 
-All REST endpoints are rooted at `/api/v1/ontology/studio`. Bootstrap endpoints `POST /init` (loopback only, `local_standalone` mode; initial setup is unauthenticated on loopback, while `force=true` rotation strictly requires Bearer token possession `Authorization: Bearer <local_token>`) and `POST /auth/token` (single-use launch nonce exchange) run pre-authentication. To prevent DNS rebinding and cross-site attacks, bootstrap endpoints reject cross-site requests (`Sec-Fetch-Site: cross-site` or unauthorized foreign Origin) with `403 Forbidden` (`CSRF_ORIGIN_DENIED`, exit 7). Every subsequent state-mutating request MUST be authenticated via Bearer token (`Authorization: Bearer <token>`), mTLS client certificate, or launch-exchanged session cookie with `X-OpenDV-Workbench: 1` CSRF header. In `local_standalone` mode, loopback callers authenticate using `.local_token` or local session cookie.
+All Studio endpoints are rooted at `/api/v1/ontology/studio` (decomposed into `< 5,000`-token routers `ontology_studio_{sessions,evidence,citations,proposals,logs,exports,blueprint}.py` plus `routers/dv_schema_explorer.py`, `D16`). Under Phase 1 loopback open access (`D18`, `FR-AUTH-01..04`), loopback requests require zero tokens, cookies, or custom CSRF headers, mapping automatically to `StudioPrincipal(subject="human:local_user", role="admin")`. `POST /init` and `/auth/*` are preserved solely as benign `200 OK` compatibility shims. To prevent DNS rebinding, the server strips `X-Forwarded-*` headers and enforces loopback `Host`/`Origin` validation (`403 CSRF_ORIGIN_DENIED`, exit 7), while refusing non-loopback `--host` bindings with **exit code `40`** unless `--allow-remote-unauthenticated` is passed.
 
 **Strict Path Safety & Containment**: All path and query parameters are validated against closed patterns before path construction:
 - `session_id`, `proposal_id`, `job_id`, `question_id`: `^[a-z0-9_-]{1,64}$` (`session_id` excludes reserved names `bundle`, `init`, `sessions`, `health`, `auth`, `admin`).
@@ -86,158 +86,105 @@ Every path within `<session_dir>` is verified via `try: os.path.commonpath([os.p
 ### 3.1 Endpoint Inventory & Parameter Matrix
 
 ```
-Base URI: /api/v1/ontology/studio
+Base URIs: /api/v1/ontology/studio  |  /api/v1/runs/{run_id}/dv-schema
 ```
 
-#### 1. `POST /init`
-- **Summary**: Initialize Loopback Studio Workbench (`human:local_admin`). Loopback-only bootstrap; disabled in `remote_platform` mode.
-- **Headers & Query**: optional `force` (bool); if `force=true`, requires `Authorization: Bearer <existing_local_token>`.
-- **Responses**: 200 `InitStudioResponse` | 400 `ProblemDetail` | 401 `UNAUTHENTICATED` (on unauthenticated `force=true`) | 403 `LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE` | 409 `STUDIO_ALREADY_INITIALIZED` | 500 `INSECURE_STUDIO_ROOT_PERMISSIONS`
+#### 1. `POST /init` (Compatibility Shim)
+- **Summary**: Benign `200 OK` loopback compatibility shim (`human:local_user`, `admin`). Legacy token-minting and `409` re-init barriers were retired in Phase 1 (`D18`).
+- **Responses**: 200 `InitStudioResponse` | 403 `CSRF_ORIGIN_DENIED` (cross-site origin)
 
 #### 2. `GET /sessions`
-- **Summary**: List Studio Sessions
-- **Parameters**: `limit` (int=50), `offset` (int=0), `status` (string, optional)
-- **Responses**: 200 `list[StudioSessionSummaryDTO]` | 401 `UNAUTHENTICATED`
+- **Summary**: List Studio Sessions (`?wizard_only=true` filters to `wizard_schema_version` sessions + returns `legacy_session_count` per `D25`).
+- **Parameters**: `limit` (int=50), `offset` (int=0), `status` (string, optional), `wizard_only` (bool, optional)
+- **Responses**: 200 `StudioSessionListDTO` / `list[StudioSessionSummaryDTO]`
 
-#### 3. `POST /sessions`
-- **Summary**: Create Studio Session
-- **Request Body**: `CreateSessionRequest`
-- **Responses**: 201 `StudioSessionDTO` | 400 `INVALID_WORKSPACE_PATH`, `REMOTE_SERVER_PATH_FORBIDDEN`, `CONFLICTING_WORKSPACE_SEED_PARAMS` | 401 `UNAUTHENTICATED` | 403 `AGENT_OPERATION_FORBIDDEN` | 409 `SESSION_ALREADY_EXISTS`
+#### 3. `POST /sessions` & `POST /sessions/import-ontology`
+- **Summary**: Create Studio Session (`wizard_schema_version` recorded on new sessions `D25`) or import `.yaml`/`.json`/`.ttl` baseline ontology (`POST /sessions/import-ontology`) with RFC 8785 JCS SHA-256 verification.
+- **Request Body**: `CreateSessionRequest` / `multipart/form-data` (`file`, `domain_namespace`, `enterprise_owner`)
+- **Responses**: 201 `StudioSessionDTO` | 400 `INVALID_WORKSPACE_PATH`, `REMOTE_SERVER_PATH_FORBIDDEN`, `CONFLICTING_WORKSPACE_SEED_PARAMS` | 409 `SESSION_ALREADY_EXISTS`
 
 #### 4. `GET /sessions/{session_id}`
 - **Summary**: Get Studio Session Details
 - **Path Parameters**: `session_id` (`^[a-z0-9_-]{1,64}$`, excluding reserved names `bundle`, `init`, `sessions`, `health`, `auth`, `admin`)
-- **Responses**: 200 `StudioSessionDetailDTO` | 400 `INVALID_SESSION_IDENTIFIER` | 401 `UNAUTHENTICATED` | 404 `SESSION_NOT_FOUND`
+- **Responses**: 200 `StudioSessionDetailDTO` | 400 `INVALID_SESSION_IDENTIFIER` | 404 `SESSION_NOT_FOUND`
 
 #### 5. `DELETE /sessions/{session_id}`
-- **Summary**: Delete Studio Session (Admin)
+- **Summary**: Delete Studio Session (also removes session-lifetime logs per `D24`)
 - **Path Parameters**: `session_id` (string); **Query Parameters**: `force` (boolean, default: false)
-- **Responses**: 204 No Content | 400 `SYNTAX_INVALID_ARGUMENT` | 401 `UNAUTHENTICATED` | 403 `FORBIDDEN_ADMIN_REQUIRED` | 404 `SESSION_NOT_FOUND` | 422 `CANNOT_DELETE_PROMOTED_SESSION`
+- **Responses**: 204 No Content | 400 `SYNTAX_INVALID_ARGUMENT` | 404 `SESSION_NOT_FOUND` | 422 `CANNOT_DELETE_PROMOTED_SESSION`
 
-#### 6. `POST /sessions/{session_id}/sources`
-- **Summary**: Upload Source Document to CAS
-- **Path Parameters**: `session_id` (string)
-- **Request Body**: `multipart/form-data` (`file`, `do_not_send_to_agent`, `description`)
-- **Responses**: 201 `SourceUploadResponse` | 400 `INVALID_SESSION_IDENTIFIER` | 401 `UNAUTHENTICATED` | 404 `SESSION_NOT_FOUND` | 413 `PAYLOAD_TOO_LARGE` | 422 `CORRUPT_SOURCE_BLOB`
+#### 6. `POST /sessions/{session_id}/sources`, `/sources/connectors` & `/sources/text`
+- **Summary**: Attach tabular connectors (`SQLite`, `DuckDB`, `Databricks UC`, `CSV`, `Parquet`, `XLSX`, `JSONL` via `sources_inspect` + `GraphBProfiler`, `P1`), upload multipart documents (`ocr`, `do_not_send_to_agent`), or add inline domain notes (`/sources/text`, CRLF-normalized UTF-8 spans).
+- **Responses**: 201 `SourceUploadResponse` / `ConnectorAttachResponse` | 400 `INVALID_SESSION_IDENTIFIER`, `SYNTAX_INVALID_ARGUMENT` | 404 `SESSION_NOT_FOUND` | 413 `PAYLOAD_TOO_LARGE` | 422 `CORRUPT_SOURCE_BLOB`
 
 #### 7. `DELETE /sessions/{session_id}/sources/{source_id}`
 - **Summary**: Remove Source Document (Tombstone in Manifest)
 - **Path Parameters**: `session_id` (string), `source_id` (string)
-- **Responses**: 204 No Content | 401 `UNAUTHENTICATED` | 404 `SOURCE_NOT_FOUND` | 422 `SOURCE_REFERENCED_BY_COMMITTED_VERSION`, `SOURCE_REFERENCED_BY_PENDING_PROPOSAL`
+- **Responses**: 204 No Content | 404 `SOURCE_NOT_FOUND` | 422 `SOURCE_REFERENCED_BY_COMMITTED_VERSION`, `SOURCE_REFERENCED_BY_PENDING_PROPOSAL`
 
-#### 8. `POST /sessions/{session_id}/parse`
-- **Summary**: Trigger Asynchronous Ingestion & Layout Parsing Job
-- **Path Parameters**: `session_id` (string)
-- **Request Body**: `ParseRequest` (`{ source_ids?: list[string], ocr_mode?: "auto"|"force"|"off" }`)
-- **Responses**: 202 `JobHandleDTO` | 401 `UNAUTHENTICATED` | 404 `SESSION_NOT_FOUND`, `SOURCE_NOT_FOUND` | 501 `OCR_UNAVAILABLE`, `OFFICE_CONVERSION_UNAVAILABLE` (synchronous 501 when `ocr_mode="force"` and required binary is missing; otherwise emitted as terminal async job event)
+#### 8. `POST /sessions/{session_id}/parse` & `GET /sessions/{session_id}/evidence/{tables,chunks}`
+- **Summary**: Trigger asynchronous layout parsing (`POST .../parse`) and inspect Step 3a structured schema profiles + `<= 50` sample rows (`GET .../evidence/tables`) or Step 3b parsed chunks + embedded `table_data` (`GET .../evidence/chunks`).
+- **Responses**: 202 `JobHandleDTO` / 200 `EvidenceTablesDTO` / 200 `EvidenceChunksDTO` | 404 `SESSION_NOT_FOUND`, `SOURCE_NOT_FOUND` | 409 `SESSION_JOB_ACTIVE` | 501 `OCR_UNAVAILABLE`, `OFFICE_CONVERSION_UNAVAILABLE`
 
-#### 9. `POST /sessions/{session_id}/clarify`
-- **Summary**: Trigger Clarification Question Generation Job
-- **Path Parameters**: `session_id` (string)
-- **Request Body**: `ClarifyRequest` (`{ focus_concepts: [...], max_questions: 10 }`)
-- **Responses**: 202 `JobHandleDTO` | 401 `UNAUTHENTICATED` | 404 `SESSION_NOT_FOUND` | 503 `AGENT_UNAVAILABLE`
+#### 9. `POST /sessions/{session_id}/clarify` & `POST .../citations/resolve` & `GET /fibo/lookup` & `POST .../fibo-qa`
+- **Summary**: Generate clarification questions (`/clarify`), batch-resolve Step 4c document spans + table profiles + `fibo-core` definitions (`/citations/resolve`), query side-by-side FIBO entries (`GET /fibo/lookup`), and run live-agent cited `Ask FIBO & Sources` Q&A (`POST .../fibo-qa`, `D2`).
+- **Responses**: 200 / 202 | 404 `SESSION_NOT_FOUND` | 409 `SESSION_JOB_ACTIVE` | 422 `AGENT_NOT_CONFIGURED` | 503 `AGENT_UNAVAILABLE`
 
 #### 10. `POST /sessions/{session_id}/answers`
-- **Summary**: Submit Clarification Answers
+- **Summary**: Submit Clarification Answers (cascades live in Step 4b `D1`, `D5`)
 - **Path Parameters**: `session_id` (string)
 - **Request Body**: `ClarificationAnswerRequest`
-- **Responses**: 200 `ClarificationAnswerResponse` (`{ saved_count, answers_sha256 }`) | 400 `SYNTAX_INVALID_ARGUMENT` | 401 `UNAUTHENTICATED` | 404 `SESSION_NOT_FOUND`, `QUESTION_NOT_FOUND`
+- **Responses**: 200 `ClarificationAnswerResponse` (`{ saved_count, answers_sha256 }`) | 400 `SYNTAX_INVALID_ARGUMENT` | 404 `SESSION_NOT_FOUND`, `QUESTION_NOT_FOUND`
 
 #### 11. `POST /sessions/{session_id}/construct`
-- **Summary**: Trigger Ontology Construction Job
-- **Path Parameters**: `session_id` (string); **Headers**: `If-Match: "<head_sha256>"` (if auto-commit)
-- **Request Body**: `ConstructRequest`
-- **Responses**: 202 `JobHandleDTO` | 400 `MISSING_AUTO_COMMIT_PRECONDITION` | 401 `UNAUTHENTICATED` | 404 `SESSION_NOT_FOUND` | 409 `LOCK_TIMEOUT` | 412 `ONT_EVO_CONCURRENT_MODIFICATION` | 503 `AGENT_UNAVAILABLE`
+- **Summary**: Trigger Ontology Construction Job (`StudioAgentRunner` single pass `@term-scout -> @domain-clarifier -> @ontology-architect`, `D1`, `D21`). Defaults to `mode="agent"` + `stage_output_policy="strict"`.
+- **Path Parameters**: `session_id` (string); **Headers**: `If-Match: "<head_sha256>"` (if CLI auto-commit)
+- **Responses**: 202 `JobHandleDTO` | 400 `MISSING_AUTO_COMMIT_PRECONDITION` | 404 `SESSION_NOT_FOUND` | 409 `SESSION_JOB_ACTIVE` (`D27`), `LOCK_TIMEOUT` | 412 `ONT_EVO_CONCURRENT_MODIFICATION` | 422 `AGENT_NOT_CONFIGURED` (`FR-AGT-01`) | 503 `AGENT_UNAVAILABLE`
 
 #### 12. `POST /sessions/{session_id}/delta`
 - **Summary**: Apply Direct Delta Operations (Additive or Steward Revision)
 - **Path Parameters**: `session_id` (string); **Headers**: `If-Match: "<head_sha256>"` (Required)
-- **Request Body**: `OntologyDeltaRequest` / `StewardRevisionRequest` (accepts optional `low_confidence_waiver?: bool`, `grounding_rationale?: string` for admin waivers)
-- **Responses**: 200 `DeltaCommitResponse` | 400 `SYNTAX_INVALID_ARGUMENT`, `VALIDATION_AMBIGUOUS_TARGET` | 401 `UNAUTHENTICATED` | 403 `AGENT_OPERATION_FORBIDDEN`, `FORBIDDEN_ADMIN_REQUIRED` | 404 `SESSION_NOT_FOUND` | 409 `LOCK_TIMEOUT`, `JOB_COMMIT_IN_PROGRESS` | 412 `ONT_EVO_CONCURRENT_MODIFICATION` | 422 `ONT_EVO_CONTRACT_VIOLATION`, `ONT_EVO_ENVELOPE_VIOLATION`, `ONT_EVO_UNGROUNDED_CONCEPT`, `ONT_EVO_GROUNDING_VIOLATION`, `INVALID_GROUNDING_WAIVER`, `HIERARCHICAL_CYCLE_DETECTED`, `PHYSICAL_TABLE_NAME_COLLISION`, `DUPLICATE_SYNONYM`, `DUPLICATE_ATTRIBUTE_NAME`
+- **Responses**: 200 `DeltaCommitResponse` | 400 `SYNTAX_INVALID_ARGUMENT`, `VALIDATION_AMBIGUOUS_TARGET` | 403 `AGENT_OPERATION_FORBIDDEN`, `FORBIDDEN_ADMIN_REQUIRED` | 404 `SESSION_NOT_FOUND` | 409 `LOCK_TIMEOUT`, `JOB_COMMIT_IN_PROGRESS` | 412 `ONT_EVO_CONCURRENT_MODIFICATION` | 422 `ONT_EVO_CONTRACT_VIOLATION`, `ONT_EVO_ENVELOPE_VIOLATION`, `ONT_EVO_UNGROUNDED_CONCEPT`, `ONT_EVO_GROUNDING_VIOLATION`, `HIERARCHICAL_CYCLE_DETECTED`, `PHYSICAL_TABLE_NAME_COLLISION`, `DUPLICATE_SYNONYM`, `DUPLICATE_ATTRIBUTE_NAME`
 
-#### 13. `GET /sessions/{session_id}/proposals`
-- **Summary**: List Candidate Proposals
-- **Path Parameters**: `session_id` (string)
-- **Responses**: 200 `list[ProposalRecord]` | 401 `UNAUTHENTICATED` | 404 `SESSION_NOT_FOUND`
-
-#### 14. `GET /sessions/{session_id}/proposals/{proposal_id}`
-- **Summary**: Get Candidate Proposal Details (`proposal show`)
-- **Path Parameters**: `session_id`, `proposal_id`
-- **Responses**: 200 `ProposalRecord` | 401 `UNAUTHENTICATED` | 404 `SESSION_NOT_FOUND`, `PROPOSAL_NOT_FOUND`
-
-#### 15. `POST /sessions/{session_id}/proposals`
-- **Summary**: Submit Candidate Proposal
-- **Path Parameters**: `session_id` (string)
-- **Request Body**: `ProposalCreateRequest`
-- **Responses**: 201 `ProposalRecord` | 400 `SYNTAX_INVALID_ARGUMENT` | 401 `UNAUTHENTICATED` | 403 `AGENT_DESTRUCTIVE_OP_FORBIDDEN` | 404 `SESSION_NOT_FOUND` | 409 `LOCK_TIMEOUT` | 422 `ONT_EVO_CONTRACT_VIOLATION`, `ONT_EVO_ENVELOPE_VIOLATION`
+#### 13–15. `GET /sessions/{session_id}/proposals`, `GET .../proposals/{proposal_id}`, `POST .../proposals`
+- **Summary**: List, inspect, or submit candidate proposals (including `MAJOR · Opt-In` flagging `D7` and `EvidenceRef` citations `FR-CIT-01`).
+- **Responses**: 200 / 201 | 400 `SYNTAX_INVALID_ARGUMENT` | 403 `AGENT_DESTRUCTIVE_OP_FORBIDDEN` | 404 `SESSION_NOT_FOUND`, `PROPOSAL_NOT_FOUND` | 409 `LOCK_TIMEOUT` | 422 `ONT_EVO_CONTRACT_VIOLATION`, `ONT_EVO_ENVELOPE_VIOLATION`
 
 #### 16. `POST /sessions/{session_id}/proposals/{proposal_id}/accept`
-- **Summary**: Accept Pending Proposal & Commit Version Snapshot
-- **Path Parameters**: `session_id`, `proposal_id`; **Headers**: `If-Match: "<head_sha256>"` (Required)
-- **Request Body**: `ProposalAcceptRequest` (`{ base_sha256, allow_self_acceptance, low_confidence_waiver, grounding_rationale }`)
-- **Authorization & Waivers**: Standard accept requires `editor`. `--low-confidence-waiver` and `--allow-self-accepted-proposals` strictly require `admin` role (`FORBIDDEN_ADMIN_REQUIRED`, exit 7). Automated actors strictly forbidden from accepting proposals (`AGENT_PROPOSAL_ACCEPT_FORBIDDEN`, exit 7).
-- **Responses**: 200 `DeltaCommitResponse` | 400 `SYNTAX_INVALID_ARGUMENT` | 401 `UNAUTHENTICATED` | 403 `FORBIDDEN_ADMIN_REQUIRED`, `PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN`, `AGENT_PROPOSAL_ACCEPT_FORBIDDEN` | 404 `SESSION_NOT_FOUND`, `PROPOSAL_NOT_FOUND` | 409 `PROPOSAL_ALREADY_RESOLVED`, `LOCK_TIMEOUT` | 412 `ONT_EVO_CONCURRENT_MODIFICATION` | 422 `ONT_EVO_UNGROUNDED_CONCEPT`, `ONT_EVO_GROUNDING_VIOLATION`, `HIERARCHICAL_CYCLE_DETECTED`, `ONT_EVO_CONTRACT_VIOLATION`
+- **Summary**: Accept Pending Proposal (or Cherry-Picked Subset `D5`, `D7`) & Commit Version Snapshot
+- **Headers**: `If-Match: "<head_sha256>"` (Required)
+- **Responses**: 200 `DeltaCommitResponse` | 400 `SYNTAX_INVALID_ARGUMENT` | 403 `AGENT_PROPOSAL_ACCEPT_FORBIDDEN` | 404 `SESSION_NOT_FOUND`, `PROPOSAL_NOT_FOUND` | 409 `PROPOSAL_ALREADY_RESOLVED`, `LOCK_TIMEOUT` | 412 `ONT_EVO_CONCURRENT_MODIFICATION` | 422 `ONT_EVO_UNGROUNDED_CONCEPT`, `ONT_EVO_GROUNDING_VIOLATION`, `HIERARCHICAL_CYCLE_DETECTED`, `ONT_EVO_CONTRACT_VIOLATION`
 
-#### 17. `POST /sessions/{session_id}/proposals/{proposal_id}/reject`
-- **Summary**: Reject Pending Proposal
-- **Path Parameters**: `session_id`, `proposal_id`
-- **Request Body**: `ProposalRejectRequest` (`{ reason?: string }`)
-- **Responses**: 200 `ProposalRecord` (state: `REJECTED`) | 400 `SYNTAX_INVALID_ARGUMENT` | 401 `UNAUTHENTICATED` | 403 `AGENT_OPERATION_FORBIDDEN` | 404 `SESSION_NOT_FOUND`, `PROPOSAL_NOT_FOUND` | 409 `PROPOSAL_ALREADY_RESOLVED`, `LOCK_TIMEOUT`
+#### 17–18. `POST .../proposals/{proposal_id}/reject` & `POST .../proposals/{proposal_id}/rebase`
+- **Summary**: Reject pending proposal or rebase `STALE` proposal across concurrent head commits (`If-Match: "<head_sha256>"`).
+- **Responses**: 200 `ProposalRecord` | 400 `SYNTAX_INVALID_ARGUMENT` | 404 `SESSION_NOT_FOUND`, `PROPOSAL_NOT_FOUND` | 409 `PROPOSAL_ALREADY_RESOLVED`, `LOCK_TIMEOUT` | 412 `ONT_EVO_CONCURRENT_MODIFICATION` | 422 `HIERARCHICAL_CYCLE_DETECTED`, `ONT_EVO_CONTRACT_VIOLATION`
 
-#### 18. `POST /sessions/{session_id}/proposals/{proposal_id}/rebase`
-- **Summary**: Rebase Pending Proposal Across Concurrent Head Commits
-- **Path Parameters**: `session_id`, `proposal_id`; **Headers**: `If-Match: "<head_sha256>"` (Required; supplied via `--base-sha256` on CLI)
-- **Request Body**: `ProposalRebaseRequest` (`{ base_sha256: string }`)
-- **Responses**: 200 `ProposalRecord` (rebased) | 400 `SYNTAX_INVALID_ARGUMENT` | 401 `UNAUTHENTICATED` | 403 `AGENT_OPERATION_FORBIDDEN` | 404 `SESSION_NOT_FOUND`, `PROPOSAL_NOT_FOUND` | 409 `PROPOSAL_ALREADY_RESOLVED`, `LOCK_TIMEOUT` | 412 `ONT_EVO_CONCURRENT_MODIFICATION` | 422 `HIERARCHICAL_CYCLE_DETECTED`, `ONT_EVO_CONTRACT_VIOLATION`, `DUPLICATE_ATTRIBUTE_NAME`
+#### 19–20. `GET /sessions/{session_id}/jobs/{job_id}` & `GET .../jobs/{job_id}/events`
+- **Summary**: Poll job status or stream W3C SSE (`text/event-stream`, `Last-Event-ID`).
+- **Responses**: 200 `JobStatusDTO` / `text/event-stream` | 400 `SYNTAX_INVALID_ARGUMENT` | 404 `JOB_NOT_FOUND`
 
-#### 19. `GET /sessions/{session_id}/jobs/{job_id}`
-- **Summary**: Get Background Job Status (Polled by `--wait` and Web Workbench)
-- **Path Parameters**: `session_id`, `job_id`
-- **Responses**: 200 `JobStatusDTO` | 401 `UNAUTHENTICATED` | 404 `JOB_NOT_FOUND`
+#### 21. `GET /sessions/{session_id}/logs`, `GET .../logs/stream` & `GET .../logs/export` (`FR-LOG-02`, `D24`)
+- **Summary**: Query merged monotonic session & linked pipeline logs (`wizard_step`, `stage_id` accepting `STAGE_00..07` or Step 6 pills `00..06`, `persona`, `source_id`, `category`), subscribe to live W3C SSE `EventSource` (`text/event-stream`, `Last-Event-ID`, `15s` keepalives, subscribe-before-replay), or download `.jsonl` session log bundle (`50 MB` `.gz` rotation).
+- **Responses**: 200 `SessionLogsResponse` / `text/event-stream` / `application/x-ndjson` | 400 `SYNTAX_INVALID_ARGUMENT` | 404 `SESSION_NOT_FOUND`
 
-#### 20. `GET /sessions/{session_id}/jobs/{job_id}/events`
-- **Summary**: Stream Job Execution Events (SSE)
-- **Headers**: `Accept: text/event-stream`, `Last-Event-ID: <cursor>` (Non-negative integer)
-- **Responses**: 200 `text/event-stream` | 400 `SYNTAX_INVALID_ARGUMENT` (malformed `Last-Event-ID`) | 401 `UNAUTHENTICATED` | 404 `JOB_NOT_FOUND`
+#### 22. `GET /sessions/{session_id}/export` & `GET /sessions/{session_id}/export-blueprint`
+- **Summary**: Export committed ontology (`yaml` / `json` / `turtle` / `jsonld`, `D9` Export Ontology Only) or `VaultBlueprint` (`export-blueprint`).
+- **Responses**: 200 stream | 400 `UNSUPPORTED_FORMAT` | 404 `VERSION_NOT_FOUND`, `SESSION_NOT_FOUND`
 
-#### 21. `GET /sessions/{session_id}/export`
-- **Summary**: Export Ontology Representation
-- **Query Parameters**: `export_format` (`yaml` / `json` / `turtle` / `jsonld`), `version` (optional)
-- **Responses**: 200 stream (`application/yaml`, `application/json`, `text/turtle`, `application/ld+json`) | 400 `UNSUPPORTED_FORMAT` | 401 `UNAUTHENTICATED` | 404 `VERSION_NOT_FOUND`, `SESSION_NOT_FOUND`
+#### 23. `POST /sessions/{session_id}/promote`
+- **Summary**: Promote Head Ontology to Workspace Data Vault Pipeline (`graph_a.lock`, dual OCC).
+- **Responses**: 200 `PromoteResponse` | 400 `PROMOTION_RATIONALE_REQUIRED`, `INVALID_WORKSPACE_PATH`, `SYNTAX_INVALID_ARGUMENT` | 404 `SESSION_NOT_FOUND` | 409 `LOCK_TIMEOUT` | 412 `LINEAGE_ROOT_MISMATCH`, `ONT_EVO_CONCURRENT_MODIFICATION` | 422 `ONT_EVO_CONTRACT_VIOLATION`, `ONT_EVO_UNGROUNDED_CONCEPT`, `ONT_EVO_GROUNDING_VIOLATION`
 
-#### 22. `POST /sessions/{session_id}/promote`
-- **Summary**: Promote Head Ontology to Workspace Data Vault Pipeline (Admin)
-- **Path Parameters**: `session_id`; **Headers**: `If-Match: "<head_sha256>"`, `X-OpenDV-Workspace-If-Match: "<ws_sha256>"`
-- **Request Body**: `PromoteRequest` (`{ workspace, workspace_sha256, head_sha256, rationale, acknowledge_historical_contract_warning?: boolean }`)
-- **OCC Precedence Rule**: Header and body parameters must agree identically; disagreement triggers 400 `SYNTAX_INVALID_ARGUMENT`.
-- **Responses**: 200 `PromoteResponse` | 400 `PROMOTION_RATIONALE_REQUIRED`, `INVALID_WORKSPACE_PATH`, `SYNTAX_INVALID_ARGUMENT` | 401 `UNAUTHENTICATED` | 403 `FORBIDDEN_ADMIN_REQUIRED` | 404 `SESSION_NOT_FOUND` | 409 `LOCK_TIMEOUT` | 412 `LINEAGE_ROOT_MISMATCH`, `ONT_EVO_CONCURRENT_MODIFICATION` | 422 `ONT_EVO_CONTRACT_VIOLATION`, `ONT_EVO_UNGROUNDED_CONCEPT`, `ONT_EVO_GROUNDING_VIOLATION`
+#### 24–26. `POST .../bundle`, `POST /sessions/bundle/import`, `POST .../bundle/clone`
+- **Summary**: Export/import/clone portable `.odvstudio.zip` archives (including session-lifetime prompt/LLM logs per `D24`, streaming ZIP bomb guards, and delta replay).
+- **Responses**: 200 / 201 | 400 / 404 / 409 / 422 `ARCHIVE_SECURITY_VIOLATION`, `IMPORT_DELTA_REPLAY_HASH_MISMATCH`
 
-#### 23. `POST /sessions/{session_id}/bundle`
-- **Summary**: Export Portable Session Archive (`.odvstudio.zip`)
-- **Path Parameters**: `session_id`
-- **Request Body**: `BundleExportRequest` (`{ acknowledge_confidential_source_export, export_rationale }`)
-- **Responses**: 200 `application/zip` stream | 400 `EXPORT_RATIONALE_REQUIRED` (missing rationale), `SYNTAX_INVALID_ARGUMENT` | 401 `UNAUTHENTICATED` | 403 `FORBIDDEN_ADMIN_REQUIRED` | 404 `SESSION_NOT_FOUND` | 422 `CONFIDENTIAL_SOURCE_EXPORT_UNACKNOWLEDGED`
+#### 27. `GET /runs/{run_id}/dv-schema`, `GET .../tables/{table}/rows` & `POST .../query` (`FR-DVE-01..07`, `D11`)
+- **Summary**: Project `CanonicalIR` + `NoMistakeDataVault2ContractV5` + scorecard + optional `?compare=<base_run_id>` multi-wave diff (`P3`); read paginated rows from persisted/rehydrated DuckDB sandbox (`.../tables/{table}/rows`); and execute read-only SQL guarded by `validate_safe_sql()` allowlist + `enable_external_access=False` (`POST .../query`, `D11`).
+- **Responses**: 200 `DvSchemaProjectionDTO` / `DvTableRowsDTO` / `DvSqlQueryResultDTO` | 400 `INVALID_REQUEST` | 404 `RUN_NOT_FOUND`
 
-#### 24. `POST /sessions/bundle/import`
-- **Summary**: Import and Decompress Portable Session Archive (`.odvstudio.zip`)
-- **Request Body**: `multipart/form-data` (`file`, `acknowledge_unverified_import_attribution`, `acknowledgement_rationale`)
-- **Responses**: 201 `StudioSessionDTO` | 400 `IMPORT_GROUNDING_RATIONALE_REQUIRED`, `SYNTAX_INVALID_ARGUMENT` | 401 `UNAUTHENTICATED` | 403 `FORBIDDEN_ADMIN_REQUIRED` | 409 `SESSION_ALREADY_EXISTS` | 422 `ARCHIVE_SECURITY_VIOLATION`, `IMPORT_DELTA_REPLAY_HASH_MISMATCH`, `IMPORT_GROUNDING_VIOLATION`
-
-#### 25. `POST /sessions/{session_id}/bundle/clone`
-- **Summary**: Clone Studio Session Bundle into Isolated Session
-- **Path Parameters**: `session_id`
-- **Request Body**: `CloneSessionRequest` (`{ session_label?: string, new_session_id?: string }`)
-- **Responses**: 201 `StudioSessionDTO` | 400 `INVALID_SESSION_IDENTIFIER`, `SYNTAX_INVALID_ARGUMENT` | 401 `UNAUTHENTICATED` | 404 `SESSION_NOT_FOUND` | 409 `SESSION_ALREADY_EXISTS`, `LOCK_TIMEOUT`
-
-#### 26. `POST /auth/launch-nonce`
-- **Summary**: Mint Single-Use Launch Nonce (Loopback / Authenticated)
-- **Headers**: `Authorization: Bearer <local_token>`
-- **Responses**: 200 `LaunchNonceResponse` | 401 `UNAUTHENTICATED` | 403 `LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE`
-
-#### 27. `POST /auth/token`
-- **Summary**: Exchange Single-Use Launch Nonce for HttpOnly Session Cookie
-- **Request Body**: `NonceExchangeRequest` (`{ nonce: string }`)
-- **Responses**: 200 `TokenExchangeResponse` | 400 `SYNTAX_INVALID_ARGUMENT` | 401 `TOKEN_EXPIRED` | 403 `LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE`
+#### 28. `POST /auth/launch-nonce` & `POST /auth/token` (Compatibility Shims)
+- **Summary**: Benign `200 OK` loopback compatibility shims preserved for legacy external scripts (`D18`). Loopback callers operate zero-token with no nonce exchange required.
 
 ---
 
@@ -288,153 +235,181 @@ The CLI interfaces offer identical ergonomics and flag structures:
 - **Exit Code Derivation Rule**: Both `LocalExecutor` and `RemoteExecutor` derive command exit codes strictly from the RFC 9457 ProblemDetail `code` token mapped through `schemas/v1/error-codes.json`, never from HTTP status codes alone. For instance, HTTP 400 responses map to exit code 1 when the error code is `PROMOTION_RATIONALE_REQUIRED` and to exit code 2 when the error code is `SYNTAX_INVALID_ARGUMENT`.
 
 #### Dual-CLI & REST Capability Parity Matrix
-The operational CLI subcommands in `schemas/v1/cli-spec.json` map directly to corresponding OpenAPI operations in `schemas/v1/openapi.json`. Transport and internal endpoints (`POST /auth/launch-nonce`, `POST /auth/token`, internal `POST .../proposals`, `GET .../jobs/{id}`, `GET .../jobs/{id}/events`) are transport/streaming interfaces consumed by Web Workbench, Agent Harness, and CLI `--wait`/`--stream`, while administrative REST deletions (`DELETE /sessions/{id}`, `DELETE .../sources/{id}`) and CAS GC operate via direct platform API:
+The operational CLI subcommands in `schemas/v1/cli-spec.json` map directly to corresponding OpenAPI operations in `schemas/v1/openapi.json` (and `schemas/openapi-v1.json`) with identical RFC 8785 JCS outputs across `opendv`, `opendvctl`, and direct REST (`FR-CLI-05`, `D13`):
 
-| CLI Command | HTTP Route | RBAC | Canonical Exit Codes |
+| CLI Command | HTTP Route | Role / Guard | Canonical Exit Codes |
 |---|---|---|---|
-| `init` | `POST /init` | `loopback/owner` | 0, 1, 6, 7 |
-| `create` | `POST /sessions` | `editor` | 0, 1, 2, 6, 7 |
-| `list` | `GET /sessions` | `viewer` | 0, 7 |
-| `status` | `GET /sessions/{id}` | `viewer` | 0, 2, 3, 7 |
-| `upload` | `POST /sessions/{id}/sources` | `editor` | 0, 2, 3, 4, 7 |
-| `parse` | `POST /sessions/{id}/parse` | `editor` | 0, 1, 3, 7 |
-| `clarify` | `POST /sessions/{id}/clarify` | `editor` | 0, 1, 3, 7 |
-| `answer` | `POST /sessions/{id}/answers` | `editor` | 0, 2, 3, 7 |
-| `construct` | `POST /sessions/{id}/construct` | `editor` | 0, 1, 2, 3, 4, 5, 6, 7 |
-| `delta apply` | `POST /sessions/{id}/delta` | `editor` / `admin`* | 0, 1, 2, 3, 4, 5, 6, 7 |
-| `proposal list` | `GET /sessions/{id}/proposals` | `viewer` | 0, 3, 7 |
-| `proposal show` | `GET /sessions/{id}/proposals/{pid}` | `viewer` | 0, 3, 7 |
-| `proposal accept` | `POST /sessions/{id}/proposals/{pid}/accept` | `editor` / `admin`* | 0, 2, 3, 4, 5, 6, 7 |
-| `proposal reject` | `POST /sessions/{id}/proposals/{pid}/reject` | `editor` | 0, 2, 3, 6, 7 |
-| `proposal rebase` | `POST /sessions/{id}/proposals/{pid}/rebase` | `editor` | 0, 2, 3, 4, 5, 6, 7 |
-| `export` | `GET /sessions/{id}/export` | `viewer` | 0, 2, 3, 7 |
-| `promote` | `POST /sessions/{id}/promote` | `admin` | 0, 1, 2, 3, 4, 5, 6, 7 |
-| `bundle export` | `POST /sessions/{id}/bundle` | `editor` / `admin`* | 0, 1, 3, 4, 7 |
-| `bundle import` | `POST /sessions/bundle/import` | `editor` / `admin`* | 0, 1, 2, 3, 4, 6, 7 |
-| `bundle clone` | `POST /sessions/{id}/bundle/clone` | `editor` | 0, 2, 3, 6, 7 |
+| `serve` | Platform Server (`--host`, `--port`, `--open`, `--allow-remote-unauthenticated`) | Loopback zero-auth (`D18`) | 0, 40 (non-loopback without flag) |
+| `run dv-schema` (`D13`) | `GET /runs/{id}/dv-schema`, `GET .../rows`, `POST .../query` | Safe read-only SQL (`D11`) | 0, 2, 3, 40 |
+| `init` | `POST /init` (benign `200 OK` shim) | `loopback/owner` | 0 |
+| `create` | `POST /sessions` | `editor` | 0, 1, 2, 6 |
+| `list` | `GET /sessions` (`D25` `wizard_schema_version`) | `viewer` | 0 |
+| `status` | `GET /sessions/{id}` | `viewer` | 0, 2, 3 |
+| `upload` | `POST /sessions/{id}/sources` | `editor` | 0, 2, 3, 4 |
+| `attach-source` (`D13`) | `POST /sessions/{id}/sources/connectors` | `editor` (`P1` secrets guard) | 0, 2, 3, 4 |
+| `parse` | `POST /sessions/{id}/parse` | `editor` (`409` if job active) | 0, 1, 3, 20 |
+| `clarify` | `POST /sessions/{id}/clarify` | `editor` (`422` if unconfigured) | 0, 1, 3, 10, 20 |
+| `answer` | `POST /sessions/{id}/answers` | `editor` | 0, 2, 3 |
+| `fibo-qa` (`D13`) | `POST /sessions/{id}/fibo-qa` | `viewer` (`D2` cited Q&A) | 0, 1, 2, 3, 10 |
+| `construct` | `POST /sessions/{id}/construct` | `editor` (`422` / `409` gates) | 0, 1, 2, 3, 4, 5, 6, 10, 20 |
+| `logs` (`D13`) | `GET /sessions/{id}/logs`, `.../logs/stream` (`--follow`) | `viewer` (`STAGE_00..07` or `00..06`) | 0, 2, 3 |
+| `delta apply` | `POST /sessions/{id}/delta` | `editor` / `admin`* | 0, 1, 2, 3, 4, 5, 6 |
+| `proposal list` | `GET /sessions/{id}/proposals` | `viewer` | 0, 3 |
+| `proposal show` | `GET /sessions/{id}/proposals/{pid}` | `viewer` | 0, 3 |
+| `proposal accept` | `POST /sessions/{id}/proposals/{pid}/accept` | `editor` / `admin`* | 0, 2, 3, 4, 5, 6 |
+| `proposal reject` | `POST /sessions/{id}/proposals/{pid}/reject` | `editor` | 0, 2, 3, 6 |
+| `proposal rebase` | `POST /sessions/{id}/proposals/{pid}/rebase` | `editor` | 0, 2, 3, 4, 5, 6 |
+| `export` | `GET /sessions/{id}/export` | `viewer` | 0, 2, 3 |
+| `promote` | `POST /sessions/{id}/promote` | `admin` | 0, 1, 2, 3, 4, 5, 6 |
+| `bundle export` | `POST /sessions/{id}/bundle` | `editor` / `admin`* | 0, 1, 3, 4 |
+| `bundle import` | `POST /sessions/bundle/import` | `editor` / `admin`* | 0, 1, 2, 3, 4, 6 |
+| `bundle clone` | `POST /sessions/{id}/bundle/clone` | `editor` | 0, 2, 3, 6 |
 
-*\* RBAC Rules: `delta apply` requires `admin` for destructive steward revisions. `proposal accept` requires `admin` when invoked with `--low-confidence-waiver` or `--allow-self-accepted-proposals`. `bundle export` and `bundle import` require `admin` when acknowledging confidential export or unverified import attribution.*
+*\* Note: `delta apply` requires `admin` for destructive steward revisions; `bundle export` and `bundle import` require `admin` when acknowledging confidential export or unverified import attribution. On loopback, requests execute as `human:local_user` (`admin`) (`D18`).*
 
 
-### 5.2 Canonical Exit Code Registry (0..7)
-All commands in both CLIs map their termination status strictly to one of eight canonical exit codes. `schemas/v1/error-codes.json` is the sole authoritative registry:
+### 5.2 Canonical Exit Code Registry (0..7 & Platform Guards `10`, `20`, `30`, `40`)
+All commands in both CLIs map their termination status deterministically through `schemas/v1/error-codes.json`:
 
 | Exit Code | Classification | Trigger Conditions | Corresponding HTTP Statuses |
 |---|---|---|---|
 | **0** | Success | Command completed successfully; output emitted. | `200 OK`, `201 Created`, `202 Accepted`, `204 No Content` |
 | **1** | Capability / System Error | Missing required rationale ($\ge 10$ chars), zero-op delta, uninstalled system capability (OCR, LibreOffice, Agent LLM), or internal crash. | `500 Internal Server Error`, `501 Not Implemented`, `503 Service Unavailable`, `400 Bad Request` |
 | **2** | Syntax / Precondition Error | Invalid CLI flag, missing mandatory arguments, URI format violation, malformed offset ordering (start >= end), payload too large, or workspace boundary violation. | `400 Bad Request`, `413 Payload Too Large`, `415 Unsupported Media Type` |
-| **3** | Resource Not Found | Specified session ID, version string, proposal ID, source ID, or question ID does not exist. | `404 Not Found` |
-| **4** | Domain & Governance Violation | ONT-EVO-001 deployed table conflict, ONT-EVO-002 ungrounded concept, duplicate synonym/attribute, archive security violation, or delta replay hash mismatch. | `422 Unprocessable Content` |
+| **3** | Resource Not Found | Specified session ID, run ID, version string, proposal ID, source ID, or question ID does not exist. | `404 Not Found` |
+| **4** | Domain & Governance Violation | ONT-EVO-001 deployed table conflict, ONT-EVO-002 grounding violation, archive security violation, or delta replay mismatch. | `422 Unprocessable Content` |
 | **5** | Concurrency Conflict (OCC) | Session head SHA-256 or workspace SHA-256 mismatch during commit, accept, rebase, or promotion. | `412 Precondition Failed` |
 | **6** | Lock Timeout / In Progress | Advisory file lock acquisition timed out (30s) or operating on an already resolved proposal. | `409 Conflict` |
-| **7** | Authentication / RBAC Denied | Missing/invalid token, non-admin invoking destructive operation, agent attempting destructive mutation, or unapproved self-acceptance. | `401 Unauthorized`, `403 Forbidden` |
+| **7** | Origin / RBAC Denied | Cross-site DNS-rebinding `Origin` denied or restricted actor attempting privileged mutation. | `403 Forbidden` |
+| **10** | Agent Not Configured (`FR-AGT-01`) | `mode="agent"` + `stage_output_policy="strict"` invoked without a ready real LLM provider (`AGENT_NOT_CONFIGURED`). | `422 Unprocessable Content` |
+| **20** | Session Job Active (`D27`) | Concurrent job started in a session that already has an active job/run (`SESSION_JOB_ACTIVE`). | `409 Conflict` |
+| **30** | Steward / Budget Hold (`D14`, `D21`) | Pipeline paused in `PAUSED_HOLD` awaiting inline Steward Hold or `BudgetHold` resolution. | `202 Accepted` (`PAUSED_HOLD`) |
+| **40** | Remote Guard Refusal (`D18`) / Wizard Validation | `opendv serve` / `opendv-platform-api` bound to non-loopback `--host` without `--allow-remote-unauthenticated`, or `INVALID_REQUEST` (incl. unsafe SQL) / `SYNTAX_INVALID_ARGUMENT` in `D13` wizard/`dv-schema` commands. | Startup Abort / `400 Bad Request` |
 
-### 5.3 Complete Command Inventory (`opendv ontology studio`)
+### 5.3 Complete Command Inventory (`opendv ontology studio` & `D13` Commands)
 
-#### 1. `init`
-- **Synopsis**: `opendv ontology studio init [--force]` (RBAC: `loopback/owner`; `--force` requires `Authorization: Bearer <token>` over REST or local process UID/SID match in CLI)
-- **Exit Codes**: 0 (OK), 1 (Permissions failure), 6 (`STUDIO_ALREADY_INITIALIZED`), 7 (`LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE`, `UNAUTHENTICATED`)
+#### 1. `init` (Compatibility Shim)
+- **Synopsis**: `opendv ontology studio init [--force]`
+- **Semantics**: Retained as a benign `200 OK` compatibility shim (`D18`). Loopback open access requires zero initialization or tokens.
 
 #### 2. `create`
-- **Synopsis**: `opendv ontology studio create [-s <id>] [-n <ns>] [-o <owner>] [--from-workspace <ws>] [-d <desc>]` (RBAC: `editor`)
-- **Key Constraints**: `-s` regex `^[a-z0-9_-]{1,64}$`. Seeding via `--from-workspace` loads contract and anchors baseline SHA.
-- **Exit Codes**: 0 (OK), 1 (`CONFLICTING_WORKSPACE_SEED_PARAMS`), 2 (`INVALID_WORKSPACE_PATH`), 6 (`SESSION_ALREADY_EXISTS`), 7 (`UNAUTHENTICATED`)
+- **Synopsis**: `opendv ontology studio create [-s <id>] [-n <ns>] [-o <owner>] [--from-workspace <ws>] [-d <desc>]`
+- **Key Constraints**: `-s` regex `^[a-z0-9_-]{1,64}$`. Records `wizard_schema_version` (`D25`); `--from-workspace` loads contract and anchors baseline SHA.
+- **Exit Codes**: 0 (OK), 1 (`CONFLICTING_WORKSPACE_SEED_PARAMS`), 2 (`INVALID_WORKSPACE_PATH`), 6 (`SESSION_ALREADY_EXISTS`)
 
 #### 3. `list`
-- **Synopsis**: `opendv ontology studio list [--limit <int>] [--offset <int>] [--status <str>]` (RBAC: `viewer`)
-- **Exit Codes**: 0 (OK), 7 (`UNAUTHENTICATED`)
+- **Synopsis**: `opendv ontology studio list [--limit <int>] [--offset <int>] [--status <str>]`
+- **Exit Codes**: 0 (OK)
 
 #### 4. `status`
-- **Synopsis**: `opendv ontology studio status -s <session_id>` (RBAC: `viewer`)
-- **Exit Codes**: 0 (OK), 2 (`INVALID_SESSION_IDENTIFIER`), 3 (`SESSION_NOT_FOUND`), 7 (`UNAUTHENTICATED`)
+- **Synopsis**: `opendv ontology studio status -s <session_id>`
+- **Exit Codes**: 0 (OK), 2 (`INVALID_SESSION_IDENTIFIER`), 3 (`SESSION_NOT_FOUND`)
 
-#### 5. `upload`
-- **Synopsis**: `opendv ontology studio upload -s <session_id> -f <file> [--confidential] [--description <str>]` (RBAC: `editor`)
-- **Key Constraints**: `--confidential` sets `do_not_send_to_agent=True` and taints derived concepts in CAS.
-- **Exit Codes**: 0 (OK), 2 (`INVALID_SESSION_IDENTIFIER`, `PAYLOAD_TOO_LARGE`), 3 (`SESSION_NOT_FOUND`), 4 (`CORRUPT_SOURCE_BLOB`), 7 (`UNAUTHENTICATED`)
+#### 5. `upload` & `attach-source` (`D13`)
+- **Synopsis**:
+  - `opendv ontology studio upload -s <session_id> -f <file> [--do-not-send-to-agent] [--description <str>]`
+  - `opendv ontology studio attach-source -s <session_id> --adapter <sqlite|duckdb|databricks|csv|parquet|xlsx|jsonl|filesystem> --uri <uri_or_path> [--table <name>] [--namespace <ns>] [--credentials-ref <env:...|secret:...>] [--description <str>] [--do-not-send-to-agent]`
+- **Key Constraints**: Rejects plaintext secrets (`_FORBIDDEN_SECRET_KEYS`, requiring `env:`/`secret:` refs); `--do-not-send-to-agent` sets taint in CAS so zero bytes leave the host (`FR-AGT-04`).
+- **Exit Codes**: 0 (OK), 2 (`INVALID_SESSION_IDENTIFIER`, `PAYLOAD_TOO_LARGE`, `SYNTAX_INVALID_ARGUMENT`), 3 (`SESSION_NOT_FOUND`), 4 (`CORRUPT_SOURCE_BLOB`)
 
 #### 6. `parse`
-- **Synopsis**: `opendv ontology studio parse -s <session_id> [--source-ids <id1,id2...>] [--ocr-mode <auto|force|off>] [--wait] [--stream]` (RBAC: `editor`)
-- **Semantics**: Synchronous under `LocalExecutor`; async returning `JobHandleDTO` under `RemoteExecutor` unless `--wait`/`--stream`.
-- **Exit Codes**: 0 (OK), 1 (`OCR_UNAVAILABLE`, `OFFICE_CONVERSION_UNAVAILABLE`), 2 (`SYNTAX_INVALID_ARGUMENT`), 3 (`SESSION_NOT_FOUND`), 7 (`UNAUTHENTICATED`)
+- **Synopsis**: `opendv ontology studio parse -s <session_id> [--source-ids <id1,id2...>] [--ocr-mode <auto|force|off>] [--wait] [--stream]`
+- **Exit Codes**: 0 (OK), 1 (`OCR_UNAVAILABLE`, `OFFICE_CONVERSION_UNAVAILABLE`), 2 (`SYNTAX_INVALID_ARGUMENT`), 3 (`SESSION_NOT_FOUND`), 20 (`SESSION_JOB_ACTIVE`)
 
-#### 7. `clarify`
-- **Synopsis**: `opendv ontology studio clarify -s <session_id> [--max-questions <int>] [--wait] [--stream]` (RBAC: `editor`)
-- **Semantics**: Synchronous under `LocalExecutor`; async under `RemoteExecutor` unless `--wait`/`--stream`.
-- **Exit Codes**: 0 (OK), 1 (`AGENT_UNAVAILABLE`), 3 (`SESSION_NOT_FOUND`), 7 (`UNAUTHENTICATED`)
+#### 7. `clarify` & `fibo-qa` (`D13`)
+- **Synopsis**:
+  - `opendv ontology studio clarify -s <session_id> [--max-questions <int>] [--wait] [--stream]`
+  - `opendv ontology studio fibo-qa -s <session_id> --question <text> [--source-id <id>] [--concept-uri <uri>]`
+- **Exit Codes**: 0 (OK), 1 (`AGENT_UNAVAILABLE`), 2 (`SYNTAX_INVALID_ARGUMENT`), 3 (`SESSION_NOT_FOUND`), 10 (`AGENT_NOT_CONFIGURED`), 20 (`SESSION_JOB_ACTIVE`)
 
 #### 8. `answer`
-- **Synopsis**: `opendv ontology studio answer -s <session_id> -q <question_id> [-o <opt>...] [-t <text>]` (RBAC: `editor`)
-- **Exit Codes**: 0 (OK), 2 (`SYNTAX_INVALID_ARGUMENT`), 3 (`QUESTION_NOT_FOUND`), 7 (`UNAUTHENTICATED`)
+- **Synopsis**: `opendv ontology studio answer -s <session_id> -q <question_id> [-o <opt>...] [-t <text>]`
+- **Exit Codes**: 0 (OK), 2 (`SYNTAX_INVALID_ARGUMENT`), 3 (`QUESTION_NOT_FOUND`)
 
 #### 9. `construct`
-- **Synopsis**: `opendv ontology studio construct -s <session_id> [--mode <auto|agent|deterministic>] [--auto-commit] [--base-version <v>] [--base-sha256 <s>] [--wait] [--stream]` (RBAC: `editor`)
-- **Semantics**: `--auto-commit` is permitted strictly in `--mode deterministic` with `--base-version` and `--base-sha256`; otherwise exit code 2.
-- **Exit Codes**: 0 (OK), 1 (`AGENT_UNAVAILABLE`), 2 (`MISSING_AUTO_COMMIT_PRECONDITION`), 3 (`SESSION_NOT_FOUND`), 4 (`PHYSICAL_TABLE_NAME_COLLISION`, `ONT_EVO_CONTRACT_VIOLATION`), 5 (`ONT_EVO_CONCURRENT_MODIFICATION`), 6 (`LOCK_TIMEOUT`), 7 (`UNAUTHENTICATED`)
+- **Synopsis**: `opendv ontology studio construct -s <session_id> [--mode <auto|agent|deterministic>] [--auto-commit] [--base-version <v>] [--base-sha256 <s>] [--wait] [--stream]`
+- **Semantics**: UI is strictly Agent-only (`D28`); explicit `--mode deterministic` exists solely in CLI/API for offline CI benchmarks (`FR-CLI-07`). Default `mode="agent"` fails closed with exit `10` (`422 AGENT_NOT_CONFIGURED`) if no real LLM provider is ready, and `exit 20` (`409 SESSION_JOB_ACTIVE`) if a job is already active in the session (`D27`).
+- **Exit Codes**: 0 (OK), 1 (`AGENT_UNAVAILABLE`), 2 (`MISSING_AUTO_COMMIT_PRECONDITION`), 3 (`SESSION_NOT_FOUND`), 4 (`PHYSICAL_TABLE_NAME_COLLISION`, `ONT_EVO_CONTRACT_VIOLATION`), 5 (`ONT_EVO_CONCURRENT_MODIFICATION`), 6 (`LOCK_TIMEOUT`), 10 (`AGENT_NOT_CONFIGURED`), 20 (`SESSION_JOB_ACTIVE`)
 
-#### 10. `delta apply`
-- **Synopsis**: `opendv ontology studio delta apply -s <session_id> -f <delta_file> --base-sha256 <s> [--rationale <str>] [--low-confidence-waiver] [--grounding-rationale <str>]` (RBAC: `editor` / `admin` for steward revisions or waivers)
-- **Exit Codes**: 0 (OK), 1 (Missing rationale), 2 (Syntax), 3 (`SESSION_NOT_FOUND`), 4 (`ONT_EVO_CONTRACT_VIOLATION`, `ONT_EVO_ENVELOPE_VIOLATION`, `ONT_EVO_UNGROUNDED_CONCEPT`, `ONT_EVO_GROUNDING_VIOLATION`, `INVALID_GROUNDING_WAIVER`), 5 (`ONT_EVO_CONCURRENT_MODIFICATION`), 6 (`LOCK_TIMEOUT`, `JOB_COMMIT_IN_PROGRESS`), 7 (`FORBIDDEN_ADMIN_REQUIRED`, `AGENT_OPERATION_FORBIDDEN`)
+#### 10. `logs` (`D13`, `FR-LOG-04`)
+- **Synopsis**: `opendv ontology studio logs [--session <id> | --session-id <id>] [--stage <STAGE_00..07|00..06>] [--step <int>] [--category <str>] [--persona <str>] [--follow]` (global `--json`)
+- **Semantics**: Queries merged session & linked pipeline logs (`STAGE_00..07` or Step 6 pill aliases `00..06`), streaming `/logs/stream` live via W3C SSE when `--follow` is supplied.
+- **Exit Codes**: 0 (OK), 2 (`SYNTAX_INVALID_ARGUMENT`), 3 (`SESSION_NOT_FOUND`)
 
-#### 11. `proposal list / show / accept / reject / rebase`
+#### 11. `run dv-schema` (`D13`, `D11`)
+- **Synopsis**: `opendv run dv-schema --run-id <id> [--compare <base_run_id>] [--table <name>] [--sql <select_sql>] [--limit <int>] [--offset <int>]`
+- **Semantics**: Inspects DV 2.0 schema graph projection, multi-wave diff, persisted DuckDB table rows, or executes bounded read-only `SELECT`/`WITH` SQL validated via `validate_safe_sql()`.
+- **Exit Codes**: 0 (OK), 2 (`SYNTAX_INVALID_ARGUMENT` missing `--run-id`), 3 (`RUN_NOT_FOUND`), 40 (`INVALID_REQUEST`, `SYNTAX_INVALID_ARGUMENT`)
+
+#### 12. `delta apply`
+- **Synopsis**: `opendv ontology studio delta apply -s <session_id> -f <delta_file> --base-sha256 <s> [--rationale <str>] [--grounding-rationale <str>]`
+- **Exit Codes**: 0 (OK), 1 (Missing rationale), 2 (Syntax), 3 (`SESSION_NOT_FOUND`), 4 (`ONT_EVO_CONTRACT_VIOLATION`, `ONT_EVO_ENVELOPE_VIOLATION`, `ONT_EVO_UNGROUNDED_CONCEPT`, `ONT_EVO_GROUNDING_VIOLATION`, `HIERARCHICAL_CYCLE_DETECTED`, `PHYSICAL_TABLE_NAME_COLLISION`, `DUPLICATE_SYNONYM`, `DUPLICATE_ATTRIBUTE_NAME`), 5 (`ONT_EVO_CONCURRENT_MODIFICATION`), 6 (`LOCK_TIMEOUT`, `JOB_COMMIT_IN_PROGRESS`), 7 (`FORBIDDEN_ADMIN_REQUIRED`, `AGENT_OPERATION_FORBIDDEN`)
+
+#### 13. `proposal list / show / accept / reject / rebase`
 - **Synopsis**:
-  - `opendv ontology studio proposal list -s <session_id>` (RBAC: `viewer`)
-  - `opendv ontology studio proposal show -s <session_id> -p <proposal_id>` (RBAC: `viewer`)
-  - `opendv ontology studio proposal accept -s <session_id> -p <proposal_id> --base-sha256 <s> [--allow-self-accepted-proposals] [--low-confidence-waiver] [--grounding-rationale <str>]` (RBAC: `editor` / `admin` for waivers/self-accept)
-  - `opendv ontology studio proposal reject -s <session_id> -p <proposal_id> [-r <reason>]` (RBAC: `editor`)
-  - `opendv ontology studio proposal rebase -s <session_id> -p <proposal_id> --base-sha256 <s>` (RBAC: `editor`)
-- **RBAC & Waiver Rules**: Standard proposal accept requires `editor`. Flags `--low-confidence-waiver` and `--allow-self-accepted-proposals` strictly require `admin` role (`FORBIDDEN_ADMIN_REQUIRED`, exit 7); automated actors forbidden from issuing waivers or accepting proposals (`AGENT_PROPOSAL_ACCEPT_FORBIDDEN`, exit 7).
-- **Exit Codes**: 0 (OK), 2 (Syntax), 3 (Not found), 4 (`ONT_EVO_UNGROUNDED_CONCEPT`, `ONT_EVO_GROUNDING_VIOLATION`, cycle), 5 (`ONT_EVO_CONCURRENT_MODIFICATION`), 6 (`PROPOSAL_ALREADY_RESOLVED`), 7 (`FORBIDDEN_ADMIN_REQUIRED`, `PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN`, `AGENT_PROPOSAL_ACCEPT_FORBIDDEN`)
+  - `opendv ontology studio proposal list -s <session_id>`
+  - `opendv ontology studio proposal show -s <session_id> -p <proposal_id>`
+  - `opendv ontology studio proposal accept -s <session_id> -p <proposal_id> --base-sha256 <s> [--grounding-rationale <str>]`
+  - `opendv ontology studio proposal reject -s <session_id> -p <proposal_id> [-r <reason>]`
+  - `opendv ontology studio proposal rebase -s <session_id> -p <proposal_id> --base-sha256 <s>`
+- **Exit Codes**: 0 (OK), 2 (Syntax), 3 (Not found), 4 (`ONT_EVO_UNGROUNDED_CONCEPT`, `ONT_EVO_GROUNDING_VIOLATION`, cycle), 5 (`ONT_EVO_CONCURRENT_MODIFICATION`), 6 (`PROPOSAL_ALREADY_RESOLVED`), 7 (`AGENT_PROPOSAL_ACCEPT_FORBIDDEN`)
 
-#### 12. `export`
-- **Synopsis**: `opendv ontology studio export -s <session_id> [-e <yaml|json|turtle|jsonld>] [-v <version>] [-o <out_file>]` (RBAC: `viewer`)
-- **Exit Codes**: 0 (OK), 2 (`UNSUPPORTED_FORMAT`), 3 (`VERSION_NOT_FOUND`), 7 (`UNAUTHENTICATED`)
+#### 14. `export`
+- **Synopsis**: `opendv ontology studio export -s <session_id> [-e <yaml|json|turtle|jsonld>] [-v <version>] [-o <out_file>]`
+- **Exit Codes**: 0 (OK), 2 (`UNSUPPORTED_FORMAT`), 3 (`VERSION_NOT_FOUND`)
 
-#### 13. `promote`
-- **Synopsis**: `opendv ontology studio promote -s <session_id> [-w <workspace>] --workspace-sha256 <s> --head-sha256 <s> -r <rationale> [--acknowledge-historical-contract-warning]` (RBAC: `admin`)
+#### 15. `promote`
+- **Synopsis**: `opendv ontology studio promote -s <session_id> [-w <workspace>] --workspace-sha256 <s> --head-sha256 <s> -r <rationale> [--acknowledge-historical-contract-warning]`
 - **Key Constraints**: Rationale must be $\ge 10$ characters. OCC requires exact match of workspace and head SHA.
 - **Exit Codes**: 0 (OK), 1 (`PROMOTION_RATIONALE_REQUIRED`), 2 (`INVALID_WORKSPACE_PATH`), 3 (`SESSION_NOT_FOUND`), 4 (`ONT_EVO_CONTRACT_VIOLATION`, `ONT_EVO_UNGROUNDED_CONCEPT`, `ONT_EVO_GROUNDING_VIOLATION`), 5 (`LINEAGE_ROOT_MISMATCH`, `ONT_EVO_CONCURRENT_MODIFICATION`), 6 (`LOCK_TIMEOUT`), 7 (`FORBIDDEN_ADMIN_REQUIRED`)
 
-#### 14. `bundle export / import / clone`
+#### 16. `bundle export / import / clone`
 - **Synopsis**:
-  - `opendv ontology studio bundle export -s <session_id> -o <out_zip> [--acknowledge-confidential-source-export] [--export-rationale <str>]` (RBAC: `editor` / `admin` with acknowledgment)
-  - `opendv ontology studio bundle import -f <in_zip> [--acknowledge-unverified-import-attribution] [--acknowledgement-rationale <str>]` (RBAC: `editor` / `admin` with acknowledgment)
-  - `opendv ontology studio bundle clone -s <session_id> [--new-session-id <id>] [-l <label>]` (RBAC: `editor`)
-- **RBAC Rules**: `bundle export` and `bundle import` require `admin` when acknowledging confidential export or unverified import attribution (`FORBIDDEN_ADMIN_REQUIRED`, exit 7). `bundle clone` requires `editor`.
+  - `opendv ontology studio bundle export -s <session_id> -o <out_zip> [--acknowledge-confidential-source-export] [--export-rationale <str>]`
+  - `opendv ontology studio bundle import -f <in_zip> [--acknowledge-unverified-import-attribution] [--acknowledgement-rationale <str>]`
+  - `opendv ontology studio bundle clone -s <session_id> [--new-session-id <id>] [-l <label>]`
 - **Exit Codes**: 0 (OK), 1 (`EXPORT_RATIONALE_REQUIRED`, `IMPORT_GROUNDING_RATIONALE_REQUIRED`), 2 (`INVALID_SESSION_IDENTIFIER`, `SYNTAX_INVALID_ARGUMENT`), 3 (`SESSION_NOT_FOUND`), 4 (`ARCHIVE_SECURITY_VIOLATION`, `IMPORT_DELTA_REPLAY_HASH_MISMATCH`, `IMPORT_GROUNDING_VIOLATION`), 6 (`SESSION_ALREADY_EXISTS`, `LOCK_TIMEOUT`), 7 (`FORBIDDEN_ADMIN_REQUIRED`)
 
 ---
 
-## 6. Web Workbench Studio UI Specification (`/ontology`)
+## 6. Web Workbench Studio UI Specification (`DESIGN.md` 4-Tab Shell)
 
-### 6.1 Architecture & Single-Page Application Mounting
-The visual Studio workbench is hosted inside `apps/opendv-web-workbench` at route `/ontology`:
-- **Route Isolation**: Lazy-loaded in `src/url-router.ts` to prevent bundling overhead on core pipeline pages.
-- **State Management**: Reactive Zustand session store synchronizing REST polling, SSE streaming events, and graph modifications.
-- **Authentication**: In `local_standalone` mode, launch nonces are NEVER minted as an unauthenticated side effect of HTTP GET requests to `/ontology` (unauthenticated GET requests redirect to the auth gate and never receive a nonce). Launch nonces are minted strictly through authenticated or out-of-band channels: (1) CLI `init` (`opendv ontology studio init`), which outputs the launch URL with fragment (`http://localhost:8000/ontology#token=<nonce>`) to stdout; (2) at local platform startup (printed to stdout); or (3) via authenticated loopback request `POST /auth/launch-nonce` with `Authorization: Bearer <local_token>`. The 256-bit nonce has 60s TTL in server memory. Upon landing, the SPA exchanges this token via `POST /api/v1/ontology/studio/auth/token` for a secure `HttpOnly` session cookie (`SameSite=Strict`), immediately invalidating the nonce to reject replays. Landing page declares `Referrer-Policy: no-referrer`. In `remote_platform` mode, remote interaction is driven via `opendvctl` with Bearer tokens; browser SSO (OIDC/SAML) is scheduled for Milestone M4.
+### 6.1 Architecture, Open-Access Launch & Routing (`D18`, `D19`, `D26`, `D28`)
+The unified Web Workbench in `apps/opendv-web-workbench` implements the warm editorial [`DESIGN.md`](../DESIGN.md) token system (`#faf9f5` cream canvas, `#efe9de` cream cards, `#cc785c` coral CTAs, `#181715` dark obsidian chrome, weight-`400` `Instrument Serif` + `DM Sans` + `JetBrains Mono`) and a `54px` 4-tab topbar:
+- **4 Top-Level Navigation Tabs (`ExplorerTopBar.tsx`, `url-router.ts`)**:
+  1. **`Ontology & Pipeline`** (`/`, `/ontology`, `/builder` $\to$ `OntologyWizardShell.tsx`, replacing the retired standalone legacy screens `D19`)
+  2. **`DV Schema Explorer`** (`/dv-schema` $\to$ `DvSchemaExplorerView.tsx`)
+  3. **`Run Explorer`** (`/explorer`, `/stages/00..07` $\to$ `PipelineOverviewView` / `StageDrillDownView`)
+  4. **`Settings`** (`/settings` $\to$ `PlatformSettingsView` with shared `<AgentHarnessConfigCard />`)
+- **Top-Bar Live Telemetry**: `● Agent Ready` / warning pill, live **cost meter** pill (cumulative tokens & USD, `D21`), **`Logs & Traces (<count>)`** button opening `SessionLogsInspector`, and dark session digest pill (`pill-dark`).
+- **Loopback Zero-Auth & Remote Banner (`D18`)**: `opendv serve --open` opens `http://127.0.0.1:8420/` directly with zero login tokens or `#token=` URL fragments; non-loopback `--host` is refused with exit code `40` unless `--allow-remote-unauthenticated` is passed (surfacing a persistent coral `RemoteUnauthenticatedBanner`).
+- **Agent-Only UI (`D28`) & New-Schema Sessions (`D25`)**: Neither the Wizard nor `Settings` exposes a deterministic mode toggle. `GET /sessions?wizard_only=true` lists only `wizard_schema_version` sessions plus `legacy_session_count` rendered as a single CLI export notice line.
+- **Desktop-First Responsive Behavior (`D26`)**: Full editing density at `1440×920` and `1024×768`; below `768px` (verified at `390×844`) the layout stacks cleanly with zero horizontal overflow (`scrollWidth <= clientWidth`), collapsible navigation/stepper, and **view-only** graph & SQL runner modes.
+- **State Management (`D16`)**: Zustand `studio-store` decomposed into `< 5,000`-token domain slices (`session-slice.ts`, `sources-preview-slice.ts`, `agent-discovery-slice.ts`, `graph-editor-slice.ts`, `pipeline-execution-slice.ts`, `session-logs-slice.ts`, etc.).
 
-### 6.2 Component Hierarchy & Layout Structure
+### 6.2 Unified 6-Step Wizard (`src/ontology/wizard/`)
 
-The Web Workbench organizes studio tooling into five persistent layout zones:
-- **Header Bar**: Session Switcher, Active Version Badge, Elevation Pill, Save Status
-- **Left Drawer (280px)**: Session Tree, Sources Tab, Questions Tab, History Tab, Settings
-- **Center Canvas**: React Flow canvas with custom nodes, background `elkjs` layout, Level-of-Detail (Macro/Meso/Micro), and visual diff overlay
-- **Right Context Drawer**: Node Inspector, Attribute Editor, Reference Mapping Search
-- **Bottom Dock**: Diagnostic Console & W3C SSE Event Stream Log
-
-
-### 6.3 Dedicated Workbench Panels
-
-| Panel | Name | Key Features & Interactions |
+| Step | Component & Screen (`01..06`) | Key Capabilities & Contracts |
 |---|---|---|
-| **A** | **Sources & Ingestion** | Drag-drop multi-file upload, file table (size, MIME, SHA-256, taint toggle, manifest tombstone), chunk inspector. |
-| **B** | **Clarification Q&A** | Card stack of `@domain-clarifier` questions, option buttons with semantic tooltips, free-text rationale, debounce save. |
-| **C** | **Graph Explorer Canvas** | React Flow SVG nodes, background `elkjs` layout ($<300\text{ms}$ / 150 nodes), 3-tier LOD zoom. |
-| **D** | **Visual Ontology Editor** | Contextual drawer for concepts, definitions, synonyms, parent URIs, FIBO mappings, satellite columns. |
-| **E** | **Visual Diff Overlay** | Color-coded version comparison between committed versions or pending proposals (green `+`, red `-`, amber `mod`). |
-| **F** | **Quality Scorecard** | Real-time checks: deployed table contracts, grounding $\ge 0.6500$, DAG acyclicity, ratings to `feedback.jsonl`. |
-| **G** | **Export & Promotion** | Multi-format export (YAML, JSON, Turtle, JSON-LD), workspace promotion modal with OCC hash verification and rationale $\ge 10$ chars. |
+| **Step 1** | `Step1ScopeAndBaseline.tsx` (`01`) | Construct New (Blank `v0.0.0`, Workspace Seed, 6 Asset-Management Starter Packs / `all_domains`) or Evolve Existing (new-schema `wizard_schema_version` sessions or `.yaml`/`.json`/`.ttl` import via `/sessions/import-ontology`, `D25`). |
+| **Step 2** | `Step2SourcesAndNotes.tsx` (`02`) | Structured Connectors (`SQLite`, `DuckDB`, `Databricks UC`, `CSV`/`Parquet`/`XLSX`/`JSONL` via `/sources/connectors`, `P1`), Multipart Upload (`ocr=auto|force|off`, `do_not_send_to_agent`), and Inline Domain Notes (`/sources/text`). |
+| **Step 3** | `Step3PreviewEvidence.tsx` (`03a`, `03b`) | **3a**: Inferred SQL types, PK/FK keys, surrogate hints, null%/distinctness stats, `<= 50` local sample rows (`/evidence/tables`, `D6`). **3b**: Parsed chunks, `[start_char, end_char)` spans, embedded `table_data` (`/evidence/chunks`). Includes **`Fast-Forward to Step 6`** (`D8`). |
+| **Step 4** | `Step4AgentDiscovery.tsx` (`04a`, `04b`, `04c`) | **4a**: Inline `<AgentHarnessConfigCard />` (`P2`) when unconfigured (`422 AGENT_NOT_CONFIGURED`). **4b**: Single-pass `@term-scout -> @domain-clarifier -> @ontology-architect` (`D1`), Beyond-FIBO + `broadMatch` (`D3`), `1x · Semantic` doc rules (`D4`), unchecked `MAJOR · Opt-In` (`D7`), cascading checkboxes & inline edits (`D5`), `Q1..Qn` live cascade, and **`Ask FIBO`** (`AskFiboPanel`, `D2`). **4c**: `CitationInspectorDrawer` (`716×920` slide-over resolving spans, table stats, and `fibo-core` definitions). |
+| **Step 5** | `Step5DiffGraphExport.tsx` (`05`) | Visual diff (`+FIBO`, `+Custom`, `~Enriched`), warm dot-grid `elkjs` + `@xyflow/react` DAG (3-tier LOD), optional **`VisualEditorDrawer`** (`+ Add / Edit Concept`, `D15`), **`Export Ontology Only`** (`.yaml`/`.json`/`.ttl`, `D9`), and atomic CAS commit. |
+| **Step 6** | `Step6PipelineBuildAndRun.tsx` (`06`) | Auto-bound `deployed_contract` + Baseline Picker (`D12`), `DuckDB` / `Databricks Delta` dialect switch, live **7-pill (`00..06`) console** (projected over internal `STAGE_00..07`, [`docs/28 §4.4`](28-unified-ontology-pipeline-design-and-plan.md)), **5-Zone (`Z0–Z4`)** SQL preview (`bronze`, `staging`, `raw_vault`, `business_vault`, `information_mart`), inline **`StewardHoldModal`** (`D14`) & **`BudgetHoldCard`** (`D21`), **`↺ Sync Drift`** to Step 4 (`D10`), and **`Explore Generated DV 2.0 Schema ➔`**. |
+
+### 6.3 4-View DV Schema Explorer (`/dv-schema`, `06b`, `06c`, `D11`)
+Rendered by `DvSchemaExplorerView.tsx` (`src/explorer/dv-schema/`) backed by `GET /api/v1/runs/{run_id}/dv-schema`:
+1. **View 1 — Interactive DV 2.0 Graph (`DvBipartiteGraphTab.tsx`, `06b`)**: Bipartite Hub–Link–Satellite–PIT–Bridge DAG (`elkjs` + `@xyflow/react`) with Zone/PII/Delta filter pills, live search, and `DvTableLineageInspector` showing physical columns, `BKCC` tier, `Algorithm A.5` SQL expression, Gate `0–6` badges, and per-table DDL/DML `<dialog>`.
+2. **View 2 — 100% Triage & Wave Diff (`DvTriageAndWaveDiffTab.tsx`, `06c`)**: Filterable `100%` column triage ledger (`DV-G4-002`) with CSV export plus multi-wave diff (`W1 -> W2 -> W3`: `EVO-01`, `EVO-02`, `EVO-03`, `EVO-07`).
+3. **View 3 — Vault Rows & Safe SQL (`DvVaultRowsAndSqlQueryTab.tsx`, `D11`)**: Browses persisted DuckDB rows (`/tables/{table}/rows`) and runs bounded read-only SQL queries (`/query`) guarded by `validate_safe_sql()` allowlist (`SELECT`/`UNION` only, zero file/metadata scans). View-only below `768px` (`D26`).
+4. **View 4 — 5-Zone SQL (`Z0–Z4`) & IR (`DvContractIrTab.tsx`)**: Per-zone (`Z0–Z4`, `information_mart`) `DuckDB` & `Databricks Delta` SQL bundles plus `final_contract.yaml` & `final_canonical_ir.json`.
+
+### 6.4 Live Session & Per-Stage Logs Inspector (`SessionLogsInspector`, `07`, `D24`)
+Opened globally via **`Logs & Traces (<count>)`** or contextually via **`View Stage Logs ↗`** / Step 6 console pills (`00..06` mapped to `STAGE_00..07`):
+- Subscribes to `GET /api/v1/ontology/studio/sessions/{id}/logs/stream` over W3C SSE **`EventSource`** (`Last-Event-ID` gapless replay, `● Follow Live Tail` / `⏸ Pause Auto-Scroll`), displays live token & USD **cost meter** (`D21`), and filters by `wizard_step`, `stage_id`, `persona`, and `category`.
+- Renders 4 deep tabs (`Masked Prompt & Context`, `Streaming / Structured LLM Response`, `Tool Calls & @toon_v1 Traces`, `Raw JSON Event`) and supports `.jsonl` log download (`50 MB` `.gz` rotation retained for the session lifetime and bundled in `.odvstudio.zip`, `D24`).
+- Enforces single active job per session (`409 SESSION_JOB_ACTIVE`, `D27`), disabling start triggers with `Run in progress — view live logs` while keeping Cancel enabled.
 
 ---
 

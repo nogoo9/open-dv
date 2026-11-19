@@ -10,7 +10,7 @@ export const TOUR_CHAPTERS: readonly TourChapter[] = [
 		title: "Why LLM SQL Fails",
 		callouts: ["INV-01..06", "Alg A.5 SHA-256", "6-Gate axi-dv"],
 		transcript:
-			"Data Vault 2.0 gives enterprises complete historical auditability and resilient multi-source integration. Yet if you ask an LLM to write Data Vault SQL directly, subtle mistakes—delimiter hash collisions, leaked surrogate keys, or destructive satellite updates—silently corrupt your audit trail. Open-DV solves this with a neuro-symbolic architecture: agents discover semantics and propose a declarative VaultBlueprint, while a deterministic six-gate verifier and compiler prove every invariant before generating SQL.",
+			"Data Vault 2.0 delivers historical auditability and multi-source integration, yet asking an LLM to write Data Vault SQL directly risks delimiter hash collisions, leaked surrogate keys, and destructive UPDATEs. Open-DV pairs Agent-first discovery in the 4-Tab Workbench with the deterministic 6-gate axi-dv verifier and DuckDB shadow sandbox before any 5-Zone (Z0–Z4) SQL compiles.",
 	},
 	{
 		id: "ch-2",
@@ -18,13 +18,10 @@ export const TOUR_CHAPTERS: readonly TourChapter[] = [
 		timestamp: "0:28",
 		startSec: 28,
 		endSec: 62,
-		title: "Ontology Studio & FIBO",
-		callouts: [
-			"EDM Council FIBO Alignment (BM25 + 3-Persona Engine)",
-			"1-Click Handoff -> VaultBlueprint v1",
-		],
+		title: "Loopback Open Access & Steps 1–3",
+		callouts: ["opendv serve --open", "6 Starter Packs · Zero Mention Floor"],
 		transcript:
-			"Every model begins with business meaning in the Ontology Construction Studio. Drop in regulatory filings, schemas, or domain notes—even in Confidential air-gapped mode. Open-DV grounds candidate concepts against EDM Council FIBO standards, surfaces targeted clarification questions, and stages a reviewable proposal in Content-Addressable Storage. Once accepted, you can inspect the interactive semantic graph, preview its seed Data Vault DDL, and send the signed VaultBlueprint straight into the Pipeline Builder.",
+			"Run uv run opendv serve --open for zero-auth loopback access at http://127.0.0.1:8420 (non-loopback --host fails closed with exit 40 unless --allow-remote-unauthenticated is set). In Step 1 choose Blank Genesis, 6 starter packs, or .ttl import; in Step 2 attach SQLite, Databricks UC, PDFs with OCR, do_not_send_to_agent flags, and inline notes; in Step 3 preview <= 50 rows and LiteParse char spans, or Fast-Forward to Step 6.",
 	},
 	{
 		id: "ch-3",
@@ -32,13 +29,13 @@ export const TOUR_CHAPTERS: readonly TourChapter[] = [
 		timestamp: "1:02",
 		startSec: 62,
 		endSec: 98,
-		title: "Run 1: SQLite Greenfield",
+		title: "Agent Gate, Cost Meter & Diff Graph",
 		callouts: [
-			"Zero Manual wave_type — Data-Driven Inference",
-			"SQLite PRAGMA PK/FK Introspection",
+			"422 AGENT_NOT_CONFIGURED",
+			"716px Citation Drawer · Step 5 DAG",
 		],
 		transcript:
-			"Inside the four-step Pipeline Builder, there are no manual wave types or baseline CSVs to configure. Because our blueprint has no prior contract yet, Open-DV automatically infers a Greenfield design. In Step 2, we connect a multi-table Asset Management SQLite database. Open-DV introspects every table, primary key, and foreign key in read-only mode. In Step 3, we set governance policies and select both DuckDB and Databricks Delta as output SQL dialects.",
+			"Step 4 enforces an explicit 422 AGENT_NOT_CONFIGURED gate with the shared <AgentHarnessConfigCard /> across 6 harness providers (agy, agy-cli, antigravity, claude, claude-cli, claude-code) and a live Cost Meter with budget holds. Single-pass synthesis surfaces Beyond-FIBO entities, 1x Semantic rules, unchecked MAJOR Opt-In drops, a 716px Citation & FIBO drawer, and the Step 5 elkjs diff graph with Export Ontology Only.",
 	},
 	{
 		id: "ch-4",
@@ -46,13 +43,10 @@ export const TOUR_CHAPTERS: readonly TourChapter[] = [
 		timestamp: "1:38",
 		startSec: 98,
 		endSec: 125,
-		title: "6-Gate axi-dv & Sandbox",
-		callouts: [
-			"STAGE_00 .. STAGE_07",
-			"0 Orphans · 0 Hash Collisions · Replay delta_rows = 0",
-		],
+		title: "Step 6 Console & 6-Gate axi-dv",
+		callouts: ["7-Pill 00..06 Console", "G0–G5 · @toon_v1 · Inline Hold"],
 		transcript:
-			"Clicking Run Pipeline launches the eight-stage neuro-symbolic loop. Scouts profile uniqueness and entropy; Ship-Vault synthesizes 3-Tier Business Key Hubs, Links, and PII-isolated Satellites; and Gate 0 through Gate 5 verify the contract with SQLGlot AST checks, NetworkX bipartite graph proofs, and four adversarial batches inside an in-memory DuckDB four-zone shadow sandbox—auto-healing any violation via compact TOON traces before sealing Revision 1.",
+			"Step 6 auto-binds deployed_contract (D12) and launches the 7-pill 00..06 live pipeline console backed by STAGE_00..07. Gates G0–G5 run SQLGlot AST checks, NetworkX bipartite proofs, and 4 adversarial DuckDB batches with @toon_v1 self-healing—surfacing Steward and Budget Holds inline and syncing physical drift straight back to Step 4.",
 	},
 	{
 		id: "ch-5",
@@ -60,13 +54,10 @@ export const TOUR_CHAPTERS: readonly TourChapter[] = [
 		timestamp: "2:05",
 		startSec: 125,
 		endSec: 152,
-		title: "Run 2: Databricks UC + Drift",
-		callouts: [
-			"Inferred Plan: HYBRID_PER_SOURCE",
-			"Alg A.7 Evolution Lock + Alg A.9a Companion Sat + Alg A.9b Doc Spans",
-		],
+		title: "DV Schema Explorer & Session Logs",
+		callouts: ["4-View Explorer (06b, 06c, D11)", "SessionLogsInspector (07)"],
 		transcript:
-			"Now watch what happens on Day 2 when upstream data changes. We pass Revision 1 back in alongside new Databricks Unity Catalog tables carrying PII governance tags, a drifted SQLite holdings table with new ESG columns, and a regulatory filing—all in a single run. Open-DV computes a Hybrid Per-Source plan: pushing aggregate profiling down to Databricks, locking existing Hubs and Links under Algorithm A.7, routing drifted columns into an additive companion satellite without touching historical hash diffs, and grounding document spans.",
+			"Inspect the compiled vault across 4 views in DV Schema Explorer: interactive Hub-Link-Sat-PIT bipartite graph (06b), 100% Column Triage Ledger and W1->W2->W3 Wave Evolution Diff (06c), populated DuckDB rows + validate_safe_sql() Safe Read-Only SQL Runner (D11), and 5-Zone Z0–Z4 SQL including information_mart. Open Logs & Traces in SessionLogsInspector (07) for live EventSource streams, PII-masked prompts, LLM responses, and 50 MB session-lifetime bundle exports.",
 	},
 	{
 		id: "ch-6",
@@ -74,12 +65,12 @@ export const TOUR_CHAPTERS: readonly TourChapter[] = [
 		timestamp: "2:32",
 		startSec: 152,
 		endSec: 165,
-		title: "Multi-Dialect SQL & CLIs",
+		title: "5-Zone SQL & Dual-CLI Parity",
 		callouts: [
-			"github.com/nogoo9/open-dv",
-			"uv sync --all-packages && uv run opendv serve --open",
+			"schemas/v1/cli-spec.json",
+			"run dv-schema · attach-source · fibo-qa · logs",
 		],
 		transcript:
-			"Export your cryptographically chained VaultBlueprint, Canonical IR, and executable four-zone DuckDB and Databricks Delta SQL—or run the exact same workflow headlessly in CI with `opendv` and `opendvctl`. Clone Open-DV on GitHub and build your first verified vault in five minutes.",
+			"Compile deterministic DuckDB and Databricks Delta 5-Zone (Z0–Z4) SQL spanning bronze, staging, raw_vault, business_vault, and information_mart—or execute every workflow headlessly with opendv and opendvctl parity commands: run dv-schema, ontology studio attach-source, ontology studio fibo-qa, and ontology studio logs.",
 	},
 ];

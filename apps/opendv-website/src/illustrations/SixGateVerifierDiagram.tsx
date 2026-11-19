@@ -6,19 +6,19 @@ const PS = "var(--pass-stroke)";
 const PI = "var(--pass-ink)";
 const U = "var(--ink-muted)";
 const I = "var(--ink)";
-const HS = "var(--hub-stroke)";
-const CRD = "var(--bg-card)";
+const HS = "var(--surface-dark)";
+const CRD = "var(--bg-canvas)";
 
 const SN =
 	"Profile & Drift|Schema & BKCC|Hash & AST|Bipartite DAG|YAGNI Guard|4-Batch Sandbox".split(
 		"|",
 	);
 const SR =
-	"INV-06 · A.9a|KEY-01 · A.4|A.5 · A.6|EVO · A.7|A.1 · 50MB/d|DV-DYN · D.10".split(
+	"INV-06 · A.9a|KEY-01 · A.4|A.5 · A.6|EVO · A.7|A.1 · 50MB/d|DV-DYN · D.10b".split(
 		"|",
 	);
 const BATCHES = [
-	[622, 222, "Ghost"],
+	[622, 222, "Ghost '0'*64"],
 	[762, 222, "Replay=0"],
 	[622, 254, "Boundary-Shift"],
 	[762, 254, "BKCC"],
@@ -41,7 +41,7 @@ const bx = (
 		rx={rx}
 		fill={f}
 		stroke={s}
-		strokeWidth="1"
+		strokeWidth="1.25"
 	/>
 );
 const tx = (x: number, y: number, s: string, sz = 10, c = I, m = 1) => (
@@ -49,7 +49,7 @@ const tx = (x: number, y: number, s: string, sz = 10, c = I, m = 1) => (
 		x={x}
 		y={y}
 		fontSize={sz}
-		fontWeight={m ? 700 : 400}
+		fontWeight={m ? 600 : 400}
 		fontFamily={m ? M : undefined}
 		fill={c}
 	>
@@ -144,11 +144,22 @@ export function SixGateVerifierDiagram(): React.JSX.Element {
 						</marker>
 					</defs>
 					{ln("M114 130L136 130", PS, "dia-flow")}
-					{ln("M583 168C583 244 65 244 65 170", "var(--gold)", "dia-heal-arc")}
+					{ln(
+						"M583 168C583 244 65 244 65 170",
+						"var(--primary-active)",
+						"dia-heal-arc",
+					)}
 					{ln("M843 168L843 188", PS)}
-					{bx(148, 14, 612, 44, "var(--hub-fill)", HS)}
-					{bx(16, 92, 98, 76, "var(--bg-subtle)", "var(--border-strong)")}
-					{bx(170, 214, 290, 46, "var(--sat-fill)", "var(--gold)")}
+					{bx(148, 14, 612, 44, HS, HS)}
+					{bx(16, 92, 98, 76, "var(--bg-card)", "var(--border-strong)")}
+					{bx(
+						170,
+						214,
+						290,
+						46,
+						"var(--surface-cream-strong)",
+						"var(--primary)",
+					)}
 					{bx(610, 190, 294, 96, "var(--pass-fill)", PS)}
 					<g textAnchor="middle">
 						{tx(
@@ -156,9 +167,16 @@ export function SixGateVerifierDiagram(): React.JSX.Element {
 							33,
 							"Deterministic Repair · Alg A.1/A.4/A.5/A.6/A.7",
 							11,
-							"var(--hub-ink)",
+							"var(--on-dark)",
 						)}
-						{tx(454, 49, "AST codemods fix FKs, SHA-256 & micro-sats", 9, U, 0)}
+						{tx(
+							454,
+							49,
+							"AST codemods fix FKs, SHA-256 & micro-sats",
+							9,
+							"var(--on-dark-soft)",
+							0,
+						)}
 						{tx(65, 120, "@ship-vault", 11, I)}
 						{tx(65, 138, "Blueprint YAML", 9, U, 0)}
 						{tx(
@@ -166,7 +184,7 @@ export function SixGateVerifierDiagram(): React.JSX.Element {
 							233,
 							"@toon_v1 k=1 -> k=2 Bounded Loop",
 							11,
-							"var(--sat-ink)",
+							"var(--primary-active)",
 						)}
 						{tx(315, 250, "Compact trace triggers structural fix", 9, U, 0)}
 						{tx(757, 210, ":memory: DuckDB 4-Batch Sandbox", 11, PI)}

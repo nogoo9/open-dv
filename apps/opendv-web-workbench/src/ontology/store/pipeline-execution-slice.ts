@@ -27,6 +27,7 @@ export function createPipelineExecutionSlice(
 	registerCleanup?: (closeFn: () => void) => void,
 ) {
 	let activeRunEs: { close: () => void } | null = null;
+	let baselineSelectionEpoch = 0;
 	const closeRunStream = () => {
 		if (activeRunEs) {
 			try {
@@ -64,16 +65,19 @@ export function createPipelineExecutionSlice(
 		setSelectedBaselineRunId: (
 			runId: string,
 			customContractContent?: string | null,
-		) =>
+		) => {
+			baselineSelectionEpoch += 1;
 			set({
 				selectedBaselineRunId: runId,
 				customBaselineContractContent:
 					customContractContent !== undefined ? customContractContent : null,
-			}),
+			});
+		},
 
 		clearActiveHold: () => set({ activeHold: null }),
 
 		loadPipelineBaselines: async (fetchImpl = fetch): Promise<void> => {
+			const epochAtStart = baselineSelectionEpoch;
 			try {
 				const res = await studioFetch(fetchImpl, "/api/v1/runs");
 				if (!res.ok) return;
@@ -94,6 +98,10 @@ export function createPipelineExecutionSlice(
 						is_latest_certified: idx === 0,
 					})),
 				];
+				if (baselineSelectionEpoch !== epochAtStart) {
+					set({ baselineOptions: options });
+					return;
+				}
 				set({
 					baselineOptions: options,
 					selectedBaselineRunId:

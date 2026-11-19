@@ -13,8 +13,8 @@ export function TourPage({
 
 	return (
 		<DocumentShell
-			title="open-dv v6.0 Technical Walkthrough — Video Tour & Interactive Transcript"
-			description="Watch the 2:45 Open-DV v6.0 walkthrough covering Ontology Studio, FIBO grounding, SQLite Greenfield inference, 6-Gate axi-dv proofs, and Databricks UC drift."
+			title="open-dv Technical Walkthrough — 6-Step Wizard, DV Schema Explorer & Session Logs"
+			description="Watch the 2:45 Open-DV walkthrough covering loopback open access, the Unified 6-Step Wizard, 6-Gate axi-dv proofs, 4-View DV Schema Explorer, Session Logs, and 5-Zone (Z0-Z4) SQL."
 			canonicalPath="/tour/"
 			activeRoute="tour"
 			{...(basePath !== undefined ? { basePath } : {})}
@@ -36,9 +36,10 @@ export function TourPage({
 						Open-DV {SITE_META.version} Technical Walkthrough
 					</h1>
 					<p className="lede">
-						Complete 2:45 guided tour across Ontology Construction Studio,
-						zero-config SQLite Greenfield inference, 6-Gate <code>axi-dv</code>{" "}
-						verification, Hybrid Databricks UC + drift evolution, and dual CLIs.
+						Complete 2:45 guided tour across loopback open access, the Unified
+						6-Step Wizard, 6-Gate <code>axi-dv</code> proofs, 4-View DV Schema
+						Explorer, Session Logs &amp; Traces, 5-Zone (Z0–Z4){" "}
+						<code>information_mart</code> SQL, and Dual CLIs.
 					</p>
 
 					<div className="video-frame">
@@ -46,13 +47,13 @@ export function TourPage({
 							<div
 								className="youtube-facade"
 								data-youtube-facade={embedUrl}
-								data-youtube-title="Open-DV v6.0 Technical Walkthrough"
+								data-youtube-title="Open-DV Technical Walkthrough"
 							>
 								<img
 									src={withBase("/video/opendv-tour-poster.webp", basePath)}
 									width={1920}
 									height={1080}
-									alt="Open-DV v6.0 2:45 technical walkthrough poster"
+									alt="Open-DV 2:45 technical walkthrough poster"
 									fetchPriority="high"
 								/>
 								<button
@@ -144,14 +145,14 @@ export function TourPage({
 							</p>
 						</div>
 						<div style={{ display: "grid", gap: "0.35rem" }}>
-							<label htmlFor="transcript-search" style={{ fontWeight: 600 }}>
+							<label htmlFor="transcript-search" style={{ fontWeight: 500 }}>
 								Filter chapters &amp; transcript
 							</label>
 							<input
 								id="transcript-search"
 								type="search"
 								className="search-input"
-								placeholder="Search FIBO, SQLite, Alg A.9a, DuckDB..."
+								placeholder="Search FIBO, 5-Zone, axi-dv, DuckDB..."
 								data-transcript-filter
 							/>
 						</div>

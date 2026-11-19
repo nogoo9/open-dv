@@ -20,7 +20,7 @@ export const YOUTUBE_VIDEO_ID = "";
 
 export const SITE_META: SiteMeta = {
 	name: "open-dv",
-	version: "v6.0",
+	version: "v6.1",
 	license: "Apache-2.0",
 	repoUrl: "https://github.com/nogoo9/open-dv",
 	docsBaseUrl: "https://github.com/nogoo9/open-dv/blob/main/docs",
@@ -33,27 +33,39 @@ export const QUICKSTART_STEPS: readonly QuickstartStep[] = [
 		step: 1,
 		title: "Install Python & Bun Workspaces",
 		command: "uv sync --all-packages && bun install",
-		note: "Requires Python >= 3.12 and Bun; builds the standalone platform API and web suite.",
+		note: "Requires Python >= 3.12 and Bun; builds the standalone platform API, Dual CLIs, and 4-Tab Web Workbench.",
 	},
 	{
 		step: 2,
-		title: "Launch Ontology Studio & Builder",
+		title: "Launch Loopback Open-Access Workbench",
 		command: "uv run opendv serve --open",
-		note: "Starts unified REST/SSE server and embedded UI on http://127.0.0.1:8420.",
+		note: "Starts zero-auth loopback REST/SSE + 6-Step Wizard at http://127.0.0.1:8420 (non-loopback exits 40 without --allow-remote-unauthenticated).",
 	},
 	{
 		step: 3,
-		title: "Verify & Compile Headlessly in CI",
+		title: "Verify & Inspect Headlessly in CI",
 		command: "uv run opendv verify -c final_contract.yaml --json",
-		note: "Executes Axi-DV Gates G0-G5 with RFC 8785 deterministic JSON exit codes.",
+		note: "Executes Axi-DV Gates G0-G5 with RFC 8785 deterministic JSON, or query outputs via run dv-schema and ontology studio logs.",
 	},
 ];
 
 export const AGENT_QUICKSTART_PROMPT = `Clone https://github.com/nogoo9/open-dv and run \`uv sync --all-packages && bun install\`.
-Use \`uv run opendv serve --open\` for the Ontology Studio & Pipeline Builder at http://127.0.0.1:8420,
-or run \`uv run opendv pipeline run -i pipeline_input.yaml\` and \`uv run opendv verify -c final_contract.yaml --json\` in CI.`;
+Use \`uv run opendv serve --open\` for the Unified 6-Step Wizard & DV Schema Explorer at http://127.0.0.1:8420
+(use \`--allow-remote-unauthenticated\` only for trusted non-loopback binds), or run \`uv run opendv verify -c final_contract.yaml --json\` and \`uv run opendv run dv-schema --run-id <id>\` in CI.`;
 
 export const DOC_REFS: readonly DocRef[] = [
+	{
+		id: "docs/27",
+		path: "27-unified-ontology-pipeline-requirements-and-uat.md",
+		topic:
+			"Normative FR/NFR specs, D1–D28 decisions, SCN-01..13 & UAT-01..30 matrix",
+	},
+	{
+		id: "docs/28",
+		path: "28-unified-ontology-pipeline-design-and-plan.md",
+		topic:
+			"Unified 6-Step Wizard, 12-screen design, DV Schema Explorer & phase plan",
+	},
 	{
 		id: "docs/01",
 		path: "01-core-modelling-spec.md",
@@ -76,12 +88,7 @@ export const DOC_REFS: readonly DocRef[] = [
 	},
 	{
 		id: "docs/16",
-		path: "16-cli-reference.md",
+		path: "16-human-and-agent-usage-guide.md",
 		topic: "Contract-identical opendv & opendvctl dual-CLI specification",
-	},
-	{
-		id: "docs/20",
-		path: "20-ontology-studio-spec.md",
-		topic: "Ontology Construction Studio, FIBO grounding, CAS versions",
 	},
 ];

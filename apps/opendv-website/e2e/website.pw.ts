@@ -16,7 +16,7 @@ function trackHealth(page: Page): () => void {
 }
 
 test.describe("Open-DV website E2E", () => {
-	test("desktop, tablet, mobile layout, light theme, and popover nav", async ({
+	test("desktop, tablet, mobile layout, Claude DESIGN.md light theme, 64px header, and popover nav", async ({
 		page,
 	}) => {
 		const assertHealthy = trackHealth(page);
@@ -38,7 +38,7 @@ test.describe("Open-DV website E2E", () => {
 			}));
 			expect(state).toEqual({
 				scheme: "light",
-				bg: "rgb(246, 244, 238)",
+				bg: "rgb(250, 249, 245)",
 				fit: true,
 			});
 			await expect(
@@ -50,6 +50,9 @@ test.describe("Open-DV website E2E", () => {
 			if (width === 1440) {
 				await expect(page.locator("h1")).toHaveCount(1);
 				await expect(page.locator(".site-header")).toHaveClass(/is-wide/);
+				const hdrBox = await page.locator("[data-site-header]").boundingBox();
+				expect(hdrBox?.height ?? 0).toBeGreaterThanOrEqual(62);
+				expect(hdrBox?.height ?? 0).toBeLessThanOrEqual(66);
 				const links = page.locator("#site-menu a");
 				await expect(links).toHaveCount(7);
 				for (const link of await links.all()) await expect(link).toBeVisible();
@@ -125,7 +128,7 @@ test.describe("Open-DV website E2E", () => {
 		assertHealthy();
 	});
 
-	test("2x screenshots, tabs, pins, dialects, copy, and lightbox", async ({
+	test("12 workbench 2x screenshots, tabs, pins, 5 dialect tabs, copy, and lightbox", async ({
 		context,
 		page,
 	}) => {
@@ -134,7 +137,10 @@ test.describe("Open-DV website E2E", () => {
 		await page.setViewportSize({ width: 1440, height: 900 });
 		await page.goto("/open-dv/");
 
-		const img1 = page.locator("#wb-panel-ontology-studio img");
+		const wbTabs = page.locator('[data-tabs-group="workbench"] [role="tab"]');
+		await expect(wbTabs).toHaveCount(12);
+
+		const img1 = page.locator("#wb-panel-step1-baseline img");
 		await img1.scrollIntoViewIfNeeded();
 		await expect
 			.poll(() =>
@@ -144,29 +150,66 @@ test.describe("Open-DV website E2E", () => {
 			)
 			.toBe(true);
 
-		await page.locator("#wb-tab-blueprint-ddl").click();
-		await expect(page.locator("#wb-tab-blueprint-ddl")).toHaveAttribute(
+		await page.locator("#wb-tab-step2-sources").click();
+		await expect(page.locator("#wb-tab-step2-sources")).toHaveAttribute(
 			"aria-selected",
 			"true",
 		);
-		await expect(page.locator("#wb-panel-ontology-studio")).toHaveAttribute(
+		await expect(page.locator("#wb-panel-step1-baseline")).toHaveAttribute(
 			"hidden",
 			"until-found",
 		);
-		await page.locator("#wb-tab-blueprint-ddl").press("ArrowRight");
-		const panel3 = page.locator("#wb-panel-catalog-picker");
+		await page.locator("#wb-tab-step2-sources").press("ArrowRight");
+		const panel3 = page.locator("#wb-panel-step3a-structured");
 		await expect(panel3).toBeVisible();
 
-		await panel3.locator('[data-pin-btn="s3-p2"]').click();
-		await expect(panel3.locator('[data-pin-btn="s3-p2"]')).toHaveAttribute(
-			"aria-pressed",
-			"true",
-		);
-		await expect(panel3.locator('[data-pin-detail="s3-p2"]')).toHaveAttribute(
-			"data-active",
-			"true",
-		);
+		const pin2 = panel3.locator("[data-pin-btn]").nth(1);
+		const pinId = await pin2.getAttribute("data-pin-btn");
+		expect(pinId).toBeTruthy();
+		await pin2.click();
+		await expect(pin2).toHaveAttribute("aria-pressed", "true");
+		await expect(
+			panel3.locator(`[data-pin-detail="${pinId}"]`),
+		).toHaveAttribute("data-active", "true");
 
+		for (const tabId of [
+			"#wb-tab-dv-schema-explorer",
+			"#wb-tab-session-logs",
+		]) {
+			const tab = page.locator(tabId);
+			await tab.click();
+			await expect(tab).toHaveAttribute("aria-selected", "true");
+			const targetId = await tab.getAttribute("data-tab-target");
+			expect(targetId).toBeTruthy();
+			const panelImg = page.locator(`#${targetId} img`);
+			await panelImg.scrollIntoViewIfNeeded();
+			await expect
+				.poll(() =>
+					panelImg.evaluate(
+						(i: HTMLImageElement) => i.complete && i.naturalWidth > 0,
+					),
+				)
+				.toBe(true);
+		}
+
+		for (const tab of await wbTabs.all()) {
+			await tab.click();
+			const targetId = await tab.getAttribute("data-tab-target");
+			const panelImg = page.locator(`#${targetId} img`);
+			await panelImg.scrollIntoViewIfNeeded();
+			await expect
+				.poll(() =>
+					panelImg.evaluate(
+						(i: HTMLImageElement) => i.complete && i.naturalWidth > 0,
+					),
+				)
+				.toBe(true);
+		}
+
+		const dialectTabs = page.locator(
+			'[data-tabs-group="dialects"] [role="tab"]',
+		);
+		await expect(dialectTabs).toHaveCount(5);
 		await page.getByRole("tab", { name: "Databricks Delta SQL" }).click();
 		const delta = page.locator("#dialect-panel-databricks-sql");
 		await expect(delta).toBeVisible();
@@ -183,6 +226,7 @@ test.describe("Open-DV website E2E", () => {
 		await page.keyboard.press("Escape");
 		await expect.poll(isOpen).toBe(false);
 
+		await page.locator("#wb-tab-step3a-structured").click();
 		await panel3.locator("[data-lightbox-image]").click();
 		await expect.poll(isOpen).toBe(true);
 		await expect
@@ -231,11 +275,27 @@ test.describe("Open-DV website E2E", () => {
 			.toBeGreaterThanOrEqual(60);
 		await video.evaluate((v: HTMLVideoElement) => v.pause());
 
-		await page.locator("[data-transcript-filter]").fill("axi");
-		await expect(page.locator("[data-chapter-row]:visible")).toHaveCount(2);
+		const rows = page.locator("[data-chapter-row]");
+		const total = await rows.count();
+		expect(total).toBeGreaterThanOrEqual(6);
+
+		const filter = page.locator("[data-transcript-filter]");
+		await filter.fill("axi");
+		const visibleRows = page.locator("[data-chapter-row]:visible");
+		const matched = await visibleRows.count();
+		expect(matched).toBeGreaterThanOrEqual(1);
 		await expect(page.locator("[data-transcript-count]")).toContainText(
-			"Showing 2 of 6 chapters",
+			`Showing ${matched} of ${total} chapters`,
 		);
+
+		await filter.fill("zzznomatch");
+		await expect(visibleRows).toHaveCount(0);
+		await expect(page.locator("[data-transcript-count]")).toContainText(
+			`Showing 0 of ${total} chapters`,
+		);
+
+		await filter.fill("");
+		await expect(visibleRows).toHaveCount(total);
 		assertHealthy();
 	});
 });

@@ -11,20 +11,45 @@ const S12 = `${S1} ${S2}`;
 const S023 = `${S0} ${S2} ${S3}`;
 
 const TONE = {
-	h: ["var(--hub-fill)", "var(--hub-stroke)", "var(--hub-ink)"],
-	l: ["var(--lnk-fill)", "var(--lnk-stroke)", "var(--lnk-ink)"],
-	s: ["var(--sat-fill)", "var(--sat-stroke)", "var(--sat-ink)"],
-	p: ["var(--pass-fill)", "var(--pass-stroke)", "var(--pass-ink)"],
-	n: ["var(--bg-card)", "var(--border-strong)", "var(--ink)"],
+	h: [
+		"var(--hub-fill)",
+		"var(--hub-stroke)",
+		"var(--hub-ink)",
+		"var(--on-dark-soft)",
+	],
+	l: [
+		"var(--lnk-fill)",
+		"var(--lnk-stroke)",
+		"var(--lnk-ink)",
+		"var(--ink-muted)",
+	],
+	s: [
+		"var(--sal-fill)",
+		"var(--sal-stroke)",
+		"var(--sal-ink)",
+		"var(--ink-muted)",
+	],
+	p: [
+		"var(--pass-fill)",
+		"var(--pass-stroke)",
+		"var(--pass-ink)",
+		"var(--ink-muted)",
+	],
+	n: [
+		"var(--bg-canvas)",
+		"var(--border-strong)",
+		"var(--ink)",
+		"var(--ink-muted)",
+	],
 } as const;
 
 type Tone = keyof typeof TONE;
 
 const HDRS: readonly [number, string][] = [
-	[16, "ONTOLOGY + CONNECTORS"],
+	[16, "WIZARD STEPS 1–3 + CONNECTORS"],
 	[236, "mode_detector.py"],
-	[464, "CODEMODS & GATES G0-G5"],
-	[710, "SEALED OUTPUTS"],
+	[464, "STEPS 4–6 · CODEMODS & G0–G5"],
+	[710, "5-ZONE + EXPLORER"],
 ];
 
 const LANES: readonly [number, number][] = [
@@ -59,10 +84,19 @@ type Box = readonly [
 ];
 
 const BOXES: readonly Box[] = [
-	[16, 34, 190, 58, "Ontology Studio + CAS", "FIBO BM25 · Graph A", S023, "s"],
+	[
+		16,
+		34,
+		190,
+		58,
+		"Step 1–5 Wizard + CAS",
+		"6 Packs · Beyond-FIBO",
+		S023,
+		"s",
+	],
 	[16, 102, 190, 58, "DIRECT_DUCKDB_ATTACH", "SQLite PRAGMA · Files", S12, "h"],
 	[16, 170, 190, 58, "REMOTE_PUSHDOWN", "Databricks UC · Arrow", S2, "l"],
-	[16, 238, 190, 56, "DOCUMENT_SPAN", "PDF Filings · LiteParse", S2, "s"],
+	[16, 238, 190, 56, "DOCUMENT_SPAN", "PDF OCR + Inline Notes", S2, "s"],
 	[244, 44, 184, 72, "COLD_START", "COLD_START_N1 (null)", S01, "h"],
 	[244, 130, 184, 72, "HYBRID_PER_SOURCE", "UC + Drift + PDF", S2, "s"],
 	[244, 216, 184, 66, "VERIFIED_NO_OP", "0 sources · Replay", S3, "p"],
@@ -71,16 +105,34 @@ const BOXES: readonly Box[] = [
 		44,
 		202,
 		60,
-		"FIBO Seed & 3-Pass CoT",
-		"@ship-vault · Graph B",
+		"Agent 3-Persona + Q&A",
+		"Step 4b · Citation Drawer",
 		S01,
 		"n",
 	],
-	[472, 114, 202, 62, "Alg A.7 / A.9a / A.9b", "Lock · Drift · Spans", S2, "s"],
-	[472, 186, 202, 96, "Alg A.1-A.6 & G0-G5", "Codemods + Sandbox", ALL, "p"],
-	[718, 44, 186, 72, "Sealed Contract v+1", "VaultBlueprint · IR", ALL, "p"],
-	[718, 130, 186, 72, "4-Zone SQL Bundle", "DuckDB + Delta", ALL, "h"],
-	[718, 216, 186, 66, "15 Ontology Deltas", "Rev 2 + _ext Sats", S2, "l"],
+	[
+		472,
+		114,
+		202,
+		62,
+		"Alg A.7 / A.9a / A.9b",
+		"Lock · Drift Sync · Spans",
+		S2,
+		"s",
+	],
+	[472, 186, 202, 96, "00..06 Console & G0–G5", "Codemods + 4-Batch", ALL, "p"],
+	[718, 44, 186, 72, "Sealed Contract v+1", "deployed_contract · IR", ALL, "p"],
+	[
+		718,
+		130,
+		186,
+		72,
+		"5-Zone (Z0–Z4) SQL",
+		"information_mart · Delta",
+		ALL,
+		"h",
+	],
+	[718, 216, 186, 66, "DV Schema Explorer", "Triage + W1->W3 + D11", S2, "l"],
 ];
 
 export function InferenceMatrixDiagram(): React.JSX.Element {
@@ -137,13 +189,12 @@ export function InferenceMatrixDiagram(): React.JSX.Element {
 					aria-labelledby="im-title im-desc"
 				>
 					<title id="im-title">
-						End-to-End Single-Run Data-Driven Inference Pipeline
+						Unified 6-Step Wizard &amp; Data-Driven Inference Matrix
 					</title>
 					<desc id="im-desc">
-						Ontology Studio + CAS and Source Connectors (DIRECT_DUCKDB_ATTACH,
-						REMOTE_PUSHDOWN, DOCUMENT_SPAN) into mode_detector (COLD_START,
-						HYBRID_PER_SOURCE, VERIFIED_NO_OP), Alg A.1-A.9b codemods and G0-G5,
-						and Sealed Contract v+1 + 4-Zone SQL.
+						Steps 1-3 connectors into mode_detector (COLD_START,
+						HYBRID_PER_SOURCE, VERIFIED_NO_OP), Steps 4-6 codemods and G0-G5,
+						and Sealed Contract v+1 + 5-Zone (Z0-Z4) SQL + DV Schema Explorer.
 					</desc>
 					<defs>
 						<marker
@@ -155,7 +206,7 @@ export function InferenceMatrixDiagram(): React.JSX.Element {
 							markerHeight="6"
 							orient="auto-start-reverse"
 						>
-							<path d="M0,1 L9,5 L0,9 Z" fill="var(--gold)" />
+							<path d="M0,1 L9,5 L0,9 Z" fill="var(--primary-active)" />
 						</marker>
 					</defs>
 					{HDRS.map(([x, lbl]) => (
@@ -164,7 +215,7 @@ export function InferenceMatrixDiagram(): React.JSX.Element {
 							x={x}
 							y={22}
 							fontSize="10"
-							fontWeight="700"
+							fontWeight="600"
 							fontFamily="var(--font-mono)"
 							fill="var(--ink-muted)"
 						>
@@ -179,7 +230,7 @@ export function InferenceMatrixDiagram(): React.JSX.Element {
 							width={w}
 							height="260"
 							rx="8"
-							fill="var(--bg-subtle)"
+							fill="var(--bg-card)"
 							stroke="var(--border-strong)"
 						/>
 					))}
@@ -188,7 +239,7 @@ export function InferenceMatrixDiagram(): React.JSX.Element {
 							key={d}
 							d={d}
 							fill="none"
-							stroke="var(--gold)"
+							stroke="var(--primary-active)"
 							strokeWidth="1.75"
 							strokeDasharray="5 4"
 							className="dia-flow"
@@ -197,7 +248,7 @@ export function InferenceMatrixDiagram(): React.JSX.Element {
 						/>
 					))}
 					{BOXES.map(([x, y, w, h, title, sub, sc, tone]) => {
-						const [fill, stroke, ink] = TONE[tone];
+						const [fill, stroke, ink, subInk] = TONE[tone];
 						return (
 							<g key={title} data-scenario-node={sc}>
 								<rect
@@ -215,7 +266,7 @@ export function InferenceMatrixDiagram(): React.JSX.Element {
 									y={y + 24}
 									stroke="none"
 									fontSize="11.5"
-									fontWeight="700"
+									fontWeight="600"
 									fontFamily="var(--font-mono)"
 									fill={ink}
 								>
@@ -226,7 +277,7 @@ export function InferenceMatrixDiagram(): React.JSX.Element {
 									y={y + 44}
 									stroke="none"
 									fontSize="10"
-									fill="var(--ink-muted)"
+									fill={subInk}
 								>
 									{sub}
 								</text>

@@ -2,9 +2,11 @@ import type { ConnectorSpec, DialectSnippet, InferenceScenario } from "./types";
 
 export const HARNESS_PROVIDERS: readonly string[] = [
 	"agy",
-	"claude-cli",
+	"agy-cli",
 	"antigravity",
 	"claude",
+	"claude-cli",
+	"claude-code",
 ];
 
 export const INFERENCE_SCENARIOS: readonly InferenceScenario[] = [
@@ -12,41 +14,41 @@ export const INFERENCE_SCENARIOS: readonly InferenceScenario[] = [
 		id: "day0-seed",
 		tabLabel: "1. Day-0 Ontology Seed",
 		mode: "COLD_START_N1",
-		inputs: "contract: null · 0 physical tables",
+		inputs: "deployed_contract: null · 6 Starter Packs or Blank Genesis",
 		strategy:
-			"Ontology Studio grounds domain notes against FIBO and synthesizes a greenfield seed.",
+			"Unified Step 1–5 Wizard grounds notes against FIBO + Beyond-FIBO and commits a Graph A baseline.",
 		algorithms: "FIBO BM25 Alignment · VaultBlueprint v1",
-		outputs: "9 hubs, 10 links, 20 satellites + 4-Zone DDL preview",
+		outputs: "9 hubs, 10 links, 20 satellites + 5-Zone (Z0–Z4) DDL preview",
 	},
 	{
 		id: "sqlite-greenfield",
 		tabLabel: "2. Greenfield SQLite + Files",
 		mode: "COLD_START_N1",
-		inputs: "contract: null · am_sec_treasury_ibor.sqlite (6 tables)",
+		inputs: "deployed_contract: null · am_sec_treasury_ibor.sqlite (6 tables)",
 		strategy:
-			"DIRECT_DUCKDB_ATTACH reads PRAGMA PK/FK constraints before profiling Graph B.",
+			"DIRECT_DUCKDB_ATTACH reads PRAGMA PK/FK constraints before profiling Graph B (or Fast-Forward to Step 6).",
 		algorithms: "Graph B Profiler · 3-Pass CoT · G0-G5 Sandbox",
-		outputs: "Sealed Contract v1 + DuckDB & Databricks Delta SQL",
+		outputs: "Sealed Contract v1 + DuckDB & Databricks 5-Zone SQL",
 	},
 	{
 		id: "hybrid-drift",
 		tabLabel: "3. Hybrid Databricks UC + Drift",
 		mode: "HYBRID_PER_SOURCE",
 		inputs:
-			"contract: v1 · uc://am_prod.ibor.* + drifted holdings_13f + 10-K PDF",
+			"auto-bound deployed_contract v1 · uc://am_prod.ibor.* + drifted holdings + PDF",
 		strategy:
-			"Locks existing Hubs/Links, pushes UC stats down via Arrow, splits drifted cols & PDF spans.",
+			"Locks Hubs/Links, pushes UC stats down via Arrow, splits drifted cols & PDF spans, syncs drift to Step 4.",
 		algorithms: "Alg A.7 Evolution Lock · Alg A.9a Drift · Alg A.9b Doc Spans",
-		outputs: "Revision 2 Blueprint + 15 synced Ontology Deltas",
+		outputs: "Revision 2 Blueprint + 5-Zone information_mart + W1->W2->W3 diff",
 	},
 	{
 		id: "verified-noop",
 		tabLabel: "4. Zero-Data Audit Pass",
 		mode: "VERIFIED_NO_OP",
-		inputs: "contract: v2 · 0 new sources",
+		inputs: "deployed_contract: v2 · 0 new sources",
 		strategy:
-			"Re-proves Graph A alignment and invariants, then emits multi-dialect SQL bundles.",
-		algorithms: "Static Proof Replay · Multi-Dialect Compiler",
+			"Re-proves Graph A alignment and invariants, then emits multi-dialect 5-Zone SQL + DV Schema Explorer state.",
+		algorithms: "Static Proof Replay · Multi-Dialect 5-Zone Compiler",
 		outputs: "final_contract.yaml · Canonical IR · DuckDB + Delta SQL",
 	},
 ];
@@ -71,32 +73,39 @@ export const CONNECTORS: readonly ConnectorSpec[] = [
 		name: "DuckDB Databases",
 		executionClass: "DIRECT_DUCKDB_ATTACH",
 		introspection:
-			"Zero-copy local attachment for fast profiling and 4-Batch shadow verification.",
+			"Zero-copy local attachment for fast profiling, shadow verification, and D11 Safe SQL.",
 	},
 	{
 		id: "files",
-		name: "Parquet / CSV / JSON",
+		name: "Parquet / CSV / XLSX / JSON",
 		executionClass: "DIRECT_DUCKDB_ATTACH",
 		introspection:
-			"Streaming vectorized scans across partitioned tabular drops without baseline bloat.",
+			"Streaming vectorized scans across tabular drops with <= 50-row Step 3a preview.",
 	},
 	{
 		id: "docs",
-		name: "PDF & Regulatory Filings",
+		name: "PDF / DOCX / Markdown + OCR",
 		executionClass: "DOCUMENT_SPAN_EXTRACTOR",
 		introspection:
-			"LiteParse extracts verbatim [char_start, char_end] offsets for Tier-U1..U3 resolution.",
+			"LiteParse + configurable OCR (auto|force|off) extracts verbatim [char_start, char_end] spans.",
+	},
+	{
+		id: "inline-notes",
+		name: "Inline Domain Notes & Privacy",
+		executionClass: "DOCUMENT_SPAN_EXTRACTOR",
+		introspection:
+			"Captures 1x Semantic SLA rules directly in Step 2 with per-source do_not_send_to_agent flags.",
 	},
 ];
 
 export const DIALECT_SNIPPETS: readonly DialectSnippet[] = [
 	{
 		id: "duckdb-sql",
-		label: "DuckDB 4-Zone SQL",
+		label: "DuckDB 5-Zone SQL",
 		lang: "sql",
 		filename: "dv_duckdb_schema.sql",
-		code: `-- ZONE 1: HASHED STAGING VIEWS (ALGORITHM A.5 LENGTH-PREFIXED SHA-256)
-CREATE SCHEMA IF NOT EXISTS raw_vault;
+		code: `-- Z0–Z4 5-Zone SQL: bronze, staging, raw_vault, business_vault, information_mart
+CREATE SCHEMA IF NOT EXISTS information_mart;
 SELECT LOWER(SHA256(
   '33:AM_SEC_TREASURY_IBOR_HOLDINGS_13F||' ||
   CAST(OCTET_LENGTH(ENCODE(NULLIF(UPPER(TRIM(CAST(holding_id AS VARCHAR))), ''))) AS VARCHAR)
@@ -133,13 +142,24 @@ lineage:
 	},
 	{
 		id: "dual-cli",
-		label: "Dual CLIs (opendv / opendvctl)",
+		label: "Dual CLIs & D13 Subcommands",
 		lang: "bash",
-		filename: "ci_verify.sh",
-		code: `# In-process standalone Python CLI (air-gapped CI)
-uv run opendv verify -c final_contract.yaml -b graph_b.json --apply-codemods --json
+		filename: "cli_parity.sh",
+		code: `# Query DV Schema Explorer & Safe SQL headlessly (Python or opendvctl)
+uv run opendv run dv-schema --run-id run_09f4c2 --sql "SELECT * FROM information_mart.vw_position_current LIMIT 20"
+uv run opendv ontology studio attach-source --session <id> --adapter sqlite --uri ./ibor.sqlite
+uv run opendv ontology studio fibo-qa --session <id> --question "How does FIBO model CustodyAccount?"
+opendvctl ontology studio logs --session <id> --stage STAGE_04_SHIP_VAULT_PASS2 --follow`,
+	},
+	{
+		id: "loopback-guard",
+		label: "Loopback & Remote Guard",
+		lang: "bash",
+		filename: "serve_guard.sh",
+		code: `# Default loopback zero-auth open access (http://127.0.0.1:8420)
+uv run opendv serve --open
 
-# Contract-identical standalone Bun platform client
-opendvctl pipeline run --api-url "$OPENDV_API_URL" -i pipeline_input.yaml --json`,
+# Non-loopback bind fails closed (exit 40) unless explicitly waived:
+uv run opendv serve --host 0.0.0.0 --allow-remote-unauthenticated`,
 	},
 ];

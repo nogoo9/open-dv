@@ -11,19 +11,19 @@ The Open-DV platform enforces a strict, mathematical **Parity Invariant** across
 ### 1. The Three Parity Transports
 
 1. **`STANDALONE_CLI`**: In-process Python CLI (`opendv`, located in `apps/opendv-cli`), invoking use cases in `packages/opendv-service` directly without an HTTP network hop.
-2. **`CLIENT_CLI`**: Bun-compiled standalone binary (`opendvctl`, located in `apps/opendvctl`), communicating over HTTP/SSE with the remote platform API (`--api-url http://localhost:8000`).
+2. **`CLIENT_CLI`**: Bun-compiled standalone binary (`opendvctl`, located in `apps/opendvctl`), communicating over HTTP/SSE with the remote platform API (`--api-url http://127.0.0.1:8420`).
 3. **`DIRECT_REST`**: Headless FastAPI HTTP + SSE platform server (`apps/opendv-platform-api`), invoked directly via REST endpoints (`/api/v1/*`).
 
 ### 2. The Parity Invariant
 
-For any valid operation $O \in \{\text{verify}, \text{profile}, \text{compile}, \text{sandbox}, \text{hold}, \text{ontology}, \text{pipeline}\}$ and test fixture input $I$:
+For any valid operation $O \in \{\text{verify}, \text{profile}, \text{compile}, \text{sandbox}, \text{run dv-schema}, \text{hold}, \text{ontology}, \text{ontology studio attach-source}, \text{ontology studio fibo-qa}, \text{ontology studio logs}, \text{pipeline}, \text{source}, \text{config}\}$ and test fixture input $I$:
 
 $$\text{JCS}(\text{Normalize}(T_{\text{STANDALONE}}(O, I))) \equiv \text{JCS}(\text{Normalize}(T_{\text{CLIENT}}(O, I))) \equiv \text{JCS}(\text{Normalize}(T_{\text{REST}}(O, I)))$$
 
 where:
 - **RFC 8785 JSON Canonicalization Scheme (JCS)** produces bit-for-bit identical serialization conforming strictly to RFC 8785 §3.2.2–3.2.3: object member keys sorted by UTF-16 code units (lexicographical UTF-16 order), IEEE 754 floating-point numbers formatted per ECMAScript specification without exponential notation where unneeded, rejection of NaN/Infinity, integer range bounded within $[-(2^{53}-1), 2^{53}-1]$, and zero insignificant whitespace (no inter-token whitespace or line breaks).
 - **Normalization** redacts volatile execution metadata (e.g. wall-clock timestamps, temporary CAS directory paths) while strictly verifying all deterministic outputs, gate scorecards, AST DDLs, hash pills, and DAG load orders.
-- **Exit Code Equality**: If $T_{\text{STANDALONE}}$ exits with code $C$, then $T_{\text{CLIENT}}$ must exit with code $C$, and $T_{\text{REST}}$ must return the corresponding HTTP status code mapping ($0 \implies 200$, $10 \implies 422$, $20 \implies 409$, $30 \implies 200 \text{ PAUSED}$, $40 \implies 400$).
+- **Exit Code Equality**: If $T_{\text{STANDALONE}}$ exits with code $C$, then $T_{\text{CLIENT}}$ must exit with code $C$, and $T_{\text{REST}}$ must return the corresponding HTTP status code mapping ($0 \implies 200$, $10 \implies 422$ including `422 AGENT_NOT_CONFIGURED`, $20 \implies 409$ including `409 SESSION_JOB_ACTIVE`, $30 \implies 200 \text{ PAUSED}$, $40 \implies 400$ and `opendv serve` non-loopback `--host` remote-guard refusal without `--allow-remote-unauthenticated`).
 - **Identical Error Diagnostics**: In failure modes, all three transports must emit matching error codes, field JSON paths, and `@toon_v1` remediation traces.
 
 ### 3. Scenario Registry & Meta-Test Verification
@@ -144,7 +144,7 @@ uv run opendv sandbox --local \
 - **Enforced DV 2.0 Rules & Invariants:** `Algorithm A.5` (6-Stage Length-Prefixed Canonical SHA-256 Hashing), `DV-COL-005` (`CHAR(64)` SHA-256 hex digest typing), `DV-AST-002` (length-prefixed `||` concatenation), `DV-AST-003` (positional null token `'-1:^^'`), `DV-DYN-003` (orphan-free Link-to-Hub joins), `DV-DYN-005` (boundary-shift collision immunity), `DV-DYN-007` (cross-source `BKCC` isolation)
 
 ### 2. Test Dataset & Vectors
-The Scenario S7 verification dataset exercises both the Private Equity reference contract (`examples/private_equity/dv_pe_model_contract.yaml`) and adversarial boundary/encoding vectors across Python (`opendv_core.hashing`), SQLGlot AST synthesis (`opendv_axi_verifier.codemods.alg_a5_sqlglot_hash`), and DuckDB 4-Zone SQL (`opendv_duckdb_sandbox.compiler_4zone`):
+The Scenario S7 verification dataset exercises both the Private Equity reference contract (`examples/private_equity/dv_pe_model_contract.yaml`) and adversarial boundary/encoding vectors across Python (`opendv_core.hashing`), SQLGlot AST synthesis (`opendv_axi_verifier.codemods.alg_a5_sqlglot_hash`), and DuckDB 5-Zone (`Z0–Z4`, `bronze`/`staging`/`raw_vault`/`business_vault`/`information_mart`) SQL (`opendv_duckdb_sandbox.compiler_4zone`):
 
 | Vector Category | Input Tokens / Columns | `is_business_key` | `bkcc_prefix` | Canonical Pre-Hash String (Stage 4) | Canonical Lowercase SHA-256 Digest (Stage 5, `[0-9a-f]{64}`) |
 | :--- | :--- | :---: | :---: | :--- | :--- |
@@ -791,7 +791,7 @@ uv run opendv verify --local \
   --json
 
 # 2. REST API execution (returns HTTP 200 with REJECT_WITH_TRACE and DV-G4-001 diagnostics)
-curl -X POST http://localhost:8000/api/v1/verify \
+curl -X POST http://127.0.0.1:8420/api/v1/verify \
   -H "Content-Type: application/json" \
   -d @examples/scenarios/s3_unmapped_feed/contract_s3.yaml
 ```
@@ -825,7 +825,7 @@ uv run opendv compile --local \
   --json
 
 # 2. REST API compilation
-curl -X POST http://localhost:8000/api/v1/compile \
+curl -X POST http://127.0.0.1:8420/api/v1/compile \
   -H "Content-Type: application/json" \
   -d @examples/scenarios/uf2_renamed_column/contract_uf2.yaml
 ```
@@ -866,7 +866,7 @@ uv run opendv compile --local \
   --json
 
 # 3. Direct REST verification
-curl -X POST http://localhost:8000/api/v1/verify \
+curl -X POST http://127.0.0.1:8420/api/v1/verify \
   -H "Content-Type: application/json" \
   -d @examples/scenarios/s9_multitenant/contract_s9.yaml
 ```
@@ -1065,3 +1065,27 @@ The table below is the single normative source of truth for Algorithm A.5 length
 
 3. **Determinism Verification**:
    Before updating or asserting goldens, `GoldenManager` verifies compiler byte-stability across successive compiles, LF line-ending invariance, and floating-point precision formatting.
+
+---
+
+## Unified Wizard, DV Schema Explorer & Phase 1–4 Parity Verification
+
+End-to-end UAT scenarios (`SCN-01`..`SCN-13`) and output-validated user acceptance checks (`UAT-01`..`UAT-30`) for the unified 6-step Wizard, 4-view DV Schema Explorer (`Z0–Z4` including `information_mart`), and live-streaming `SessionLogsInspector` are specified in [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](27-unified-ontology-pipeline-requirements-and-uat.md) and [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md).
+
+### 1. Phase 1–4 3-Transport CLI Subcommands (`D13`)
+
+All four Phase 2 subcommands registered in `schemas/v1/cli-spec.json` (`tests/architecture/test_schema_sync.py`) enforce `opendv` == `opendvctl` == `DIRECT_REST` RFC 8785 JCS parity:
+
+| Command | Service / Core Backing Module | Primary Parity & Security Assertions |
+| :--- | :--- | :--- |
+| `run dv-schema` | `packages/opendv-service/src/opendv_service/use_cases/dv_schema_explorer.py` | Projects `CanonicalIR` + `NoMistakeDataVault2ContractV5` + wave diffs (`--compare`), fetches persisted DuckDB table rows (`--table`, `--limit`, `--offset`), and executes read-only `--sql` guarded by `validate_safe_sql()`. |
+| `ontology studio attach-source` | `packages/opendv-service/src/opendv_service/use_cases/sources_inspect.py` | Attaches and profiles connector sources (`--session`, `--adapter`, `--uri`, `--table`, `--namespace`, `--credentials-ref`, `--do-not-send-to-agent`); rejects plaintext credential keys and enforces path containment. |
+| `ontology studio fibo-qa` | `packages/opendv-service/src/opendv_service/studio/fibo_qa_service.py` | Answers natural-language FIBO and evidence questions (`--session`, `--question`, `--source-id`, `--concept-uri`) with verifiable citations and `SuggestedDeltaAction`s. |
+| `ontology studio logs` | `packages/opendv-service/src/opendv_service/studio/session_logs_service.py` | Queries or SSE-streams (`--follow`) PII-masked session and compiler telemetry filtered by `--stage` (`STAGE_00..07` or Step 6 pill aliases `00..06`), `--step`, `--category`, and `--persona`. |
+
+### 2. Mandatory Runtime, Concurrency & Security Invariants (`D11`, `D18`, `D27`)
+
+- **Fail-Closed Agent Gate (`422 AGENT_NOT_CONFIGURED`)**: Agent-first execution (`mode="agent"`, `stage_output_policy="strict"`) returns HTTP `422` (`AGENT_NOT_CONFIGURED`) whenever no live LLM provider is configured and ready—zero silent deterministic fallback in UI workflows.
+- **Per-Session Job Lock (`409 SESSION_JOB_ACTIVE`, `D27`)**: Concurrent job submission on the same Studio session fails closed with HTTP `409` (`SESSION_JOB_ACTIVE`, CLI exit code `20`) while independent sessions execute concurrently.
+- **Safe Read-Only SQL Allowlist (`D11`)**: `POST /api/v1/runs/{run_id}/dv-schema/query` and `opendv run dv-schema --sql` enforce `validate_safe_sql()` in `packages/opendv-duckdb-sandbox/src/opendv_duckdb_sandbox/sql_guard.py` (allowlisted `SELECT`/`WITH`/`UNION` AST nodes and safe scalar/aggregate functions only, rejecting DML/DDL, file/metadata scans such as `read_csv`/`read_parquet`/`glob`/`pragma_*`, and string-literal table references, alongside `enable_external_access=False`).
+- **Loopback Open-Access & Remote Guard (`D18`, Exit Code `40`)**: Loopback requests (`127.0.0.1:8420`) operate without login tokens; `opendv serve` and `opendv-platform-api` refuse non-loopback `--host` binds without `--allow-remote-unauthenticated` with exit code `40` while keeping DNS-rebinding `Host`/`Origin` checks active.

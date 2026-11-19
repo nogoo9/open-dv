@@ -9,7 +9,19 @@
 
 During multi-wave implementation and adversarial dual-model pre-merge verification of the Ontology Construction Studio, recurring failure classes emerged at cryptographic serialization boundaries, OS-level lock/ACL primitives, async-to-thread event bridges, cross-transport DTO contracts, governance/privacy enforcement, and multi-agent workspace hygiene.
 
-Every contributor and autonomous agent working in `open-dv` must treat the six guardrails below as non-negotiable engineering invariants. For quick-reference enforcement rules loaded automatically by agent harnesses, see [`.agents/rules/ontology-studio-learnings.md`](../.agents/rules/ontology-studio-learnings.md) and [`AGENTS.md`](../AGENTS.md).
+Every contributor and autonomous agent working in `open-dv` must treat the core engineering guardrails below as non-negotiable invariants, subject to the Phase 1–4 Evolution & Supersession Addendum immediately following. For quick-reference enforcement rules loaded automatically by agent harnesses, see [`.agents/rules/ontology-studio-learnings.md`](../.agents/rules/ontology-studio-learnings.md) and [`AGENTS.md`](../AGENTS.md).
+
+---
+
+## Phase 1–4 Evolution & Supersession Addendum
+
+> **Active Governing Specs:** [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](27-unified-ontology-pipeline-requirements-and-uat.md) · [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md)
+
+The M2–M3 post-mortem guardrails in `§§4–7` were subsequently evolved across Phases 1–4 (`D16`, `D18`, `D19`):
+- **Superseded M2–M3 Auth & Waiver Rules (`D18` Loopback Zero-Auth Open Access):** Loopback requests (`127.0.0.1:8420`) now map directly to `human:local_user` (`admin` / `PRIVILEGED_CUSTODIAN`) without `.local_token`, `#token=` launch nonces, `X-OpenDV-Workbench: 1` CSRF headers, `X-OpenDV-Role` hydration, `K_waiver` / `OPENDV_WAIVER_KEY`, or `PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN` barriers; `/api/v1/ontology/studio/init` and `/auth/*` remain benign `200 OK` shims, while non-loopback `--host` binds without `--allow-remote-unauthenticated` abort with exit code `40`. DNS-rebinding `Host`/`Origin` checks, path containment, magic-byte/BIFF8/Calc `Link=1`/symlink checks, and PII/MNPI/`do_not_send_to_agent` guards remain strictly enforced.
+- **Modular `<5,000`-Token Decomposition (`D16`):** `routers/ontology_studio.py`, `commands/ontology_studio.py`, `studio/atomic_commit.py`, `ontology/validator.py`, and `studio-store.ts` have been decomposed into `<5,000`-token domain submodules/slices (plus `dv_schema_explorer.py` and `session_logs_service.py`).
+- **Unified 6-Step Wizard + 4-View DV Schema Explorer (`D19`):** The historical 5-zone `/ontology` panel and legacy screens (`OntologyStudioApp.tsx`, `BlueprintView.tsx`, `ProposalDetailsView.tsx`, `PipelineBuilderView.tsx`, legacy `WizardShell.tsx`) are retired and replaced by the 4-tab Claude `DESIGN.md` workbench (`Ontology & Pipeline`, `DV Schema Explorer`, `Run Explorer`, `Settings`) and **5-Zone (`Z0–Z4`)** + `information_mart` UI standard.
+- **Unchanged Core Invariants Preserved:** RFC 8785 JCS hashing & CAS integrity (`§1`), `StudioLock` ordering (`L1 -> L5`, `0_lifecycle < 1_session`) & filesystem security (`§2`), `loop.call_soon_threadsafe` & subscribe-before-replay SSE (`§3`), alphanumeric lookarounds `(?<![A-Za-z0-9])` (`§5`), and `extra="forbid"` DTO contracts (`§4`) remain mandatory across all packages.
 
 ---
 

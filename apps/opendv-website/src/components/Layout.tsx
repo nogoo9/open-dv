@@ -29,6 +29,26 @@ const SECTION_LINKS: readonly NavLinkItem[] = [
 
 const SITE_ORIGIN = "https://nogoo9.github.io";
 
+function SpikeMark({ color }: { readonly color: string }): React.JSX.Element {
+	return (
+		<svg
+			className="brand-mark"
+			width="16"
+			height="16"
+			viewBox="0 0 24 24"
+			fill="none"
+			aria-hidden="true"
+		>
+			<g stroke={color} strokeWidth="2.1" strokeLinecap="round">
+				<line x1="12" y1="2.5" x2="12" y2="21.5" />
+				<line x1="2.5" y1="12" x2="21.5" y2="12" />
+				<line x1="5.3" y1="5.3" x2="18.7" y2="18.7" />
+				<line x1="18.7" y1="5.3" x2="5.3" y2="18.7" />
+			</g>
+		</svg>
+	);
+}
+
 function buildCanonicalUrl(canonicalPath: string, basePath?: string): string {
 	const resolved = withBase(canonicalPath, basePath);
 	return `${SITE_ORIGIN}${resolved.startsWith("/") ? resolved : `/${resolved}`}`;
@@ -39,9 +59,7 @@ export function DocumentShell(props: LayoutProps): React.JSX.Element {
 		props;
 
 	const resolveNavHref = (item: NavLinkItem): string => {
-		if (item.isRoute) {
-			return withBase(item.target, basePath);
-		}
+		if (item.isRoute) return withBase(item.target, basePath);
 		return activeRoute === "tour"
 			? `${withBase("/", basePath)}${item.target}`
 			: item.target;
@@ -98,32 +116,7 @@ export function DocumentShell(props: LayoutProps): React.JSX.Element {
 				<header className="site-header" data-site-header>
 					<div className="header-inner">
 						<a className="site-brand" href={withBase("/", basePath)}>
-							<svg
-								className="brand-mark"
-								width="26"
-								height="26"
-								viewBox="0 0 28 28"
-								fill="none"
-								aria-hidden="true"
-							>
-								<rect
-									x="2"
-									y="2"
-									width="24"
-									height="24"
-									rx="6"
-									fill="#ffffff"
-									stroke="#cfc9ba"
-									strokeWidth="1.5"
-								/>
-								<path
-									d="M14 6.5L21 14L14 21.5L7 14L14 6.5Z"
-									stroke="#9a680c"
-									strokeWidth="1.75"
-									fill="#fef7e6"
-								/>
-								<circle cx="14" cy="14" r="2.25" fill="#141210" />
-							</svg>
+							<SpikeMark color="#141413" />
 							<span className="brand-name">{SITE_META.name}</span>
 							<span className="brand-version">{SITE_META.version}</span>
 						</a>
@@ -196,45 +189,97 @@ export function DocumentShell(props: LayoutProps): React.JSX.Element {
 					<div className="wrap">
 						<div className="footer-grid">
 							<div className="footer-meta">
-								<a className="site-brand" href={withBase("/", basePath)}>
+								<a
+									className="site-brand footer-brand"
+									href={withBase("/", basePath)}
+								>
+									<SpikeMark color="#faf9f5" />
 									<span className="brand-name">{SITE_META.name}</span>
 									<span className="brand-version">{SITE_META.version}</span>
 								</a>
 								<p className="footer-copy">
-									Neuro-symbolic Data Vault 2.0 modeling, 6-gate{" "}
+									Agent-first 6-Step Wizard, 4-View DV Schema Explorer, 6-gate{" "}
 									<code>axi-dv</code> formal verification, and deterministic
-									multi-dialect 4-Zone SQL compilation.
+									multi-dialect 5-Zone (Z0–Z4) + <code>information_mart</code>{" "}
+									SQL compilation.
 								</p>
 							</div>
 
-							<ul className="footer-links">
-								<li>
-									<a href={withBase("/", basePath)}>Home</a>
-								</li>
-								<li>
-									<a href={withBase("/tour/", basePath)}>Video Tour</a>
-								</li>
-								<li>
-									<a
-										href={SITE_META.repoUrl}
-										target="_blank"
-										rel="noopener noreferrer"
-									>
-										GitHub
-									</a>
-								</li>
-								{DOC_REFS.slice(0, 3).map((doc) => (
-									<li key={doc.id}>
+							<div>
+								<h2 className="footer-col-title">Platform</h2>
+								<ul className="footer-links">
+									<li>
+										<a href={withBase("/", basePath)}>Home</a>
+									</li>
+									<li>
 										<a
-											href={`${SITE_META.docsBaseUrl}/${doc.path}`}
+											href={resolveNavHref({
+												label: "Workbench",
+												target: "#workbench",
+											})}
+										>
+											12-Screen Tour
+										</a>
+									</li>
+									<li>
+										<a href={withBase("/tour/", basePath)}>Video Tour</a>
+									</li>
+									<li>
+										<a href={quickstartHref}>Quick Start</a>
+									</li>
+								</ul>
+							</div>
+
+							<div>
+								<h2 className="footer-col-title">Specifications</h2>
+								<ul className="footer-links">
+									{DOC_REFS.slice(0, 4).map((doc) => (
+										<li key={doc.id}>
+											<a
+												href={`${SITE_META.docsBaseUrl}/${doc.path}`}
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												{doc.id}
+											</a>
+										</li>
+									))}
+								</ul>
+							</div>
+
+							<div>
+								<h2 className="footer-col-title">Runtime &amp; Parity</h2>
+								<ul className="footer-links">
+									<li>
+										<a
+											href={SITE_META.repoUrl}
 											target="_blank"
 											rel="noopener noreferrer"
 										>
-											{doc.id}
+											GitHub Repository
 										</a>
 									</li>
-								))}
-							</ul>
+									<li>
+										<a
+											href={`${SITE_META.docsBaseUrl}/16-human-and-agent-usage-guide.md`}
+											target="_blank"
+											rel="noopener noreferrer"
+										>
+											Dual-CLI (opendv / opendvctl)
+										</a>
+									</li>
+									<li>
+										<a
+											href={resolveNavHref({
+												label: "Ecosystem",
+												target: "#ecosystem",
+											})}
+										>
+											Loopback &amp; Remote Guard
+										</a>
+									</li>
+								</ul>
+							</div>
 						</div>
 
 						<div className="footer-bottom">
@@ -243,7 +288,8 @@ export function DocumentShell(props: LayoutProps): React.JSX.Element {
 								License
 							</span>
 							<span>
-								API &amp; Studio: <code>http://127.0.0.1:8420</code>
+								Loopback Studio: <code>http://127.0.0.1:8420</code> ·{" "}
+								<code>--allow-remote-unauthenticated</code> guard
 							</span>
 						</div>
 					</div>

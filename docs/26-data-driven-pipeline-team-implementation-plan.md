@@ -1,8 +1,9 @@
 # 26 — Team Implementation Plan: Data-Driven Single-Run Pipeline & Multi-Connector Catalog
 
 > **Module:** `docs/26-data-driven-pipeline-team-implementation-plan.md` · **Revision:** v1.0 (2026-11-15)  
-> **Status:** Execution Ready across 7 Modular Workstreams (`WS-1` through `WS-6`)  
-> **Governing Docs:** [`docs/25`](25-data-driven-single-run-pipeline-design.md) (`ADR-017`–`ADR-021`) · [`docs/19`](19-ontology-studio-architecture.md) · [`docs/20`](20-ontology-studio-spec.md) · [`docs/21`](21-ontology-studio-implementation-plan.md) · [`docs/22`](22-ontology-studio-user-guide.md)  
+> **Status:** Historical Implementation Plan (`WS-1`–`WS-6` Completed; `/builder` UI Superseded by `D19` Unified 6-Step Wizard + DV Schema Explorer)  
+> **Governing Docs:** [`docs/25`](25-data-driven-single-run-pipeline-design.md) (`ADR-017`–`ADR-021`) · [`docs/19`](19-ontology-studio-architecture.md) · [`docs/20`](20-ontology-studio-spec.md) · [`docs/21`](21-ontology-studio-implementation-plan.md) · [`docs/22`](22-ontology-studio-user-guide.md) · [`docs/27`](27-unified-ontology-pipeline-requirements-and-uat.md) · [`docs/28`](28-unified-ontology-pipeline-design-and-plan.md)  
+> **Historical Status & Supersession Note:** Workstreams `WS-1` through `WS-6` landed in the repository. Under Decision `D19` in [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](27-unified-ontology-pipeline-requirements-and-uat.md) and [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md), the `/builder` 4-Step `WizardShell.tsx` UI (`WS-5`) was subsequently superseded and unified into the **6-Step Wizard + 4-View DV Schema Explorer** standardized on **5-Zone (`Z0–Z4`)** + `information_mart`.  
 > **How to Use This Plan:** Assign each Workstream (`WS-*`) to an autonomous engineer/swarm worker respecting the dependency DAG (§1.2), strict exclusive file ownership (§1.3), and model routing (**Carbon / Pro** for complex architectural workstreams). Every file added or modified under this plan must stay strictly **below 5,000 tokens** (`ADR-020`).
 
 ---
@@ -116,7 +117,9 @@ flowchart TD
 
 ---
 
-### Workstream 5 — 4-Step Wizard Pipeline Builder UI & Unified Catalog/SQLite Picker (**Pro / Standard**)
+### Workstream 5 — 4-Step Wizard Pipeline Builder UI & Unified Catalog/SQLite Picker (**Pro / Standard**) *(Superseded by `D19`)*
+
+> **Supersession Note:** The `WS-5` `/builder` 4-step `WizardShell.tsx` screens below were subsequently unified into the **6-Step Wizard + 4-View DV Schema Explorer** (`5-Zone Z0–Z4` + `information_mart`) in [`docs/27`](27-unified-ontology-pipeline-requirements-and-uat.md) and [`docs/28`](28-unified-ontology-pipeline-design-and-plan.md) (`D19`).
 
 | Task ID | Deliverable & Acceptance Criteria | Target Files | Frontend Tests |
 |---|---|---|---|
