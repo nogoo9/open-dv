@@ -6,13 +6,7 @@
  */
 
 import type {
-	ConnectorUIManifestDTO,
 	InferredExecutionPlanDTO,
-	PipelineInputDTO,
-	PipelineRunHandle,
-	PipelineRunRequest,
-	PipelineValidateRequest,
-	SamplingPolicyDTO,
 	SamplingStrategy,
 	SourceFeedDTO,
 	VaultBlueprintDTO,
@@ -146,55 +140,6 @@ export interface WizardStepProps {
 }
 
 /**
- * Props for Step 1: Foundation Selector.
- */
-export interface Step1FoundationProps extends WizardStepProps {
-	availableSessions?:
-		| Array<{
-				session_id: string;
-				domain_namespace?: string | undefined;
-				concepts_count?: number | undefined;
-		  }>
-		| undefined;
-	isLoadingSessions?: boolean | undefined;
-	onSelectSession?: ((sessionId: string) => void) | undefined;
-}
-
-/**
- * Props for Step 2: Connector Sources.
- */
-export interface Step2ConnectorSourcesProps extends WizardStepProps {
-	onOpenCatalogPicker?:
-		| ((sourceType: "sqlite" | "databricks") => void)
-		| undefined;
-	initialAdapters?: ConnectorUIManifestDTO[] | undefined;
-}
-
-/**
- * Props for Step 3: Governance & Dialect.
- */
-export interface Step3GovernanceProps extends WizardStepProps {
-	availableModels?: string[] | undefined;
-	initialAdvancedOpen?: boolean | undefined;
-}
-
-/**
- * Props for Step 4: Validate & Run.
- */
-export interface Step4ValidateRunProps extends WizardStepProps {
-	onRunStarted?: ((handle: PipelineRunHandle) => void) | undefined;
-	validatePipelineFn?:
-		| ((req: PipelineValidateRequest) => Promise<PipelineValidationReport>)
-		| undefined;
-	createRunFn?:
-		| ((req: PipelineRunRequest) => Promise<PipelineRunHandle>)
-		| undefined;
-	onEvolveSchema?: ((newBlueprint: VaultBlueprintDTO) => void) | undefined;
-	onSyncOntologyDelta?: ((sessionId: string) => Promise<void>) | undefined;
-	initialAdapters?: ConnectorUIManifestDTO[] | undefined;
-}
-
-/**
  * Props for the toggleable live YAML Drawer.
  */
 export interface YamlDrawerProps {
@@ -204,31 +149,6 @@ export interface YamlDrawerProps {
 	onApplyYaml: (yamlText: string) => void;
 	validationError?: string | null | undefined;
 	readOnly?: boolean | undefined;
-}
-
-/**
- * Props for the top-level WizardShell component.
- */
-export interface WizardShellProps {
-	initialStep?: WizardStepId | undefined;
-	initialFormState?: Partial<WizardFormState> | undefined;
-	sessionId?: string | undefined;
-	source?: string | undefined;
-	initialDomainNamespace?: string | undefined;
-	initialPipelineId?: string | undefined;
-	onRunStarted?: ((handle: PipelineRunHandle) => void) | undefined;
-	onBackToExplorer?: (() => void) | undefined;
-	apiUrl?: string | undefined;
-	fetchImpl?: typeof fetch | undefined;
-	validatePipelineFn?:
-		| ((req: PipelineValidateRequest) => Promise<PipelineValidationReport>)
-		| undefined;
-	createRunFn?:
-		| ((req: PipelineRunRequest) => Promise<PipelineRunHandle>)
-		| undefined;
-	onEvolveSchema?: ((newBlueprint: VaultBlueprintDTO) => void) | undefined;
-	onSyncOntologyDelta?: ((sessionId: string) => Promise<void>) | undefined;
-	initialAdapters?: ConnectorUIManifestDTO[] | undefined;
 }
 
 /**

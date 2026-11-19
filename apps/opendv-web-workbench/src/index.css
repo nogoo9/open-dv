@@ -209,8 +209,8 @@ body,
 	background-color: var(--dv-bg-canvas);
 	color: var(--dv-text-primary);
 	margin: 0;
-	font-family: "DM Sans", "Inter", -apple-system, BlinkMacSystemFont,
-		"Segoe UI", sans-serif;
+	font-family: "DM Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+		sans-serif;
 	font-size: 13px;
 	line-height: 1.45;
 	-webkit-font-smoothing: antialiased;
@@ -3047,6 +3047,10 @@ svg.react-flow__connectionline {
 	display: none;
 }
 
+.claude-responsive-grid > * {
+	min-width: 0;
+}
+
 @media (max-width: 1279px) {
 	.claude-topbar {
 		height: auto !important;
@@ -3145,6 +3149,16 @@ svg.react-flow__connectionline {
 
 	.claude-stepper,
 	.claude-subbar,
+	.claude-footer,
+	.claude-card,
+	.claude-card-cream,
+	.claude-card-dark {
+		box-sizing: border-box;
+		max-width: 100%;
+	}
+
+	.claude-stepper,
+	.claude-subbar,
 	.claude-footer {
 		height: auto;
 		min-height: 44px;
@@ -3153,7 +3167,7 @@ svg.react-flow__connectionline {
 	}
 
 	.claude-responsive-grid {
-		grid-template-columns: 1fr;
+		grid-template-columns: minmax(0, 1fr) !important;
 	}
 
 	.opendv-workbench-explorer button,

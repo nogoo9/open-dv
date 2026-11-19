@@ -1,5 +1,3 @@
-import { getStudioAuthHeaders } from "../../ontology/store/studio-store";
-
 export interface SyncOntologyDeltaOptions {
 	sessionId: string;
 	apiUrl: string;
@@ -55,7 +53,6 @@ export async function executeSyncOntologyDelta(
 		const expUrl = `${apiUrl}/ontology/studio/sessions/${encodeURIComponent(sessionId)}/export?export_format=json`;
 		const expRes = await fetchImpl(expUrl, {
 			credentials: "include",
-			headers: getStudioAuthHeaders(undefined, expUrl),
 		});
 		if (expRes.ok) {
 			const ontData = (await expRes.json()) as ExportedOntologyLike;
@@ -93,7 +90,6 @@ export async function executeSyncOntologyDelta(
 		const sessionUrl = `${apiUrl}/ontology/studio/sessions/${encodeURIComponent(sessionId)}`;
 		const sRes = await fetchImpl(sessionUrl, {
 			credentials: "include",
-			headers: getStudioAuthHeaders(undefined, sessionUrl),
 		});
 		if (sRes.ok) {
 			const sData = (await sRes.json()) as { head_sha256?: string };
@@ -272,13 +268,10 @@ export async function executeSyncOntologyDelta(
 	const res = await fetchImpl(deltaUrl, {
 		method: "POST",
 		credentials: "include",
-		headers: getStudioAuthHeaders(
-			{
-				"Content-Type": "application/json",
-				...(headSha ? { "If-Match": `"${headSha}"` } : {}),
-			},
-			deltaUrl,
-		),
+		headers: {
+			"Content-Type": "application/json",
+			...(headSha ? { "If-Match": `"${headSha}"` } : {}),
+		},
 		body: JSON.stringify({
 			operations: formattedOps,
 			grounding_rationale: "Automated pipeline builder delta sync",

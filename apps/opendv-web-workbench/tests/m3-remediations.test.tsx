@@ -435,7 +435,8 @@ describe("M3 Iteration 4 Remediations", () => {
 				const dvHtml = renderToStaticMarkup(
 					createElement(OpenDVWorkbenchExplorer, { store }),
 				);
-				expect(dvHtml).toContain("run: run-w2-002");
+				expect(dvHtml).toContain("dv-schema-explorer-view");
+				expect(dvHtml).toContain("run-w2-002");
 			} finally {
 				Object.defineProperty(globalThis, "history", {
 					configurable: true,

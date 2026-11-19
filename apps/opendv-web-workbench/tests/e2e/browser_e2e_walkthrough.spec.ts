@@ -1,4 +1,4 @@
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type Page, expect, test } from "@playwright/test";
 
@@ -23,101 +23,26 @@ async function captureStep(page: Page, filename: string) {
 	});
 }
 
-function resolveLocalToken(): string {
-	if (process.env.OPENDV_STUDIO_LOCAL_TOKEN) {
-		return process.env.OPENDV_STUDIO_LOCAL_TOKEN.trim();
-	}
-	if (process.env.OPENDV_TOKEN) {
-		return process.env.OPENDV_TOKEN.trim();
-	}
-	const candidates = [
-		path.resolve(process.cwd(), ".opendv/ontology_studio/.local_token"),
-		path.resolve(process.cwd(), "../../.opendv/ontology_studio/.local_token"),
-		path.resolve(process.cwd(), "../.opendv/ontology_studio/.local_token"),
-	];
-	for (const p of candidates) {
-		if (existsSync(p)) {
-			try {
-				const tok = readFileSync(p, "utf-8").trim();
-				if (tok) return tok;
-			} catch {}
-		}
-	}
-	return "";
-}
-
-let launchNonce: string | null = null;
-
 test.beforeAll(async ({ request }) => {
 	mkdirSync(REPO_ARTIFACTS_SCREENSHOTS, { recursive: true });
 	mkdirSync(LOCAL_E2E_SCREENSHOTS, { recursive: true });
 	mkdirSync(DDL_EXPORT_DIR, { recursive: true });
 
-	let localToken = resolveLocalToken();
-	if (!localToken) {
-		try {
-			const initRes = await request.post("/api/v1/ontology/studio/init", {
-				headers: { "X-OpenDV-Workbench": "1" },
-			});
-			if (initRes.ok()) {
-				const initData = (await initRes.json()) as {
-					local_token?: string;
-					token?: string;
-				};
-				localToken = (initData.local_token || initData.token || "").trim();
-			}
-			if (!localToken) {
-				localToken = resolveLocalToken();
-			}
-		} catch {}
-	}
-	const baseHeaders: Record<string, string> = {
-		"X-OpenDV-Role": "INTERNAL_MODELER",
-		"X-OpenDV-Workbench": "1",
-	};
-	if (localToken) {
-		baseHeaders.Authorization = `Bearer ${localToken}`;
-	}
-
+	// Seed Studio session via loopback open-access API in beforeAll
 	try {
-		const nonceHeaders: Record<string, string> = {
-			...baseHeaders,
-			"X-OpenDV-Role": "admin",
-			"X-OpenDV-Principal": "human:local_admin",
-		};
-		const nonceRes = await request.post("/api/v1/ontology/studio/auth/launch-nonce", {
-			headers: nonceHeaders,
-		});
-		console.log("DEBUG mint nonce status:", nonceRes.status());
-		if (nonceRes.ok()) {
-			const nonceData = (await nonceRes.json()) as { launch_nonce?: string; nonce?: string };
-			launchNonce = nonceData.launch_nonce || nonceData.nonce || null;
-			console.log("DEBUG minted launch nonce:", launchNonce ? "SUCCESS" : "EMPTY");
-		} else {
-			console.log("DEBUG mint nonce failed:", await nonceRes.text());
-		}
-	} catch (e) {
-		console.warn("Could not mint launch nonce in beforeAll:", e);
-	}
-
-	// M28: Seed Studio session via API in beforeAll on clean checkout
-	try {
-		const adminHeaders = {
-			...baseHeaders,
-			"X-OpenDV-Role": "admin",
-		};
-		await request.delete("/api/v1/ontology/studio/sessions/am-walkthrough?force=true", {
-			headers: adminHeaders,
-		}).catch(() => {});
+		await request
+			.delete("/api/v1/ontology/studio/sessions/am-walkthrough?force=true")
+			.catch(() => {});
 
 		const createRes = await request.post("/api/v1/ontology/studio/sessions", {
-			headers: { ...adminHeaders, "Content-Type": "application/json" },
+			headers: { "Content-Type": "application/json" },
 			data: {
 				session_id: "am-walkthrough",
 				domain_namespace: "asset_management",
 				enterprise_owner: "Enterprise Architecture",
 				description: "AM Walkthrough Seed Session",
-				from_workspace: "apps/opendv-web-workbench/tests/fixtures/am_walkthrough_seed/versions/v1.0.0/ontology.json",
+				from_workspace:
+					"apps/opendv-web-workbench/tests/fixtures/am_walkthrough_seed/versions/v1.0.0/ontology.json",
 			},
 		});
 		console.log("DEBUG create session status:", createRes.status());
@@ -138,8 +63,7 @@ test.describe("Open-DV 2-Run Progressive Walkthrough (WS6.4: Greenfield + Hybrid
 		// =========================================================================
 		// PHASE 1: Cold Start & Launch Ontology Studio
 		// =========================================================================
-		const targetUrl = launchNonce ? `/ontology#token=${launchNonce}` : "/ontology";
-		await page.goto(targetUrl);
+		await page.goto("/ontology");
 		const studioApp = page.getByTestId("ontology-studio-app");
 		await expect(studioApp).toBeVisible({ timeout: 20_000 });
 

@@ -195,7 +195,7 @@ export function DiffInspector({
 				<div style={{ padding: "6px 8px", borderRadius: 4, backgroundColor: shadowSandboxPassed ? "#F0FDF4" : "#FEF2F2", border: `1px solid ${shadowSandboxPassed ? "#BBF7D0" : "#FCA5A5"}` }}>
 					<div style={{ fontSize: 10, color: shadowSandboxPassed ? "#166534" : "#991B1B", fontWeight: 600 }}>DUCKDB SHADOW SANDBOX</div>
 					<div data-testid="scorecard-shadow-badge" style={{ fontSize: 12, fontWeight: 700, color: shadowSandboxPassed ? "#166534" : "#991B1B" }}>
-						{shadowSandboxPassed ? "✓ 4-Zone Verification Passed" : "✕ 4-Zone Verification Failed"}
+						{shadowSandboxPassed ? "✓ 5-Zone Verification Passed" : "✕ 5-Zone Verification Failed"}
 					</div>
 				</div>
 			</div>

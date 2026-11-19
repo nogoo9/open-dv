@@ -555,168 +555,6 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			expect(store.getState().diffState.mode).toBe("side-by-side");
 		});
 
-		it("enforces waiver rationale >= 10 characters", async () => {
-			const validHeadSha =
-				"1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81";
-			const store = createStudioStore({
-				initialSession: {
-					session_id: "s1",
-					domain_namespace: "ns",
-					enterprise_owner: "owner",
-					status: "ACTIVE",
-					active_version: "1.0.0",
-					head_sha256: validHeadSha,
-					created_at: "2026-11-11",
-					updated_at: "2026-11-11",
-				},
-			});
-
-			store.setState({
-				nodes: [
-					{
-						id: "c1",
-						concept_uri: "urn:provisional:entity",
-						concept_name: "Provisional Entity",
-						elm_archetype: "CORE_CONCEPT",
-						definition: "Pending regulatory mapping",
-						grounding_status: "UNGROUNDED",
-						attributes: [],
-						synonyms: [],
-						external_mappings: [],
-					},
-				],
-			});
-
-			const spyFetch = (() => {
-				throw new Error("Guard failed: network fetch was unexpectedly invoked");
-			}) as typeof fetch;
-
-			// 1. Short rationale rejected before fetch
-			const failRes = await store
-				.getState()
-				.submitWaiver("too short", "wk-123", spyFetch);
-			expect(failRes).toBe(false);
-			expect(store.getState().toasts[0]?.code).toBe("INVALID_GROUNDING_WAIVER");
-
-			// 2. Empty credential rejected before fetch (MIN-02)
-			const failKey = await store
-				.getState()
-				.submitWaiver("Legitimate rationale for audit", "", spyFetch);
-			expect(failKey).toBe(false);
-			expect(store.getState().toasts[0]?.code).toBe(
-				"MISSING_WAIVER_CREDENTIAL",
-			);
-
-			// 3. Server 403 authorization rejection (MIN-02)
-			const rejectFetch = async () =>
-				new Response(
-					JSON.stringify({
-						detail: "Invalid steward credential",
-						code: "FORBIDDEN_ADMIN_REQUIRED",
-					}),
-					{ status: 403 },
-				);
-			const rejected = await store
-				.getState()
-				.submitWaiver(
-					"Validated via corporate compliance audit report",
-					"invalid-credential",
-					rejectFetch as unknown as typeof fetch,
-				);
-			expect(rejected).toBe(false);
-			expect(store.getState().qualityScorecard.waiver_applied).toBe(false);
-
-			// 4. Valid rationale and credential with authoritative server record (MIN-02)
-			const mockFetch = async () =>
-				new Response(
-					JSON.stringify({
-						status: "authorized",
-						waiver_applied: true,
-						waived_base_sha256: validHeadSha,
-						waived_concept_uris: ["urn:provisional:entity"],
-					}),
-					{ status: 200 },
-				);
-			const okRes = await store
-				.getState()
-				.submitWaiver(
-					"Validated via corporate compliance audit report",
-					"steward-confidential-credential-secret-42",
-					mockFetch as unknown as typeof fetch,
-				);
-			expect(okRes).toBe(true);
-			expect(store.getState().qualityScorecard.waiver_applied).toBe(true);
-			expect(store.getState().sessionWaivers["s1"]?.waived_base_sha256).toBe(
-				validHeadSha,
-			);
-			expect(
-				store.getState().sessionWaivers["s1"]?.waived_concept_uris,
-			).toEqual(["urn:provisional:entity"]);
-
-			// 5. Security invariant: credential must NEVER leak into store state
-			expect(JSON.stringify(store.getState().qualityScorecard)).not.toContain(
-				"steward-confidential-credential-secret-42",
-			);
-			expect(JSON.stringify(store.getState().sessionWaivers)).not.toContain(
-				"steward-confidential-credential-secret-42",
-			);
-		});
-
-		it("rejects 200 response when server denies waiver with waiver_applied=false (MIN-02)", async () => {
-			const validHeadSha =
-				"1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81";
-			const store = createStudioStore({
-				initialSession: {
-					session_id: "s-denied",
-					domain_namespace: "ns",
-					enterprise_owner: "owner",
-					status: "ACTIVE",
-					active_version: "1.0.0",
-					head_sha256: validHeadSha,
-					created_at: "2026-11-11",
-					updated_at: "2026-11-11",
-				},
-			});
-			store.setState({
-				nodes: [
-					{
-						id: "un1",
-						concept_uri: "urn:concept:un1",
-						concept_name: "Ungrounded Concept",
-						elm_archetype: "CORE_BUSINESS_CONCEPT",
-						definition: "Needs waiver",
-						grounding_status: "UNGROUNDED",
-						attributes: [],
-						synonyms: [],
-						external_mappings: [],
-					},
-				],
-			});
-
-			const deniedFetch = async () =>
-				new Response(
-					JSON.stringify({
-						status: "denied",
-						waiver_applied: false,
-						detail: "Administrative waiver denied by enterprise policy.",
-						code: "WAIVER_DENIED",
-					}),
-					{ status: 200 },
-				);
-
-			const ok = await store
-				.getState()
-				.submitWaiver(
-					"Legitimate rationale but denied by policy",
-					"steward-token",
-					deniedFetch as unknown as typeof fetch,
-				);
-			expect(ok).toBe(false);
-			expect(store.getState().qualityScorecard.waiver_applied).toBe(false);
-			expect(store.getState().sessionWaivers["s-denied"]).toBeUndefined();
-			expect(store.getState().toasts[0]?.code).toBe("WAIVER_DENIED");
-		});
-
 		it("enforces promotion rationale >= 10 characters and OCC verification (MIN-06, MIN-07)", async () => {
 			const validHeadSha =
 				"1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81";
@@ -1029,58 +867,6 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			}).toThrow("Unsupported export format");
 		});
 
-		it("blocks waiver when all concepts are already grounded", async () => {
-			const spyFetch = (() => {
-				throw new Error("Guard failed: network fetch was unexpectedly invoked");
-			}) as typeof fetch;
-
-			const store = createStudioStore({
-				initialSession: {
-					session_id: "s1",
-					domain_namespace: "ns",
-					enterprise_owner: "owner",
-					status: "ACTIVE",
-					active_version: "1.0.0",
-					head_sha256: "a".repeat(64),
-					created_at: "2026-11-11",
-					updated_at: "2026-11-11",
-				},
-			});
-
-			store.setState({
-				nodes: [
-					{
-						id: "c1",
-						concept_uri: "urn:ontology:entity:fund",
-						concept_name: "Fund",
-						elm_archetype: "CORE_CONCEPT",
-						definition: "Def",
-						grounding_status: "GROUNDED",
-						attributes: [],
-						synonyms: [],
-						external_mappings: [
-							{
-								scheme: "fibo",
-								target_uri: "fibo:Fund",
-								predicate: "skos:exactMatch",
-								confidence: 0.95,
-							},
-						],
-					},
-				],
-			});
-
-			const ok = await store
-				.getState()
-				.submitWaiver(
-					"Validated via external compliance audit",
-					"waiver-key-123",
-					spyFetch,
-				);
-			expect(ok).toBe(false);
-			expect(store.getState().toasts[0]?.code).toBe("NO_UNGROUNDED_CONCEPTS");
-		});
-
 		it("prevents stale session data race when body streaming resolves after newer session", async () => {
 			const store = createStudioStore({
 				initialSession: {
@@ -1144,31 +930,6 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			await pA;
 
 			expect(store.getState().activeSession?.session_id).toBe("session-b");
-		});
-
-		it("blocks waiver when graph is empty", async () => {
-			const spyFetch = (() => {
-				throw new Error("Guard failed: network fetch was unexpectedly invoked");
-			}) as typeof fetch;
-
-			const store = createStudioStore({
-				initialSession: {
-					session_id: "s1",
-					domain_namespace: "ns",
-					enterprise_owner: "owner",
-					status: "ACTIVE",
-					active_version: "1.0.0",
-					head_sha256: "a".repeat(64),
-					created_at: "2026-11-11",
-					updated_at: "2026-11-11",
-				},
-			});
-			store.setState({ nodes: [] });
-			const ok = await store
-				.getState()
-				.submitWaiver("Compliance audit waiver rationale", "key123", spyFetch);
-			expect(ok).toBe(false);
-			expect(store.getState().toasts[0]?.code).toBe("EMPTY_GRAPH");
 		});
 
 		it("executes structural diff comparing baseline and target graphs", () => {
@@ -2505,153 +2266,6 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			expect(store.getState().toasts[0]?.code).toBe(
 				"ONT_EVO_NON_ADDITIVE_CHANGE",
 			);
-		});
-
-		it("preserves waivers in sessionWaivers across commits/reloads and clears on reset (MAJ-02, MIN-07)", async () => {
-			const store = createStudioStore();
-			const session: StudioSessionSummary = {
-				session_id: "sess-waiver-persist",
-				domain_namespace: "finance",
-				enterprise_owner: "cdo@example.com",
-				status: "ACTIVE",
-				active_version: "1.0.0",
-				head_sha256: "a".repeat(64),
-				created_at: new Date().toISOString(),
-				updated_at: new Date().toISOString(),
-			};
-
-			store.setState({
-				activeSession: session,
-				sessions: [session],
-				nodes: [
-					{
-						id: "c-un",
-						concept_uri: "urn:c-un",
-						concept_name: "UngroundedConcept",
-						elm_archetype: "CORE_BUSINESS_CONCEPT",
-						definition: "Needs waiver",
-						confidence: 0.2,
-						grounding_status: "UNGROUNDED",
-						attributes: [],
-						synonyms: [],
-						external_mappings: [],
-					},
-				],
-			});
-
-			// Submit waiver with realistic admin credential token (SUG-01, P14b::MAJ-02)
-			let capturedWaiverUrl = "";
-			let capturedWaiverHeaders: Record<string, string> = {};
-			let capturedWaiverBody: Record<string, unknown> | null = null;
-			const mockFetch: typeof fetch = (async (
-				url: string,
-				init?: RequestInit,
-			) => {
-				capturedWaiverUrl = url;
-				capturedWaiverHeaders = (init?.headers as Record<string, string>) || {};
-				capturedWaiverBody = JSON.parse(init?.body as string) as Record<
-					string,
-					unknown
-				>;
-				return new Response(
-					JSON.stringify({
-						waiver_applied: true,
-						waiver_rationale: "Approved regulator delay",
-						waived_concept_uris: ["urn:c-un"],
-						waived_base_sha256: "a".repeat(64),
-					}),
-					{ status: 200 },
-				);
-			}) as typeof fetch;
-
-			const waiverToken = "admin-waiver-secret-token-12345";
-			const ok = await store
-				.getState()
-				.submitWaiver("Approved regulator delay", waiverToken, mockFetch);
-			expect(ok).toBe(true);
-			expect(store.getState().qualityScorecard.waiver_applied).toBe(true);
-			expect(
-				store.getState().sessionWaivers["sess-waiver-persist"]?.waiver_applied,
-			).toBe(true);
-			expect(
-				store.getState().sessionWaivers["sess-waiver-persist"]
-					?.waived_base_sha256,
-			).toBe("a".repeat(64));
-
-			// Credential protection: verify token sent in X-OpenDV-Waiver-Key header and NEVER in URL query or JSON body (P14b::MAJ-02)
-			expect(capturedWaiverUrl).not.toContain(waiverToken);
-			expect(capturedWaiverHeaders["X-OpenDV-Waiver-Key"]).toBe(waiverToken);
-			expect(capturedWaiverBody?.waiver_key).toBeUndefined();
-
-			// Verify token credential is NEVER stored in store state or serialized state
-			const serializedState = JSON.stringify(store.getState());
-			expect(serializedState).not.toContain(waiverToken);
-
-			// Calling reset clears sessionWaivers
-			store.getState().reset();
-			expect(store.getState().sessionWaivers).toEqual({});
-		});
-
-		it("handles HTTP 403 Forbidden on waiver submission rejecting invalid credentials (MIN-07)", async () => {
-			const store = createStudioStore();
-			const session: StudioSessionSummary = {
-				session_id: "sess-waiver-403",
-				domain_namespace: "finance",
-				enterprise_owner: "cdo@example.com",
-				status: "ACTIVE",
-				active_version: "1.0.0",
-				head_sha256: "a".repeat(64),
-				created_at: new Date().toISOString(),
-				updated_at: new Date().toISOString(),
-			};
-
-			store.setState({
-				activeSession: session,
-				sessions: [session],
-				nodes: [
-					{
-						id: "c-un",
-						concept_uri: "urn:c-un",
-						concept_name: "UngroundedConcept",
-						elm_archetype: "CORE_BUSINESS_CONCEPT",
-						definition: "Needs waiver",
-						confidence: 0.2,
-						grounding_status: "UNGROUNDED",
-						attributes: [],
-						synonyms: [],
-						external_mappings: [],
-					},
-				],
-			});
-
-			const forbiddenFetch: typeof fetch = (async () => {
-				return new Response(
-					JSON.stringify({
-						detail:
-							"Provided administrative waiver token is invalid or unauthorized",
-						code: "UNAUTHORIZED_WAIVER_KEY",
-					}),
-					{
-						status: 403,
-						headers: { "Content-Type": "application/problem+json" },
-					},
-				);
-			}) as typeof fetch;
-
-			const ok = await store
-				.getState()
-				.submitWaiver(
-					"Approved regulator delay",
-					"invalid-bogus-token",
-					forbiddenFetch,
-				);
-			expect(ok).toBe(false);
-			expect(store.getState().qualityScorecard.waiver_applied).toBe(false);
-			expect(
-				store.getState().sessionWaivers["sess-waiver-403"],
-			).toBeUndefined();
-			expect(store.getState().toasts[0]?.status).toBe(403);
-			expect(store.getState().toasts[0]?.code).toBe("UNAUTHORIZED_WAIVER_KEY");
 		});
 
 		it("loads sources in loadSources and during selectSession, ignoring stale responses (MAJ-01)", async () => {
@@ -4011,7 +3625,7 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			expect(mappingsOut[1]?.reference_pack_id).toBe("fibo-core-bebd6ae8");
 		});
 
-		it("handles all 9 named SSE events, bypasses EventSource when Bearer authToken is set, and resets flags on polling failure/timeout (S6-CRIT-01, P14c::MAJ-01)", async () => {
+		it("handles all 9 named SSE events and resets flags on polling failure/timeout under open access (S6-CRIT-01, P14c::MAJ-01)", async () => {
 			// Part A: Named SSE events (job_started, stage, chunk_parsed, job_completed, JOB_ABANDONED_SERVER_CRASH)
 			const prevEs = (globalThis as Record<string, unknown>).EventSource;
 			const createdEsInstances: Array<{
@@ -4103,11 +3717,12 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 						.toasts.some((t) => t.code === "JOB_ABANDONED_SERVER_CRASH"),
 				).toBe(true);
 
-				// Part B: Explicit Bearer authToken bypasses EventSource directly to polling
+				// Part B: When EventSource is unavailable, falls back directly to polling and emits JOB_POLL_TIMEOUT
 				createdEsInstances.length = 0;
-				const bearerStore = createStudioStore({
+				(globalThis as Record<string, unknown>).EventSource = undefined;
+				const pollStore = createStudioStore({
 					initialSession: {
-						session_id: "s-bearer",
+						session_id: "s-poll-timeout",
 						domain_namespace: "pe",
 						enterprise_owner: "Owner",
 						status: "ACTIVE",
@@ -4120,7 +3735,6 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 					maxPollAttempts: 2,
 					maxPollErrorRetries: 1,
 				});
-				bearerStore.getState().setAuthToken("remote-jwt-token");
 				let pollCalls = 0;
 				const timeoutPollFetch: typeof fetch = (async (url) => {
 					if (String(url).endsWith("/construct")) {
@@ -4136,13 +3750,13 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 					);
 				}) as typeof fetch;
 
-				await bearerStore.getState().startConstruct({}, timeoutPollFetch);
-				expect(createdEsInstances).toHaveLength(0); // Bypassed EventSource!
+				await pollStore.getState().startConstruct({}, timeoutPollFetch);
+				expect(createdEsInstances).toHaveLength(0); // Falls back to polling without EventSource
 				await new Promise((r) => setTimeout(r, 120));
 				expect(pollCalls).toBe(2);
-				expect(bearerStore.getState().isConstructing).toBe(false);
+				expect(pollStore.getState().isConstructing).toBe(false);
 				expect(
-					bearerStore
+					pollStore
 						.getState()
 						.toasts.some((t) => t.code === "JOB_POLL_TIMEOUT"),
 				).toBe(true);

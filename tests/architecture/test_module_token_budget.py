@@ -72,14 +72,7 @@ def test_builder_frontend_modules_token_budget() -> None:
     are strictly < 5,000 tokens per module.
     """
     enc = tiktoken.get_encoding(ENCODING_NAME)
-    builder_dir = (
-        REPO_ROOT
-        / "apps"
-        / "opendv-web-workbench"
-        / "src"
-        / "explorer"
-        / "builder"
-    )
+    builder_dir = REPO_ROOT / "apps" / "opendv-web-workbench" / "src" / "explorer" / "builder"
     assert builder_dir.is_dir(), f"Builder directory missing: {builder_dir}"
 
     modules = sorted(
@@ -96,6 +89,60 @@ def test_builder_frontend_modules_token_budget() -> None:
             )
 
     assert not violations, "Builder modules exceed 5,000 token budget:\n" + "\n".join(violations)
+
+
+@pytest.mark.architecture
+def test_ontology_frontend_modules_token_budget() -> None:
+    """Assert all TypeScript/TSX modules under apps/opendv-web-workbench/src/ontology/
+    (recursive) are strictly < 5,000 tokens per module.
+    """
+    enc = tiktoken.get_encoding(ENCODING_NAME)
+    ontology_dir = REPO_ROOT / "apps" / "opendv-web-workbench" / "src" / "ontology"
+    assert ontology_dir.is_dir(), f"Ontology directory missing: {ontology_dir}"
+
+    modules = sorted(
+        f for f in ontology_dir.rglob("*") if f.is_file() and f.suffix in [".ts", ".tsx"]
+    )
+    assert modules, f"Expected TypeScript modules in {ontology_dir}"
+
+    violations: list[str] = []
+    for mod in modules:
+        tokens = _count_tokens(mod, enc)
+        if tokens >= TOKEN_LIMIT:
+            violations.append(
+                f"{mod.relative_to(REPO_ROOT)}: {tokens} tokens (exceeds {TOKEN_LIMIT})"
+            )
+
+    assert not violations, "Ontology frontend modules exceed 5,000 token budget:\n" + "\n".join(
+        violations
+    )
+
+
+@pytest.mark.architecture
+def test_dv_schema_frontend_modules_token_budget() -> None:
+    """Assert all TypeScript/TSX modules under apps/opendv-web-workbench/src/explorer/dv-schema/
+    (recursive) are strictly < 5,000 tokens per module.
+    """
+    enc = tiktoken.get_encoding(ENCODING_NAME)
+    dv_schema_dir = REPO_ROOT / "apps" / "opendv-web-workbench" / "src" / "explorer" / "dv-schema"
+    assert dv_schema_dir.is_dir(), f"DV Schema Explorer directory missing: {dv_schema_dir}"
+
+    modules = sorted(
+        f for f in dv_schema_dir.rglob("*") if f.is_file() and f.suffix in [".ts", ".tsx"]
+    )
+    assert modules, f"Expected TypeScript modules in {dv_schema_dir}"
+
+    violations: list[str] = []
+    for mod in modules:
+        tokens = _count_tokens(mod, enc)
+        if tokens >= TOKEN_LIMIT:
+            violations.append(
+                f"{mod.relative_to(REPO_ROOT)}: {tokens} tokens (exceeds {TOKEN_LIMIT})"
+            )
+
+    assert not violations, "DV Schema Explorer modules exceed 5,000 token budget:\n" + "\n".join(
+        violations
+    )
 
 
 @pytest.mark.architecture
@@ -119,14 +166,21 @@ def test_newly_created_production_modules_token_budget() -> None:
         REPO_ROOT / "packages/opendv-sources/src/opendv_sources/config/defaults.py",
         REPO_ROOT / "packages/opendv-sources/src/opendv_sources/registry/scheme_registry.py",
         REPO_ROOT / "packages/opendv-sources/src/opendv_sources/spi/catalog.py",
-        REPO_ROOT / "packages/opendv-sources/src/opendv_sources/asset_management/vertical_packs/custody_clearing.py",
-        REPO_ROOT / "packages/opendv-sources/src/opendv_sources/asset_management/vertical_packs/fixed_income_rates.py",
-        REPO_ROOT / "packages/opendv-sources/src/opendv_sources/asset_management/vertical_packs/multi_asset_ibor.py",
-        REPO_ROOT / "packages/opendv-sources/src/opendv_sources/asset_management/vertical_packs/private_credit_direct_lending.py",
-        REPO_ROOT / "packages/opendv-sources/src/opendv_sources/asset_management/vertical_packs/private_equity_buyout.py",
-        REPO_ROOT / "packages/opendv-sources/src/opendv_sources/asset_management/vertical_packs/public_equities_oms.py",
+        REPO_ROOT
+        / "packages/opendv-sources/src/opendv_sources/asset_management/vertical_packs/custody_clearing.py",
+        REPO_ROOT
+        / "packages/opendv-sources/src/opendv_sources/asset_management/vertical_packs/fixed_income_rates.py",
+        REPO_ROOT
+        / "packages/opendv-sources/src/opendv_sources/asset_management/vertical_packs/multi_asset_ibor.py",
+        REPO_ROOT
+        / "packages/opendv-sources/src/opendv_sources/asset_management/vertical_packs/private_credit_direct_lending.py",
+        REPO_ROOT
+        / "packages/opendv-sources/src/opendv_sources/asset_management/vertical_packs/private_equity_buyout.py",
+        REPO_ROOT
+        / "packages/opendv-sources/src/opendv_sources/asset_management/vertical_packs/public_equities_oms.py",
         # opendv-duckdb-sandbox
-        REPO_ROOT / "packages/opendv-duckdb-sandbox/src/opendv_duckdb_sandbox/dialects/databricks_transpiler.py",
+        REPO_ROOT
+        / "packages/opendv-duckdb-sandbox/src/opendv_duckdb_sandbox/dialects/databricks_transpiler.py",
         # opendv-service
         REPO_ROOT / "packages/opendv-service/src/opendv_service/studio/blueprint_export.py",
         REPO_ROOT / "packages/opendv-service/src/opendv_service/use_cases/sources_inspect.py",
@@ -137,7 +191,8 @@ def test_newly_created_production_modules_token_budget() -> None:
         REPO_ROOT / "packages/opendv-testkit/src/opendv_testkit/multi_wave_runner.py",
         REPO_ROOT / "packages/opendv-testkit/src/opendv_testkit/uc_emulator.py",
         # opendv-platform-api
-        REPO_ROOT / "apps/opendv-platform-api/src/opendv_platform_api/routers/ontology_studio_blueprint.py",
+        REPO_ROOT
+        / "apps/opendv-platform-api/src/opendv_platform_api/routers/ontology_studio_blueprint.py",
         REPO_ROOT / "apps/opendv-platform-api/src/opendv_platform_api/routers/sources.py",
         # opendv-cli
         REPO_ROOT / "apps/opendv-cli/src/opendv_cli/commands/source.py",
@@ -159,8 +214,8 @@ def test_newly_created_production_modules_token_budget() -> None:
 def test_dynamic_git_diff_token_budget() -> None:
     """Enforce < 5,000 tokens across all newly created/modified .py/.ts/.tsx files
     in ADR-020 scope compared to baseline commit dd8691a.
-    Excludes untouched Ontology Studio files, generated OpenAPI schemas, test suites,
-    and pre-existing baseline modules that already exceeded the limit prior to ADR-020.
+    Excludes generated OpenAPI schemas, test suites,
+    and pre-existing baseline backend modules that already exceeded the limit prior to ADR-020.
     """
     import subprocess
 
@@ -211,9 +266,6 @@ def test_dynamic_git_diff_token_budget() -> None:
         # Exclude generated OpenAPI artifacts and schemas
         if "schemas" in p.parts or f.endswith("openapi.ts") or p.name == "playwright.config.ts":
             continue
-        # Exclude legacy pre-existing frontend ontology workbench modules only
-        if "opendv-web-workbench" in p.parts and "ontology" in p.parts:
-            continue
         # Exclude legacy pre-existing files that already exceeded budget prior to ADR-020
         if f.replace("\\", "/") in baseline_exceeding_prior_to_adr020:
             continue
@@ -224,12 +276,9 @@ def test_dynamic_git_diff_token_budget() -> None:
 
         tokens = _count_tokens(file_path, enc)
         if tokens >= TOKEN_LIMIT:
-            violations.append(
-                f"{f}: {tokens} tokens (exceeds {TOKEN_LIMIT})"
-            )
+            violations.append(f"{f}: {tokens} tokens (exceeds {TOKEN_LIMIT})")
 
     assert not violations, (
         f"Dynamic git diff token budget violations (>= {TOKEN_LIMIT} tokens):\n"
         + "\n".join(violations)
     )
-

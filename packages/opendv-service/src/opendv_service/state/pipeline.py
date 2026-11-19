@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -119,7 +118,21 @@ class PipelineStateMixin:
             else None
         )
 
-        if req.input_spec is None and input_spec_path is None and input_spec_content_str is None:
+        has_direct_inputs = any(
+            getattr(req, field, None)
+            for field in (
+                "blueprint",
+                "blueprint_content",
+                "sources",
+                "unstructured_documents",
+            )
+        )
+        if (
+            req.input_spec is None
+            and input_spec_path is None
+            and input_spec_content_str is None
+            and not has_direct_inputs
+        ):
             raise ValueError(
                 "Either 'input_spec', 'input_spec_content', or 'input_spec_path' must be provided "
                 "(zero hardcoded sample paths)."
@@ -156,10 +169,12 @@ class PipelineStateMixin:
                     f"Expected mapping object in 'input_spec', got {type(loaded_spec).__name__}."
                 )
             raw_spec = dict(loaded_spec)
-        else:
-            assert isinstance(req.input_spec, dict)
+        elif isinstance(req.input_spec, dict):
             base_dir = self.repo_root
             raw_spec = dict(req.input_spec)
+        else:
+            base_dir = self.repo_root
+            raw_spec = req.model_dump(mode="json", exclude_none=True)
 
         ont_p = raw_spec.get("graph_a_ontology_path") or raw_spec.get("ontology_path")
         if ont_p and isinstance(ont_p, str) and not Path(ont_p).is_absolute():
@@ -175,42 +190,34 @@ class PipelineStateMixin:
         if getattr(req, "graph_a_source", None) is not None and not raw_spec.get("graph_a_source"):
             raw_spec["graph_a_source"] = dict(req.graph_a_source)  # type: ignore[arg-type]
 
+        eff_sid = getattr(req, "session_id", None) or raw_spec.get("session_id")
         cas_store = getattr(self, "cas_store", None)
-        if cas_store is not None and hasattr(cas_store, "base_dir"):
-            cas_base = Path(cas_store.base_dir).resolve()
-            sources_list = raw_spec.get("sources") or getattr(req, "sources", None)
+        sources_list = raw_spec.get("sources") or getattr(req, "sources", None)
+        docs_list = raw_spec.get("unstructured_documents") or getattr(
+            req, "unstructured_documents", None
+        )
+        if (sources_list and isinstance(sources_list, list)) or (
+            docs_list and isinstance(docs_list, list)
+        ):
+            from opendv_service.use_cases.pipeline_preflight import (
+                resolve_cas_sources_list,
+                resolve_cas_unstructured_docs_list,
+            )
+
             if sources_list and isinstance(sources_list, list):
-                resolved_sources: list[dict[str, Any]] = []
-                for s in sources_list:
-                    s_dict = (
-                        dict(s)
-                        if isinstance(s, dict)
-                        else (s.model_dump(mode="json") if hasattr(s, "model_dump") else dict(s))
-                    )
-                    s_uri = str(s_dict.get("uri") or "").strip()
-                    if s_uri.startswith("cas://"):
-                        raw_target = s_uri[len("cas://") :].split("?")[0].split("#")[0].strip()
-                        c_hash = raw_target.split("/")[0].strip().lower()
-                        cands = [cas_base / c_hash.upper(), cas_base / c_hash.lower()]
-                        cand_p = next((c for c in cands if c.is_file()), None)
-                        if cand_p is not None:
-                            is_sqlite = False
-                            with contextlib.suppress(OSError), open(cand_p, "rb") as bf:
-                                if bf.read(16).startswith(b"SQLite format 3\x00"):
-                                    is_sqlite = True
-                            s_sys = s_dict.get("source_system") or "cas_store"
-                            s_opts = dict(s_dict.get("options") or {})
-                            s_opts["source_system"] = s_sys
-                            s_dict["options"] = s_opts
-                            s_dict["source_system"] = s_sys
-                            if is_sqlite:
-                                s_dict["uri"] = f"sqlite:///{cand_p.as_posix()}"
-                                s_dict["adapter"] = "sqlite"
-                            else:
-                                s_dict["uri"] = cand_p.as_posix()
-                                s_dict.setdefault("adapter", "file")
-                    resolved_sources.append(s_dict)
-                raw_spec["sources"] = resolved_sources
+                raw_spec["sources"] = resolve_cas_sources_list(
+                    sources_list,
+                    cas_store,
+                    session_id=eff_sid,
+                    state=self,
+                )
+            if docs_list and isinstance(docs_list, list):
+                raw_spec["unstructured_documents"] = resolve_cas_unstructured_docs_list(
+                    docs_list,
+                    cas_store,
+                    session_id=eff_sid,
+                    state=self,
+                )
 
         if initial_contract_path is not None:
             resolved_init_path = resolve_workspace_path(
@@ -341,7 +348,21 @@ class PipelineStateMixin:
             if isinstance(input_spec_content, str) and input_spec_content.strip()
             else None
         )
-        if req.input_spec is None and input_spec_path is None and input_spec_content_str is None:
+        has_direct_inputs = any(
+            getattr(req, field, None)
+            for field in (
+                "blueprint",
+                "blueprint_content",
+                "sources",
+                "unstructured_documents",
+            )
+        )
+        if (
+            req.input_spec is None
+            and input_spec_path is None
+            and input_spec_content_str is None
+            and not has_direct_inputs
+        ):
             raise ValueError(
                 "Either 'input_spec', 'input_spec_content', or 'input_spec_path' must be provided "
                 "(zero hardcoded sample paths)."

@@ -3,26 +3,15 @@
  * (apps/opendv-web-workbench/tests/wave-r3c-hardening.test.tsx)
  *
  * Covers:
- * 1. Unified studioFetch (CSRF X-OpenDV-Workbench, credentials: include, Bearer token, 401 -> authRequired) & Auth Bootstrap
- * 2. Confidential Source Upload (do_not_send_to_agent FormData & SourceDocument mapping)
- * 3. Strict Path A Grounding, Grandfather/Waiver Mutation Revocation, Per-Concept Waivers, Feedback & Lossless Export
- * 4. Genesis 0.0.0 Commits, Deterministic op_id, Mapping Payloads & Full Visual Editor / Admin Delta Diffing
- * 5. Parallel Clarification Q&A, SSE Job Progress + Polling Fallback, Candidate Proposals & 0.0.0 Diff Short-Circuit
+ * 1. Confidential Source Upload (do_not_send_to_agent FormData & SourceDocument mapping)
+ * 2. Strict Path A Grounding, Grandfather Mutation Revocation, Feedback & Lossless Export
+ * 3. Genesis 0.0.0 Commits, Deterministic op_id, Mapping Payloads & Full Visual Editor / Admin Delta Diffing
+ * 4. Parallel Clarification Q&A, SSE Job Progress + Polling Fallback, Candidate Proposals & 0.0.0 Diff Short-Circuit
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import React, { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-	OntologyStudioApp,
-	buildUniqueConceptIdentifiers,
-	buildUniqueRelationshipIdentifiers,
-} from "../src/ontology/OntologyStudioApp";
-import { ClarificationPanel } from "../src/ontology/components/ClarificationPanel";
-import { DiffOverlay } from "../src/ontology/components/DiffOverlay";
-import { ExportPromoteModal } from "../src/ontology/components/ExportPromoteModal";
-import { QualityFeedbackPanel } from "../src/ontology/components/QualityFeedbackPanel";
-import { SourcesPanel } from "../src/ontology/components/SourcesPanel";
 import {
 	VisualEditorDrawer,
 	validateConceptEdit,
@@ -33,7 +22,6 @@ import {
 	computeQualityScorecard,
 	createStudioStore,
 	deriveGroundingStatus,
-	extractAndScrubLaunchNonce,
 	studioStore,
 } from "../src/ontology/store/studio-store";
 import type {
@@ -114,211 +102,6 @@ describe("Wave R3-C: Web Workbench Hardening & End-to-End Contract Alignment", (
 	});
 
 	// =========================================================================
-	// 1. UNIFIED studioFetch & AUTH BOOTSTRAP
-	// =========================================================================
-	describe("1. Unified studioFetch & Auth Bootstrap (P14c::MAJ-01, P14d::MAJ-02, CRIT-01, MAJOR-01)", () => {
-		it("attaches credentials: include, X-OpenDV-Workbench: 1 on mutations, Authorization Bearer when set, and flags 401 authRequired", async () => {
-			const store = createStudioStore();
-			store.getState().setAuthToken("secret-studio-bearer-xyz");
-
-			const calls: Array<{
-				url: string;
-				method: string;
-				credentials?: RequestCredentials;
-				headers: Record<string, string>;
-			}> = [];
-
-			const mockFetch: typeof fetch = (async (
-				url: string | URL | Request,
-				init?: RequestInit,
-			) => {
-				const method = (init?.method || "GET").toUpperCase();
-				const headers = (init?.headers as Record<string, string>) || {};
-				calls.push({
-					url: String(url),
-					method,
-					...(init?.credentials !== undefined
-						? { credentials: init.credentials }
-						: {}),
-					headers,
-				});
-				if (String(url).endsWith("/sessions") && method === "GET") {
-					return new Response(JSON.stringify({ detail: "Unauthorized" }), {
-						status: 401,
-					});
-				}
-				return new Response(
-					JSON.stringify({
-						session_id: "new-sess",
-						domain_namespace: "pe",
-						enterprise_owner: "owner",
-						status: "ACTIVE",
-						active_version: "0.0.0",
-						head_sha256: GENESIS_SHA256,
-						created_at: "2026-11-12T00:00:00Z",
-						updated_at: "2026-11-12T00:00:00Z",
-					}),
-					{ status: 201 },
-				);
-			}) as typeof fetch;
-
-			// GET /sessions -> 401 sets authRequired = true
-			await store.getState().loadSessions(mockFetch);
-			expect(store.getState().authRequired).toBe(true);
-			expect(calls[0]?.credentials).toBe("include");
-			expect(calls[0]?.headers.Authorization).toBe(
-				"Bearer secret-studio-bearer-xyz",
-			);
-			expect(calls[0]?.headers["X-OpenDV-Workbench"]).toBeUndefined();
-
-			// POST /sessions -> includes X-OpenDV-Workbench: 1 + credentials: include + Bearer
-			const created = await store.getState().createSession(
-				{
-					session_id: "new-sess",
-					domain_namespace: "pe",
-					enterprise_owner: "owner",
-				},
-				mockFetch,
-			);
-			expect(created?.active_version).toBe("0.0.0");
-			expect(store.getState().authRequired).toBe(false);
-			expect(calls[1]?.method).toBe("POST");
-			expect(calls[1]?.credentials).toBe("include");
-			expect(calls[1]?.headers["X-OpenDV-Workbench"]).toBe("1");
-			expect(calls[1]?.headers.Authorization).toBe(
-				"Bearer secret-studio-bearer-xyz",
-			);
-		});
-
-		it("extracts and immediately scrubs #token=<nonce> and ?nonce=<nonce> via history.replaceState", () => {
-			let replacedUrl = "";
-			const mockWinHash = {
-				location: {
-					pathname: "/ontology",
-					search: "?tab=sources",
-					hash: "#token=launch-nonce-abc123&view=graph",
-				},
-				history: {
-					replaceState: (
-						_data: unknown,
-						_unused: string,
-						url?: string | URL | null,
-					) => {
-						replacedUrl = String(url ?? "");
-					},
-				},
-			};
-
-			const extracted1 = extractAndScrubLaunchNonce(mockWinHash);
-			expect(extracted1).toBe("launch-nonce-abc123");
-			expect(replacedUrl).toBe("/ontology?tab=sources#view=graph");
-			expect(replacedUrl).not.toContain("launch-nonce-abc123");
-
-			let replacedUrlQuery = "";
-			const mockWinQuery = {
-				location: {
-					pathname: "/ontology",
-					search: "?nonce=query-nonce-999",
-					hash: "",
-				},
-				history: {
-					replaceState: (
-						_data: unknown,
-						_unused: string,
-						url?: string | URL | null,
-					) => {
-						replacedUrlQuery = String(url ?? "");
-					},
-				},
-			};
-			const extracted2 = extractAndScrubLaunchNonce(mockWinQuery);
-			expect(extracted2).toBe("query-nonce-999");
-			expect(replacedUrlQuery).toBe("/ontology");
-		});
-
-		it("exchanges launch nonce via POST /auth/token and supports loopback session bootstrap", async () => {
-			const store = createStudioStore();
-			store.setState({ authRequired: true });
-
-			const requests: Array<{
-				url: string;
-				body: unknown;
-				headers: Record<string, string>;
-			}> = [];
-			const mockFetch: typeof fetch = (async (
-				url: string | URL | Request,
-				init?: RequestInit,
-			) => {
-				requests.push({
-					url: String(url),
-					body: init?.body ? JSON.parse(String(init.body)) : null,
-					headers: (init?.headers as Record<string, string>) || {},
-				});
-				if (String(url).endsWith("/sessions")) {
-					return new Response(JSON.stringify({ sessions: [] }), {
-						status: 200,
-					});
-				}
-				return new Response(JSON.stringify({ authenticated: true }), {
-					status: 200,
-				});
-			}) as typeof fetch;
-
-			const okNonce = await store
-				.getState()
-				.exchangeLaunchNonce("one-time-nonce-42", mockFetch);
-			expect(okNonce).toBe(true);
-			expect(store.getState().authRequired).toBe(false);
-			expect(requests[0]?.url).toBe("/api/v1/ontology/studio/auth/token");
-			expect(requests[0]?.body).toEqual({ nonce: "one-time-nonce-42" });
-			expect(requests[0]?.headers["X-OpenDV-Workbench"]).toBe("1");
-
-			store.setState({ authRequired: true });
-			const okLoopback = await store
-				.getState()
-				.bootstrapLoopbackAuth(mockFetch);
-			expect(okLoopback).toBe(true);
-			expect(store.getState().authRequired).toBe(false);
-			expect(
-				requests.some((r) => r.url.endsWith("/api/v1/ontology/studio/init")),
-			).toBe(true);
-		});
-
-		it("renders auth bootstrap UI on 401, CAS standalone banner (never 'stored in-memory'), and header visual edit controls", () => {
-			studioStore.setState({
-				activeMode: "local_standalone",
-				authRequired: true,
-				activeSession: makeSession(),
-				sessions: [makeSession()],
-				nodes: [makeGroundedConcept()],
-				hasUnsavedChanges: true,
-			});
-
-			const html = renderToStaticMarkup(createElement(OntologyStudioApp));
-			expect(html).toContain('data-testid="studio-auth-bootstrap"');
-			expect(html).toContain('data-testid="auth-token-input"');
-			expect(html).toContain('data-testid="loopback-init-btn"');
-			expect(html).toContain('data-testid="standalone-mode-banner"');
-			expect(html).toContain("persisted in local CAS");
-			expect(html).not.toContain("stored in-memory");
-			expect(html).toContain('data-testid="add-concept-btn"');
-			expect(html).toContain('data-testid="add-relationship-btn"');
-			expect(html).toContain('data-testid="commit-changes-btn"');
-			expect(html).toContain('data-testid="discard-changes-btn"');
-			expect(html).toContain('data-testid="header-relayout-btn"');
-			expect(html).toContain('data-testid="studio-role-badge"');
-			expect(html).not.toContain('data-testid="studio-role-select"');
-
-			// Verify triggerRelayout increments layoutTriggerCount for GraphCanvas subscription (P14a::MAJ-01)
-			const prevTrigger = studioStore.getState().layout.layoutTriggerCount || 0;
-			studioStore.getState().triggerRelayout();
-			expect(studioStore.getState().layout.layoutTriggerCount).toBe(
-				prevTrigger + 1,
-			);
-		});
-	});
-
-	// =========================================================================
 	// 2. CONFIDENTIAL SOURCE UPLOAD & INVENTORY MAPPING
 	// =========================================================================
 	describe("2. Confidential Source Upload & Drag Reset (CRIT-02, MINOR-03)", () => {
@@ -386,12 +169,6 @@ describe("Wave R3-C: Web Workbench Hardening & End-to-End Contract Alignment", (
 			expect(store.getState().sources[0]?.confidential).toBe(true);
 			expect(store.getState().sources[0]?.do_not_send_to_agent).toBe(true);
 
-			studioStore.setState({
-				activeSession: makeSession(),
-				sources: store.getState().sources,
-			});
-			const panelHtml = renderToStaticMarkup(createElement(SourcesPanel));
-			expect(panelHtml).toContain("CONFIDENTIAL");
 		});
 	});
 
@@ -506,85 +283,6 @@ describe("Wave R3-C: Web Workbench Hardening & End-to-End Contract Alignment", (
 				scMutated.checks.find((c) => c.rule_id === "ONT-EVO-002")?.status,
 			).toBe("FAIL");
 
-			// Per-concept waiver revocation upon concept mutation
-			const store = createStudioStore({ initialSession: makeSession() });
-			const ungroundedA: ConceptNode = {
-				...grandfatheredConcept,
-				id: "urn:ontology:entity:ungrounded_a",
-				concept_uri: "urn:ontology:entity:ungrounded_a",
-				concept_name: "Ungrounded A",
-			};
-			const ungroundedB: ConceptNode = {
-				...grandfatheredConcept,
-				id: "urn:ontology:entity:ungrounded_b",
-				concept_uri: "urn:ontology:entity:ungrounded_b",
-				concept_name: "Ungrounded B",
-			};
-			store.setState({ nodes: [ungroundedA, ungroundedB] });
-
-			let capturedWaiverBody: Record<string, unknown> | null = null;
-			let capturedWaiverHeaders: Record<string, string> = {};
-			const mockWaiverFetch: typeof fetch = (async (_url, init) => {
-				capturedWaiverHeaders = (init?.headers as Record<string, string>) || {};
-				capturedWaiverBody = JSON.parse(String(init?.body)) as Record<
-					string,
-					unknown
-				>;
-				return new Response(
-					JSON.stringify({
-						waiver_applied: true,
-						waived_concept_uris: [ungroundedA.concept_uri],
-						waived_base_sha256: "a".repeat(64),
-					}),
-					{ status: 200 },
-				);
-			}) as typeof fetch;
-
-			// Scope waiver ONLY to ungroundedA
-			const okWaiver = await store
-				.getState()
-				.submitWaiver(
-					"Proprietary internal concept A approved",
-					"waiver-admin-secret",
-					[ungroundedA.concept_uri],
-					mockWaiverFetch,
-				);
-			expect(okWaiver).toBe(true);
-			expect(capturedWaiverBody?.target_concept_uris).toEqual([
-				ungroundedA.concept_uri,
-			]);
-			expect(capturedWaiverHeaders["X-OpenDV-Waiver-Key"]).toBe(
-				"waiver-admin-secret",
-			);
-			expect(capturedWaiverBody?.waiver_key).toBeUndefined();
-
-			// Because ungroundedB was NOT waived, ONT-EVO-002 still fails until B is removed or grounded
-			expect(
-				store
-					.getState()
-					.qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002")
-					?.status,
-			).toBe("FAIL");
-
-			// Remove ungroundedB -> now only waived ungroundedA remains -> ONT-EVO-002 PASS
-			store.getState().deleteConcept(ungroundedB.concept_uri);
-			expect(
-				store
-					.getState()
-					.qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002")
-					?.status,
-			).toBe("PASS");
-
-			// Mutate ungroundedA after waiver -> waiver for ungroundedA is invalidated -> ONT-EVO-002 FAIL!
-			store.getState().updateConcept(ungroundedA.concept_uri, {
-				synonyms: ["Mutated After Waiver"],
-			});
-			expect(
-				store
-					.getState()
-					.qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002")
-					?.status,
-			).toBe("FAIL");
 		});
 
 		it("renders SKOS predicate selector and USER-ASSERTED badge in VisualEditorDrawer, and per-concept feedback", async () => {
@@ -724,17 +422,6 @@ describe("Wave R3-C: Web Workbench Hardening & End-to-End Contract Alignment", (
 			expect((canonical.reference_enumerations as unknown[]).length).toBe(1);
 			expect((canonical.standards_references as unknown[]).length).toBe(1);
 
-			// ExportPromoteModal omits rdf and offers ntriples
-			studioStore.setState({ activeSession: makeSession() });
-			const modalHtml = renderToStaticMarkup(
-				createElement(ExportPromoteModal, {
-					isOpen: true,
-					initialTab: "export",
-					onClose: () => {},
-				}),
-			);
-			expect(modalHtml).toContain("N-Triples (.nt)");
-			expect(modalHtml).not.toContain("RDF/XML (.rdf)");
 		});
 	});
 
@@ -1292,18 +979,6 @@ describe("Wave R3-C: Web Workbench Hardening & End-to-End Contract Alignment", (
 			expect(MockEventSource.instances[0]?.closed).toBe(true);
 			expect(store.getState().proposals[0]?.proposal_id).toBe("prop-001");
 
-			// Render ClarificationPanel and verify Clarify, Construct, and Proposal controls
-			studioStore.setState({
-				activeSession: makeSession(),
-				proposals: store.getState().proposals,
-			});
-			const cpHtml = renderToStaticMarkup(createElement(ClarificationPanel));
-			expect(cpHtml).toContain('data-testid="start-clarify-btn"');
-			expect(cpHtml).toContain('data-testid="start-construct-btn"');
-			expect(cpHtml).toContain('data-testid="proposals-section"');
-			expect(cpHtml).toContain('data-testid="rebase-proposal-btn-prop-001"');
-			expect(cpHtml).toContain('data-testid="accept-proposal-btn-prop-001"');
-
 			// Rebase, Accept, and Reject actions
 			expect(await store.getState().rebaseProposal("prop-001", mockFetch)).toBe(
 				true,
@@ -1385,17 +1060,9 @@ describe("Wave R3-C: Web Workbench Hardening & End-to-End Contract Alignment", (
 				"urn:ontology:entity:historical_fund",
 			);
 
-			// Render DiffOverlay and verify version selectors
-			studioStore.setState({
-				activeSession: store.getState().activeSession,
-				diffState: store.getState().diffState,
-			});
-			const diffHtml = renderToStaticMarkup(createElement(DiffOverlay));
-			expect(diffHtml).toContain('data-testid="diff-base-version-select"');
-			expect(diffHtml).toContain('data-testid="diff-target-version-select"');
 		});
 
-		it("falls back to GET /jobs/{job_id} polling when EventSource is unavailable and renders QualityFeedbackPanel per-concept waiver checkboxes", async () => {
+		it("falls back to GET /jobs/{job_id} polling when EventSource is unavailable", async () => {
 			(globalThis as Record<string, unknown>).EventSource = undefined;
 			const store = createStudioStore({ initialSession: makeSession() });
 
@@ -1455,204 +1122,6 @@ describe("Wave R3-C: Web Workbench Hardening & End-to-End Contract Alignment", (
 			expect(store.getState().isClarifying).toBe(false);
 			expect(store.getState().clarifications[0]?.question_id).toBe("q_polled");
 
-			// Render QualityFeedbackPanel with active waiver + ungrounded concept -> verify per-concept checkbox & feedback concept select
-			studioStore.setState({
-				activeSession: makeSession(),
-				nodes: [
-					{
-						id: "urn:ontology:entity:ungrounded_carry",
-						concept_uri: "urn:ontology:entity:ungrounded_carry",
-						concept_name: "Ungrounded Carry",
-						elm_archetype: "CORE_BUSINESS_CONCEPT",
-						definition: "Carry waterfall rule",
-						grounding_status: "UNGROUNDED",
-						attributes: [],
-						synonyms: [],
-						external_mappings: [],
-					},
-				],
-				qualityScorecard: {
-					...studioStore.getState().qualityScorecard,
-					waiver_applied: true,
-					waiver_rationale: "Approved proprietary carry model",
-					waived_concept_uris: ["urn:ontology:entity:ungrounded_carry"],
-				},
-			});
-			const qfpHtml = renderToStaticMarkup(createElement(QualityFeedbackPanel));
-			expect(qfpHtml).toContain('data-testid="waiver-concepts-list"');
-			expect(qfpHtml).toContain(
-				'data-testid="waiver-concept-checkbox-urn:ontology:entity:ungrounded_carry"',
-			);
-			expect(qfpHtml).toContain('data-testid="feedback-concept-select"');
-		});
-	});
-
-	// =========================================================================
-	// 6. ROUND-3 AUDIT REMEDIATIONS: RBAC BADGE & QUICK-ADD COLLISION GUARDS
-	// =========================================================================
-	describe("6. Round-3 Audit Remediations: Read-Only Role Badge & Collision-Free Quick-Add (P14a::MAJ-01, MAJ-02)", () => {
-		it("renders read-only studio-role-badge across all 4 RBAC tiers and blocks manual mutations for viewer and automated roles", async () => {
-			for (const [role, expectedLabel] of [
-				["viewer", "Role: Viewer"],
-				["editor", "Role: Editor"],
-				["automated", "Role: Automated"],
-				["admin", "Role: Admin"],
-			] as const) {
-				studioStore.getState().setUserRole(role);
-				studioStore.setState({
-					activeSession: makeSession(),
-					nodes: [makeGroundedConcept()],
-					hasUnsavedChanges: true,
-				});
-				const html = renderToStaticMarkup(createElement(OntologyStudioApp));
-				expect(html).toContain('data-testid="studio-role-badge"');
-				expect(html).toContain(expectedLabel);
-				expect(html).not.toContain('data-testid="studio-role-select"');
-
-				if (role === "viewer" || role === "automated") {
-					expect(html).toMatch(
-						/<button(?=[^>]*\bdisabled="")(?=[^>]*data-testid="add-concept-btn")[^>]*>/,
-					);
-					expect(html).toMatch(
-						/<button(?=[^>]*\bdisabled="")(?=[^>]*data-testid="commit-changes-btn")[^>]*>/,
-					);
-				} else {
-					expect(html).not.toMatch(
-						/<button(?=[^>]*\bdisabled="")(?=[^>]*data-testid="add-concept-btn")[^>]*>/,
-					);
-					expect(html).not.toMatch(
-						/<button(?=[^>]*\bdisabled="")(?=[^>]*data-testid="commit-changes-btn")[^>]*>/,
-					);
-				}
-			}
-
-			// ClarificationPanel gates human ratification buttons for automated role while allowing job triggers
-			studioStore.setState({
-				activeSession: makeSession(),
-				userRole: "automated",
-				clarifications: [
-					{
-						question_id: "q-rbac-1",
-						concept_name: "Fund",
-						question_text: "Clarify grain?",
-						certainty: "MEDIUM",
-						rationale_options: [{ id: "opt-1", label: "Fund ID" }],
-						evidence_citations: [],
-						status: "PENDING",
-					},
-				],
-				proposals: [
-					{
-						proposal_id: "prop-rbac-1",
-						status: "PENDING",
-						base_sha256: "a".repeat(64),
-						target_version: "1.1.0",
-						ops_count: 1,
-						created_at: "2026-11-12T00:00:00Z",
-					},
-				],
-			});
-			const cpHtml = renderToStaticMarkup(createElement(ClarificationPanel));
-			expect(cpHtml).not.toMatch(
-				/<button(?=[^>]*\bdisabled="")(?=[^>]*data-testid="start-clarify-btn")[^>]*>/,
-			);
-			expect(cpHtml).toMatch(
-				/<button(?=[^>]*\bdisabled="")(?=[^>]*data-testid="accept-proposal-btn-prop-rbac-1")[^>]*>/,
-			);
-			expect(cpHtml).toMatch(
-				/<button(?=[^>]*\bdisabled="")(?=[^>]*data-testid="submit-answer-btn-q-rbac-1")[^>]*>/,
-			);
-
-			// Store-level guards reject commitChanges and acceptProposal under automated role
-			const blockedCommit = await studioStore
-				.getState()
-				.commitChanges("Agent manual commit attempt");
-			expect(blockedCommit).toBe(false);
-			expect(studioStore.getState().toasts[0]?.code).toBe("FORBIDDEN_ROLE");
-
-			const blockedAccept = await studioStore
-				.getState()
-				.acceptProposal("prop-rbac-1", "Agent manual accept attempt");
-			expect(blockedAccept).toBe(false);
-		});
-
-		it("generates collision-free concept and relationship identifiers incorporating source+verb+target and deduplicating against committed history (P14a::MAJ-02)", () => {
-			const committedConceptA = makeGroundedConcept({
-				id: "urn:ontology:entity:concept_1",
-				concept_uri: "urn:ontology:entity:concept_1",
-				concept_name: "Concept 1",
-				target_hub: "hub_concept_1",
-			});
-			const workingConceptB = makeGroundedConcept({
-				id: "urn:ontology:entity:fund",
-				concept_uri: "urn:ontology:entity:fund",
-				concept_name: "Fund",
-				target_hub: "hub_fund",
-			});
-
-			// Even if nodes only has 1 item ("fund"), committedNodes has "concept_1", so default Concept 2 or colliding "Fund" increments cleanly
-			const dupFundIds = buildUniqueConceptIdentifiers(
-				"Fund",
-				[workingConceptB],
-				[committedConceptA],
-			);
-			expect(dupFundIds.conceptUri).toBe("urn:ontology:entity:fund_2");
-			expect(dupFundIds.targetHub).toBe("hub_fund_2");
-
-			const dupCommittedIds = buildUniqueConceptIdentifiers(
-				"Concept 1",
-				[workingConceptB],
-				[committedConceptA],
-			);
-			expect(dupCommittedIds.conceptUri).toBe(
-				"urn:ontology:entity:concept_1_2",
-			);
-			expect(dupCommittedIds.targetHub).toBe("hub_concept_1_2");
-
-			// Repeated verb "has" across distinct concept pairs produces distinct URIs and lnk_* physical names
-			const relFundLp = buildUniqueRelationshipIdentifiers(
-				"has",
-				"urn:ontology:entity:fund",
-				"urn:ontology:entity:lp",
-				[],
-				[],
-			);
-			const relPortfolioDeal = buildUniqueRelationshipIdentifiers(
-				"has",
-				"urn:ontology:entity:portfolio",
-				"urn:ontology:entity:deal",
-				[],
-				[],
-			);
-			expect(relFundLp.relationshipUri).toBe(
-				"urn:ontology:relationship:fund_has_lp",
-			);
-			expect(relFundLp.targetLink).toBe("lnk_fund_has_lp");
-			expect(relPortfolioDeal.relationshipUri).toBe(
-				"urn:ontology:relationship:portfolio_has_deal",
-			);
-			expect(relPortfolioDeal.targetLink).toBe("lnk_portfolio_has_deal");
-
-			// Repeated verb between the SAME concept pair or colliding with committedEdges appends _2
-			const committedEdge: RelationshipEdge = {
-				id: "urn:ontology:relationship:fund_has_lp",
-				relationship_uri: "urn:ontology:relationship:fund_has_lp",
-				relationship_name: "has",
-				target_link: "lnk_fund_has_lp",
-				source_concept_uri: "urn:ontology:entity:fund",
-				target_concept_uri: "urn:ontology:entity:lp",
-			};
-			const relFundLpSecond = buildUniqueRelationshipIdentifiers(
-				"has",
-				"urn:ontology:entity:fund",
-				"urn:ontology:entity:lp",
-				[],
-				[committedEdge],
-			);
-			expect(relFundLpSecond.relationshipUri).toBe(
-				"urn:ontology:relationship:fund_has_lp_2",
-			);
-			expect(relFundLpSecond.targetLink).toBe("lnk_fund_has_lp_2");
 		});
 	});
 });

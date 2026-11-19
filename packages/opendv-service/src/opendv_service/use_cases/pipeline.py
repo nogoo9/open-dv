@@ -50,6 +50,9 @@ from opendv_service.use_cases.pipeline_preflight import (
     resolve_cas_sources_list as _resolve_cas_sources_list,
 )
 from opendv_service.use_cases.pipeline_preflight import (
+    resolve_cas_unstructured_docs_list as _resolve_cas_unstructured_docs_list,
+)
+from opendv_service.use_cases.pipeline_preflight import (
     to_vault_blueprint_dto as _to_vault_blueprint_dto,
 )
 
@@ -173,13 +176,9 @@ def validate_pipeline(
         clean_sources: list[dict[str, Any]] = []
         for s in sources:
             s_dict = (
-                s
-                if isinstance(s, dict)
-                else (s.model_dump() if hasattr(s, "model_dump") else {})
+                s if isinstance(s, dict) else (s.model_dump() if hasattr(s, "model_dump") else {})
             )
-            clean_s = {
-                k: v for k, v in s_dict.items() if k not in ("uri", "data_path", "spec")
-            }
+            clean_s = {k: v for k, v in s_dict.items() if k not in ("uri", "data_path", "spec")}
             clean_s.setdefault("source_system", s_dict.get("source_system") or "source")
             clean_s.setdefault(
                 "table_name", s_dict.get("table_name") or s_dict.get("feed_id") or "table"
@@ -313,36 +312,58 @@ def execute_pipeline_run_sync(
                     if hasattr(req.ontology_source, "model_dump")
                     else req.ontology_source
                 )
+            eff_sid = getattr(req, "session_id", None)
             resolved_srcs = _resolve_cas_sources_list(
                 spec_dump.get("sources") or req.sources,
                 getattr(state, "cas_store", None),
+                session_id=eff_sid,
+                state=state,
+            )
+            resolved_docs = _resolve_cas_unstructured_docs_list(
+                spec_dump.get("unstructured_documents") or req.unstructured_documents,
+                getattr(state, "cas_store", None),
+                session_id=eff_sid,
+                state=state,
             )
             spec_dump["sources"] = resolved_srcs
+            spec_dump["unstructured_documents"] = resolved_docs
             prov_override = resolve_effective_provider(req, state)
             run_req = PipelineRunRequest(
                 input_spec=spec_dump,
                 blueprint=bp_val,
                 graph_a_source=spec_dump.get("graph_a_source"),
                 sources=resolved_srcs,
-                unstructured_documents=req.unstructured_documents,
+                unstructured_documents=resolved_docs,
                 target_dialect=req.target_dialect,
                 provider_override=prov_override,
-                session_id=getattr(req, "session_id", None),
+                session_id=eff_sid,
             )
         elif isinstance(req, dict) and "blueprint" in req and "input_spec" not in req:
+            eff_sid = req.get("session_id")
             resolved_srcs = _resolve_cas_sources_list(
                 req.get("sources", []),
                 getattr(state, "cas_store", None),
+                session_id=eff_sid,
+                state=state,
             )
+            resolved_docs = _resolve_cas_unstructured_docs_list(
+                req.get("unstructured_documents", []),
+                getattr(state, "cas_store", None),
+                session_id=eff_sid,
+                state=state,
+            )
+            spec_copy = dict(req)
+            spec_copy["sources"] = resolved_srcs
+            spec_copy["unstructured_documents"] = resolved_docs
             prov_override = resolve_effective_provider(req, state)
             run_req = PipelineRunRequest(
-                input_spec=dict(req),
+                input_spec=spec_copy,
                 blueprint=req.get("blueprint"),
                 sources=resolved_srcs,
-                unstructured_documents=req.get("unstructured_documents", []),
+                unstructured_documents=resolved_docs,
                 target_dialect=req.get("target_dialect", "duckdb"),
                 provider_override=prov_override,
-                session_id=req.get("session_id"),
+                session_id=eff_sid,
             )
         elif isinstance(req, PipelineRunRequest):
             run_req = req
@@ -439,25 +460,37 @@ async def execute_run_async(
                 if isinstance(gov_pol, dict)
                 else getattr(gov_pol, "steward_hold_policy", None)
             )
+        eff_sid = getattr(req, "session_id", None)
         resolved_srcs = _resolve_cas_sources_list(
             req.sources,
             getattr(state, "cas_store", None),
+            session_id=eff_sid,
+            state=state,
+        )
+        resolved_docs = _resolve_cas_unstructured_docs_list(
+            req.unstructured_documents,
+            getattr(state, "cas_store", None),
+            session_id=eff_sid,
+            state=state,
         )
         spec_dict = req.model_dump(mode="json")
         spec_dict["sources"] = resolved_srcs
+        spec_dict["unstructured_documents"] = resolved_docs
         run_req = PipelineRunRequest(
             input_spec=spec_dict,
             blueprint=bp_val,
             sources=resolved_srcs,
-            unstructured_documents=req.unstructured_documents,
+            unstructured_documents=resolved_docs,
             target_dialect=req.target_dialect,
             provider_override=resolve_effective_provider(req, state),
             steward_hold_policy=str(hold_pol) if hold_pol else None,
-            session_id=getattr(req, "session_id", None),
+            session_id=eff_sid,
         )
     elif isinstance(req, PipelineRunRequest):
         run_req = req
-        if run_req.input_spec is None and (run_req.blueprint or run_req.sources):
+        if run_req.input_spec is None and (
+            run_req.blueprint or run_req.sources or run_req.unstructured_documents
+        ):
             run_req.input_spec = run_req.model_dump(mode="json", exclude_none=True)
     else:
         try:
@@ -467,7 +500,9 @@ async def execute_run_async(
             )
         except (ValidationError, ValueError, TypeError):
             run_req = PipelineRunRequest.model_validate(req)
-            if run_req.input_spec is None and (run_req.blueprint or run_req.sources):
+            if run_req.input_spec is None and (
+                run_req.blueprint or run_req.sources or run_req.unstructured_documents
+            ):
                 run_req.input_spec = run_req.model_dump(mode="json", exclude_none=True)
 
     engine = RunExecutionEngine()

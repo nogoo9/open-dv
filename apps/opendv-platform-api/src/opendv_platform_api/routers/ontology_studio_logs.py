@@ -29,6 +29,7 @@ from opendv_service.studio.wizard_workflows import (
 )
 
 router = APIRouter(prefix="/ontology/studio", tags=["ontology-studio"])
+_SSE_HEADERS = {"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
 
 
 @router.get("/sessions/{session_id}/jobs/{job_id}", response_model=JobStatusDTO)
@@ -71,13 +72,12 @@ async def get_job_events_stream(
     supervisor = get_job_supervisor()
     effective_sid = session_id or supervisor.resolve_job_session_id(session_mgr, job_id)
     stream_iter = supervisor.stream_job_events(
-        session_mgr=session_mgr, session_id=effective_sid, job_id=job_id, last_event_id=last_event_id
+        session_mgr=session_mgr,
+        session_id=effective_sid,
+        job_id=job_id,
+        last_event_id=last_event_id,
     )
-    return StreamingResponse(
-        stream_iter,
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-    )
+    return StreamingResponse(stream_iter, media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 @router.post("/sessions/{session_id}/jobs/{job_id}/cancel", response_model=JobStatusDTO)
@@ -152,24 +152,24 @@ async def stream_session_logs_endpoint(
     platform_state = getattr(request.app.state, "platform_state", None)
     if platform_state is None and getattr(request.app.state, "service", None) is not None:
         platform_state = getattr(request.app.state.service, "state", None)
-    is_active_fn, terminal_status_fn = session_logs_activity_hooks(session_mgr, session_id, platform_state)
-    return StreamingResponse(
-        stream_logs_workflow(
-            session_mgr,
-            session_id,
-            last_event_id=last_event_id,
-            once=once,
-            stage_id=stage_id or stage,
-            wizard_step=wizard_step,
-            persona=persona,
-            category=category,
-            is_active_fn=is_active_fn,
-            terminal_status_fn=terminal_status_fn,
-            extra_ledger_dirs=resolve_platform_ledger_dirs(request),
-        ),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    is_active_fn, terminal_status_fn = session_logs_activity_hooks(
+        session_mgr, session_id, platform_state
     )
+    effective_last_event_id = last_event_id or request.query_params.get("last_event_id")
+    stream_iter = stream_logs_workflow(
+        session_mgr,
+        session_id,
+        last_event_id=effective_last_event_id,
+        once=once,
+        stage_id=stage_id or stage,
+        wizard_step=wizard_step,
+        persona=persona,
+        category=category,
+        is_active_fn=is_active_fn,
+        terminal_status_fn=terminal_status_fn,
+        extra_ledger_dirs=resolve_platform_ledger_dirs(request),
+    )
+    return StreamingResponse(stream_iter, media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 @router.get("/sessions/{session_id}/logs/export")

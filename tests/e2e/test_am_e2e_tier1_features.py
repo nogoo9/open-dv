@@ -859,20 +859,32 @@ class TestFeature9BlueprintTab:
     """Feature 9: 3rd Right-Panel DV 2.0 Blueprint Tab with Zone 2 DDL Export."""
 
     def test_f9_01_blueprint_tab_state_contract(self) -> None:
-        """F9.1: Verify right-drawer tabs and component roles in VisualEditorDrawer."""
-        drawer_path = (
-            REPO_ROOT
-            / "apps"
-            / "opendv-web-workbench"
-            / "src"
-            / "ontology"
-            / "components"
-            / "VisualEditorDrawer.tsx"
+        """F9.1: Verify M4 Step 5 VisualEditorDrawer, export-only, and shell state contract."""
+        src_dir = REPO_ROOT / "apps" / "opendv-web-workbench" / "src" / "ontology"
+        drawer_content = (src_dir / "components" / "VisualEditorDrawer.tsx").read_text(
+            encoding="utf-8"
         )
-        content = drawer_path.read_text(encoding="utf-8")
-        assert "right-drawer-tabs" in content
-        assert "right-tab-concept" in content
-        assert "right-tab-proposal" in content
+        step5_content = (src_dir / "wizard" / "Step5DiffGraphExport.tsx").read_text(
+            encoding="utf-8"
+        )
+        shell_content = (src_dir / "wizard" / "OntologyWizardShell.tsx").read_text(encoding="utf-8")
+
+        # VisualEditorDrawer (D15): create/edit drawer with hideProposalTab support
+        assert 'data-testid="visual-editor-drawer"' in drawer_content
+        assert "hideProposalTab" in drawer_content
+        assert 'data-testid="save-concept-btn"' in drawer_content
+
+        # Step5DiffGraphExport (D9/D15): optional visual editor toggle + export-only + commit
+        assert 'data-testid="wizard-step-5"' in step5_content
+        assert 'data-testid="btn-open-visual-editor"' in step5_content
+        assert "<VisualEditorDrawer" in step5_content
+        assert 'data-testid="btn-export-ontology-only"' in step5_content
+        assert 'data-testid="btn-commit-ontology"' in step5_content
+
+        # OntologyWizardShell: owns visualEditorOpen state and wires Step 5 open/close callbacks
+        assert "visualEditorOpen" in shell_content
+        assert "onOpenVisualEditor" in shell_content
+        assert "onCloseVisualEditor" in shell_content
 
     def test_f9_02_blueprint_target_raw_vault_tables_derivation(self) -> None:
         """F9.2: Verify Graph A concepts derive Target Raw Vault tables."""
@@ -898,11 +910,12 @@ class TestFeature9BlueprintTab:
         assert len(violations) == 0
 
     def test_f9_04_blueprint_view_component_contract(self) -> None:
-        """F9.4: Verify VisualEditorDrawer and BlueprintView components exist."""
-        comp_dir = REPO_ROOT / "apps" / "opendv-web-workbench" / "src" / "ontology" / "components"
-        assert (comp_dir / "VisualEditorDrawer.tsx").is_file()
-        assert (comp_dir / "ExportPromoteModal.tsx").is_file()
-        assert (comp_dir / "BlueprintView.tsx").is_file()
+        """F9.4: Verify unified wizard Step 5/6, VisualEditorDrawer, and DV Schema Explorer exist (D19)."""
+        src_dir = REPO_ROOT / "apps" / "opendv-web-workbench" / "src"
+        assert (src_dir / "ontology" / "components" / "VisualEditorDrawer.tsx").is_file()
+        assert (src_dir / "ontology" / "wizard" / "Step5DiffGraphExport.tsx").is_file()
+        assert (src_dir / "ontology" / "wizard" / "Step6PipelineBuildAndRun.tsx").is_file()
+        assert (src_dir / "explorer" / "dv-schema" / "DvSchemaExplorerView.tsx").is_file()
 
     def test_f9_05_blueprint_copy_ddl_action(
         self, studio_client: TestClient, auth_headers: dict[str, str]

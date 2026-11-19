@@ -11,16 +11,16 @@ import type {
 	PlatformConfigResponse,
 	ProjectRunDTO,
 } from "@opendv/protocol-ts";
-import { Suspense, lazy } from "react";
 import type { StoreApi, UseBoundStore } from "zustand";
+import { studioStore, useStudioStore } from "../ontology/store/studio-store";
+import { OntologyWizardShell } from "../ontology/wizard/OntologyWizardShell";
+import { SessionLogsInspector } from "../ontology/wizard/SessionLogsInspector";
 import { ArtifactFullModal } from "./ArtifactFullModal";
 import { BlockingErrorBanner } from "./BlockingErrorBanner";
-import { DvSchemaExplorerShell } from "./DvSchemaExplorerShell";
 import { ExplorerTopBar } from "./ExplorerTopBar";
 import { NewRunModal } from "./NewRunModal";
 import { PipelineOverviewView } from "./PipelineOverviewView";
 import { StageDrillDownView } from "./StageDrillDownView";
-import { WizardShell } from "./builder/WizardShell";
 import {
 	type SessionCostLogEntry,
 	aggregateSessionCostFromLogs,
@@ -31,17 +31,12 @@ import {
 	EXPLORER_COLORS,
 	EXPLORER_FONTS,
 } from "./design-tokens";
+import { DvSchemaExplorerView } from "./dv-schema/DvSchemaExplorerView";
 import { type ExplorerStoreState, useExplorerStore } from "./explorer-store";
 import { safeUseEffect, safeUseState } from "./modals/safeHooks";
 import { PipelineRunProgressBar } from "./progress/PipelineRunProgressBar";
 import { PlatformSettingsView } from "./settings/PlatformSettingsView";
 import { fetchPlatformConfig } from "./settings/usePlatformConfigActions";
-
-const LazyOntologyStudioApp = lazy(() =>
-	import("../ontology/OntologyStudioApp").then((mod) => ({
-		default: mod.OntologyStudioApp,
-	})),
-);
 
 export { aggregateSessionCostFromLogs, type SessionCostLogEntry };
 
@@ -62,7 +57,6 @@ export function OpenDVWorkbenchExplorer({
 }: OpenDVWorkbenchExplorerProps = {}) {
 	const bundle = store((s) => s.bundle);
 	const view = store((s) => s.view);
-	const ontologySubView = store((s) => s.ontologySubView);
 	const stageIdx = store((s) => s.stageIdx);
 	const selType = store((s) => s.selType);
 	const selId = store((s) => s.selId);
@@ -96,9 +90,14 @@ export function OpenDVWorkbenchExplorer({
 	const syncFromUrl = store((s) => s.syncFromUrl);
 	const resolveStewardHold = store((s) => s.resolveStewardHold);
 	const builderSessionId = store((s) => s.builderSessionId);
-	const builderSource = store((s) => s.builderSource);
-	const builderDomain = store((s) => s.builderDomain);
-	const builderPipelineId = store((s) => s.builderPipelineId);
+	const studioSessionId = useStudioStore(
+		(s) => s.activeSession?.session_id ?? null,
+	);
+	const studioLogsCount = useStudioStore((s) => s.sessionLogsTotal);
+	const studioCostTokens = useStudioStore((s) => s.sessionCostTokens);
+	const studioCostUsd = useStudioStore((s) => s.sessionCostUsd);
+	const activeSessionId =
+		studioSessionId ?? sessionId ?? builderSessionId ?? undefined;
 
 	const [isRunSelectorOpen, setIsRunSelectorOpen] = safeUseState(false);
 	const [runsList, setRunsList] = safeUseState<readonly ProjectRunDTO[]>([]);
@@ -110,6 +109,11 @@ export function OpenDVWorkbenchExplorer({
 	const [sessionLogsCount, setSessionLogsCount] = safeUseState(0);
 	const [sessionCostTokens, setSessionCostTokens] = safeUseState(0);
 	const [sessionCostUsd, setSessionCostUsd] = safeUseState(0);
+	const [isLogsInspectorOpen, setIsLogsInspectorOpen] = safeUseState(false);
+	const [logsStageFilter, setLogsStageFilter] = safeUseState<string | null>(
+		null,
+	);
+	const [logsStepFilter, setLogsStepFilter] = safeUseState<number | null>(null);
 
 	// Sync initial URL and browser popstate
 	safeUseEffect(() => {
@@ -151,10 +155,12 @@ export function OpenDVWorkbenchExplorer({
 		};
 	}, [apiUrl, fetchImpl]);
 
-	// Hydrate session logs & cost meter when sessionId is present
+	// Hydrate session logs & cost meter when activeSessionId is present
 	safeUseEffect(() => {
-		const activeSession = sessionId || builderSessionId;
-		if (!activeSession) return;
+		setSessionLogsCount(0);
+		setSessionCostTokens(0);
+		setSessionCostUsd(0);
+		if (!activeSessionId) return;
 		const fetchFn =
 			fetchImpl ??
 			(typeof globalThis.fetch === "function"
@@ -166,7 +172,7 @@ export function OpenDVWorkbenchExplorer({
 			.replace(/\/api\/v1\/?$/, "")
 			.replace(/\/+$/, "");
 		void fetchFn(
-			`${base}/api/v1/ontology/studio/sessions/${encodeURIComponent(activeSession)}/logs`,
+			`${base}/api/v1/ontology/studio/sessions/${encodeURIComponent(activeSessionId)}/logs`,
 			{ headers: { Accept: "application/json" } },
 		)
 			.then(async (resp) => {
@@ -186,7 +192,7 @@ export function OpenDVWorkbenchExplorer({
 		return () => {
 			cancelled = true;
 		};
-	}, [sessionId, builderSessionId, apiUrl, fetchImpl]);
+	}, [activeSessionId, apiUrl, fetchImpl]);
 
 	// Connect to data source or load initial runs list on Run Explorer / DV Schema routes
 	safeUseEffect(() => {
@@ -221,7 +227,10 @@ export function OpenDVWorkbenchExplorer({
 		}
 		const onKeyDown = (ev: KeyboardEvent) => {
 			if (ev.key !== "Escape") return;
-			if (isRunSelectorOpen) {
+			if (isLogsInspectorOpen) {
+				ev.preventDefault();
+				setIsLogsInspectorOpen(false);
+			} else if (isRunSelectorOpen) {
 				ev.preventDefault();
 				setIsRunSelectorOpen(false);
 			} else if (isNewRunModalOpen) {
@@ -239,6 +248,7 @@ export function OpenDVWorkbenchExplorer({
 		return () => globalThis.removeEventListener("keydown", onKeyDown);
 	}, [
 		store,
+		isLogsInspectorOpen,
 		isRunSelectorOpen,
 		isNewRunModalOpen,
 		closeFullArtifact,
@@ -333,7 +343,16 @@ export function OpenDVWorkbenchExplorer({
 		Boolean(blockingError?.hasError) &&
 		(view === "pipeline" || view === "stage" || view === "dv_schema");
 
-	const isStudioView = view === "ontology" && ontologySubView === "studio";
+	const isWizardView = view === "ontology" || view === "builder";
+
+	const handleOpenLogsModal = (opts?: {
+		stageId?: string | null;
+		wizardStep?: number | null;
+	}) => {
+		setLogsStageFilter(opts?.stageId ?? null);
+		setLogsStepFilter(opts?.wizardStep ?? null);
+		setIsLogsInspectorOpen(true);
+	};
 
 	return (
 		<main
@@ -342,8 +361,7 @@ export function OpenDVWorkbenchExplorer({
 			style={{
 				display: "flex",
 				flexDirection: "column",
-				...(isStudioView ? { height: "100vh" } : {}),
-				minHeight: "100vh",
+				...(isWizardView ? { minHeight: "100vh" } : { minHeight: "100vh" }),
 				maxWidth: "100%",
 				backgroundColor: EXPLORER_COLORS.bgPage,
 				color: EXPLORER_COLORS.inkPrimary,
@@ -366,10 +384,19 @@ export function OpenDVWorkbenchExplorer({
 				isLoadingRuns={isLoadingRuns}
 				runsList={runsList}
 				platformConfig={platformConfig}
-				sessionCostTokens={sessionCostTokens}
-				sessionCostUsd={sessionCostUsd}
-				sessionLogsCount={sessionLogsCount}
-				sessionDigest={sessionId || builderSessionId || undefined}
+				sessionCostTokens={Math.max(
+					studioSessionId ? studioCostTokens : 0,
+					sessionCostTokens,
+				)}
+				sessionCostUsd={Math.max(
+					studioSessionId ? studioCostUsd : 0,
+					sessionCostUsd,
+				)}
+				sessionLogsCount={Math.max(
+					studioSessionId ? studioLogsCount : 0,
+					sessionLogsCount,
+				)}
+				sessionDigest={activeSessionId}
 				onToggleRunSelector={handleToggleRunSelector}
 				onSelectRun={handleSelectRun}
 				onOpenNewRunModal={() => setIsNewRunModalOpen(true)}
@@ -378,7 +405,7 @@ export function OpenDVWorkbenchExplorer({
 				onGoPipeline={goPipeline}
 				onGoBuilder={goBuilder}
 				onGoSettings={goSettings}
-				onOpenLogs={() => goOntology("studio")}
+				onOpenLogs={() => handleOpenLogsModal()}
 				onSetWaveFilter={setWaveFilter}
 			/>
 
@@ -389,7 +416,7 @@ export function OpenDVWorkbenchExplorer({
 					data-testid="explorer-main-workspace"
 					inert={fullArtifact ? true : undefined}
 					style={
-						isStudioView
+						isWizardView
 							? {
 									flex: 1,
 									minHeight: 0,
@@ -412,39 +439,37 @@ export function OpenDVWorkbenchExplorer({
 						</div>
 					)}
 
-					{isStudioView ? (
-						<div
-							data-testid="ontology-studio-tab-host"
-							style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
-						>
-							<Suspense
-								fallback={
-									<div className="studio-loading" style={{ padding: "24px" }}>
-										Loading Ontology Studio...
-									</div>
-								}
-							>
-								<LazyOntologyStudioApp />
-							</Suspense>
-						</div>
-					) : view === "ontology" || view === "builder" ? (
-						<WizardShell
-							sessionId={builderSessionId ?? undefined}
-							source={builderSource ?? undefined}
-							initialDomainNamespace={builderDomain ?? undefined}
-							initialPipelineId={builderPipelineId ?? undefined}
+					{isWizardView ? (
+						<OntologyWizardShell
+							sessionId={activeSessionId}
+							platformConfig={platformConfig}
+							onPlatformConfigUpdated={(cfg, ready) => {
+								setPlatformConfig(cfg);
+								if (ready) studioStore.getState().clearAgentError();
+							}}
+							onOpenLogs={handleOpenLogsModal}
 							onRunStarted={handleRunStarted}
-							onBackToExplorer={goPipeline}
+							onExploreDvSchema={(params) => {
+								store.setState({
+									runId: params?.runId ?? store.getState().runId,
+									compareRunId:
+										params?.compareRunId ?? store.getState().compareRunId,
+									sessionId: params?.sessionId ?? store.getState().sessionId,
+								});
+								goDvSchema();
+							}}
 							fetchImpl={fetchImpl}
 							apiUrl={apiUrl}
 						/>
 					) : view === "dv_schema" ? (
-						<DvSchemaExplorerShell
+						<DvSchemaExplorerView
 							runId={runId ?? (bundle.runId || null)}
 							compareRunId={compareRunId}
-							sessionId={sessionId ?? builderSessionId}
+							sessionId={activeSessionId}
 							onGoPipeline={goPipeline}
 							onGoOntology={() => goOntology("studio")}
+							apiUrl={apiUrl}
+							fetchImpl={fetchImpl}
 						/>
 					) : view === "settings" ? (
 						<PlatformSettingsView
@@ -518,6 +543,23 @@ export function OpenDVWorkbenchExplorer({
 				}}
 				createRunFn={dataSource?.createPipelineRun?.bind(dataSource)}
 				validatePipelineFn={dataSource?.validatePipeline?.bind(dataSource)}
+			/>
+
+			<SessionLogsInspector
+				isOpen={isLogsInspectorOpen}
+				sessionId={activeSessionId}
+				apiUrl={apiUrl}
+				fetchImpl={fetchImpl}
+				initialStageFilter={logsStageFilter}
+				initialStepFilter={logsStepFilter}
+				onClose={() => setIsLogsInspectorOpen(false)}
+				onOpenRunInExplorer={(rid) => {
+					setIsLogsInspectorOpen(false);
+					void store
+						.getState()
+						.loadRun(rid)
+						.then(() => goPipeline());
+				}}
 			/>
 		</main>
 	);

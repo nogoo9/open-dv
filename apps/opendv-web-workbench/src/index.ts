@@ -55,17 +55,14 @@ export {
 	OpenDVWorkbenchExplorer,
 	type OpenDVWorkbenchExplorerProps,
 } from "./explorer/OpenDVWorkbenchExplorer";
-
-// Ontology Construction Studio Workbench (/ontology) (Task 5D.1 - 5D.6)
 export {
-	studioStore,
-	useStudioStore,
-	createStudioStore,
-	type StudioStore,
-	type StudioStoreState,
-} from "./ontology/store/studio-store";
-export type * from "./ontology/store/types";
+	DvSchemaExplorerView,
+	formatTriageCsv,
+	type DvSchemaExplorerViewProps,
+} from "./explorer/dv-schema/DvSchemaExplorerView";
 export {
-	OntologyStudioApp,
-	type OntologyStudioAppProps,
-} from "./ontology/OntologyStudioApp";
+	SessionLogsInspector,
+	connectSessionLogsStream,
+	resolvePillToCanonicalStages,
+	type SessionLogsInspectorProps,
+} from "./ontology/wizard/SessionLogsInspector";

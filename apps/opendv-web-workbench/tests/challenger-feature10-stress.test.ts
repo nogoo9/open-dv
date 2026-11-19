@@ -8,17 +8,9 @@
  *    - Path variations and roundtrips
  * 2. createOntologyStudioPipelineDraft:
  *    - AM domain vs custom domains, 4 target hubs, Wave 0 doc drafts, input spec conversion
- * 3. PipelineBuilderView auto-staging on mount:
- *    - Studio deep-link trigger vs direct access, existing stagedSpec preservation, location.search fallback
  */
 
 import { describe, expect, it } from "bun:test";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import {
-	PipelineBuilderView,
-	buildCurrentStagedSpec,
-} from "../src/explorer/builder/PipelineBuilderView";
 import {
 	type InteractivePipelineDraft,
 	type StagedPipelineSpec,
@@ -348,147 +340,6 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 			const parsed = JSON.parse(jsonText);
 			expect(parsed.pipeline_id).toBe("pl_am_walkthrough");
 			expect(parsed.waves).toHaveLength(1);
-		});
-	});
-
-	// ---------------------------------------------------------------------------
-	// 3. PipelineBuilderView Auto-Staging & Component Life-Cycle
-	// ---------------------------------------------------------------------------
-	describe("3. PipelineBuilderView auto-staging on mount", () => {
-		it("auto-stages draft on mount when navigated from Ontology Studio via props", () => {
-			let capturedStaged: StagedPipelineSpec | null = null;
-
-			const html = renderToStaticMarkup(
-				createElement(PipelineBuilderView, {
-					sessionId: "sess_am_e2e",
-					source: "ontology_studio",
-					initialDomainNamespace: "asset_management",
-					initialPipelineId: "pl_am_walkthrough",
-					onStageSpec: (staged) => {
-						capturedStaged = staged;
-					},
-				}),
-			);
-
-			expect(html).toContain('data-testid="pipeline-builder-view"');
-			expect(html).toContain("Asset Management Data Vault 2.0 Pipeline");
-			expect(html).toContain("hub_security");
-			expect(html).toContain("hub_investor");
-			expect(html).toContain("hub_rate_index");
-			expect(html).toContain("hub_document");
-
-			expect(capturedStaged).not.toBeNull();
-			const spec = capturedStaged as unknown as StagedPipelineSpec;
-			expect(spec.mode).toBe("interactive");
-			expect(spec.inputSpec?.pipeline_id).toBe("pl_am_walkthrough");
-			expect(spec.inputSpec?.domain_namespace).toBe("asset_management");
-			expect(spec.validated).toBe(false);
-		});
-
-		it("auto-stages draft when only sessionId is present without explicit source prop", () => {
-			let capturedStaged: StagedPipelineSpec | null = null;
-
-			renderToStaticMarkup(
-				createElement(PipelineBuilderView, {
-					sessionId: "sess_standalone",
-					onStageSpec: (staged) => {
-						capturedStaged = staged;
-					},
-				}),
-			);
-
-			expect(capturedStaged).not.toBeNull();
-			const spec = capturedStaged as unknown as StagedPipelineSpec;
-			expect(spec.inputSpec?.pipeline_id).toBe("pl_sess_standalone");
-		});
-
-		it("does NOT overwrite when stagedSpec is already provided", () => {
-			let stageCallCount = 0;
-			const existingStaged: StagedPipelineSpec = {
-				mode: "interactive",
-				inputSpec: {
-					pipeline_id: "pl_preexisting",
-					domain_namespace: "custom",
-				},
-				stewardHoldPolicy: "pause",
-				validated: true,
-			};
-
-			renderToStaticMarkup(
-				createElement(PipelineBuilderView, {
-					sessionId: "sess_new",
-					source: "ontology_studio",
-					stagedSpec: existingStaged,
-					onStageSpec: () => {
-						stageCallCount++;
-					},
-				}),
-			);
-
-			// Should not trigger onStageSpec when stagedSpec is already present
-			expect(stageCallCount).toBe(0);
-		});
-
-		it("does not auto-stage when opened standalone without session or ontology source", () => {
-			let stageCallCount = 0;
-
-			const html = renderToStaticMarkup(
-				createElement(PipelineBuilderView, {
-					onStageSpec: () => {
-						stageCallCount++;
-					},
-				}),
-			);
-
-			expect(stageCallCount).toBe(0);
-			// Default draft is Global Commerce Vault
-			expect(html).toContain("Global Commerce Data Vault 2.0");
-			expect(html).toContain("hub_customer");
-		});
-
-		it("enforces two-step execution and NEVER auto-submits a run on mount", () => {
-			let runStartedCount = 0;
-
-			renderToStaticMarkup(
-				createElement(PipelineBuilderView, {
-					sessionId: "sess_am_e2e",
-					source: "ontology_studio",
-					onRunStarted: () => {
-						runStartedCount++;
-					},
-				}),
-			);
-
-			expect(runStartedCount).toBe(0);
-		});
-
-		it("falls back to globalThis.location.search when props are omitted", () => {
-			const originalLocation = (globalThis as unknown as { location?: unknown })
-				.location;
-			try {
-				// Mock globalThis.location.search
-				(globalThis as unknown as { location: { search: string } }).location = {
-					search:
-						"?source=ontology_studio&session_id=sess_from_global_url&domain_namespace=asset_management",
-				};
-
-				let capturedStaged: StagedPipelineSpec | null = null;
-				renderToStaticMarkup(
-					createElement(PipelineBuilderView, {
-						onStageSpec: (staged) => {
-							capturedStaged = staged;
-						},
-					}),
-				);
-
-				expect(capturedStaged).not.toBeNull();
-				const spec = capturedStaged as unknown as StagedPipelineSpec;
-				expect(spec.inputSpec?.pipeline_id).toBe("pl_sess_from_global_url");
-				expect(spec.inputSpec?.domain_namespace).toBe("asset_management");
-			} finally {
-				(globalThis as unknown as { location?: unknown }).location =
-					originalLocation;
-			}
 		});
 	});
 });
