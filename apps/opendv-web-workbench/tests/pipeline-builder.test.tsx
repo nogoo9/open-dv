@@ -564,22 +564,29 @@ describe("Wave 2 — Track B2: Interactive Pipeline Builder & Two-Step Execution
 		});
 	});
 
-	describe("5. Shell & URL Router Integration (Explorer | Pipeline Builder | Settings)", () => {
-		it("routes /builder and /settings URLs and renders top navigation tabs, PipelineRunProgressBar, PipelineBuilderView, and PlatformSettingsView", () => {
-			expect(parseExplorerUrlState("/builder").view).toBe("builder");
+	describe("5. Shell & URL Router Integration (4-Tab M3 Shell)", () => {
+		it("routes /builder and /settings URLs and renders 4-tab navigation, PipelineRunProgressBar, PipelineBuilderView, and PlatformSettingsView", () => {
+			const parsedBuilder = parseExplorerUrlState("/builder");
+			expect(parsedBuilder.view).toBe("ontology");
+			expect(parsedBuilder.ontologySubView).toBe("builder");
 			expect(parseExplorerUrlState("/settings").view).toBe("settings");
 
-			const store = createExplorerStore({ syncBrowserUrl: false });
+			const store = createExplorerStore({
+				startView: "pipeline",
+				syncBrowserUrl: false,
+			});
 			const explorerHtml = renderToStaticMarkup(
 				createElement(OpenDVWorkbenchExplorer, { store }),
 			);
+			expect(explorerHtml).toContain('data-testid="nav-tab-ontology"');
+			expect(explorerHtml).toContain('data-testid="nav-tab-dv-schema"');
 			expect(explorerHtml).toContain('data-testid="nav-tab-explorer"');
-			expect(explorerHtml).toContain('data-testid="nav-tab-builder"');
 			expect(explorerHtml).toContain('data-testid="nav-tab-settings"');
 			expect(explorerHtml).toContain('data-testid="pipeline-run-progress-bar"');
 
 			store.getState().goBuilder();
-			expect(store.getState().view).toBe("builder");
+			expect(store.getState().view).toBe("ontology");
+			expect(store.getState().ontologySubView).toBe("builder");
 			expect(store.getState().getCurrentUrl()).toBe("/builder");
 			const builderHtml = renderToStaticMarkup(
 				createElement(OpenDVWorkbenchExplorer, { store }),
@@ -602,7 +609,8 @@ describe("Wave 2 — Track B2: Interactive Pipeline Builder & Two-Step Execution
 				"/builder",
 				"?session_id=am-walkthrough&source=ontology_studio&domain_namespace=asset_management&pipeline_id=pl_am_walkthrough",
 			);
-			expect(parsed.view).toBe("builder");
+			expect(parsed.view).toBe("ontology");
+			expect(parsed.ontologySubView).toBe("builder");
 			expect(parsed.builderSessionId).toBe("am-walkthrough");
 			expect(parsed.builderSource).toBe("ontology_studio");
 			expect(parsed.builderDomain).toBe("asset_management");

@@ -203,3 +203,53 @@ def test_opendv_platform_cli_entrypoint(
     assert captured["host"] == "127.0.0.1"
     assert captured["port"] == 8499
     assert captured["app"] is not None
+
+
+def test_m3_spa_routes_return_200_with_csp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify all M3 4-tab SPA routes return 200 OK HTML with WORKBENCH_CSP."""
+    empty_static = tmp_path / "empty_static"
+    empty_static.mkdir()
+    monkeypatch.setenv("OPENDV_STATIC_DIR", str(empty_static))
+
+    ws_root = tmp_path / "ws"
+    ws_root.mkdir()
+    app = create_app(workspace_root=ws_root, state_dir=tmp_path / "state")
+
+    with TestClient(app) as client:
+        for route in (
+            "/dv-schema",
+            "/explorer",
+            "/ontology",
+            "/builder",
+            "/settings",
+            "/stages/00",
+        ):
+            res = client.get(route)
+            assert res.status_code == 200, (
+                f"Expected 200 OK for SPA route {route}, got {res.status_code}"
+            )
+            assert "text/html" in res.headers["content-type"]
+            assert res.headers.get("Content-Security-Policy") == WORKBENCH_CSP
+
+
+def test_m3_bundled_woff2_font_assets_served(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify bundled Instrument Serif .woff2 asset is served at /assets/fonts/ with font/woff2."""
+    monkeypatch.delenv("OPENDV_STATIC_DIR", raising=False)
+
+    ws_root = tmp_path / "ws"
+    ws_root.mkdir()
+    app = create_app(workspace_root=ws_root, state_dir=tmp_path / "state")
+
+    with TestClient(app) as client:
+        res = client.get("/assets/fonts/instrument-serif-latin.woff2")
+        assert res.status_code == 200
+        assert "font/woff2" in res.headers["content-type"]
+        assert len(res.content) > 1000
+        assert res.headers.get("Content-Security-Policy") == WORKBENCH_CSP
+

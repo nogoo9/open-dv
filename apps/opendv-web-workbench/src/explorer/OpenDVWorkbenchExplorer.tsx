@@ -1,37 +1,49 @@
 /**
- * Top-Level 3-Level Pipeline Explorer (`OpenDVWorkbenchExplorer.tsx`)
- * (`Pipeline -> Stage -> Artifact`) (`docs/design/open-dv-workbench/HANDOFF.md`).
+ * Top-Level 4-Tab Workbench Shell (`OpenDVWorkbenchExplorer.tsx`)
+ * (`Ontology & Pipeline | DV Schema Explorer | Run Explorer | Settings`).
  *
- * Implements REQ-MOCK-01 & REQ-FAIL-01: Explicit blocking error banner when offline,
- * with zero demo data fallback.
- * Adheres to User Directive R9 (modular decomposition into submodules <= 450 LOC).
+ * Adheres to Claude `DESIGN.md` tokens, zero-demo-data fallback, and `<5,000` token budget.
  */
 
-import {
-	type ExplorerBundleDTO,
-	type HoldResolutionParams,
-	type PipelineRunHandle,
-	type PipelineRunRequest,
-	type PipelineValidateRequest,
-	type ProjectRunDTO,
-	type VaultObservabilityEventDTO,
-	filterArtifactIdsByWave,
+import type {
+	HoldResolutionParams,
+	PipelineRunHandle,
+	PlatformConfigResponse,
+	ProjectRunDTO,
 } from "@opendv/protocol-ts";
+import { Suspense, lazy } from "react";
 import type { StoreApi, UseBoundStore } from "zustand";
 import { ArtifactFullModal } from "./ArtifactFullModal";
 import { BlockingErrorBanner } from "./BlockingErrorBanner";
+import { DvSchemaExplorerShell } from "./DvSchemaExplorerShell";
 import { ExplorerTopBar } from "./ExplorerTopBar";
-import { NewRunModal, type PipelineValidationReport } from "./NewRunModal";
+import { NewRunModal } from "./NewRunModal";
 import { PipelineOverviewView } from "./PipelineOverviewView";
 import { StageDrillDownView } from "./StageDrillDownView";
 import { WizardShell } from "./builder/WizardShell";
-import type { StagedPipelineSpec } from "./builder/specBuilderUtils";
+import {
+	type SessionCostLogEntry,
+	aggregateSessionCostFromLogs,
+} from "./cost-meter-utils";
 import type { ExplorerDataSource } from "./data-source";
-import { EXPLORER_COLORS, EXPLORER_FONTS } from "./design-tokens";
+import {
+	CLAUDE_TOKENS,
+	EXPLORER_COLORS,
+	EXPLORER_FONTS,
+} from "./design-tokens";
 import { type ExplorerStoreState, useExplorerStore } from "./explorer-store";
 import { safeUseEffect, safeUseState } from "./modals/safeHooks";
 import { PipelineRunProgressBar } from "./progress/PipelineRunProgressBar";
 import { PlatformSettingsView } from "./settings/PlatformSettingsView";
+import { fetchPlatformConfig } from "./settings/usePlatformConfigActions";
+
+const LazyOntologyStudioApp = lazy(() =>
+	import("../ontology/OntologyStudioApp").then((mod) => ({
+		default: mod.OntologyStudioApp,
+	})),
+);
+
+export { aggregateSessionCostFromLogs, type SessionCostLogEntry };
 
 export interface OpenDVWorkbenchExplorerProps {
 	store?: UseBoundStore<StoreApi<ExplorerStoreState>> | undefined;
@@ -50,17 +62,23 @@ export function OpenDVWorkbenchExplorer({
 }: OpenDVWorkbenchExplorerProps = {}) {
 	const bundle = store((s) => s.bundle);
 	const view = store((s) => s.view);
+	const ontologySubView = store((s) => s.ontologySubView);
 	const stageIdx = store((s) => s.stageIdx);
 	const selType = store((s) => s.selType);
 	const selId = store((s) => s.selId);
 	const fullId = store((s) => s.fullId);
 	const fullTab = store((s) => s.fullTab);
 	const activeWave = store((s) => s.activeWave);
+	const runId = store((s) => s.runId);
+	const compareRunId = store((s) => s.compareRunId);
+	const sessionId = store((s) => s.sessionId);
 	const runState = store((s) => s.runState);
 	const activeRunningStageIdx = store((s) => s.activeRunningStageIdx);
 	const statusBannerText = store((s) => s.statusBannerText);
 	const blockingError = store((s) => s.blockingError);
 
+	const goOntology = store((s) => s.goOntology);
+	const goDvSchema = store((s) => s.goDvSchema);
 	const goPipeline = store((s) => s.goPipeline);
 	const goBuilder = store((s) => s.goBuilder);
 	const goSettings = store((s) => s.goSettings);
@@ -82,15 +100,16 @@ export function OpenDVWorkbenchExplorer({
 	const builderDomain = store((s) => s.builderDomain);
 	const builderPipelineId = store((s) => s.builderPipelineId);
 
-	// Local UI State for Task P9.3
 	const [isRunSelectorOpen, setIsRunSelectorOpen] = safeUseState(false);
 	const [runsList, setRunsList] = safeUseState<readonly ProjectRunDTO[]>([]);
 	const [isLoadingRuns, setIsLoadingRuns] = safeUseState(false);
 	const [streamedTokens, setStreamedTokens] = safeUseState<number>(0);
 	const [isNewRunModalOpen, setIsNewRunModalOpen] = safeUseState(false);
-	const [stagedSpec, setStagedSpec] = safeUseState<StagedPipelineSpec | null>(
-		null,
-	);
+	const [platformConfig, setPlatformConfig] =
+		safeUseState<PlatformConfigResponse | null>(null);
+	const [sessionLogsCount, setSessionLogsCount] = safeUseState(0);
+	const [sessionCostTokens, setSessionCostTokens] = safeUseState(0);
+	const [sessionCostUsd, setSessionCostUsd] = safeUseState(0);
 
 	// Sync initial URL and browser popstate
 	safeUseEffect(() => {
@@ -100,16 +119,16 @@ export function OpenDVWorkbenchExplorer({
 			globalThis.location
 		) {
 			const loc = globalThis.location;
-			if (loc.pathname !== "/" || loc.search !== "")
-				syncFromUrl(loc.pathname, loc.search);
+			syncFromUrl(loc.pathname, loc.search);
 		}
 		if (
 			typeof globalThis !== "undefined" &&
 			typeof globalThis.addEventListener === "function"
 		) {
 			const onPopState = () => {
-				if (globalThis.location)
+				if (globalThis.location) {
 					syncFromUrl(globalThis.location.pathname, globalThis.location.search);
+				}
 			};
 			globalThis.addEventListener("popstate", onPopState);
 			return () => globalThis.removeEventListener("popstate", onPopState);
@@ -117,44 +136,103 @@ export function OpenDVWorkbenchExplorer({
 		return;
 	}, [syncFromUrl]);
 
-	// Connect to data source or load initial runs list if empty on startup (B1)
+	// Hydrate live platform config (Agent Readiness + Remote Unauthenticated Banner)
 	safeUseEffect(() => {
+		let cancelled = false;
+		void fetchPlatformConfig({ apiUrl, fetchImpl })
+			.then((cfg) => {
+				if (!cancelled) setPlatformConfig(cfg);
+			})
+			.catch(() => {
+				// Graceful degradation when offline in SSR/unit tests
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [apiUrl, fetchImpl]);
+
+	// Hydrate session logs & cost meter when sessionId is present
+	safeUseEffect(() => {
+		const activeSession = sessionId || builderSessionId;
+		if (!activeSession) return;
+		const fetchFn =
+			fetchImpl ??
+			(typeof globalThis.fetch === "function"
+				? globalThis.fetch.bind(globalThis)
+				: undefined);
+		if (!fetchFn) return;
+		let cancelled = false;
+		const base = (apiUrl ?? "")
+			.replace(/\/api\/v1\/?$/, "")
+			.replace(/\/+$/, "");
+		void fetchFn(
+			`${base}/api/v1/ontology/studio/sessions/${encodeURIComponent(activeSession)}/logs`,
+			{ headers: { Accept: "application/json" } },
+		)
+			.then(async (resp) => {
+				if (!resp.ok || cancelled) return;
+				const body = (await resp.json()) as {
+					total?: number;
+					entries?: SessionCostLogEntry[];
+				};
+				if (cancelled) return;
+				const entries = body.entries ?? [];
+				const { totalTokens, totalUsd } = aggregateSessionCostFromLogs(entries);
+				setSessionLogsCount(body.total ?? entries.length);
+				setSessionCostTokens(totalTokens);
+				setSessionCostUsd(totalUsd);
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, [sessionId, builderSessionId, apiUrl, fetchImpl]);
+
+	// Connect to data source or load initial runs list on Run Explorer / DV Schema routes
+	safeUseEffect(() => {
+		const needsRuns =
+			view === "pipeline" || view === "stage" || view === "dv_schema";
 		if (dataSource) {
 			void store.getState().setDataSource(dataSource);
-		} else if (!bundle.runId && !store.getState().blockingError) {
+		} else if (needsRuns && !bundle.runId && !store.getState().blockingError) {
 			void store
 				.getState()
 				.loadRunsList()
 				.then((runs) => {
-					if (runs.length > 0 && runs[0]?.run_id) {
-						void store.getState().loadRun(runs[0].run_id);
+					const preferredRunId = store.getState().runId;
+					const targetRunId =
+						preferredRunId && runs.some((r) => r.run_id === preferredRunId)
+							? preferredRunId
+							: runs[0]?.run_id;
+					if (targetRunId) {
+						void store.getState().loadRun(targetRunId);
 					}
 				});
 		}
-	}, [dataSource, store, bundle.runId]);
+	}, [dataSource, store, bundle.runId, view]);
 
-	// Escape key handler: close dropdown or modal or clear selection
+	// Escape key handler
 	safeUseEffect(() => {
 		if (
 			typeof globalThis === "undefined" ||
 			typeof globalThis.addEventListener !== "function"
-		)
+		) {
 			return;
+		}
 		const onKeyDown = (ev: KeyboardEvent) => {
-			if (ev.key === "Escape") {
-				if (isRunSelectorOpen) {
-					ev.preventDefault();
-					setIsRunSelectorOpen(false);
-				} else if (isNewRunModalOpen) {
-					ev.preventDefault();
-					setIsNewRunModalOpen(false);
-				} else if (store.getState().fullId) {
-					ev.preventDefault();
-					closeFullArtifact();
-				} else if (store.getState().selType !== null) {
-					ev.preventDefault();
-					clearSelection();
-				}
+			if (ev.key !== "Escape") return;
+			if (isRunSelectorOpen) {
+				ev.preventDefault();
+				setIsRunSelectorOpen(false);
+			} else if (isNewRunModalOpen) {
+				ev.preventDefault();
+				setIsNewRunModalOpen(false);
+			} else if (store.getState().fullId) {
+				ev.preventDefault();
+				closeFullArtifact();
+			} else if (store.getState().selType !== null) {
+				ev.preventDefault();
+				clearSelection();
 			}
 		};
 		globalThis.addEventListener("keydown", onKeyDown);
@@ -184,13 +262,10 @@ export function OpenDVWorkbenchExplorer({
 		if (nextOpen) {
 			setIsLoadingRuns(true);
 			try {
-				if (dataSource) {
-					const runs = await dataSource.fetchRunsList();
-					setRunsList(runs);
-				} else {
-					const runs = await store.getState().loadRunsList();
-					setRunsList(runs);
-				}
+				const runs = dataSource
+					? await dataSource.fetchRunsList()
+					: await store.getState().loadRunsList();
+				setRunsList(runs);
 			} finally {
 				setIsLoadingRuns(false);
 			}
@@ -205,48 +280,19 @@ export function OpenDVWorkbenchExplorer({
 					run.run_id,
 					activeWave !== "all" ? activeWave : undefined,
 				);
-				const hasActiveHold =
-					nextBundle.stages.some(
-						(s) => s.tag === "ASK-USER" || (s.tag as string) === "HOLD",
-					) ||
-					Object.values(nextBundle.artifacts).some((a) =>
-						a.doc?.extractions?.some(
-							(e) => e.tier === "Tier-U3" && !e.resolved,
-						),
-					);
-				const hasFailure =
-					run.status === "FAILED" ||
-					nextBundle.stages.some((s) => s.tag === "REJECT-WITH-TRACE");
-				const runState = hasActiveHold
-					? "hold"
-					: hasFailure
-						? "failed"
-						: run.status === "RUNNING"
-							? "running"
-							: "sealed";
-				const statusBannerText = hasActiveHold
-					? `Hold · ${run.current_stage_id.slice(0, 8)} awaiting steward`
-					: hasFailure
-						? `Failed · ${run.current_stage_id.slice(0, 8)}`
-						: run.status === "RUNNING"
-							? `Running · ${run.current_stage_id.slice(0, 8)}`
-							: nextBundle.statusLabel;
-
 				store.setState({
 					bundle: nextBundle,
 					activeRunId: run.run_id,
-					runState,
-					statusBannerText,
+					runId: run.run_id,
+					runState:
+						run.status === "FAILED"
+							? "failed"
+							: run.status === "RUNNING"
+								? "running"
+								: "sealed",
+					statusBannerText: nextBundle.statusLabel,
 				});
-				if (run.status === "RUNNING" && dataSource.subscribeEvents) {
-					dataSource.subscribeEvents(run.run_id, (ev) => {
-						store.getState().ingestLiveObservabilityEvent(ev);
-						const tokens = Number(
-							ev.layer2_visual_payload?.summary_metrics?.tokens_streamed ?? 0,
-						);
-						if (tokens > 0) setStreamedTokens((prev) => prev + tokens);
-					});
-				}
+				store.getState().syncUrl();
 			} catch (err) {
 				store.setState({
 					blockingError: {
@@ -277,18 +323,28 @@ export function OpenDVWorkbenchExplorer({
 		}
 	};
 
-	// Display all stages unconditionally for single-run architecture (ADR-017, ADR-019)
 	const displayedStages = bundle.stages;
-
 	const statusDotColor =
-		runState === "running" || runState === "hold" ? "#B45309" : "#16181D";
+		runState === "running" || runState === "hold"
+			? CLAUDE_TOKENS.colors.warning
+			: CLAUDE_TOKENS.colors.success;
+
+	const showBlockingRunError =
+		Boolean(blockingError?.hasError) &&
+		(view === "pipeline" || view === "stage" || view === "dv_schema");
+
+	const isStudioView = view === "ontology" && ontologySubView === "studio";
 
 	return (
 		<main
 			className="opendv-workbench-explorer"
 			data-testid="workbench-explorer-root"
 			style={{
+				display: "flex",
+				flexDirection: "column",
+				...(isStudioView ? { height: "100vh" } : {}),
 				minHeight: "100vh",
+				maxWidth: "100%",
 				backgroundColor: EXPLORER_COLORS.bgPage,
 				color: EXPLORER_COLORS.inkPrimary,
 				fontFamily: EXPLORER_FONTS.sans,
@@ -309,22 +365,39 @@ export function OpenDVWorkbenchExplorer({
 				isRunSelectorOpen={isRunSelectorOpen}
 				isLoadingRuns={isLoadingRuns}
 				runsList={runsList}
+				platformConfig={platformConfig}
+				sessionCostTokens={sessionCostTokens}
+				sessionCostUsd={sessionCostUsd}
+				sessionLogsCount={sessionLogsCount}
+				sessionDigest={sessionId || builderSessionId || undefined}
 				onToggleRunSelector={handleToggleRunSelector}
 				onSelectRun={handleSelectRun}
 				onOpenNewRunModal={() => setIsNewRunModalOpen(true)}
+				onGoOntology={() => goOntology("studio")}
+				onGoDvSchema={goDvSchema}
 				onGoPipeline={goPipeline}
 				onGoBuilder={goBuilder}
 				onGoSettings={goSettings}
+				onOpenLogs={() => goOntology("studio")}
 				onSetWaveFilter={setWaveFilter}
 			/>
 
-			{/* Main Content Workspace or Explicit Blocking Error Banner (REQ-MOCK-01, REQ-FAIL-01) */}
-			{blockingError?.hasError ? (
+			{showBlockingRunError && blockingError ? (
 				<BlockingErrorBanner error={blockingError} />
 			) : (
 				<div
 					data-testid="explorer-main-workspace"
 					inert={fullArtifact ? true : undefined}
+					style={
+						isStudioView
+							? {
+									flex: 1,
+									minHeight: 0,
+									display: "flex",
+									flexDirection: "column",
+								}
+							: undefined
+					}
 				>
 					{(view === "pipeline" || view === "stage") && (
 						<div style={{ padding: "12px 24px 0" }}>
@@ -338,23 +411,46 @@ export function OpenDVWorkbenchExplorer({
 							/>
 						</div>
 					)}
-					{view === "builder" ? (
+
+					{isStudioView ? (
+						<div
+							data-testid="ontology-studio-tab-host"
+							style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
+						>
+							<Suspense
+								fallback={
+									<div className="studio-loading" style={{ padding: "24px" }}>
+										Loading Ontology Studio...
+									</div>
+								}
+							>
+								<LazyOntologyStudioApp />
+							</Suspense>
+						</div>
+					) : view === "ontology" || view === "builder" ? (
 						<WizardShell
 							sessionId={builderSessionId ?? undefined}
 							source={builderSource ?? undefined}
 							initialDomainNamespace={builderDomain ?? undefined}
 							initialPipelineId={builderPipelineId ?? undefined}
-							onRunStarted={(handle) => {
-								handleRunStarted(handle);
-							}}
+							onRunStarted={handleRunStarted}
 							onBackToExplorer={goPipeline}
 							fetchImpl={fetchImpl}
 							apiUrl={apiUrl}
+						/>
+					) : view === "dv_schema" ? (
+						<DvSchemaExplorerShell
+							runId={runId ?? (bundle.runId || null)}
+							compareRunId={compareRunId}
+							sessionId={sessionId ?? builderSessionId}
+							onGoPipeline={goPipeline}
+							onGoOntology={() => goOntology("studio")}
 						/>
 					) : view === "settings" ? (
 						<PlatformSettingsView
 							apiUrl={apiUrl}
 							fetchImpl={fetchImpl}
+							onConfigSaved={(saved) => setPlatformConfig(saved)}
 							onBackToExplorer={goPipeline}
 						/>
 					) : view === "pipeline" ? (
@@ -398,7 +494,6 @@ export function OpenDVWorkbenchExplorer({
 				</div>
 			)}
 
-			{/* View 3: Artifact Full Modal */}
 			{fullArtifact && (
 				<ArtifactFullModal
 					artifact={fullArtifact}
@@ -410,7 +505,6 @@ export function OpenDVWorkbenchExplorer({
 				/>
 			)}
 
-			{/* New Pipeline Run Modal */}
 			<NewRunModal
 				isOpen={isNewRunModalOpen}
 				onClose={() => setIsNewRunModalOpen(false)}
@@ -418,7 +512,6 @@ export function OpenDVWorkbenchExplorer({
 				fetchImpl={fetchImpl}
 				apiUrl={apiUrl}
 				defaultWaveId={activeWave !== "all" ? activeWave : ""}
-				stagedSpec={stagedSpec}
 				onOpenBuilderView={() => {
 					setIsNewRunModalOpen(false);
 					goBuilder();

@@ -14,10 +14,30 @@ export interface SyncResult {
 	error?: string;
 }
 
+interface ExportedConceptLike {
+	concept_uri?: unknown;
+	target_hub?: unknown;
+	concept_name?: unknown;
+}
+
+interface ExportedRelationshipLike {
+	relationship_uri?: unknown;
+	relationship_id?: unknown;
+	relationship_name?: unknown;
+}
+
+interface ExportedOntologyLike {
+	canonical_business_concepts?: ExportedConceptLike[];
+	concepts?: ExportedConceptLike[];
+	canonical_relationships?: ExportedRelationshipLike[];
+	relationships?: ExportedRelationshipLike[];
+}
+
 export async function executeSyncOntologyDelta(
 	opts: SyncOntologyDeltaOptions,
 ): Promise<SyncResult> {
-	const { sessionId, apiUrl, fetchImpl, operations, onSyncOntologyDelta } = opts;
+	const { sessionId, apiUrl, fetchImpl, operations, onSyncOntologyDelta } =
+		opts;
 	if (onSyncOntologyDelta) {
 		await onSyncOntologyDelta(sessionId);
 		return {
@@ -33,26 +53,35 @@ export async function executeSyncOntologyDelta(
 
 	try {
 		const expUrl = `${apiUrl}/ontology/studio/sessions/${encodeURIComponent(sessionId)}/export?export_format=json`;
-		const expRes = await fetchImpl(
-			expUrl,
-			{ credentials: "include", headers: getStudioAuthHeaders(undefined, expUrl) },
-		);
+		const expRes = await fetchImpl(expUrl, {
+			credentials: "include",
+			headers: getStudioAuthHeaders(undefined, expUrl),
+		});
 		if (expRes.ok) {
-			const ontData = (await expRes.json()) as any;
-			const concepts = ontData?.canonical_business_concepts || ontData?.concepts || [];
+			const ontData = (await expRes.json()) as ExportedOntologyLike;
+			const concepts =
+				ontData?.canonical_business_concepts || ontData?.concepts || [];
 			for (const c of concepts) {
-				if (c.concept_uri) existingConceptUris.add(String(c.concept_uri).toLowerCase());
+				if (c.concept_uri)
+					existingConceptUris.add(String(c.concept_uri).toLowerCase());
 				if (c.target_hub) existingHubs.add(String(c.target_hub).toLowerCase());
 				if (c.concept_name) {
-					existingConceptUris.add(String(c.concept_name).toLowerCase().replace(/ /g, "_"));
+					existingConceptUris.add(
+						String(c.concept_name).toLowerCase().replace(/ /g, "_"),
+					);
 				}
 			}
-			const rels = ontData?.canonical_relationships || ontData?.relationships || [];
+			const rels =
+				ontData?.canonical_relationships || ontData?.relationships || [];
 			for (const r of rels) {
-				if (r.relationship_uri) existingRelUris.add(String(r.relationship_uri).toLowerCase());
-				if (r.relationship_id) existingRelUris.add(String(r.relationship_id).toLowerCase());
+				if (r.relationship_uri)
+					existingRelUris.add(String(r.relationship_uri).toLowerCase());
+				if (r.relationship_id)
+					existingRelUris.add(String(r.relationship_id).toLowerCase());
 				if (r.relationship_name) {
-					existingRelUris.add(String(r.relationship_name).toLowerCase().replace(/ /g, "_"));
+					existingRelUris.add(
+						String(r.relationship_name).toLowerCase().replace(/ /g, "_"),
+					);
 				}
 			}
 		}
@@ -62,10 +91,10 @@ export async function executeSyncOntologyDelta(
 
 	try {
 		const sessionUrl = `${apiUrl}/ontology/studio/sessions/${encodeURIComponent(sessionId)}`;
-		const sRes = await fetchImpl(
-			sessionUrl,
-			{ credentials: "include", headers: getStudioAuthHeaders(undefined, sessionUrl) },
-		);
+		const sRes = await fetchImpl(sessionUrl, {
+			credentials: "include",
+			headers: getStudioAuthHeaders(undefined, sessionUrl),
+		});
 		if (sRes.ok) {
 			const sData = (await sRes.json()) as { head_sha256?: string };
 			headSha = sData.head_sha256 || "";
@@ -74,138 +103,188 @@ export async function executeSyncOntologyDelta(
 		// Proceed with empty headSha
 	}
 
-	const filteredOperations = operations.filter((rawOp: any) => {
-		const rawType = (rawOp.op_type || rawOp.op || rawOp.action || "add_concept").toString().toLowerCase();
-		let opType = rawType;
-		if (opType.endsWith("op")) {
-			opType = opType.slice(0, -2);
-		}
-		if (opType === "add_concept_attribute") {
-			opType = "add_attribute";
-		}
+	const filteredOperations = operations.filter(
+		(rawOp: Record<string, unknown>) => {
+			const rawType = String(
+				rawOp.op_type || rawOp.op || rawOp.action || "add_concept",
+			).toLowerCase();
+			let opType = rawType;
+			if (opType.endsWith("op")) {
+				opType = opType.slice(0, -2);
+			}
+			if (opType === "add_concept_attribute") {
+				opType = "add_attribute";
+			}
 
-		if (opType === "add_attribute" || opType.includes("attribute")) {
-			// Never filter out add_attribute because its parent concept exists!
-			return true;
-		}
+			if (opType === "add_attribute" || opType.includes("attribute")) {
+				// Never filter out add_attribute because its parent concept exists!
+				return true;
+			}
 
-		if (opType === "add_relationship" || opType.includes("relationship") || opType.includes("link")) {
-			const rawRelUri = String(rawOp.relationship_uri || rawOp.relationship_id || rawOp.uri || rawOp.name || "").toLowerCase();
-			const relSlug = rawRelUri.split(":").pop() || "";
 			if (
-				(rawRelUri && existingRelUris.has(rawRelUri)) ||
-				(relSlug && existingRelUris.has(relSlug))
+				opType === "add_relationship" ||
+				opType.includes("relationship") ||
+				opType.includes("link")
+			) {
+				const rawRelUri = String(
+					rawOp.relationship_uri ||
+						rawOp.relationship_id ||
+						rawOp.uri ||
+						rawOp.name ||
+						"",
+				).toLowerCase();
+				const relSlug = rawRelUri.split(":").pop() || "";
+				if (
+					(rawRelUri && existingRelUris.has(rawRelUri)) ||
+					(relSlug && existingRelUris.has(relSlug))
+				) {
+					return false;
+				}
+				return true;
+			}
+
+			// Deduplicate ONLY add_concept (by concept URI/hub)
+			const rawUri = String(
+				rawOp.concept_uri || rawOp.concept_id || rawOp.uri || "",
+			).toLowerCase();
+			const rawHub = String(rawOp.target_hub || "").toLowerCase();
+			const slug = rawUri.split(":").pop() || "";
+			const slugNorm = slug.replace(/s$/, "");
+			if (
+				(rawUri && existingConceptUris.has(rawUri)) ||
+				(rawHub && existingHubs.has(rawHub)) ||
+				(slug && existingConceptUris.has(slug)) ||
+				(slugNorm && existingConceptUris.has(slugNorm)) ||
+				(slugNorm && existingHubs.has(`hub_${slugNorm}`))
 			) {
 				return false;
 			}
 			return true;
-		}
-
-		// Deduplicate ONLY add_concept (by concept URI/hub)
-		const rawUri = String(rawOp.concept_uri || rawOp.concept_id || rawOp.uri || "").toLowerCase();
-		const rawHub = String(rawOp.target_hub || "").toLowerCase();
-		const slug = rawUri.split(":").pop() || "";
-		const slugNorm = slug.replace(/s$/, "");
-		if (
-			(rawUri && existingConceptUris.has(rawUri)) ||
-			(rawHub && existingHubs.has(rawHub)) ||
-			(slug && existingConceptUris.has(slug)) ||
-			(slugNorm && existingConceptUris.has(slugNorm)) ||
-			(slugNorm && existingHubs.has(`hub_${slugNorm}`))
-		) {
-			return false;
-		}
-		return true;
-	});
+		},
+	);
 
 	if (filteredOperations.length === 0) {
 		return {
 			success: false,
-			error: "No new operations to sync (all operations already exist in session)",
+			error:
+				"No new operations to sync (all operations already exist in session)",
 		};
 	}
 
-	const formattedOps = filteredOperations.map((rawOp: any, idx: number) => {
-		const op = { ...rawOp };
-		const rawType = (op.op_type || op.op || op.action || "add_concept").toString();
-		let opType = rawType.toLowerCase();
-		if (opType.endsWith("op")) {
-			opType = opType.slice(0, -2);
-		}
-		if (opType === "add_concept_attribute") {
-			opType = "add_attribute";
-		}
+	const formattedOps = filteredOperations.map(
+		(rawOp: Record<string, unknown>, idx: number) => {
+			const op = { ...rawOp };
+			const rawType = String(op.op_type || op.op || op.action || "add_concept");
+			let opType = rawType.toLowerCase();
+			if (opType.endsWith("op")) {
+				opType = opType.slice(0, -2);
+			}
+			if (opType === "add_concept_attribute") {
+				opType = "add_attribute";
+			}
 
-		if (opType === "add_attribute" || opType.includes("attribute")) {
-			const rawConcept = op.concept_uri || op.concept_id || op.concept || op.target_concept || op.entity || "concept";
+			if (opType === "add_attribute" || opType.includes("attribute")) {
+				const rawConcept = String(
+					op.concept_uri ||
+						op.concept_id ||
+						op.concept ||
+						op.target_concept ||
+						op.entity ||
+						"concept",
+				);
+				const slug = rawConcept.split(":").pop() || "concept";
+				return {
+					op_type: "add_attribute",
+					op_id: op.op_id || `op-attr-${slug}-${idx}`,
+					concept_uri:
+						rawConcept.startsWith("urn:ontology:entity:") ||
+						rawConcept.startsWith("urn:opendv:")
+							? rawConcept
+							: `urn:ontology:entity:${slug}`,
+					attribute_name:
+						op.attribute_name || op.attribute || op.name || "attribute",
+					data_type: op.data_type || "string",
+					description: op.description || "Ontology attribute evolution delta",
+					is_optional: op.is_optional ?? true,
+				};
+			}
+
+			if (
+				opType === "add_relationship" ||
+				opType.includes("relationship") ||
+				opType.includes("link")
+			) {
+				const rawRel = String(
+					op.relationship_uri || op.relationship_id || op.name || "rel",
+				);
+				const slug = rawRel.split(":").pop() || "rel";
+				const targetLink =
+					op.target_link || (slug.startsWith("lnk_") ? slug : `lnk_${slug}`);
+				const eps = Array.isArray(op.endpoints) ? op.endpoints.map(String) : [];
+				const rawGrain =
+					typeof op.grain_semantics === "string"
+						? op.grain_semantics.trim()
+						: "";
+				const grainSemantics =
+					rawGrain.split(/\s+/).filter(Boolean).length >= 8
+						? rawGrain
+						: `One unit-of-work relationship association record connecting ${eps.length > 0 ? eps.join(" and ") : "participating hubs"} via ${targetLink}.`;
+				return {
+					op_type: "add_relationship",
+					op_id: op.op_id || `op-rel-${slug}-${idx}`,
+					relationship_uri:
+						rawRel.startsWith("urn:ontology:relationship:") ||
+						rawRel.startsWith("urn:opendv:")
+							? rawRel
+							: `urn:ontology:relationship:${slug}`,
+					relationship_name: op.relationship_name || op.label || slug,
+					target_link: targetLink,
+					grain_semantics: grainSemantics,
+					...(eps.length > 0 ? { endpoints: eps } : {}),
+				};
+			}
+
+			const rawConcept = String(
+				op.concept_uri || op.concept_id || op.concept || op.name || "concept",
+			);
 			const slug = rawConcept.split(":").pop() || "concept";
 			return {
-				op_type: "add_attribute",
-				op_id: op.op_id || `op-attr-${slug}-${idx}`,
-				concept_uri: rawConcept.startsWith("urn:ontology:entity:") || rawConcept.startsWith("urn:opendv:")
-					? rawConcept
-					: `urn:ontology:entity:${slug}`,
-				attribute_name: op.attribute_name || op.attribute || op.name || "attribute",
-				data_type: op.data_type || "string",
-				description: op.description || "Ontology attribute evolution delta",
-				is_optional: op.is_optional ?? true,
+				op_type: "add_concept",
+				op_id: op.op_id || `op-concept-${slug}-${idx}`,
+				concept_uri:
+					rawConcept.startsWith("urn:ontology:entity:") ||
+					rawConcept.startsWith("urn:opendv:")
+						? rawConcept
+						: `urn:ontology:entity:${slug}`,
+				concept_name:
+					op.concept_name ||
+					op.label ||
+					slug
+						.replace(/_/g, " ")
+						.replace(/\b\w/g, (c: string) => c.toUpperCase()),
+				target_hub:
+					op.target_hub || (slug.startsWith("hub_") ? slug : `hub_${slug}`),
 			};
-		}
-
-		if (opType === "add_relationship" || opType.includes("relationship") || opType.includes("link")) {
-			const rawRel = op.relationship_uri || op.relationship_id || op.name || "rel";
-			const slug = rawRel.split(":").pop() || "rel";
-			const targetLink = op.target_link || (slug.startsWith("lnk_") ? slug : `lnk_${slug}`);
-			const eps = Array.isArray(op.endpoints) ? op.endpoints.map(String) : [];
-			const rawGrain = typeof op.grain_semantics === "string" ? op.grain_semantics.trim() : "";
-			const grainSemantics =
-				rawGrain.split(/\s+/).filter(Boolean).length >= 8
-					? rawGrain
-					: `One unit-of-work relationship association record connecting ${eps.length > 0 ? eps.join(" and ") : "participating hubs"} via ${targetLink}.`;
-			return {
-				op_type: "add_relationship",
-				op_id: op.op_id || `op-rel-${slug}-${idx}`,
-				relationship_uri: rawRel.startsWith("urn:ontology:relationship:") || rawRel.startsWith("urn:opendv:")
-					? rawRel
-					: `urn:ontology:relationship:${slug}`,
-				relationship_name: op.relationship_name || op.label || slug,
-				target_link: targetLink,
-				grain_semantics: grainSemantics,
-				...(eps.length > 0 ? { endpoints: eps } : {}),
-			};
-		}
-
-		const rawConcept = op.concept_uri || op.concept_id || op.concept || op.name || "concept";
-		const slug = rawConcept.split(":").pop() || "concept";
-		return {
-			op_type: "add_concept",
-			op_id: op.op_id || `op-concept-${slug}-${idx}`,
-			concept_uri: rawConcept.startsWith("urn:ontology:entity:") || rawConcept.startsWith("urn:opendv:")
-				? rawConcept
-				: `urn:ontology:entity:${slug}`,
-			concept_name: op.concept_name || op.label || slug.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()),
-			target_hub: op.target_hub || (slug.startsWith("hub_") ? slug : `hub_${slug}`),
-		};
-	});
-
-	const deltaUrl = `${apiUrl}/ontology/studio/sessions/${encodeURIComponent(sessionId)}/delta`;
-	const res = await fetchImpl(
-		deltaUrl,
-		{
-			method: "POST",
-			credentials: "include",
-			headers: getStudioAuthHeaders({
-				"Content-Type": "application/json",
-				"X-OpenDV-Role": "admin",
-				...(headSha ? { "If-Match": `"${headSha}"` } : {}),
-			}, deltaUrl),
-			body: JSON.stringify({
-				operations: formattedOps,
-				grounding_rationale: "Automated pipeline builder delta sync",
-				low_confidence_waiver: true,
-			}),
 		},
 	);
+
+	const deltaUrl = `${apiUrl}/ontology/studio/sessions/${encodeURIComponent(sessionId)}/delta`;
+	const res = await fetchImpl(deltaUrl, {
+		method: "POST",
+		credentials: "include",
+		headers: getStudioAuthHeaders(
+			{
+				"Content-Type": "application/json",
+				...(headSha ? { "If-Match": `"${headSha}"` } : {}),
+			},
+			deltaUrl,
+		),
+		body: JSON.stringify({
+			operations: formattedOps,
+			grounding_rationale: "Automated pipeline builder delta sync",
+			low_confidence_waiver: true,
+		}),
+	});
 	if (!res.ok) {
 		const errBody = await res.text().catch(() => "");
 		return {

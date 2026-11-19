@@ -87,9 +87,7 @@ export async function executeLoadRun(
 			Object.values(bundle.artifacts).some((a) =>
 				a.doc?.extractions?.some((e) => e.tier === "Tier-U3" && !e.resolved),
 			);
-		const hasFailure = bundle.stages.some(
-			(s) => s.tag === "REJECT-WITH-TRACE",
-		);
+		const hasFailure = bundle.stages.some((s) => s.tag === "REJECT-WITH-TRACE");
 		const runState = hasActiveHold
 			? "hold"
 			: hasFailure
@@ -106,6 +104,7 @@ export async function executeLoadRun(
 		set({
 			bundle,
 			activeRunId: runId,
+			runId,
 			isLoading: false,
 			blockingError: null,
 			runState,
@@ -125,9 +124,7 @@ export async function executeLoadRun(
 		}
 	} catch (err) {
 		const endpoint =
-			ds.mode === "live"
-				? `/api/v1/runs/${runId}/explorer`
-				: "offline file";
+			ds.mode === "live" ? `/api/v1/runs/${runId}/explorer` : "offline file";
 		const status = (err as { status?: number })?.status;
 		set({
 			isLoading: false,
@@ -323,6 +320,7 @@ export async function executeTriggerPipelineRun(
 			set({
 				bundle: nextBundle,
 				activeRunId: handle.run_id,
+				runId: handle.run_id,
 				runState: "running",
 				activeRunningStageIdx: 0,
 				statusBannerText: "Running · STAGE_00",
@@ -357,7 +355,14 @@ export async function executeResolveStewardHold(
 		fetchImpl?: typeof fetch | undefined;
 	},
 ): Promise<CaptainHoldDecisionResponse> {
-	const { holdId, action, selectedCandidateId, resolutionNotes, eventId, fetchImpl } = params;
+	const {
+		holdId,
+		action,
+		selectedCandidateId,
+		resolutionNotes,
+		eventId,
+		fetchImpl,
+	} = params;
 	const currentRunId = get().bundle.runId;
 	const req: CaptainHoldDecisionRequest = {
 		event_id: eventId ?? null,
@@ -369,9 +374,9 @@ export async function executeResolveStewardHold(
 		resolution_notes:
 			resolutionNotes ??
 			(action === "APPROVE"
-				? (selectedCandidateId
-						? `Approved candidate ${selectedCandidateId}.`
-						: `Approved hold ${holdId}.`)
+				? selectedCandidateId
+					? `Approved candidate ${selectedCandidateId}.`
+					: `Approved hold ${holdId}.`
 				: `Rejected hold ${holdId}.`),
 	};
 
@@ -398,7 +403,8 @@ export async function executeResolveStewardHold(
 	}
 
 	const nextBundle = cloneBundle(get().bundle);
-	const chosenCandidate = req.selected_candidate_id ?? selectedCandidateId ?? "";
+	const chosenCandidate =
+		req.selected_candidate_id ?? selectedCandidateId ?? "";
 	const candidateSuffix = chosenCandidate ? ` (${chosenCandidate})` : "";
 	const decisionSummary =
 		action === "APPROVE"
@@ -423,7 +429,9 @@ export async function executeResolveStewardHold(
 	}
 
 	const targetStage =
-		nextBundle.stages.find((s) => s.tag === "ASK-USER" || (s.tag as string) === "HOLD") ||
+		nextBundle.stages.find(
+			(s) => s.tag === "ASK-USER" || (s.tag as string) === "HOLD",
+		) ||
 		nextBundle.stages.find((s) =>
 			s.steps.some(
 				(step) =>

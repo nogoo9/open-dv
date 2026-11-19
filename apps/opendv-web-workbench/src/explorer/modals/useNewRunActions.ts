@@ -82,7 +82,6 @@ export async function executeValidate(
 			headers: {
 				"Content-Type": "application/json",
 				Accept: "application/json",
-				"X-OpenDV-Role": "INTERNAL_MODELER",
 			},
 			body: JSON.stringify(req),
 		});
@@ -190,7 +189,6 @@ export async function executeSubmitRun(
 		headers: {
 			"Content-Type": "application/json",
 			Accept: "application/json",
-			"X-OpenDV-Role": "INTERNAL_MODELER",
 		},
 		body: JSON.stringify(req),
 	});

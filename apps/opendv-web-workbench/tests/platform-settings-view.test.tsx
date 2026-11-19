@@ -314,7 +314,7 @@ describe("Track B3: Full-Page Platform & Agent Harness Settings View", () => {
 					},
 					steward_hold_policy: "auto_approve_top_candidate",
 					ontology_policy: "auto_accept",
-					stage_output_policy: "symbolic_completion",
+					stage_output_policy: "llm_only",
 					allow_cli_schema_omission_retry: true,
 				},
 			};
@@ -329,6 +329,8 @@ describe("Track B3: Full-Page Platform & Agent Harness Settings View", () => {
 					onMaxInlineBytesChange: () => {},
 				}),
 			);
+
+			expect(html.toLowerCase()).not.toContain("symbolic_completion");
 
 			expect(html).toContain("enterprise-dv-prod");
 			expect(html).toContain("europe-west4");

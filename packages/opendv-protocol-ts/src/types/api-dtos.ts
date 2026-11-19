@@ -278,6 +278,7 @@ export interface PlatformConfigResponse {
 	config_file_path?: string | null | undefined;
 	persisted_config_path: string;
 	web_ui_bundled: boolean;
+	remote_unauthenticated_mode?: boolean | undefined;
 	harness: HarnessConfigDTO;
 	resolved_persona_models: Record<string, string>;
 	providers: ProviderReadinessDTO[];

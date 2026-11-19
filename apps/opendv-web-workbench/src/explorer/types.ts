@@ -20,7 +20,14 @@ import type { StoreApi, UseBoundStore } from "zustand";
 import type { BlockingErrorState } from "./BlockingErrorBanner";
 import type { ExplorerDataSource } from "./data-source";
 
-export type ExplorerViewLevel = "pipeline" | "stage" | "builder" | "settings";
+export type ExplorerViewLevel =
+	| "ontology"
+	| "dv_schema"
+	| "pipeline"
+	| "stage"
+	| "builder"
+	| "settings";
+export type OntologySubView = "studio" | "builder";
 export type ExplorerSelectionType = "artifact" | "step" | "component" | null;
 export type ArtifactFullTab = "viz" | "raw" | "split";
 export type ExplorerRunState = "sealed" | "running" | "hold" | "failed";
@@ -56,12 +63,16 @@ export interface ExplorerStoreState {
 	isLoading: boolean;
 	activeBundleKey: ExplorerPresetBundleKey;
 	view: ExplorerViewLevel;
+	ontologySubView: OntologySubView;
 	stageIdx: number;
 	selType: ExplorerSelectionType;
 	selId: string | number | null;
 	fullId: string | null;
 	fullTab: ArtifactFullTab;
 	activeWave: WaveFilterId;
+	runId: string | null;
+	compareRunId: string | null;
+	sessionId: string | null;
 	builderSessionId: string | null;
 	builderSource: string | null;
 	builderDomain: string | null;
@@ -73,6 +84,8 @@ export interface ExplorerStoreState {
 	lastError: string | null;
 
 	// Navigation & Selection Actions
+	goOntology: (subView?: OntologySubView | undefined) => void;
+	goDvSchema: () => void;
 	goPipeline: () => void;
 	goBuilder: () => void;
 	goSettings: () => void;
@@ -110,6 +123,7 @@ export interface ExplorerStoreState {
 
 	// URL Synchronization
 	syncFromUrl: (pathname: string, search: string) => void;
+	syncUrl: () => void;
 	getCurrentUrl: () => string;
 
 	// Live Run & Steward Hold Actions

@@ -43,7 +43,8 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 				"/builder",
 				"?session_id=sess_123&source=ontology_studio&domain_namespace=credit&pipeline_id=pl_credit",
 			);
-			expect(parsed.view).toBe("builder");
+			expect(parsed.view).toBe("ontology");
+			expect(parsed.ontologySubView).toBe("builder");
 			expect(parsed.builderSessionId).toBe("sess_123");
 			expect(parsed.builderSource).toBe("ontology_studio");
 			expect(parsed.builderDomain).toBe("credit");
@@ -53,18 +54,17 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 		it("correctly parses minimal parameter combinations", () => {
 			// Only session_id
 			const p1 = parseExplorerUrlState("/builder", "?session_id=s1");
-			expect(p1.view).toBe("builder");
+			expect(p1.view).toBe("ontology");
+			expect(p1.ontologySubView).toBe("builder");
 			expect(p1.builderSessionId).toBe("s1");
 			expect(p1.builderSource).toBeUndefined();
 			expect(p1.builderDomain).toBeUndefined();
 			expect(p1.builderPipelineId).toBeUndefined();
 
 			// Only source
-			const p2 = parseExplorerUrlState(
-				"/builder",
-				"?source=ontology_studio",
-			);
-			expect(p2.view).toBe("builder");
+			const p2 = parseExplorerUrlState("/builder", "?source=ontology_studio");
+			expect(p2.view).toBe("ontology");
+			expect(p2.ontologySubView).toBe("builder");
 			expect(p2.builderSessionId).toBeUndefined();
 			expect(p2.builderSource).toBe("ontology_studio");
 
@@ -73,12 +73,14 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 				"/builder",
 				"?domain_namespace=asset_management",
 			);
-			expect(p3.view).toBe("builder");
+			expect(p3.view).toBe("ontology");
+			expect(p3.ontologySubView).toBe("builder");
 			expect(p3.builderDomain).toBe("asset_management");
 
 			// Only pipeline_id
 			const p4 = parseExplorerUrlState("/builder", "?pipeline_id=pl_custom");
-			expect(p4.view).toBe("builder");
+			expect(p4.view).toBe("ontology");
+			expect(p4.ontologySubView).toBe("builder");
 			expect(p4.builderPipelineId).toBe("pl_custom");
 		});
 
@@ -87,7 +89,8 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 				"/builder",
 				"?session_id=&source=   &domain_namespace=\t&pipeline_id=\n",
 			);
-			expect(parsed.view).toBe("builder");
+			expect(parsed.view).toBe("ontology");
+			expect(parsed.ontologySubView).toBe("builder");
 			expect(parsed.builderSessionId).toBeUndefined();
 			expect(parsed.builderSource).toBeUndefined();
 			expect(parsed.builderDomain).toBeUndefined();
@@ -99,7 +102,8 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 				"/builder",
 				"session_id=sess_no_q&source=ontology_studio",
 			);
-			expect(parsed.view).toBe("builder");
+			expect(parsed.view).toBe("ontology");
+			expect(parsed.ontologySubView).toBe("builder");
 			expect(parsed.builderSessionId).toBe("sess_no_q");
 			expect(parsed.builderSource).toBe("ontology_studio");
 		});
@@ -118,7 +122,8 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 			const search =
 				"?extra=garbage&session_id=valid_sess&<script>=alert(1)&steward_hold=reject&source=ontology_studio&sql=DROP%20TABLE%20hubs";
 			const parsed = parseExplorerUrlState("/builder", search);
-			expect(parsed.view).toBe("builder");
+			expect(parsed.view).toBe("ontology");
+			expect(parsed.ontologySubView).toBe("builder");
 			expect(parsed.builderSessionId).toBe("valid_sess");
 			expect(parsed.builderSource).toBe("ontology_studio");
 			// Extra parameters do not corrupt explorer state
@@ -128,20 +133,23 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 		});
 
 		it("correctly identifies builder view across path variations", () => {
-			expect(parseExplorerUrlState("/builder").view).toBe("builder");
-			expect(parseExplorerUrlState("/builder/").view).toBe("builder");
-			expect(parseExplorerUrlState("/builder/step2").view).toBe("builder");
+			expect(parseExplorerUrlState("/builder").view).toBe("ontology");
+			expect(parseExplorerUrlState("/builder").ontologySubView).toBe("builder");
+			expect(parseExplorerUrlState("/builder/").view).toBe("ontology");
+			expect(parseExplorerUrlState("/builder/step2").view).toBe("ontology");
 
 			// Non-builder paths
 			expect(parseExplorerUrlState("/stages/03").view).toBe("stage");
 			expect(parseExplorerUrlState("/stages/03").stageIdx).toBe(3);
 			expect(parseExplorerUrlState("/settings").view).toBe("settings");
-			expect(parseExplorerUrlState("/").view).toBe("pipeline");
+			expect(parseExplorerUrlState("/explorer").view).toBe("pipeline");
+			expect(parseExplorerUrlState("/").view).toBe("ontology");
 		});
 
 		it("guarantees buildExplorerUrl serialization and roundtrip fidelity", () => {
 			const originalState = {
-				view: "builder" as const,
+				view: "ontology" as const,
+				ontologySubView: "builder" as const,
 				stageIdx: 5,
 				fullId: null,
 				fullTab: "split" as const,
@@ -159,25 +167,24 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 			const reparsed = parseExplorerUrlState(pathname, `?${search}`);
 
 			expect(reparsed.view).toBe(originalState.view);
+			expect(reparsed.ontologySubView).toBe("builder");
 			expect(reparsed.builderSessionId).toBe(originalState.builderSessionId);
 			expect(reparsed.builderSource).toBe(originalState.builderSource);
 			expect(reparsed.builderDomain).toBe(originalState.builderDomain);
 			expect(reparsed.builderPipelineId).toBe(originalState.builderPipelineId);
 		});
 
-		it("does not leak builder query params when view is not builder", () => {
+		it("serializes clean /explorer path when pipeline view has no query params", () => {
 			const pipelineState = {
 				view: "pipeline" as const,
 				stageIdx: 5,
 				fullId: null,
 				fullTab: "split" as const,
 				activeWave: "all" as const,
-				builderSessionId: "am-session-2026",
-				builderSource: "ontology_studio",
 			};
 
 			const url = buildExplorerUrl(pipelineState);
-			expect(url).toBe("/");
+			expect(url).toBe("/explorer");
 			expect(url).not.toContain("session_id");
 			expect(url).not.toContain("source");
 		});
@@ -187,7 +194,8 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 				"/builder",
 				"?session_id=sess_valid&tab=nonexistent&wave=W9999",
 			);
-			expect(parsed.view).toBe("builder");
+			expect(parsed.view).toBe("ontology");
+			expect(parsed.ontologySubView).toBe("builder");
 			expect(parsed.builderSessionId).toBe("sess_valid");
 			// Fallback defaults
 			expect(parsed.fullTab).toBe("split");
@@ -199,7 +207,8 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 				"/builder",
 				"?session_id=first&session_id=second&source=ontology_studio",
 			);
-			expect(parsed.view).toBe("builder");
+			expect(parsed.view).toBe("ontology");
+			expect(parsed.ontologySubView).toBe("builder");
 			// URLSearchParams returns the first occurrence
 			expect(parsed.builderSessionId).toBe("first");
 			expect(parsed.builderSource).toBe("ontology_studio");
@@ -214,7 +223,9 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 			const draft = createOntologyStudioPipelineDraft();
 			expect(draft.pipelineId).toBe("pl_am_walkthrough");
 			expect(draft.projectId).toBe("proj_asset_management");
-			expect(draft.displayName).toBe("Asset Management Data Vault 2.0 Pipeline");
+			expect(draft.displayName).toBe(
+				"Asset Management Data Vault 2.0 Pipeline",
+			);
 			expect(draft.domainNamespace).toBe("asset_management");
 			expect(draft.graphAOntologyPath).toBe(
 				"examples/asset_management/am_graph_a_ontology.yaml",
@@ -230,9 +241,15 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 
 			// Check all 4 target hubs across relational sources and unstructured doc
 			const sources = wave0.sources;
-			expect(sources.find((s) => s.targetHubName === "hub_security")).toBeDefined();
-			expect(sources.find((s) => s.targetHubName === "hub_investor")).toBeDefined();
-			expect(sources.find((s) => s.targetHubName === "hub_rate_index")).toBeDefined();
+			expect(
+				sources.find((s) => s.targetHubName === "hub_security"),
+			).toBeDefined();
+			expect(
+				sources.find((s) => s.targetHubName === "hub_investor"),
+			).toBeDefined();
+			expect(
+				sources.find((s) => s.targetHubName === "hub_rate_index"),
+			).toBeDefined();
 
 			expect(wave0.unstructuredDocuments).toHaveLength(1);
 			expect(wave0.unstructuredDocuments[0].targetHubName).toBe("hub_document");
@@ -255,7 +272,9 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 				domainNamespace: "am_private_equity",
 			});
 			expect(draft.domainNamespace).toBe("am_private_equity");
-			expect(draft.displayName).toBe("Asset Management Data Vault 2.0 Pipeline");
+			expect(draft.displayName).toBe(
+				"Asset Management Data Vault 2.0 Pipeline",
+			);
 			expect(draft.waves[0].sources).toHaveLength(3);
 			expect(draft.waves[0].unstructuredDocuments).toHaveLength(1);
 		});
@@ -298,13 +317,19 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 			expect(sources).toHaveLength(3);
 
 			// Verify business_key_columns is array of strings without commas/spaces
-			const secMaster = sources.find((s) => s.table_name === "stg_sec_security_master");
+			const secMaster = sources.find(
+				(s) => s.table_name === "stg_sec_security_master",
+			);
 			expect(secMaster?.business_key_columns).toEqual(["ticker", "cik"]);
 
-			const sec13f = sources.find((s) => s.table_name === "stg_sec_13f_holdings");
+			const sec13f = sources.find(
+				(s) => s.table_name === "stg_sec_13f_holdings",
+			);
 			expect(sec13f?.business_key_columns).toEqual(["cik"]);
 
-			const fred = sources.find((s) => s.table_name === "stg_fred_treasury_rates");
+			const fred = sources.find(
+				(s) => s.table_name === "stg_fred_treasury_rates",
+			);
 			expect(fred?.business_key_columns).toEqual(["series_id"]);
 
 			const docs = wave0.unstructured_documents as Array<{
@@ -438,11 +463,13 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 		});
 
 		it("falls back to globalThis.location.search when props are omitted", () => {
-			const originalLocation = (globalThis as unknown as { location?: unknown }).location;
+			const originalLocation = (globalThis as unknown as { location?: unknown })
+				.location;
 			try {
 				// Mock globalThis.location.search
 				(globalThis as unknown as { location: { search: string } }).location = {
-					search: "?source=ontology_studio&session_id=sess_from_global_url&domain_namespace=asset_management",
+					search:
+						"?source=ontology_studio&session_id=sess_from_global_url&domain_namespace=asset_management",
 				};
 
 				let capturedStaged: StagedPipelineSpec | null = null;
@@ -459,7 +486,8 @@ describe("Empirical Challenger M2: Feature 10 Adversarial Stress Test Suite", ()
 				expect(spec.inputSpec?.pipeline_id).toBe("pl_sess_from_global_url");
 				expect(spec.inputSpec?.domain_namespace).toBe("asset_management");
 			} finally {
-				(globalThis as unknown as { location?: unknown }).location = originalLocation;
+				(globalThis as unknown as { location?: unknown }).location =
+					originalLocation;
 			}
 		});
 	});

@@ -72,6 +72,39 @@ async def get_builder_route() -> HTMLResponse:
     return _serve_spa_index()
 
 
+@router.get("/builder/{subpath:path}", include_in_schema=False)
+async def get_builder_subroute(subpath: str) -> HTMLResponse:
+    """Serve SPA shell for `/builder/{subpath}` client subroutes."""
+    _ = subpath
+    return _serve_spa_index()
+
+
+@router.get("/dv-schema", include_in_schema=False)
+async def get_dv_schema_route() -> HTMLResponse:
+    """Serve SPA shell for `/dv-schema` DV Schema Explorer route."""
+    return _serve_spa_index()
+
+
+@router.get("/dv-schema/{subpath:path}", include_in_schema=False)
+async def get_dv_schema_subroute(subpath: str) -> HTMLResponse:
+    """Serve SPA shell for `/dv-schema/{subpath}` DV Schema Explorer subroutes."""
+    _ = subpath
+    return _serve_spa_index()
+
+
+@router.get("/explorer", include_in_schema=False)
+async def get_explorer_route() -> HTMLResponse:
+    """Serve SPA shell for `/explorer` Run Explorer route."""
+    return _serve_spa_index()
+
+
+@router.get("/explorer/{subpath:path}", include_in_schema=False)
+async def get_explorer_subroute(subpath: str) -> HTMLResponse:
+    """Serve SPA shell for `/explorer/{subpath}` Run Explorer subroutes."""
+    _ = subpath
+    return _serve_spa_index()
+
+
 @router.get("/settings", include_in_schema=False)
 async def get_settings_route() -> HTMLResponse:
     """Serve SPA shell for `/settings` client route."""

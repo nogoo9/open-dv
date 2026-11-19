@@ -1,11 +1,15 @@
 import type {
 	ExplorerBundleDTO,
+	PlatformConfigResponse,
 	ProjectRunDTO,
 	Stage,
 	WaveFilterId,
 } from "@opendv/protocol-ts";
 import type { CSSProperties } from "react";
-import { EXPLORER_FONTS } from "./design-tokens";
+import { RemoteUnauthenticatedBanner } from "./RemoteUnauthenticatedBanner";
+import { TopBarStatusPills } from "./TopBarStatusPills";
+import { CLAUDE_TOKENS, EXPLORER_FONTS } from "./design-tokens";
+import { safeUseState } from "./modals/safeHooks";
 import type { ExplorerRunState, ExplorerViewLevel } from "./types";
 
 const RESET_BUTTON_STYLE: CSSProperties = {
@@ -21,7 +25,7 @@ const RESET_BUTTON_STYLE: CSSProperties = {
 const DROPDOWN_ITEM_STYLE: CSSProperties = {
 	...RESET_BUTTON_STYLE,
 	padding: "6px 8px",
-	borderRadius: "4px",
+	borderRadius: "6px",
 	display: "flex",
 	flexDirection: "column",
 	gap: "2px",
@@ -40,12 +44,22 @@ export interface ExplorerTopBarProps {
 	isRunSelectorOpen: boolean;
 	isLoadingRuns: boolean;
 	runsList: readonly ProjectRunDTO[];
+	platformConfig?: PlatformConfigResponse | null | undefined;
+	remoteUnauthenticatedMode?: boolean | undefined;
+	agentReady?: boolean | undefined;
+	sessionCostTokens?: number | undefined;
+	sessionCostUsd?: number | undefined;
+	sessionLogsCount?: number | undefined;
+	sessionDigest?: string | null | undefined;
 	onToggleRunSelector: () => void;
 	onSelectRun: (run: ProjectRunDTO) => void;
 	onOpenNewRunModal: () => void;
+	onGoOntology?: (() => void) | undefined;
+	onGoDvSchema?: (() => void) | undefined;
 	onGoPipeline: () => void;
 	onGoBuilder?: (() => void) | undefined;
 	onGoSettings?: (() => void) | undefined;
+	onOpenLogs?: (() => void) | undefined;
 	onSetWaveFilter?: ((wave: WaveFilterId) => void) | undefined;
 }
 
@@ -54,7 +68,6 @@ export function ExplorerTopBar({
 	view,
 	currentStage,
 	stageShortCode,
-	activeWave,
 	runState,
 	statusBannerText,
 	statusDotColor,
@@ -62,411 +75,479 @@ export function ExplorerTopBar({
 	isRunSelectorOpen,
 	isLoadingRuns,
 	runsList,
+	platformConfig,
+	remoteUnauthenticatedMode,
+	agentReady,
+	sessionCostTokens = 0,
+	sessionCostUsd = 0,
+	sessionLogsCount = 0,
+	sessionDigest,
 	onToggleRunSelector,
 	onSelectRun,
 	onOpenNewRunModal,
+	onGoOntology,
+	onGoDvSchema,
 	onGoPipeline,
 	onGoBuilder,
 	onGoSettings,
-	onSetWaveFilter,
+	onOpenLogs,
 }: ExplorerTopBarProps) {
+	const [isMobileNavOpen, setIsMobileNavOpen] = safeUseState(false);
+
+	const showRunControls = view === "pipeline" || view === "stage";
+	const isOntologyActive = view === "ontology" || view === "builder";
+	const isDvSchemaActive = view === "dv_schema";
+	const isExplorerActive = view === "pipeline" || view === "stage";
+	const isSettingsActive = view === "settings";
+	const showRemoteBanner = Boolean(
+		remoteUnauthenticatedMode ?? platformConfig?.remote_unauthenticated_mode,
+	);
+
+	const tabStyle = (active: boolean): CSSProperties => ({
+		...RESET_BUTTON_STYLE,
+		fontFamily: EXPLORER_FONTS.sans,
+		fontSize: "13px",
+		fontWeight: 500,
+		padding: "6px 12px",
+		borderRadius: "8px",
+		background: active ? CLAUDE_TOKENS.colors.surfaceCard : "transparent",
+		color: active ? CLAUDE_TOKENS.colors.ink : CLAUDE_TOKENS.colors.muted,
+		whiteSpace: "nowrap",
+	});
+
 	return (
-		<header
-			data-testid="explorer-top-header"
-			style={{
-				height: "56px",
-				padding: "0 24px",
-				background: "#FFFFFF",
-				borderBottom: "1px solid #E3E5E8",
-				display: "flex",
-				alignItems: "center",
-				justifyContent: "space-between",
-				gap: "16px",
-				position: "relative",
-			}}
-		>
-			{/* Left: Wordmark & Breadcrumb */}
-			<div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-				<div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-					<span
-						style={{
-							width: "10px",
-							height: "10px",
-							background: "#16181D",
-							borderRadius: "2px",
-							display: "inline-block",
-						}}
-					/>
-					<span
-						style={{
-							fontFamily: EXPLORER_FONTS.mono,
-							fontWeight: 600,
-							fontSize: "14px",
-							letterSpacing: "-0.01em",
-						}}
-					>
-						open-dv
-					</span>
-				</div>
-				<span style={{ color: "#D4D7DC" }}>|</span>
-				<nav
-					aria-label="Breadcrumb"
-					style={{
-						display: "flex",
-						alignItems: "center",
-						gap: "8px",
-						fontSize: "13px",
-					}}
-				>
-					<button
-						type="button"
-						data-testid="breadcrumb-pipeline"
-						onClick={onGoPipeline}
-						style={{
-							...RESET_BUTTON_STYLE,
-							fontWeight: 500,
-							color: view === "stage" ? "#1D4ED8" : "#16181D",
-						}}
-					>
-						Pipeline
-					</button>
-					{view === "stage" && currentStage && (
-						<div
-							data-testid="breadcrumb-stage"
-							style={{ display: "flex", alignItems: "center", gap: "8px" }}
-						>
-							<span style={{ color: "#9CA3AF" }}>/</span>
-							<span
-								style={{
-									fontFamily: EXPLORER_FONTS.mono,
-									fontSize: "12.5px",
-									fontWeight: 600,
-									color: "#16181D",
-								}}
-							>
-								{stageShortCode} · {currentStage.name}
-							</span>
-						</div>
-					)}
-				</nav>
-
-				<span style={{ color: "#D4D7DC" }}>|</span>
-				<nav
-					aria-label="Primary Workspace Views"
-					style={{
-						display: "flex",
-						alignItems: "center",
-						gap: "4px",
-					}}
-				>
-					<button
-						type="button"
-						data-testid="nav-tab-explorer"
-						aria-current={
-							view === "pipeline" || view === "stage" ? "page" : undefined
-						}
-						onClick={onGoPipeline}
-						style={{
-							...RESET_BUTTON_STYLE,
-							fontSize: "12px",
-							fontWeight: 500,
-							padding: "4px 9px",
-							borderRadius: "6px",
-							background:
-								view === "pipeline" || view === "stage"
-									? "#EEF0F2"
-									: "transparent",
-							color:
-								view === "pipeline" || view === "stage" ? "#16181D" : "#545A66",
-						}}
-					>
-						Explorer
-					</button>
-					{onGoBuilder && (
-						<button
-							type="button"
-							data-testid="nav-tab-builder"
-							aria-current={view === "builder" ? "page" : undefined}
-							onClick={onGoBuilder}
-							style={{
-								...RESET_BUTTON_STYLE,
-								fontSize: "12px",
-								fontWeight: 500,
-								padding: "4px 9px",
-								borderRadius: "6px",
-								background: view === "builder" ? "#EEF0F2" : "transparent",
-								color: view === "builder" ? "#16181D" : "#545A66",
-							}}
-						>
-							Pipeline Builder
-						</button>
-					)}
-					{onGoSettings && (
-						<button
-							type="button"
-							data-testid="nav-tab-settings"
-							aria-current={view === "settings" ? "page" : undefined}
-							onClick={onGoSettings}
-							style={{
-								...RESET_BUTTON_STYLE,
-								fontSize: "12px",
-								fontWeight: 500,
-								padding: "4px 9px",
-								borderRadius: "6px",
-								background: view === "settings" ? "#EEF0F2" : "transparent",
-								color: view === "settings" ? "#16181D" : "#545A66",
-							}}
-						>
-							Settings
-						</button>
-					)}
-				</nav>
-			</div>
-
-			{/* Center: Run Selector Pill & Dropdown + Wave Segmented Filter */}
-			<div
+		<div>
+			<header
+				data-testid="explorer-top-header"
+				className="claude-topbar"
 				style={{
+					height: "54px",
+					background: CLAUDE_TOKENS.colors.canvas,
+					borderBottom: `1px solid ${CLAUDE_TOKENS.colors.hairline}`,
 					display: "flex",
 					alignItems: "center",
-					gap: "10px",
+					justifyContent: "space-between",
+					gap: "14px",
 					position: "relative",
 				}}
 			>
-				<div style={{ position: "relative" }}>
-					<button
-						type="button"
-						data-testid="btn-run-selector-pill"
-						title="Click to select recent pipeline runs"
-						onClick={onToggleRunSelector}
+				{/* Left: Spike Mark + open-dv + 4 Canonical Tabs */}
+				<div
+					className="claude-topbar-left"
+					style={{
+						display: "flex",
+						alignItems: "center",
+						gap: "14px",
+						minWidth: 0,
+					}}
+				>
+					<div
 						style={{
-							...RESET_BUTTON_STYLE,
 							display: "flex",
 							alignItems: "center",
 							gap: "8px",
-							padding: "5px 10px",
-							border: "1px solid #E3E5E8",
-							borderRadius: "6px",
-							background: isRunSelectorOpen ? "#EEF0F2" : "#FAFBFD",
+							flexShrink: 0,
 						}}
 					>
-						<span
-							style={{
-								fontSize: "11px",
-								color: "#6B7280",
-								textTransform: "uppercase",
-								letterSpacing: "0.05em",
-							}}
+						<svg
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							style={{ flexShrink: 0 }}
+							aria-hidden="true"
 						>
-							Run
-						</span>
+							<g
+								stroke={CLAUDE_TOKENS.colors.ink}
+								strokeWidth="2.1"
+								strokeLinecap="round"
+							>
+								<line x1="12" y1="2.5" x2="12" y2="21.5" />
+								<line x1="2.5" y1="12" x2="21.5" y2="12" />
+								<line x1="5.3" y1="5.3" x2="18.7" y2="18.7" />
+								<line x1="18.7" y1="5.3" x2="5.3" y2="18.7" />
+							</g>
+						</svg>
 						<span
 							style={{
 								fontFamily: EXPLORER_FONTS.mono,
-								fontSize: "12px",
-								fontWeight: 500,
-								color: "#16181D",
+								fontWeight: 600,
+								fontSize: "14px",
+								letterSpacing: "-0.01em",
+								color: CLAUDE_TOKENS.colors.ink,
+								whiteSpace: "nowrap",
 							}}
 						>
-							{bundle.displayName}
+							open-dv
 						</span>
-						<span
-							style={{
-								fontFamily: EXPLORER_FONTS.mono,
-								fontSize: "11px",
-								color: "#6B7280",
-							}}
-						>
-							{bundle.specFile} · {bundle.wavesCount} waves
-						</span>
-						<span
-							data-testid="run-selector-chevron"
-							style={{ fontSize: "10px", color: "#6B7280" }}
-						>
-							{isRunSelectorOpen ? "▲" : "▼"}
-						</span>
+					</div>
+
+					<span style={{ color: CLAUDE_TOKENS.colors.hairlineStrong }}>|</span>
+
+					<button
+						type="button"
+						className="claude-mobile-nav-toggle"
+						aria-label="Toggle workspace navigation"
+						aria-expanded={isMobileNavOpen}
+						onClick={() => setIsMobileNavOpen((prev) => !prev)}
+						style={{
+							...RESET_BUTTON_STYLE,
+							padding: "4px 8px",
+							borderRadius: "6px",
+							border: `1px solid ${CLAUDE_TOKENS.colors.hairlineStrong}`,
+							color: CLAUDE_TOKENS.colors.ink,
+						}}
+					>
+						☰
 					</button>
 
-					{/* Run Selector Dropdown Menu */}
-					{isRunSelectorOpen && (
-						<div
-							role="menu"
-							data-testid="run-selector-dropdown"
-							style={{
-								position: "absolute",
-								top: "calc(100% + 4px)",
-								left: 0,
-								zIndex: 1000,
-								background: "#FFFFFF",
-								border: "1px solid #E3E5E8",
-								borderRadius: "8px",
-								boxShadow: "0 8px 20px rgba(0,0,0,0.12)",
-								minWidth: "320px",
-								maxWidth: "420px",
-								padding: "6px",
-								display: "flex",
-								flexDirection: "column",
-								gap: "2px",
-							}}
+					<nav
+						aria-label="Primary Workspace Views"
+						className="claude-topbar-nav"
+						data-mobile-open={isMobileNavOpen ? "true" : "false"}
+					>
+						<button
+							type="button"
+							data-testid="nav-tab-ontology"
+							aria-current={isOntologyActive ? "page" : undefined}
+							onClick={onGoOntology ?? onGoBuilder ?? onGoPipeline}
+							style={tabStyle(isOntologyActive)}
 						>
-							<div
+							Ontology &amp; Pipeline
+						</button>
+						<button
+							type="button"
+							data-testid="nav-tab-dv-schema"
+							aria-current={isDvSchemaActive ? "page" : undefined}
+							onClick={onGoDvSchema ?? onGoPipeline}
+							style={tabStyle(isDvSchemaActive)}
+						>
+							DV Schema Explorer
+						</button>
+						<button
+							type="button"
+							data-testid="nav-tab-explorer"
+							aria-current={isExplorerActive ? "page" : undefined}
+							onClick={onGoPipeline}
+							style={tabStyle(isExplorerActive)}
+						>
+							Run Explorer
+						</button>
+						<button
+							type="button"
+							data-testid="nav-tab-settings"
+							aria-current={isSettingsActive ? "page" : undefined}
+							onClick={onGoSettings}
+							style={tabStyle(isSettingsActive)}
+						>
+							Settings
+						</button>
+					</nav>
+				</div>
+
+				{/* Right: Live Readiness, Cost Meter, Logs & Traces, Session Pill */}
+				<TopBarStatusPills
+					platformConfig={platformConfig}
+					agentReady={agentReady}
+					sessionCostTokens={sessionCostTokens + streamedTokens}
+					sessionCostUsd={sessionCostUsd}
+					sessionLogsCount={sessionLogsCount}
+					sessionDigest={
+						sessionDigest ??
+						(bundle.runId ? `${bundle.displayName}` : undefined)
+					}
+					onGoSettings={onGoSettings}
+					onOpenLogs={onOpenLogs}
+				/>
+			</header>
+
+			{/* Explorer Sub-Bar (46px): Stage Breadcrumb, Run Selector, Status & Run Pipeline CTA */}
+			{showRunControls && (
+				<div
+					className="claude-subbar claude-topbar-run-controls"
+					data-testid="explorer-subbar"
+				>
+					<div
+						style={{
+							display: "flex",
+							alignItems: "center",
+							gap: "10px",
+							flexWrap: "wrap",
+							maxWidth: "100%",
+							minWidth: 0,
+						}}
+					>
+						{view === "stage" && currentStage && (
+							<button
+								type="button"
+								data-testid="breadcrumb-stage"
+								title="Back to Run Explorer overview"
+								aria-label={`Back to Run Explorer from ${stageShortCode} ${currentStage.name}`}
+								onClick={onGoPipeline}
 								style={{
-									fontSize: "11px",
+									...RESET_BUTTON_STYLE,
+									display: "inline-flex",
+									alignItems: "center",
+									padding: "4px 10px",
+									borderRadius: "8px",
+									border: `1px solid ${CLAUDE_TOKENS.colors.hairlineStrong}`,
+									background: CLAUDE_TOKENS.colors.canvas,
+									fontFamily: EXPLORER_FONTS.mono,
+									fontSize: "12px",
 									fontWeight: 600,
-									color: "#6B7280",
-									padding: "4px 8px",
-									textTransform: "uppercase",
+									color: CLAUDE_TOKENS.colors.ink,
+									cursor: "pointer",
 								}}
 							>
-								Recent Runs
-							</div>
-							{isLoadingRuns && (
-								<div
-									data-testid="run-selector-loading"
+								{stageShortCode} · {currentStage.name}
+							</button>
+						)}
+						<div style={{ position: "relative", maxWidth: "100%" }}>
+							<button
+								type="button"
+								data-testid="btn-run-selector-pill"
+								title="Click to select recent pipeline runs"
+								onClick={onToggleRunSelector}
+								style={{
+									...RESET_BUTTON_STYLE,
+									display: "flex",
+									alignItems: "center",
+									flexWrap: "wrap",
+									maxWidth: "100%",
+									gap: "8px",
+									padding: "5px 10px",
+									border: `1px solid ${CLAUDE_TOKENS.colors.hairlineStrong}`,
+									borderRadius: "8px",
+									background: isRunSelectorOpen
+										? CLAUDE_TOKENS.colors.surfaceCreamStrong
+										: CLAUDE_TOKENS.colors.canvas,
+								}}
+							>
+								<span
 									style={{
-										padding: "8px",
-										fontSize: "12px",
-										color: "#6B7280",
+										fontSize: "11px",
+										color: CLAUDE_TOKENS.colors.muted,
+										textTransform: "uppercase",
+										letterSpacing: "0.05em",
 									}}
 								>
-									Loading runs...
-								</div>
-							)}
-							{runsList.map((run) => (
-								<button
-									key={run.run_id}
-									type="button"
-									role="menuitem"
-									data-testid={`run-option-${run.run_id}`}
-									onClick={() => onSelectRun(run)}
+									Run
+								</span>
+								<span
 									style={{
-										...DROPDOWN_ITEM_STYLE,
-										background:
-											bundle.runId === run.run_id ? "#F2F3F5" : "transparent",
+										fontFamily: EXPLORER_FONTS.mono,
+										fontSize: "12px",
+										fontWeight: 500,
+										color: CLAUDE_TOKENS.colors.ink,
+									}}
+								>
+									{bundle.displayName}
+								</span>
+								<span
+									style={{
+										fontFamily: EXPLORER_FONTS.mono,
+										fontSize: "11px",
+										color: CLAUDE_TOKENS.colors.muted,
+									}}
+								>
+									{bundle.specFile} · {bundle.wavesCount} waves
+								</span>
+								<span
+									data-testid="run-selector-chevron"
+									style={{
+										fontSize: "10px",
+										color: CLAUDE_TOKENS.colors.muted,
+									}}
+								>
+									{isRunSelectorOpen ? "▲" : "▼"}
+								</span>
+							</button>
+
+							{isRunSelectorOpen && (
+								<div
+									role="menu"
+									data-testid="run-selector-dropdown"
+									style={{
+										position: "absolute",
+										top: "calc(100% + 4px)",
+										left: 0,
+										zIndex: 1000,
+										background: CLAUDE_TOKENS.colors.canvas,
+										border: `1px solid ${CLAUDE_TOKENS.colors.hairline}`,
+										borderRadius: "10px",
+										boxShadow: "0 8px 24px rgba(20,20,19,0.14)",
+										minWidth: "min(320px, calc(100vw - 24px))",
+										maxWidth: "min(420px, calc(100vw - 24px))",
+										padding: "6px",
+										display: "flex",
+										flexDirection: "column",
+										gap: "2px",
 									}}
 								>
 									<div
 										style={{
-											display: "flex",
-											alignItems: "center",
-											justifyContent: "space-between",
-											gap: "8px",
+											fontSize: "11px",
+											fontWeight: 600,
+											color: CLAUDE_TOKENS.colors.muted,
+											padding: "4px 8px",
+											textTransform: "uppercase",
 										}}
 									>
-										<span
+										Recent Runs
+									</div>
+									{isLoadingRuns && (
+										<div
+											data-testid="run-selector-loading"
 											style={{
-												fontFamily: EXPLORER_FONTS.mono,
+												padding: "8px",
 												fontSize: "12px",
-												fontWeight: 600,
+												color: CLAUDE_TOKENS.colors.muted,
 											}}
 										>
-											{run.run_id}
-										</span>
-										<span
+											Loading runs...
+										</div>
+									)}
+									{runsList.map((run) => (
+										<button
+											key={run.run_id}
+											type="button"
+											role="menuitem"
+											data-testid={`run-option-${run.run_id}`}
+											onClick={() => onSelectRun(run)}
 											style={{
-												fontFamily: EXPLORER_FONTS.mono,
-												fontSize: "10.5px",
-												padding: "2px 6px",
-												borderRadius: "4px",
+												...DROPDOWN_ITEM_STYLE,
 												background:
-													run.status === "RUNNING" ? "#FFF4E5" : "#EEF0F2",
-												color: run.status === "RUNNING" ? "#8A3B07" : "#16181D",
+													bundle.runId === run.run_id
+														? CLAUDE_TOKENS.colors.surfaceCard
+														: "transparent",
 											}}
 										>
-											{run.status}
-										</span>
-									</div>
-									<div style={{ fontSize: "11px", color: "#6B7280" }}>
-										{run.project_id}{" "}
-										{run.event_count ? `· ${run.event_count} events` : ""}
-									</div>
-								</button>
-							))}
-							<div
-								style={{ borderTop: "1px solid #E3E5E8", margin: "4px 0" }}
-							/>
-							<button
-								type="button"
-								role="menuitem"
-								data-testid="btn-dropdown-new-run"
-								onClick={onOpenNewRunModal}
-								style={{
-									...DROPDOWN_ITEM_STYLE,
-									color: "#1D4ED8",
-									fontWeight: 500,
-									fontSize: "12px",
-								}}
-							>
-								+ New Pipeline Run...
-							</button>
+											<div
+												style={{
+													display: "flex",
+													alignItems: "center",
+													justifyContent: "space-between",
+													gap: "8px",
+												}}
+											>
+												<span
+													style={{
+														fontFamily: EXPLORER_FONTS.mono,
+														fontSize: "12px",
+														fontWeight: 600,
+													}}
+												>
+													{run.run_id}
+												</span>
+												<span
+													style={{
+														fontFamily: EXPLORER_FONTS.mono,
+														fontSize: "10.5px",
+														padding: "2px 6px",
+														borderRadius: "4px",
+														background: CLAUDE_TOKENS.colors.surfaceSoft,
+														color: CLAUDE_TOKENS.colors.ink,
+													}}
+												>
+													{run.status}
+												</span>
+											</div>
+											<div
+												style={{
+													fontSize: "11px",
+													color: CLAUDE_TOKENS.colors.muted,
+												}}
+											>
+												{run.project_id}{" "}
+												{run.event_count ? `· ${run.event_count} events` : ""}
+											</div>
+										</button>
+									))}
+									<div
+										style={{
+											borderTop: `1px solid ${CLAUDE_TOKENS.colors.hairline}`,
+											margin: "4px 0",
+										}}
+									/>
+									<button
+										type="button"
+										role="menuitem"
+										data-testid="btn-dropdown-new-run"
+										onClick={onOpenNewRunModal}
+										style={{
+											...DROPDOWN_ITEM_STYLE,
+											color: CLAUDE_TOKENS.colors.primaryActive,
+											fontWeight: 500,
+											fontSize: "12px",
+										}}
+									>
+										+ New Pipeline Run...
+									</button>
+								</div>
+							)}
 						</div>
-					)}
-				</div>
-			</div>
+					</div>
 
-			{/* Right: Live SSE Run Status & Primary Run Pipeline Action */}
-			<div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-				{/* Token Streaming Indicator */}
-				{streamedTokens > 0 && (
-					<span
-						data-testid="token-streaming-progress"
+					<div
 						style={{
-							display: "inline-flex",
+							display: "flex",
 							alignItems: "center",
-							gap: "4px",
-							fontFamily: EXPLORER_FONTS.mono,
-							fontSize: "11px",
-							padding: "3px 8px",
-							borderRadius: "999px",
-							background: "#F2F3F5",
-							color: "#3B414C",
+							gap: "8px",
+							flexWrap: "wrap",
+							maxWidth: "100%",
 						}}
 					>
-						<span>⚡</span>
-						<span>{streamedTokens.toLocaleString()} tokens</span>
-					</span>
-				)}
+						<span
+							data-testid="explorer-run-status-pill"
+							style={{
+								display: "inline-flex",
+								alignItems: "center",
+								gap: "6px",
+								fontFamily: EXPLORER_FONTS.mono,
+								fontSize: "11.5px",
+								padding: "4px 10px",
+								borderRadius: "999px",
+								background:
+									runState === "hold"
+										? CLAUDE_TOKENS.colors.surfaceCreamStrong
+										: CLAUDE_TOKENS.colors.surfaceCard,
+								color: CLAUDE_TOKENS.colors.ink,
+								maxWidth: "100%",
+							}}
+						>
+							<span
+								style={{
+									width: "6px",
+									height: "6px",
+									borderRadius: "999px",
+									background: statusDotColor,
+									flexShrink: 0,
+								}}
+							/>
+							{statusBannerText}
+						</span>
+						<button
+							type="button"
+							data-testid="btn-explorer-run-pipeline"
+							onClick={onOpenNewRunModal}
+							style={{
+								...RESET_BUTTON_STYLE,
+								fontSize: "12.5px",
+								fontWeight: 500,
+								padding: "6px 12px",
+								borderRadius: "8px",
+								background: CLAUDE_TOKENS.colors.primary,
+								color: CLAUDE_TOKENS.colors.onPrimary,
+								whiteSpace: "nowrap",
+							}}
+						>
+							Run pipeline
+						</button>
+					</div>
+				</div>
+			)}
 
-				<span
-					data-testid="explorer-run-status-pill"
-					style={{
-						display: "inline-flex",
-						alignItems: "center",
-						gap: "6px",
-						fontFamily: EXPLORER_FONTS.mono,
-						fontSize: "11.5px",
-						padding: "4px 10px",
-						borderRadius: "999px",
-						background: runState === "hold" ? "#FFF4E5" : "#EEF0F2",
-						color: runState === "hold" ? "#8A3B07" : "#16181D",
-					}}
-				>
-					<span
-						style={{
-							width: "6px",
-							height: "6px",
-							borderRadius: "999px",
-							background: statusDotColor,
-						}}
-					/>
-					{statusBannerText}
-				</span>
-				<button
-					type="button"
-					data-testid="btn-explorer-run-pipeline"
-					onClick={onOpenNewRunModal}
-					style={{
-						...RESET_BUTTON_STYLE,
-						fontSize: "12.5px",
-						fontWeight: 500,
-						padding: "6px 12px",
-						borderRadius: "6px",
-						background: "#16181D",
-						color: "#FFFFFF",
-					}}
-				>
-					Run pipeline
-				</button>
-			</div>
-		</header>
+			<RemoteUnauthenticatedBanner visible={showRemoteBanner} />
+		</div>
 	);
 }

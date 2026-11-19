@@ -48,7 +48,8 @@ export function StageFlowGrid({
 					onSelectArtifact(artifactId);
 				}}
 				style={{
-					all: "unset",
+					margin: 0,
+					textAlign: "left",
 					cursor: "pointer",
 					display: "inline-flex",
 					alignItems: "center",
@@ -60,7 +61,7 @@ export function StageFlowGrid({
 					fontFamily: EXPLORER_FONTS.mono,
 					fontSize: compact ? "11px" : "11.5px",
 					color: "#16181D",
-					maxWidth: compact ? "100%" : undefined,
+					maxWidth: "100%",
 				}}
 			>
 				<span
@@ -91,6 +92,7 @@ export function StageFlowGrid({
 
 	return (
 		<section
+			className="claude-explorer-col-full"
 			aria-label="Control and Data Flow"
 			onClick={(ev) => ev.stopPropagation()}
 			style={{
@@ -104,8 +106,10 @@ export function StageFlowGrid({
 			<div
 				style={{
 					display: "flex",
+					flexWrap: "wrap",
 					alignItems: "center",
 					justifyContent: "space-between",
+					gap: "8px",
 				}}
 			>
 				<span
@@ -179,11 +183,11 @@ export function StageFlowGrid({
 							{/* 14px #B45309 vertical connector line between steps */}
 							{idx > 0 && (
 								<div
+									className="claude-stage-step-grid"
 									style={{
 										height: "14px",
 										display: "grid",
-										gridTemplateColumns:
-											"180px minmax(260px, 1fr) 180px",
+										gridTemplateColumns: "180px minmax(260px, 1fr) 180px",
 										gap: "12px",
 									}}
 								>
@@ -208,10 +212,10 @@ export function StageFlowGrid({
 							)}
 
 							<div
+								className="claude-stage-step-grid"
 								style={{
 									display: "grid",
-									gridTemplateColumns:
-										"180px minmax(260px, 1fr) 180px",
+									gridTemplateColumns: "180px minmax(260px, 1fr) 180px",
 									gap: "12px",
 									alignItems: "center",
 								}}
@@ -300,10 +304,7 @@ export function StageFlowGrid({
 												{stepNumStr}
 											</span>
 											<span
-												style={getGlyphCssStyle(
-													EXPLORER_GLYPHS.control,
-													10,
-												)}
+												style={getGlyphCssStyle(EXPLORER_GLYPHS.control, 10)}
 											/>
 											<span
 												style={{

@@ -21,6 +21,7 @@ export function StageComponentsColumn({
 }: StageComponentsColumnProps) {
 	return (
 		<section
+			className="claude-explorer-col-full"
 			aria-label="Stage Components"
 			onClick={(ev) => ev.stopPropagation()}
 			style={{
@@ -119,9 +120,7 @@ export function StageComponentsColumn({
 								minWidth: 0,
 							}}
 						>
-							<span
-								style={getGlyphCssStyle(EXPLORER_GLYPHS.component, 10)}
-							/>
+							<span style={getGlyphCssStyle(EXPLORER_GLYPHS.component, 10)} />
 							<span
 								style={{
 									fontFamily: EXPLORER_FONTS.mono,
