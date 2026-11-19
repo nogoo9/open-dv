@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends
 from pydantic import ValidationError
 
 from opendv_contracts import (
@@ -13,56 +13,52 @@ from opendv_contracts import (
     PlatformConfigUpdateRequest,
     PlatformConfigValidateRequest,
     PlatformConfigValidationResponse,
-    RbacRole,
 )
-from opendv_platform_api.deps import get_opendv_service
-from opendv_service import OpenDVService, RolePermissionError, normalize_rbac_role
+from opendv_contracts import (
+    RbacRole as ContractsRbacRole,
+)
+from opendv_platform_api.deps import get_opendv_service, get_rbac_role
+from opendv_service import OpenDVService, RolePermissionError
+from opendv_service.rbac import RbacRole
 
 router = APIRouter(tags=["platform-config"])
 
 
+def _attach_remote_unauthenticated(
+    resp: PlatformConfigResponse, service: OpenDVService
+) -> PlatformConfigResponse:
+    flag = bool(getattr(getattr(service, "settings", None), "remote_unauthenticated_mode", False))
+    return resp.model_copy(update={"remote_unauthenticated_mode": flag})
+
+
 @router.get("/platform/config", response_model=PlatformConfigResponse)
 async def get_platform_config(
-    request: Request,
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
-    x_opendv_role: Annotated[str | None, Header(alias="X-OpenDV-Role")] = None,
+    role: Annotated[RbacRole, Depends(get_rbac_role)],
 ) -> PlatformConfigResponse:
     """Return active Platform & Agent Harness configuration and provider readiness."""
-    raw_role = x_opendv_role or request.headers.get("x-opendv-role")
-    effective_role = (
-        normalize_rbac_role(raw_role, default=RbacRole.PUBLIC)
-        if raw_role is not None and raw_role.strip()
-        else RbacRole.INTERNAL_MODELER
-    )
-    resp = service.get_platform_config()
-    return resp.redact_for_role(effective_role.value)
+    resp = _attach_remote_unauthenticated(service.get_platform_config(), service)
+    return resp.redact_for_role(role.value)
 
 
 @router.put("/platform/config", response_model=PlatformConfigResponse)
 async def update_platform_config(
     req: PlatformConfigUpdateRequest,
-    request: Request,
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
-    x_opendv_role: Annotated[str | None, Header(alias="X-OpenDV-Role")] = None,
+    role: Annotated[RbacRole, Depends(get_rbac_role)],
 ) -> PlatformConfigResponse:
     """Update Platform & Agent Harness configuration with RBAC enforcement."""
-    raw_role = x_opendv_role or request.headers.get("x-opendv-role")
-    effective_role = (
-        normalize_rbac_role(raw_role, default=RbacRole.PUBLIC)
-        if raw_role is not None and raw_role.strip()
-        else RbacRole.INTERNAL_MODELER
-    )
-    if effective_role in {RbacRole.PUBLIC, RbacRole.AUDITOR_FINANCE}:
+    if str(role) in {ContractsRbacRole.PUBLIC.value, ContractsRbacRole.AUDITOR_FINANCE.value}:
         err = RolePermissionError(
-            f"Insufficient RBAC clearance: role '{effective_role.value}' is not authorized "
+            f"Insufficient RBAC clearance: role '{role.value}' is not authorized "
             "to modify platform configuration."
         )
         err.http_status = 403
         raise err
 
     try:
-        resp = service.update_platform_config(req)
-        return resp.redact_for_role(effective_role.value)
+        resp = _attach_remote_unauthenticated(service.update_platform_config(req), service)
+        return resp.redact_for_role(role.value)
     except (ValidationError, ValueError) as exc:
         raise InputValidationError(str(exc)) from exc
 
@@ -71,6 +67,7 @@ async def update_platform_config(
 async def validate_platform_config(
     req: PlatformConfigValidateRequest,
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
+    _role: Annotated[RbacRole, Depends(get_rbac_role)],
 ) -> PlatformConfigValidationResponse:
     """Deterministically validate candidate Platform & Agent Harness configuration."""
     return service.validate_platform_config(req)

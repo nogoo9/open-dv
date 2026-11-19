@@ -36,6 +36,7 @@ from opendv_contracts.dtos.pipeline import (
 )
 from opendv_service.errors import NotFoundError
 from opendv_service.rbac import normalize_rbac_role, redact_event_for_role
+from opendv_service.runs.options import resolve_effective_provider
 from opendv_service.seams import PipelineRunner, get_default_pipeline_runner
 from opendv_service.state import StateStore
 from opendv_service.use_cases.pipeline_normalizer import (
@@ -374,8 +375,7 @@ def execute_pipeline_run_sync(
                 getattr(state, "cas_store", None),
             )
             spec_dump["sources"] = resolved_srcs
-            harness_prov = getattr(req, "harness_provider", None)
-            prov_override = getattr(req, "provider_override", None) or harness_prov
+            prov_override = resolve_effective_provider(req, state)
             run_req = PipelineRunRequest(
                 input_spec=spec_dump,
                 blueprint=bp_val,
@@ -390,8 +390,7 @@ def execute_pipeline_run_sync(
                 req.get("sources", []),
                 getattr(state, "cas_store", None),
             )
-            harness_prov = req.get("harness_provider")
-            prov_override = req.get("provider_override") or harness_prov
+            prov_override = resolve_effective_provider(req, state)
             run_req = PipelineRunRequest(
                 input_spec=dict(req),
                 blueprint=req.get("blueprint"),
@@ -459,6 +458,7 @@ async def execute_run_async(
     state_or_input: Any,
     request_or_state: Any = None,
     *,
+    role: RbacRole = RbacRole.PUBLIC,
     pipeline_runner: PipelineRunner | None = None,
 ) -> PipelineRunHandle:
     """Initiate an asynchronous pipeline run returning immediately with HTTP 202 handle."""
@@ -502,6 +502,7 @@ async def execute_run_async(
             sources=resolved_srcs,
             unstructured_documents=req.unstructured_documents,
             target_dialect=req.target_dialect,
+            provider_override=resolve_effective_provider(req, state),
             steward_hold_policy=str(hold_pol) if hold_pol else None,
         )
     elif isinstance(req, PipelineRunRequest):
@@ -511,14 +512,16 @@ async def execute_run_async(
     else:
         try:
             input_dto = PipelineInputDTO.model_validate(req)
-            return await execute_run_async(state, input_dto, pipeline_runner=pipeline_runner)
+            return await execute_run_async(
+                state, input_dto, role=role, pipeline_runner=pipeline_runner
+            )
         except (ValidationError, ValueError, TypeError):
             run_req = PipelineRunRequest.model_validate(req)
             if run_req.input_spec is None and (run_req.blueprint or run_req.sources):
                 run_req.input_spec = run_req.model_dump(mode="json", exclude_none=True)
 
     engine = RunExecutionEngine()
-    return engine.submit_pipeline_run(state, run_req, pipeline_runner=pipeline_runner)
+    return engine.submit_pipeline_run(state, run_req, role=role, pipeline_runner=pipeline_runner)
 
 
 async def stream_events(

@@ -247,7 +247,10 @@ class OpenDVService:
 
     # 6. Pipeline Execution & Streaming (Decision D2: Async)
     async def execute_run_async(
-        self, request: PipelineRunRequest | PipelineInputDTO | dict[str, Any]
+        self,
+        request: PipelineRunRequest | PipelineInputDTO | dict[str, Any],
+        *,
+        role: RbacRole = RbacRole.PUBLIC,
     ) -> PipelineRunHandle:
         if isinstance(request, PipelineInputDTO):
             bp_val = (
@@ -263,12 +266,15 @@ class OpenDVService:
                     if isinstance(gov_pol, dict)
                     else getattr(gov_pol, "steward_hold_policy", None)
                 )
+            from opendv_service.runs.options import resolve_effective_provider
+
             req_obj = PipelineRunRequest(
                 input_spec=request.model_dump(mode="json"),
                 blueprint=bp_val,
                 sources=request.sources,
                 unstructured_documents=request.unstructured_documents,
                 target_dialect=request.target_dialect,
+                provider_override=resolve_effective_provider(request, self.state),
                 steward_hold_policy=str(hold_pol) if hold_pol else None,
             )
         elif isinstance(request, PipelineRunRequest):
@@ -276,18 +282,23 @@ class OpenDVService:
         else:
             req_obj = PipelineRunRequest.model_validate(request)
         return self.run_engine.submit_pipeline_run(
-            self.state, req_obj, role=RbacRole.PUBLIC, pipeline_runner=self.pipeline_runner
+            self.state, req_obj, role=role, pipeline_runner=self.pipeline_runner
         )
 
     async def create_run_async(
-        self, request: CreateRunRequest | dict[str, Any]
+        self,
+        request: CreateRunRequest | dict[str, Any],
+        *,
+        role: RbacRole = RbacRole.PUBLIC,
     ) -> PipelineRunHandle:
         req_obj = (
             request
             if isinstance(request, CreateRunRequest)
             else CreateRunRequest.model_validate(request)
         )
-        return self.run_engine.submit_run(self.state, req_obj, pipeline_runner=self.pipeline_runner)
+        return self.run_engine.submit_run(
+            self.state, req_obj, role=role, pipeline_runner=self.pipeline_runner
+        )
 
     async def stream_events(
         self,
@@ -679,6 +690,9 @@ class OpenDVService:
         }
         if self.settings is not None:
             res["settings"] = self.settings.to_redacted_dict()
+            res["remote_unauthenticated_mode"] = bool(
+                getattr(self.settings, "remote_unauthenticated_mode", False)
+            )
         return res
 
     def get_platform_capabilities(self) -> dict[str, Any]:

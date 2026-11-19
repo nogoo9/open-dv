@@ -56,8 +56,11 @@ def get_schemas_dir(workspace_root: Path | None = None) -> Path:
     """Return the absolute path to the `/schemas` directory."""
     if workspace_root is not None:
         return Path(workspace_root).resolve() / "schemas"
-    if "OPENDV_WORKSPACE_ROOT" in os.environ:
-        return Path(os.environ["OPENDV_WORKSPACE_ROOT"]).resolve() / "schemas"
+    env_root = os.environ.get("OPENDV_WORKSPACE_ROOT")
+    if env_root:
+        env_schemas = Path(env_root).resolve() / "schemas"
+        if env_schemas.is_dir():
+            return env_schemas
     pkg_dir = Path(__file__).resolve().parents[4]
     candidate = pkg_dir / "schemas"
     if candidate.is_dir():

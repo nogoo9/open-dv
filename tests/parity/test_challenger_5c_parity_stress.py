@@ -407,9 +407,11 @@ def test_stress_exit_code_matrix_edge_cases(
     assert _extract_error_code(out_py_5, err_py_5) == "ONT_EVO_CONCURRENT_MODIFICATION"
     assert _extract_error_code(out_ts_5, err_ts_5) == "ONT_EVO_CONCURRENT_MODIFICATION"
 
-    # 8. Exit 7: Unauthorized waiver credentials
+    # 8. Exit 7: Non-admin role on low-confidence waiver
     monkeypatch.delenv("OPENDV_WAIVER_KEY", raising=False)
     unauth_waiver_py = [
+        "--role",
+        "EDITOR",
         "ontology",
         "studio",
         "proposal",
@@ -444,7 +446,7 @@ def test_stress_exit_code_matrix_edge_cases(
     code_py_7, out_py_7, err_py_7 = cli_transport.invoke_raw(unauth_waiver_py)
     old_role_7 = client_cli_transport.role
     try:
-        client_cli_transport.role = "DATA_STEWARD"
+        client_cli_transport.role = "EDITOR"
         code_ts_7, out_ts_7, err_ts_7 = client_cli_transport.invoke_raw(unauth_waiver_ts)
     finally:
         client_cli_transport.role = old_role_7

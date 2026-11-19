@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
-import hmac
 import json
 import os
 import re
@@ -563,15 +562,8 @@ def _load_and_verify_waiver_credentials(
     *,
     role_tier: str,
 ) -> tuple[int, Any] | None:
-    """Verify admin role, optional `--authorized-role`, and cryptographic waiver key.
-
-    Precedence (P13::MAJ-01, MAJ-03, P12::MAJ-04):
-    1. Authenticated role MUST be `admin` -> exit 7 `FORBIDDEN_ADMIN_REQUIRED` (before rationale).
-    2. If `--authorized-role` is passed, it MUST bind to `admin` -> exit 7.
-    3. If `--waiver-key-file` is passed and missing -> exit 3 `FILE_NOT_FOUND` (not 403/7!).
-    4. Waiver key (`--waiver-key-file` or `OPENDV_WAIVER_KEY`) MUST match workspace K_waiver
-       -> exit 7 `FORBIDDEN_ADMIN_REQUIRED`.
-    """
+    """Verify admin role, `--authorized-role`, and rationale length (no K_waiver secret)."""
+    _ = (executor, sec_mgr)
     if role_tier != "admin":
         return _err(
             7,
@@ -591,37 +583,6 @@ def _load_and_verify_waiver_credentials(
             f"Waiver --authorized-role '{raw_auth_role}' is not authorized; 'admin' required.",
         )
 
-    waiver_key = ""
-    waiver_key_file = getattr(args, "waiver_key_file", None)
-    waiver_key_env = os.environ.get("OPENDV_WAIVER_KEY")
-    if waiver_key_file:
-        key_path = Path(waiver_key_file)
-        if not key_path.is_absolute() and executor:
-            key_path = (executor.workspace_root / key_path).resolve()
-        if not key_path.is_file():
-            return _err(
-                3,
-                "FILE_NOT_FOUND",
-                f"Waiver key file not found: {waiver_key_file}",
-            )
-        try:
-            waiver_key = key_path.read_text(encoding="utf-8").strip()
-        except OSError as exc:
-            return _err(
-                2,
-                "SYNTAX_INVALID_ARGUMENT",
-                f"Cannot read waiver key file '{waiver_key_file}': {exc}",
-            )
-    elif waiver_key_env:
-        waiver_key = waiver_key_env.strip()
-
-    if not waiver_key:
-        return _err(
-            7,
-            "FORBIDDEN_ADMIN_REQUIRED",
-            "Administrative waivers strictly require authenticated waiver credentials.",
-        )
-
     rationale = getattr(args, "waiver_rationale", None) or getattr(
         args, "grounding_rationale", None
     )
@@ -631,21 +592,6 @@ def _load_and_verify_waiver_credentials(
             "INVALID_GROUNDING_WAIVER",
             "Low-confidence grounding waiver requires a rationale of at least 10 characters.",
         )
-
-    expected_waiver_bytes = sec_mgr.get_waiver_key()
-    expected_waiver_hex = expected_waiver_bytes.hex().lower()
-    key_clean = waiver_key.strip().lower()
-
-    try:
-        key_bytes = bytes.fromhex(key_clean)
-    except ValueError:
-        key_bytes = waiver_key.strip().encode("utf-8")
-
-    is_valid_key = hmac.compare_digest(key_clean, expected_waiver_hex) or hmac.compare_digest(
-        key_bytes, expected_waiver_bytes
-    )
-    if not is_valid_key:
-        return _err(7, "FORBIDDEN_ADMIN_REQUIRED", "Invalid steward waiver credentials.")
     return None
 
 
@@ -2330,15 +2276,6 @@ def handle_proposal_accept(
                 6,
                 "PROPOSAL_ALREADY_RESOLVED",
                 f"Proposal '{pid}' has already been resolved ({prop_data.get('status')}).",
-            )
-
-        proposer = _extract_proposal_proposer(prop_data)
-        if proposer == principal and not allow_self:
-            return _err(
-                7,
-                "PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN",
-                f"Principal '{principal}' cannot accept their own proposal '{pid}' without "
-                "--allow-self-accepted-proposals (admin only).",
             )
 
         clean_base_sha = str(base_sha).strip('"')

@@ -992,8 +992,11 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             assert res_rep_bad_role.status_code == 400
             assert "application/problem+json" in res_rep_bad_role.headers["content-type"]
 
-            # Pre-seeded run synthesizes an RBAC-redacted summary report; unknown run returns 404
-            res_seeded_rep = await client.get("/api/v1/runs/run-pe-apex-horizon-20261030/report")
+            # Pre-seeded run synthesizes a PUBLIC-redacted summary report; unknown run returns 404
+            res_seeded_rep = await client.get(
+                "/api/v1/runs/run-pe-apex-horizon-20261030/report",
+                headers={"X-OpenDV-Role": "PUBLIC"},
+            )
             assert res_seeded_rep.status_code == 200
             assert res_seeded_rep.json()["run_id"] == "run-pe-apex-horizon-20261030"
             assert "245000000" not in json.dumps(res_seeded_rep.json()["observability_events"])
@@ -1135,7 +1138,10 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
                 "headline"
             ].startswith("[REDACTED")
 
-            res_synced_public = await client.get(f"/api/v1/runs/{paused_run_id}/report")
+            res_synced_public = await client.get(
+                f"/api/v1/runs/{paused_run_id}/report",
+                headers={"X-OpenDV-Role": "PUBLIC"},
+            )
             assert res_synced_public.status_code == 200
             assert res_synced_public.json()["observability_events"][-1]["layer1_story_banner"][
                 "headline"

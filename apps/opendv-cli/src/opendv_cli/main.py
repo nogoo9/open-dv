@@ -43,6 +43,7 @@ _BOOLEAN_FLAGS = frozenset(
         "--stream-tokens",
         "--dump-cli-tree",
         "--open",
+        "--allow-remote-unauthenticated",
     }
 )
 _NO_SUBCOMMAND_EXEMPT_FLAGS: tuple[str, ...] = ("-h", "--help", "--version")

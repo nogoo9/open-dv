@@ -4014,6 +4014,18 @@
           "env_var": null,
           "inline_upload": false,
           "help": "Automatically open the Web Explorer UI in the default browser on startup"
+        },
+        {
+          "name": "allow_remote_unauthenticated",
+          "flag": "--allow-remote-unauthenticated",
+          "short": null,
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Allow binding to a non-loopback host without authentication (unsafe)"
         }
       ]
     },

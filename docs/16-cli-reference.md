@@ -1384,6 +1384,7 @@ opendvctl config validate --api-url $OPENDV_API_URL --json
 | `--config` | `-c` | `path` | No | — | No | Path to opendv.config.yaml configuration file |
 | `--workspace` | `-w` | `path` | No | — | No | Workspace root directory for path containment and state storage |
 | `--open` | — | `boolean` | No | `False` | No | Automatically open the Web Explorer UI in the default browser on startup |
+| `--allow-remote-unauthenticated` | — | `boolean` | No | `False` | No | Allow binding to a non-loopback host without authentication (unsafe) |
 
 
 **Example Invocations:**

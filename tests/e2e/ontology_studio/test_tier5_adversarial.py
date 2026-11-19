@@ -267,8 +267,8 @@ def test_adversarial_cli_argv_secret_hygiene(
         encoding="utf-8",
     )
 
-    # 1. Attempting to pass non-existent key file on CLI fails with FILE_NOT_FOUND (exit code 3)
-    exit_code_fake_file = app_main(
+    # 1. Legacy --waiver-key-file is tolerated as a harmless no-op under M1 open-access
+    exit_code_waiver = app_main(
         [
             "ontology",
             "studio",
@@ -286,7 +286,7 @@ def test_adversarial_cli_argv_secret_hygiene(
             "--json",
         ]
     )
-    assert exit_code_fake_file == 3
+    assert exit_code_waiver == 0
 
     # 2. Attempting to pass raw secret argument is rejected by CLI argument parser (exit 2)
     exit_code_argv_key = app_main(

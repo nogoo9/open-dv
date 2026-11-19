@@ -15,19 +15,25 @@ import contextlib
 import hmac
 import ipaddress
 import os
-import re
 import secrets
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal
-from urllib.parse import urlparse
 
 import jwt
 from fastapi import Request
 
-from opendv_platform_api.security.csrf import is_loopback_host
+from opendv_platform_api.security.csrf import origin_matches_host, verify_csrf
 from opendv_platform_api.security.error_catalog import StudioAPIError
+from opendv_platform_api.security.loopback_policy import (
+    _PRINCIPAL_PATTERN,
+    is_loopback_request,
+    is_remote_unauthenticated_enabled,
+    normalize_studio_role,
+    resolve_open_access_identity,
+)
+from opendv_service.rbac import ROLE_CLEARANCE_LEVELS, RbacRole, normalize_rbac_role
 from opendv_service.studio.locks import L1_LOCAL_TOKEN, studio_lock
 from opendv_service.studio.workspace_security import (
     _ACTIVE_SESSIONS,
@@ -45,10 +51,12 @@ SERVER_MODE_LOCAL: Final[str] = "local_standalone"
 SERVER_MODE_REMOTE: Final[str] = "remote_platform"
 
 Role = Literal["admin", "editor", "viewer", "automated"]
-
-_PRINCIPAL_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"^(human|agent|system|user):[a-zA-Z0-9_.\-]+$"
-)
+_STUDIO_TO_RBAC_ROLE: Final[dict[str, RbacRole]] = {
+    "viewer": RbacRole.PUBLIC,
+    "editor": RbacRole.INTERNAL_MODELER,
+    "automated": RbacRole.INTERNAL_MODELER,
+    "admin": RbacRole.PRIVILEGED_CUSTODIAN,
+}
 
 
 def get_jwt_verification_key() -> str:
@@ -134,87 +142,9 @@ def get_server_mode(request: Request | None = None) -> str:
     return SERVER_MODE_LOCAL
 
 
-def _resolve_expected_loopback_port(request: Request) -> int | None:
-    """Determine expected listening port for loopback Host header verification."""
-    env_port = os.environ.get("OPENDV_SERVER_PORT", "").strip()
-    if env_port.isdigit():
-        return int(env_port)
-
-    server_tuple = request.scope.get("server")
-    if isinstance(server_tuple, (tuple, list)) and len(server_tuple) >= 2 and server_tuple[1]:
-        return int(server_tuple[1])
-
-    settings = getattr(getattr(request, "app", None), "state", None)
-    cfg = getattr(settings, "settings", None) if settings is not None else None
-    cfg_port = getattr(cfg, "server_port", None) if cfg is not None else None
-    if cfg_port is not None:
-        return int(cfg_port)
-    return None
-
-
 def is_loopback_client(request: Request) -> bool:
     """Verify caller connects from loopback and validate Host/Origin/Fetch-Metadata."""
-    sec_fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
-    if sec_fetch_site == "cross-site":
-        raise StudioAPIError(
-            "CSRF_ORIGIN_MISMATCH",
-            "Cross-site request rejected on loopback bootstrap endpoint.",
-            instance=str(request.url.path),
-        )
-
-    origin = request.headers.get("origin")
-    if origin is not None and origin.strip().lower() == "null":
-        raise StudioAPIError(
-            "CSRF_ORIGIN_MISMATCH",
-            "Opaque Origin 'null' rejected on loopback bootstrap endpoint.",
-            instance=str(request.url.path),
-        )
-
-    if not request.client or not request.client.host:
-        return False
-    try:
-        client_ip = ipaddress.ip_address(request.client.host)
-        if not client_ip.is_loopback:
-            return False
-    except (ValueError, AttributeError):
-        return False
-
-    host = request.headers.get("host")
-    if not host:
-        return False
-    parsed_host = urlparse(f"//{host.strip()}")
-    host_hostname = parsed_host.hostname
-    if not is_loopback_host(host_hostname):
-        return False
-
-    expected_port = _resolve_expected_loopback_port(request)
-    if (
-        parsed_host.port is not None
-        and expected_port is not None
-        and parsed_host.port != expected_port
-    ):
-        return False
-
-    if origin:
-        parsed_origin = urlparse(origin.strip())
-        origin_hostname = parsed_origin.hostname
-        if not is_loopback_host(origin_hostname):
-            raise StudioAPIError(
-                "CSRF_ORIGIN_MISMATCH",
-                f"Cross-origin request to loopback bootstrap rejected: Origin '{origin}'.",
-                instance=str(request.url.path),
-            )
-        scheme = request.url.scheme or "http"
-        host_port = parsed_host.port or expected_port or (443 if scheme == "https" else 80)
-        origin_port = parsed_origin.port or (443 if parsed_origin.scheme == "https" else 80)
-        if origin_port != host_port:
-            raise StudioAPIError(
-                "CSRF_ORIGIN_MISMATCH",
-                f"Cross-port loopback Origin '{origin}' does not match Host '{host}'.",
-                instance=str(request.url.path),
-            )
-
-    return True
+    return is_loopback_request(request, allow_testclient=True)
 
 
 def get_local_token_path(studio_root: Path) -> Path:
@@ -365,19 +295,55 @@ def get_active_session_role(session_token: str) -> str | None:
         return str(role) if isinstance(role, str) else None
 
 
-def _normalize_studio_role(raw_role: str, *, allow_legacy_aliases: bool = True) -> str | None:
-    role = raw_role.lower().strip()
-    if role == "admin" or (
-        allow_legacy_aliases and role in ("data_steward", "restricted_pii_custodian")
-    ):
-        return "admin"
-    if role == "editor":
-        return "editor"
-    if role == "automated" or (allow_legacy_aliases and role == "internal_modeler"):
-        return "automated"
-    if role == "viewer" or (allow_legacy_aliases and role in ("public", "auditor_finance")):
-        return "viewer"
-    return None
+_normalize_studio_role = normalize_studio_role
+
+
+def _verify_remote_jwt(token: str) -> StudioPrincipal:
+    """Verify RS256 Bearer JWT (signature, alg, iss, aud, exp, sub, role) for remote_platform."""
+    pub_key = get_jwt_verification_key()
+    unverified_header = jwt.get_unverified_header(token)
+    if unverified_header.get("alg") != "RS256":
+        raise StudioAPIError(
+            "UNAUTHENTICATED",
+            f"Algorithm '{unverified_header.get('alg')}' forbidden in remote mode; "
+            "only RS256 is permitted.",
+        )
+
+    expected_issuer = os.environ.get("OPENDV_JWT_ISSUER", "opendv-platform")
+    expected_audience = os.environ.get("OPENDV_JWT_AUDIENCE", "opendv-api")
+    claims = jwt.decode(
+        token,
+        pub_key,
+        algorithms=["RS256"],
+        issuer=expected_issuer,
+        audience=expected_audience,
+        leeway=60,
+        options={"require": ["exp", "sub", "iss", "aud"]},
+    )
+    principal = str(claims["sub"]).strip()
+    if not _PRINCIPAL_PATTERN.match(principal) or len(principal) > 128:
+        raise StudioAPIError(
+            "UNAUTHENTICATED",
+            f"JWT sub claim '{principal}' does not match pattern "
+            "^(human|agent|system|user):[a-zA-Z0-9_.-]+$ or exceeds 128 characters.",
+        )
+    raw_jwt_role = str(claims.get("role") or "viewer")
+    normalized_role = _normalize_studio_role(raw_jwt_role, allow_legacy_aliases=True)
+    if normalized_role is None:
+        raise StudioAPIError(
+            "UNAUTHENTICATED",
+            f"JWT role claim '{raw_jwt_role}' is not a valid role "
+            "(admin, editor, viewer, automated).",
+        )
+    if principal.startswith("agent:"):
+        normalized_role = "automated"
+
+    return StudioPrincipal(
+        principal=principal,
+        role=normalized_role,
+        is_admin=(normalized_role == "admin"),
+        auth_method="jwt",
+    )
 
 
 def authenticate_studio_request(
@@ -392,134 +358,47 @@ def authenticate_studio_request(
 
     auth_header = request.headers.get("authorization")
     session_cookie = request.cookies.get("opendv_session")
-    role_header = request.headers.get("x-opendv-role")
 
     principal_obj: StudioPrincipal | None = None
 
-    if auth_header and auth_header.strip().lower().startswith("bearer "):
-        token = auth_header.strip()[7:].strip()
-        if server_mode == SERVER_MODE_REMOTE:
+    if server_mode == SERVER_MODE_REMOTE:
+        if auth_header and auth_header.strip().lower().startswith("bearer "):
+            token = auth_header.strip()[7:].strip()
             try:
-                pub_key = get_jwt_verification_key()
-                unverified_header = jwt.get_unverified_header(token)
-                if unverified_header.get("alg") != "RS256":
-                    raise StudioAPIError(
-                        "UNAUTHENTICATED",
-                        f"Algorithm '{unverified_header.get('alg')}' forbidden in remote mode; "
-                        "only RS256 is permitted.",
-                    )
-
-                expected_issuer = os.environ.get("OPENDV_JWT_ISSUER", "opendv-platform")
-                expected_audience = os.environ.get("OPENDV_JWT_AUDIENCE", "opendv-api")
-                claims = jwt.decode(
-                    token,
-                    pub_key,
-                    algorithms=["RS256"],
-                    issuer=expected_issuer,
-                    audience=expected_audience,
-                    leeway=60,
-                    options={"require": ["exp", "sub", "iss", "aud"]},
-                )
-                principal = str(claims["sub"]).strip()
-                if not _PRINCIPAL_PATTERN.match(principal) or len(principal) > 128:
-                    raise StudioAPIError(
-                        "UNAUTHENTICATED",
-                        f"JWT sub claim '{principal}' does not match pattern "
-                        "^(human|agent|system|user):[a-zA-Z0-9_.-]+$ or exceeds 128 characters.",
-                    )
-                raw_jwt_role = str(claims.get("role") or "viewer")
-                normalized_role = _normalize_studio_role(raw_jwt_role, allow_legacy_aliases=True)
-                if normalized_role is None:
-                    raise StudioAPIError(
-                        "UNAUTHENTICATED",
-                        f"JWT role claim '{raw_jwt_role}' is not a valid role "
-                        "(admin, editor, viewer, automated).",
-                    )
-                if principal.startswith("agent:"):
-                    normalized_role = "automated"
-
-                principal_obj = StudioPrincipal(
-                    principal=principal,
-                    role=normalized_role,
-                    is_admin=(normalized_role == "admin"),
-                    auth_method="jwt",
-                )
+                principal_obj = _verify_remote_jwt(token)
             except jwt.PyJWTError as exc:
                 raise StudioAPIError("UNAUTHENTICATED", f"JWT validation failed: {exc}") from exc
-            except StudioAPIError:
-                raise
-        else:
-            local_token = resolve_local_token(studio_root)
-            if local_token:
-                try:
-                    match = hmac.compare_digest(token.encode("utf-8"), local_token.encode("utf-8"))
-                except (TypeError, UnicodeEncodeError):
-                    match = False
-                if match:
-                    normalized_role = _normalize_studio_role(
-                        role_header or "admin", allow_legacy_aliases=True
-                    )
-                    if normalized_role is None:
-                        raise StudioAPIError(
-                            "SYNTAX_INVALID_ARGUMENT",
-                            f"Invalid X-OpenDV-Role '{role_header}'; "
-                            "permitted roles are admin, editor, viewer, automated, DATA_STEWARD, "
-                            "RESTRICTED_PII_CUSTODIAN, INTERNAL_MODELER, AUDITOR_FINANCE, PUBLIC.",
-                        )
-                    raw_principal = request.headers.get("X-OpenDV-Principal")
-                    if raw_principal:
-                        clean_principal = raw_principal.strip()
-                        if (
-                            not _PRINCIPAL_PATTERN.match(clean_principal)
-                            or len(clean_principal) > 128
-                        ):
-                            raise StudioAPIError(
-                                "SYNTAX_INVALID_ARGUMENT",
-                                f"Invalid X-OpenDV-Principal '{raw_principal}'; "
-                                "must match pattern ^(human|agent|system|user):[a-zA-Z0-9_.-]+$ "
-                                "and not exceed 128 characters.",
-                            )
-                        principal_str = clean_principal
-                    elif normalized_role == "automated":
-                        principal_str = "system:automated_runner"
-                    else:
-                        principal_str = "human:local_admin"
-
-                    if principal_str.startswith("agent:"):
-                        normalized_role = "automated"
-
-                    principal_obj = StudioPrincipal(
-                        principal=principal_str,
-                        role=normalized_role,
-                        is_admin=(normalized_role == "admin"),
-                        auth_method="local_token",
-                    )
-                else:
-                    raise StudioAPIError("UNAUTHENTICATED", "Invalid local bearer token.")
-            else:
-                raise StudioAPIError("UNAUTHENTICATED", "Local token not initialized.")
-
-    elif session_cookie:
-        if server_mode == SERVER_MODE_REMOTE:
+        elif session_cookie:
             raise StudioAPIError(
                 "UNAUTHENTICATED",
                 "Session cookies are disabled in remote_platform mode; RS256 Bearer JWT required.",
             )
-        with _AUTH_LOCK:
-            session_data = _ACTIVE_SESSIONS.get(session_cookie)
-        if session_data and time.time() <= session_data["expires_at"]:
-            role = str(session_data["role"])
-            principal_str = str(session_data["principal"])
-            if principal_str.startswith("agent:"):
-                role = "automated"
+    else:
+        is_loopback = is_loopback_request(request, allow_testclient=True)
+        if not is_loopback:
+            _verify_remote_unauth_perimeter(request)
+        if session_cookie:
+            with _AUTH_LOCK:
+                session_data = _ACTIVE_SESSIONS.get(session_cookie)
+            if session_data and time.time() <= session_data["expires_at"]:
+                role = str(session_data["role"])
+                principal_str = str(session_data["principal"])
+                if principal_str.startswith("agent:"):
+                    role = "automated"
+                principal_obj = StudioPrincipal(
+                    principal=principal_str,
+                    role=role,
+                    is_admin=(role == "admin"),
+                    auth_method="cookie",
+                )
+        if principal_obj is None:
+            principal_str, resolved_role = resolve_open_access_identity(request)
             principal_obj = StudioPrincipal(
                 principal=principal_str,
-                role=role,
-                is_admin=(role == "admin"),
-                auth_method="cookie",
+                role=resolved_role,
+                is_admin=(resolved_role == "admin"),
+                auth_method="loopback",
             )
-        else:
-            raise StudioAPIError("UNAUTHENTICATED", "Session cookie expired or invalid.")
 
     if principal_obj is None:
         raise StudioAPIError("UNAUTHENTICATED", "Authentication credentials required.")
@@ -551,41 +430,86 @@ def authenticate_studio_request(
     return principal_obj
 
 
+def _is_loopback_client_ip(host: str) -> bool:
+    if host == "testclient":
+        return True
+    try:
+        return bool(ipaddress.ip_address(host).is_loopback)
+    except ValueError:
+        return False
+
+
+def _verify_remote_unauth_perimeter(request: Request) -> None:
+    """Enforce --allow-remote-unauthenticated DNS-rebinding and Origin/Host perimeter."""
+    client_host = request.client.host if request.client else ""
+    if not is_remote_unauthenticated_enabled(request) or _is_loopback_client_ip(client_host):
+        raise StudioAPIError(
+            "LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE",
+            "Studio access requires a loopback caller with a valid loopback Host header.",
+            instance=str(request.url.path),
+        )
+    origin = request.headers.get("origin")
+    host = request.headers.get("host") or ""
+    if origin and (not host or not origin_matches_host(origin, host)):
+        raise StudioAPIError(
+            "CSRF_ORIGIN_MISMATCH",
+            f"Cross-origin request rejected: Origin '{origin}' does not match Host '{host}'.",
+            status_code=403,
+            instance=str(request.url.path),
+        )
+
+
 def is_authenticated_request(request: Request) -> bool:
-    """Verify whether caller is authenticated via principal, loopback, cookie, or token."""
+    """Verify whether caller is authenticated via principal, loopback, or remote JWT."""
     if getattr(request.state, "studio_principal", None) is not None:
         return True
-    client_host = getattr(getattr(request, "client", None), "host", "")
-    host_hdr = (request.headers.get("host") or "").split(":")[0].strip().lower()
-    if client_host == "testclient" or (
-        (is_loopback_host(client_host) or client_host == "testclient")
-        and host_hdr in ("testclient", "testserver")
-    ):
-        return True
-    with contextlib.suppress(Exception):
-        if is_loopback_client(request):
+    if get_server_mode(request) == SERVER_MODE_REMOTE:
+        auth_header = request.headers.get("authorization")
+        if auth_header and auth_header.strip().lower().startswith("bearer "):
+            token = auth_header.strip()[7:].strip()
+            with contextlib.suppress(jwt.PyJWTError, StudioAPIError):
+                request.state.studio_principal = _verify_remote_jwt(token)
+                return True
+        return False
+    try:
+        is_loopback = is_loopback_request(request, allow_testclient=True)
+    except StudioAPIError:
+        return False
+    if is_loopback:
+        with contextlib.suppress(StudioAPIError):
+            verify_csrf(request)
             return True
-    session_cookie = request.cookies.get("opendv_session")
-    if session_cookie and get_active_session_role(session_cookie) is not None:
+        return False
+    # Reject forged Host on loopback socket (DNS rebinding) or cross-origin/Referer attacks
+    # even when --allow-remote-unauthenticated is active.
+    with contextlib.suppress(StudioAPIError):
+        _verify_remote_unauth_perimeter(request)
+        verify_csrf(request)
         return True
-    auth_header = request.headers.get("authorization")
-    if auth_header and auth_header.strip().lower().startswith("bearer "):
-        token = auth_header.strip()[7:].strip()
-        with contextlib.suppress(Exception):
-            settings = getattr(getattr(request, "app", None), "state", None)
-            ws_root = getattr(getattr(settings, "settings", None), "workspace_root", Path("."))
-            studio_root = (ws_root / ".opendv" / "ontology_studio").resolve()
-            local_tok = resolve_local_token(studio_root)
-            env_tok = os.environ.get("OPENDV_TOKEN")
-            if (local_tok and token == local_tok) or (env_tok and token == env_tok.strip()):
-                return True
-            if get_server_mode(request) == SERVER_MODE_REMOTE:
-                pub_key = get_jwt_verification_key()
-                jwt.decode(
-                    token, pub_key, algorithms=["RS256"], options={"verify_signature": True}
-                )
-                return True
     return False
+
+
+def resolve_remote_rbac_role(
+    request: Request,
+    requested_header: str | None,
+    *,
+    authenticated: bool,
+) -> RbacRole:
+    """Map remote JWT role to 5-tier RbacRole and allow only privilege downgrades."""
+    if not authenticated:
+        return RbacRole.PUBLIC
+    principal = getattr(request.state, "studio_principal", None)
+    max_role = (
+        _STUDIO_TO_RBAC_ROLE.get(principal.role, RbacRole.PUBLIC)
+        if principal is not None
+        else RbacRole.PUBLIC
+    )
+    if not requested_header or not requested_header.strip():
+        return max_role
+    requested = normalize_rbac_role(requested_header, default=max_role, authenticated=True)
+    if ROLE_CLEARANCE_LEVELS[requested].issubset(ROLE_CLEARANCE_LEVELS[max_role]):
+        return requested
+    return max_role
 
 
 __all__ = [
@@ -605,4 +529,5 @@ __all__ = [
     "is_loopback_client",
     "mint_launch_nonce",
     "resolve_local_token",
+    "resolve_remote_rbac_role",
 ]

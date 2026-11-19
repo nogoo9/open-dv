@@ -204,6 +204,13 @@ SERVE_COMMAND = CommandDef(
             default=False,
             help="Automatically open the Web Explorer UI in the default browser on startup",
         ),
+        OptionDef(
+            name="allow_remote_unauthenticated",
+            flag="--allow-remote-unauthenticated",
+            type="boolean",
+            default=False,
+            help="Allow binding to a non-loopback host without authentication (unsafe)",
+        ),
     ],
 )
 

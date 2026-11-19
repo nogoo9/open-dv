@@ -24,7 +24,7 @@ from opendv_service.models import (
     ProjectRunDTO,
 )
 from opendv_service.runs.callbacks import build_pipeline_callbacks
-from opendv_service.runs.options import resolve_run_creation_options
+from opendv_service.runs.options import resolve_effective_provider, resolve_run_creation_options
 from opendv_service.seams import PipelineRunner, get_default_pipeline_runner
 
 if TYPE_CHECKING:
@@ -89,7 +89,7 @@ class RunExecutionEngine:
         """Launch an agentic pipeline run in the background returning an HTTP 202 handle."""
         run_id = getattr(request, "run_id", None) or f"run-{uuid.uuid4().hex[:12]}"
         now_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-        provider = getattr(request, "provider_override", None) or "antigravity"
+        provider = resolve_effective_provider(request, state)
 
         req_with_id = (
             request.model_copy(update={"run_id": run_id})
@@ -221,11 +221,12 @@ class RunExecutionEngine:
         state: StateStore,
         req: CreateRunRequest,
         *,
+        role: RbacRole = RbacRole.PUBLIC,
         pipeline_runner: PipelineRunner | None = None,
     ) -> PipelineRunHandle:
         """Launch a generic platform run or pipeline asynchronously."""
         run_opts = resolve_run_creation_options(req, workspace_root=state.repo_root)
-        provider_override = run_opts.provider_override
+        provider_override = run_opts.provider_override or resolve_effective_provider(req, state)
         has_initial_contract = run_opts.has_initial_contract
         initial_contract_path = run_opts.initial_contract_path
         lifecycle_stage = run_opts.lifecycle_stage
@@ -240,6 +241,7 @@ class RunExecutionEngine:
                     initial_contract_path=req.initial_contract_path,
                     initial_contract=req.initial_contract,
                 ),
+                role=role,
                 pipeline_runner=pipeline_runner,
             )
 
@@ -272,6 +274,7 @@ class RunExecutionEngine:
                     initial_contract_path=req.initial_contract_path,
                     initial_contract=req.initial_contract,
                 ),
+                role=role,
                 pipeline_runner=pipeline_runner,
             )
 
@@ -282,7 +285,7 @@ class RunExecutionEngine:
         run_dto = state._init_run_artifacts(
             run_id=run_id,
             project_id=target_project_id,
-            harness_provider=req.harness_provider,
+            harness_provider=provider_override,
             started_at_utc=now_iso,
             has_initial_contract=has_initial_contract,
             initial_contract_path=initial_contract_path,
@@ -316,7 +319,7 @@ class RunExecutionEngine:
             event_stream_url=f"/api/v1/runs/{run_id}/events",
             status_url=f"/api/v1/runs/{run_id}",
             project_id=target_project_id,
-            harness_provider=req.harness_provider,
+            harness_provider=provider_override,
             has_initial_contract=has_initial_contract,
             initial_contract_path=initial_contract_path,
             lifecycle_stage=lifecycle_stage,

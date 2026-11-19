@@ -19,14 +19,12 @@ from opendv_contracts import (
 from opendv_contracts.dtos.platform_config import (
     HarnessConfigDTO,
 )
-from opendv_contracts.errors import OpenDVError
 from opendv_service.settings import (
     DEFAULT_CORS_ORIGINS,
     DEFAULT_SERVER_HOST,
     DEFAULT_SERVER_PORT,
     is_loopback_hostname,
 )
-from opendv_service.studio.workspace_security import mint_launch_nonce
 
 
 def _load_platform_server_main() -> Any | None:
@@ -250,9 +248,15 @@ class PlatformExecutionMixin:
         config_path = getattr(args, "config", None)
         workspace_path = getattr(args, "workspace", None)
         open_browser = bool(getattr(args, "open_browser", False) or getattr(args, "open", False))
+        allow_remote_unauth = bool(getattr(args, "allow_remote_unauthenticated", False))
+
+        from opendv_service.settings import validate_server_host_guard
+
+        validate_server_host_guard(host, allow_remote_unauthenticated=allow_remote_unauth)
 
         prev_config = os.environ.get("OPENDV_CONFIG")
         prev_workspace = os.environ.get("OPENDV_WORKSPACE_ROOT")
+        prev_remote_unauth = os.environ.get("OPENDV_ALLOW_REMOTE_UNAUTHENTICATED")
         try:
             if config_path:
                 os.environ["OPENDV_CONFIG"] = str(Path(config_path).resolve())
@@ -260,6 +264,8 @@ class PlatformExecutionMixin:
                 os.environ["OPENDV_WORKSPACE_ROOT"] = str(Path(workspace_path).resolve())
             elif "OPENDV_WORKSPACE_ROOT" not in os.environ:
                 os.environ["OPENDV_WORKSPACE_ROOT"] = str(self.workspace_root)
+            if allow_remote_unauth:
+                os.environ["OPENDV_ALLOW_REMOTE_UNAUTHENTICATED"] = "true"
 
             server_mode = (
                 (
@@ -273,23 +279,8 @@ class PlatformExecutionMixin:
             is_loopback = is_loopback_hostname(host)
             studio_launch_url: str | None = None
             if server_mode == "local_standalone" and is_loopback:
-                from opendv_cli.commands.ontology_studio import (
-                    _err_from_opendv_error,
-                    resolve_studio_principal,
-                )
-
-                auth_res = resolve_studio_principal(args)
-                if isinstance(auth_res[0], int):
-                    return auth_res  # type: ignore[return-value]
-                principal_id, studio_role = auth_res  # type: ignore[misc]
-                exec_mod = sys.modules.get("opendv_cli.executor")
-                mint_fn = getattr(exec_mod, "mint_launch_nonce", mint_launch_nonce)
-                try:
-                    nonce = mint_fn(principal=principal_id, role=studio_role, ttl=60.0)
-                except OpenDVError as exc:
-                    return _err_from_opendv_error(exc)
                 display_host = "[::1]" if host.strip() == "::1" else host.strip()
-                studio_launch_url = f"http://{display_host}:{port}/ontology#token={nonce}"
+                studio_launch_url = f"http://{display_host}:{port}/ontology"
                 wants_json = bool(
                     getattr(args, "json", False) or getattr(args, "format", None) == "json"
                 )
@@ -303,6 +294,8 @@ class PlatformExecutionMixin:
                 cli_argv.extend(["--workspace", str(workspace_path)])
             if open_browser:
                 cli_argv.append("--open")
+            if allow_remote_unauth:
+                cli_argv.append("--allow-remote-unauthenticated")
 
             exec_mod = sys.modules.get("opendv_cli.executor")
             load_fn = getattr(exec_mod, "_load_platform_server_main", _load_platform_server_main)
@@ -361,6 +354,10 @@ class PlatformExecutionMixin:
                 os.environ.pop("OPENDV_WORKSPACE_ROOT", None)
             else:
                 os.environ["OPENDV_WORKSPACE_ROOT"] = prev_workspace
+            if prev_remote_unauth is None:
+                os.environ.pop("OPENDV_ALLOW_REMOTE_UNAUTHENTICATED", None)
+            else:
+                os.environ["OPENDV_ALLOW_REMOTE_UNAUTHENTICATED"] = prev_remote_unauth
 
     _execute_serve = _handle_serve
 

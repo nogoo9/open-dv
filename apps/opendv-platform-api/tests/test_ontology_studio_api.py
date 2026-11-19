@@ -88,15 +88,13 @@ def client(tmp_path: Path) -> TestClient:
 
 @pytest.fixture
 def auth_headers(client: TestClient) -> dict[str, str]:
-    """Initialize local standalone environment and return valid auth headers."""
+    """Initialize local standalone environment and return open-access admin headers."""
     resp = client.post(
         "/api/v1/ontology/studio/init",
         json={"domain_namespace": "wealth_mgmt", "enterprise_owner": "Global Wealth"},
     )
     assert resp.status_code == 200, resp.text
-    token = resp.json()["local_token"]
     return {
-        "Authorization": f"Bearer {token}",
         "X-OpenDV-Role": "admin",
     }
 
@@ -107,7 +105,7 @@ def auth_headers(client: TestClient) -> dict[str, str]:
 
 
 def test_init_endpoint_local_standalone(client: TestClient) -> None:
-    """Verify POST /init in local standalone mode."""
+    """Verify POST /init acts as an open-access 200 OK shim in local standalone mode."""
     resp = client.post(
         "/api/v1/ontology/studio/init",
         json={"domain_namespace": "wealth_mgmt", "enterprise_owner": "Global Wealth"},
@@ -115,16 +113,17 @@ def test_init_endpoint_local_standalone(client: TestClient) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "initialized"
-    assert "local_token" in data
+    assert data["local_token"] is None
+    assert data["principal"] == "human:local_user"
     assert data["domain_namespace"] == "wealth_mgmt"
 
-    # Re-init without force fails if token doesn't match
-    reinit_fail = client.post(
+    # Idempotent shim: re-init without force or with stale Bearer token still returns 200
+    reinit_ok = client.post(
         "/api/v1/ontology/studio/init",
         json={"domain_namespace": "wealth_mgmt", "force": False},
         headers={"Authorization": "Bearer bad-token"},
     )
-    assert reinit_fail.status_code == 409
+    assert reinit_ok.status_code == 200
 
 
 def test_session_lifecycle_crud(client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -394,24 +393,48 @@ def test_proposal_lifecycle_and_self_acceptance_rejection(
     prop_id = prop["proposal_id"]
     assert prop["status"] == "PENDING"
 
-    # Self-acceptance check: proposer cannot accept their own proposal (403)
-    # The header has X-OpenDV-Role: admin, but the user is the same proposer
-    # Let's verify self-acceptance check logic
-    self_accept_resp = client.post(
-        f"/api/v1/ontology/studio/sessions/prop-session/proposals/{prop_id}/accept",
-        json={},
+    # Self-acceptance is permitted under M1 open-access (`FR-AUTH-02`)
+    status_resp = client.get(
+        "/api/v1/ontology/studio/sessions/prop-session/status",
         headers=auth_headers,
     )
-    # Proposer in headers is "local_user", matching proposal author
-    assert self_accept_resp.status_code == 403
-    assert self_accept_resp.json()["error_code"] in (
-        "FORBIDDEN_SELF_ACCEPTANCE",
-        "PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN",
+    assert status_resp.status_code == 200
+    head_sha = status_resp.json()["head_sha256"]
+    self_accept_resp = client.post(
+        f"/api/v1/ontology/studio/sessions/prop-session/proposals/{prop_id}/accept",
+        json={
+            "base_sha256": head_sha,
+            "low_confidence_waiver": True,
+            "grounding_rationale": "Steward waiver for open-access self-acceptance test.",
+        },
+        headers={**auth_headers, "If-Match": f'"{head_sha}"'},
     )
+    assert self_accept_resp.status_code == 200, self_accept_resp.text
 
-    # Reject proposal
+    # Create and reject a second proposal
+    prop2_resp = client.post(
+        "/api/v1/ontology/studio/sessions/prop-session/proposals",
+        json={
+            "operations": [
+                {
+                    "op_type": "AddConceptOp",
+                    "concept": {
+                        "concept_uri": "urn:ontology:entity:currency_pair",
+                        "concept_name": "Currency Pair",
+                        "definition": "A quotation of two different currencies.",
+                        "target_hub": "hub_currency_pair",
+                    },
+                }
+            ],
+            "rationale": "Add Currency Pair Concept",
+        },
+        headers=auth_headers,
+    )
+    assert prop2_resp.status_code == 201
+    prop2_id = prop2_resp.json()["proposal_id"]
+
     reject_resp = client.post(
-        f"/api/v1/ontology/studio/sessions/prop-session/proposals/{prop_id}/reject",
+        f"/api/v1/ontology/studio/sessions/prop-session/proposals/{prop2_id}/reject",
         json={"reason": "Instrument schema needs additional review by governance steward."},
         headers=auth_headers,
     )
@@ -653,12 +676,12 @@ def test_launch_nonce_lifecycle_and_replay_rejection(
     client: TestClient, auth_headers: dict[str, str]
 ) -> None:
     """Verify launch nonce creation, token exchange, and single-use replay rejection."""
-    # Calling /auth/launch-nonce without auth fails with 401
-    unauth_resp = client.post("/api/v1/ontology/studio/auth/launch-nonce")
-    assert unauth_resp.status_code == 401
-    assert unauth_resp.json()["error_code"] == "UNAUTHENTICATED"
+    # Calling /auth/launch-nonce on loopback succeeds zero-token under M1 open-access
+    open_nonce_resp = client.post("/api/v1/ontology/studio/auth/launch-nonce")
+    assert open_nonce_resp.status_code == 200
+    assert "launch_nonce" in open_nonce_resp.json()
 
-    # Create launch nonce with valid auth
+    # Create launch nonce with explicit admin headers
     nonce_resp = client.post("/api/v1/ontology/studio/auth/launch-nonce", headers=auth_headers)
     assert nonce_resp.status_code == 200
     nonce = nonce_resp.json()["launch_nonce"]
@@ -798,13 +821,12 @@ def test_csrf_cookie_validation(client: TestClient, auth_headers: dict[str, str]
     )
     cookie_client.cookies.set("opendv_session", session_cookie)
 
-    # 1. Mutating request with cookie but missing X-OpenDV-Workbench header fails with 403
-    blocked_resp = cookie_client.post(
+    # 1. Mutating request with cookie succeeds without X-OpenDV-Workbench when Origin/Host are valid
+    open_resp = cookie_client.post(
         "/api/v1/ontology/studio/sessions",
         json={"session_id": "csrf-no-header", "domain_namespace": "wealth_mgmt"},
     )
-    assert blocked_resp.status_code == 403
-    assert blocked_resp.json()["error_code"] == "CSRF_ORIGIN_MISMATCH"
+    assert open_resp.status_code == 201
 
     # 2. Mutating request with cookie, X-OpenDV-Workbench: 1, but Origin: null fails with 403
     null_origin_resp = cookie_client.post(
@@ -847,43 +869,33 @@ def test_csrf_cookie_validation(client: TestClient, auth_headers: dict[str, str]
 def test_token_rotation_and_lifecycle(
     client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify local token rotation rules, existing token validation, and OPENDV_TOKEN guard."""
-    # 1. Calling /init without force when already initialized fails with 409
+    """Verify /init acts as an idempotent open-access shim and tolerates legacy tokens."""
+    # 1. Calling /init repeatedly without force succeeds (idempotent shim)
     resp_dup = client.post(
         "/api/v1/ontology/studio/init",
         json={"domain_namespace": "wealth_mgmt"},
     )
-    assert resp_dup.status_code == 409
-    assert resp_dup.json()["error_code"] == "STUDIO_ALREADY_INITIALIZED"
+    assert resp_dup.status_code == 200
+    assert resp_dup.json()["local_token"] is None
 
-    # 2. Calling /init with force=True but invalid/missing Bearer token fails with 401
-    resp_unauth = client.post(
+    # 2. Calling /init with force=True and stale Bearer token succeeds as no-op on loopback
+    resp_force = client.post(
         "/api/v1/ontology/studio/init",
         json={"domain_namespace": "wealth_mgmt", "force": True},
         headers={"Authorization": "Bearer wrong-token"},
     )
-    assert resp_unauth.status_code == 401
-    assert resp_unauth.json()["error_code"] == "UNAUTHENTICATED"
+    assert resp_force.status_code == 200
+    assert resp_force.json()["principal"] == "human:local_user"
 
-    # 3. Calling /init with force=True and valid existing token rotates successfully
-    resp_rotated = client.post(
-        "/api/v1/ontology/studio/init",
-        json={"domain_namespace": "wealth_mgmt", "force": True},
-        headers=auth_headers,
-    )
-    assert resp_rotated.status_code == 200
-    new_token = resp_rotated.json()["local_token"]
-    assert new_token != auth_headers["Authorization"].split()[1]
-
-    # 4. When OPENDV_TOKEN is statically configured, initialization and rotation return 500
+    # 3. Calling /init with OPENDV_TOKEN set is tolerated as a harmless no-op on loopback
     monkeypatch.setenv("OPENDV_TOKEN", "statically-pinned-token")
     resp_static = client.post(
         "/api/v1/ontology/studio/init",
         json={"domain_namespace": "wealth_mgmt", "force": True},
-        headers={"Authorization": f"Bearer {new_token}"},
+        headers=auth_headers,
     )
-    assert resp_static.status_code == 500
-    assert resp_static.json()["error_code"] == "STATIC_TOKEN_CONFIGURED"
+    assert resp_static.status_code == 200
+    assert resp_static.json()["local_token"] is None
 
 
 def test_role_header_validation(client: TestClient, auth_headers: dict[str, str]) -> None:
@@ -938,7 +950,9 @@ def test_non_loopback_rejection(client: TestClient, auth_headers: dict[str, str]
     assert resp_token.json()["error_code"] == "LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE"
 
 
-def test_canonical_error_precedence_order(client: TestClient, auth_headers: dict[str, str]) -> None:
+def test_canonical_error_precedence_order(
+    client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Verify 11-step canonical error precedence order."""
     # Step 0 / Step 4: Invalid syntax returns 400 before checking auth/state
     resp_invalid = client.post(
@@ -948,10 +962,12 @@ def test_canonical_error_precedence_order(client: TestClient, auth_headers: dict
     )
     assert resp_invalid.status_code in (400, 422)
 
-    # Step 1: Missing auth returns 401 UNAUTHENTICATED
+    # Step 1: Missing auth returns 401 UNAUTHENTICATED in remote_platform mode
+    monkeypatch.setenv("OPENDV_SERVER_MODE", "remote_platform")
     resp_unauth = client.get("/api/v1/ontology/studio/sessions/test-session")
     assert resp_unauth.status_code == 401
     assert resp_unauth.json()["error_code"] == "UNAUTHENTICATED"
+    monkeypatch.delenv("OPENDV_SERVER_MODE", raising=False)
 
     # Step 3: Non-admin calling admin endpoint returns 403
     client.post(
@@ -2512,28 +2528,24 @@ def test_iss05_rbac_role_hydration_and_headers(client: TestClient) -> None:
     """[ISS-05]: /init, /auth/token, and API requests return role + X-OpenDV-Role headers."""
     from opendv_platform_api.security.studio_auth import mint_launch_nonce
 
-    # 1. Loopback /init returns role='admin' explicitly alongside local_token
+    # 1. Loopback /init shim returns role='admin', principal='human:local_user', local_token=None
     init_resp = client.post(
         "/api/v1/ontology/studio/init",
         json={"domain_namespace": "wealth_mgmt", "enterprise_owner": "Global Wealth"},
     )
     assert init_resp.status_code == 200
     assert init_resp.headers.get("X-OpenDV-Role") == "admin"
-    assert init_resp.headers.get("X-OpenDV-Principal") == "human:local_admin"
+    assert init_resp.headers.get("X-OpenDV-Principal") == "human:local_user"
     init_body = init_resp.json()
     assert init_body["role"] == "admin"
-    assert init_body["principal"] == "human:local_admin"
-    local_token = init_body["local_token"]
-    assert isinstance(local_token, str) and len(local_token) > 16
+    assert init_body["principal"] == "human:local_user"
+    assert init_body["local_token"] is None
 
-    # 2. Authenticated requests emit X-OpenDV-Role and X-OpenDV-Principal headers
-    sess_resp = client.get(
-        "/api/v1/ontology/studio/sessions",
-        headers={"Authorization": f"Bearer {local_token}"},
-    )
+    # 2. Zero-token loopback requests emit X-OpenDV-Role and X-OpenDV-Principal headers
+    sess_resp = client.get("/api/v1/ontology/studio/sessions")
     assert sess_resp.status_code == 200
     assert sess_resp.headers.get("X-OpenDV-Role") == "admin"
-    assert sess_resp.headers.get("X-OpenDV-Principal") == "human:local_admin"
+    assert sess_resp.headers.get("X-OpenDV-Principal") == "human:local_user"
 
     # 3. Nonce exchange preserves caller role ('editor') in JSON body and subsequent cookie calls
     editor_nonce = mint_launch_nonce(principal="human:alice_editor", role="editor", ttl=60.0)

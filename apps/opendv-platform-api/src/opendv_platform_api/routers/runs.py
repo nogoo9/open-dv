@@ -72,22 +72,30 @@ async def start_run(
         and not (req.sources or req.blueprint or req.blueprint_path or req.blueprint_content)
     )
     if is_proj:
-        req = CreateRunRequest(
-            project_id=getattr(req, "project_id", "default-project"),
-            harness_provider=getattr(req, "harness_provider", "antigravity") or "agy",
-        )
+        kw: dict[str, Any] = {"project_id": getattr(req, "project_id", "default-project")}
+        if "harness_provider" in req.model_fields_set and getattr(req, "harness_provider", None):
+            kw["harness_provider"] = req.harness_provider
+        req = CreateRunRequest(**kw)
         is_single_run = False
     else:
         is_single_run = isinstance(req, PipelineInputDTO) or (
             isinstance(req, CreateRunRequest) and bool(req.blueprint_path or req.blueprint_content)
         )
     if is_single_run:
-        single_input = req if isinstance(req, PipelineInputDTO) else PipelineInputDTO(
-            blueprint_path=getattr(req, "blueprint_path", None),
-            blueprint_content=getattr(req, "blueprint_content", None),
-            harness_provider=getattr(req, "harness_provider", "antigravity") or "antigravity",
-            target_dialect="duckdb",
-        )
+        if isinstance(req, PipelineInputDTO):
+            single_input = req
+        else:
+            kw_s: dict[str, Any] = {
+                "blueprint_path": getattr(req, "blueprint_path", None),
+                "blueprint_content": getattr(req, "blueprint_content", None),
+                "target_dialect": "duckdb",
+            }
+            if (
+                "harness_provider" in req.model_fields_set
+                and getattr(req, "harness_provider", None)
+            ):
+                kw_s["harness_provider"] = req.harness_provider
+            single_input = PipelineInputDTO(**kw_s)
         if sync:
             res = await run_in_threadpool(
                 execute_pipeline_run_sync, service.state, single_input, role=role
@@ -99,10 +107,10 @@ async def start_run(
                 res_dict["observability_events"] = [redact_event_for_role(ev, role) for ev in evs]
             return res_dict
         handle = await execute_run_async_use_case(
-            service.state, single_input, pipeline_runner=service.pipeline_runner
+            service.state, single_input, role=role, pipeline_runner=service.pipeline_runner
         )
     else:
-        handle = await service.create_run_async(req)
+        handle = await service.create_run_async(req, role=role)
     response.headers["Location"] = handle.status_url
     return handle
 
@@ -159,9 +167,16 @@ async def get_run_report(
 
 @router.post("/runs/{run_id}/abort", response_model=ProjectRunDTO)
 async def abort_run(
-    run_id: str, service: Annotated[OpenDVService, Depends(get_opendv_service)]
+    run_id: str,
+    service: Annotated[OpenDVService, Depends(get_opendv_service)],
+    role: Annotated[RbacRole, Depends(get_rbac_role)],
 ) -> ProjectRunDTO:
     """Abort an active run."""
+    if role == RbacRole.PUBLIC:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Public role cannot abort runs.",
+        )
     return service.abort_run(run_id)
 
 

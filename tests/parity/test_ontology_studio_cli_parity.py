@@ -576,9 +576,11 @@ def test_studio_exit_code_matrix_parity_0_to_7(
         _extract_error_code(stdout_remote_5, stderr_remote_5) == "ONT_EVO_CONCURRENT_MODIFICATION"
     )
 
-    # Exit 7: Missing waiver credentials on low_confidence_waiver
+    # Exit 7: Non-admin role on low_confidence_waiver
     monkeypatch.delenv("OPENDV_WAIVER_KEY", raising=False)
     waiver_unauth_py = [
+        "--role",
+        "EDITOR",
         "ontology",
         "studio",
         "proposal",
@@ -613,7 +615,7 @@ def test_studio_exit_code_matrix_parity_0_to_7(
     code_local_7, stdout_local_7, stderr_local_7 = cli_transport.invoke_raw(waiver_unauth_py)
     old_role_7 = client_cli_transport.role
     try:
-        client_cli_transport.role = "DATA_STEWARD"
+        client_cli_transport.role = "EDITOR"
         code_remote_7, stdout_remote_7, stderr_remote_7 = client_cli_transport.invoke_raw(
             waiver_unauth_ts
         )

@@ -63,7 +63,7 @@ from opendv_platform_api.job_supervisor import (
     run_construct_job,
     run_parse_job,
 )
-from opendv_platform_api.security.csrf import is_loopback_host, verify_csrf
+from opendv_platform_api.security.csrf import verify_csrf
 from opendv_platform_api.security.error_catalog import StudioAPIError
 from opendv_platform_api.security.studio_auth import (
     SERVER_MODE_REMOTE,
@@ -71,8 +71,8 @@ from opendv_platform_api.security.studio_auth import (
     authenticate_studio_request,
     exchange_launch_nonce,
     get_active_session_role,
+    get_local_token_path,
     get_server_mode,
-    initialize_local_token,
     is_loopback_client,
     mint_launch_nonce,
 )
@@ -942,51 +942,6 @@ def _proposal_uuid_from_str(proposal_id: str | None) -> uuid.UUID:
     return uuid.uuid4()
 
 
-def _verify_waiver_key_header_if_present(
-    request: Request,
-    session_mgr: StudioSessionManager,
-) -> None:
-    """Verify X-OpenDV-Waiver-Key in constant time whenever supplied or required via env."""
-    raw_hdr = request.headers.get("x-opendv-waiver-key")
-    env_expected = (os.environ.get("OPENDV_WAIVER_KEY") or "").strip()
-    if raw_hdr is None and not env_expected:
-        return
-
-    candidate = (raw_hdr or "").strip()
-    if candidate.lower().startswith("bearer "):
-        candidate = candidate[7:].strip()
-    if not candidate:
-        raise StudioAPIError(
-            "FORBIDDEN_ADMIN_REQUIRED",
-            "Administrative waivers strictly require authenticated waiver credentials.",
-        )
-
-    if env_expected:
-        if not hmac.compare_digest(candidate.encode("utf-8"), env_expected.encode("utf-8")):
-            raise StudioAPIError(
-                "FORBIDDEN_ADMIN_REQUIRED",
-                "Invalid steward waiver credentials.",
-            )
-        return
-
-    expected_bytes = session_mgr.security_manager.get_waiver_key()
-    expected_hex = expected_bytes.hex().lower()
-    cand_lower = candidate.lower()
-    try:
-        cand_bytes = bytes.fromhex(cand_lower)
-    except ValueError:
-        cand_bytes = candidate.encode("utf-8")
-
-    is_valid = hmac.compare_digest(cand_lower, expected_hex) or hmac.compare_digest(
-        cand_bytes, expected_bytes
-    )
-    if not is_valid:
-        raise StudioAPIError(
-            "FORBIDDEN_ADMIN_REQUIRED",
-            "Invalid steward waiver credentials.",
-        )
-
-
 def _parse_waiver_expires_at(raw_expires_at: Any) -> tuple[bool, datetime | None]:
     """Return `(is_expired, parsed_utc_dt)` for a stored waiver `expires_at` field.
 
@@ -1021,15 +976,9 @@ def _has_valid_waiver_authorization(
     session_mgr: StudioSessionManager,
     principal: StudioPrincipal,
 ) -> bool:
-    """Return True when caller holds admin role or a valid X-OpenDV-Waiver-Key for dry-run."""
-    raw_hdr = request.headers.get("x-opendv-waiver-key")
-    if not principal.is_admin and raw_hdr is None:
-        return False
-    try:
-        _verify_waiver_key_header_if_present(request, session_mgr)
-    except StudioAPIError:
-        return False
-    return True
+    """Return True when caller holds admin role for dry-run waiver validation."""
+    _ = (request, session_mgr)
+    return bool(principal.is_admin)
 
 
 def _normalize_proposal_record(
@@ -1273,109 +1222,113 @@ def _build_and_sign_commit_waivers(
                 f"Corrupt waivers.json in session '{sdir.name}': {exc}",
             ) from exc
 
+        raw_entries: list[Any] = []
         if isinstance(stored_entries, list):
-            for entry in stored_entries:
-                if not isinstance(entry, dict):
-                    continue
-                envelope = entry.get("envelope")
-                sig = entry.get("hmac_signature")
-                if not isinstance(envelope, dict) or not isinstance(sig, str):
-                    raise StudioAPIError(
-                        "INVALID_GROUNDING_WAIVER",
-                        "Stored steward waiver entry lacks valid cryptographic envelope.",
-                    )
-                canonical_env = dumps_jcs_bytes(envelope)
-                expected_sig = sec_mgr.sign_waiver(canonical_env)
-                if not hmac.compare_digest(sig, expected_sig):
-                    raise StudioAPIError(
-                        "INVALID_GROUNDING_WAIVER",
-                        "Stored steward waiver failed K_waiver cryptographic verification.",
-                    )
-
-                # P10a MAJ-01: Enforce expires_at (skip expired or malformed timestamps)
-                raw_exp = envelope.get("expires_at")
-                if raw_exp is None and isinstance(entry.get("record"), dict):
-                    raw_exp = entry["record"].get("expires_at")
-                is_expired, parsed_exp = _parse_waiver_expires_at(raw_exp)
-                if is_expired:
-                    continue
-
-                # P10a MAJ-01: Enforce strict base_sha256 binding (reject empty or 0*64 wildcard)
-                env_base = str(envelope.get("base_sha256") or "").strip().lower()
-                if (
-                    not env_base
-                    or env_base == "0" * 64
-                    or not expected_base_sha
-                    or not hmac.compare_digest(env_base, expected_base_sha)
-                ):
-                    continue
-
-                # P10a MAJ-01: Enforce strict proposal_id scoping
-                raw_env_prop = envelope.get("proposal_id")
-                env_prop = str(raw_env_prop).strip() if raw_env_prop is not None else ""
-                if proposal_id is not None:
-                    if env_prop and env_prop != str(proposal_id):
-                        continue
-                else:
-                    if env_prop:
-                        continue
-
-                # P10a MAJ-01: Enforce strict authorized_role == "admin" and non-empty authorized_by
-                raw_auth_role = envelope.get("authorized_role")
-                raw_auth_by = envelope.get("authorized_by")
-                auth_role = str(raw_auth_role).strip() if isinstance(raw_auth_role, str) else ""
-                auth_by = str(raw_auth_by).strip() if isinstance(raw_auth_by, str) else ""
-                if auth_role != "admin" or not auth_by:
-                    continue
-
-                # P10a MAJ-01: Enforce proposal_delta_sha256 binding (prevent cross-delta replay)
-                raw_env_delta_sha = envelope.get("proposal_delta_sha256")
-                env_delta_sha = (
-                    str(raw_env_delta_sha).strip().lower() if raw_env_delta_sha is not None else ""
+            raw_entries = stored_entries
+        elif isinstance(stored_entries, dict) and isinstance(stored_entries.get("waivers"), list):
+            raw_entries = stored_entries["waivers"]
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                continue
+            envelope = entry.get("envelope")
+            sig = entry.get("hmac_signature")
+            if not isinstance(envelope, dict) or not isinstance(sig, str):
+                raise StudioAPIError(
+                    "INVALID_GROUNDING_WAIVER",
+                    "Stored steward waiver entry lacks valid cryptographic envelope.",
                 )
-                if env_delta_sha:
-                    if env_delta_sha == "0" * 64:
-                        continue
-                    matches_commit_delta = hmac.compare_digest(env_delta_sha, expected_delta_sha)
-                    matches_submitted_delta = bool(clean_submitted_sha) and hmac.compare_digest(
-                        env_delta_sha, clean_submitted_sha
-                    )
-                    if not (matches_commit_delta or matches_submitted_delta):
-                        continue
-                else:
-                    if auth_role != "admin" or not hmac.compare_digest(env_base, expected_base_sha):
-                        continue
+            canonical_env = dumps_jcs_bytes(envelope)
+            expected_sig = sec_mgr.sign_waiver(canonical_env)
+            if not hmac.compare_digest(sig, expected_sig):
+                raise StudioAPIError(
+                    "INVALID_GROUNDING_WAIVER",
+                    "Stored steward waiver failed K_waiver cryptographic verification.",
+                )
 
-                target_uris = [str(u) for u in (envelope.get("target_concept_uris") or []) if u]
-                rationale = str(envelope.get("rationale") or "").strip()
-                if not target_uris or len(rationale) < 10:
+            # P10a MAJ-01: Enforce expires_at (skip expired or malformed timestamps)
+            raw_exp = envelope.get("expires_at")
+            if raw_exp is None and isinstance(entry.get("record"), dict):
+                raw_exp = entry["record"].get("expires_at")
+            is_expired, parsed_exp = _parse_waiver_expires_at(raw_exp)
+            if is_expired:
+                continue
+
+            # P10a MAJ-01: Enforce strict base_sha256 binding (reject empty or 0*64 wildcard)
+            env_base = str(envelope.get("base_sha256") or "").strip().lower()
+            if (
+                not env_base
+                or env_base == "0" * 64
+                or not expected_base_sha
+                or not hmac.compare_digest(env_base, expected_base_sha)
+            ):
+                continue
+
+            # P10a MAJ-01: Enforce strict proposal_id scoping
+            raw_env_prop = envelope.get("proposal_id")
+            env_prop = str(raw_env_prop).strip() if raw_env_prop is not None else ""
+            if proposal_id is not None:
+                if env_prop and env_prop != str(proposal_id):
+                    continue
+            else:
+                if env_prop:
                     continue
 
-                draft_kwargs: dict[str, Any] = {
-                    "proposal_id": _proposal_uuid_from_str(
-                        proposal_id or env_prop or delta.delta_id
-                    ),
-                    "proposal_delta_sha256": delta_sha,
-                    "target_concept_uris": target_uris,
-                    "base_sha256": base_sha,
-                    "rationale": rationale,
-                    "authorized_by": auth_by,
-                    "authorized_role": "admin",
-                    "signature_or_token": "placeholder",
-                }
-                if parsed_exp is not None:
-                    now_dt = datetime.now(UTC)
-                    if parsed_exp <= now_dt:
-                        continue
-                    draft_kwargs["created_at"] = now_dt
-                    draft_kwargs["expires_at"] = parsed_exp
+            # P10a MAJ-01: Enforce strict authorized_role == "admin" and non-empty authorized_by
+            raw_auth_role = envelope.get("authorized_role")
+            raw_auth_by = envelope.get("authorized_by")
+            auth_role = str(raw_auth_role).strip() if isinstance(raw_auth_role, str) else ""
+            auth_by = str(raw_auth_by).strip() if isinstance(raw_auth_by, str) else ""
+            if auth_role != "admin" or not auth_by:
+                continue
 
-                try:
-                    draft_rec = StewardWaiverRecord(**draft_kwargs)
-                except (ValidationError, ValueError):
+            # P10a MAJ-01: Enforce proposal_delta_sha256 binding (prevent cross-delta replay)
+            raw_env_delta_sha = envelope.get("proposal_delta_sha256")
+            env_delta_sha = (
+                str(raw_env_delta_sha).strip().lower() if raw_env_delta_sha is not None else ""
+            )
+            if env_delta_sha:
+                if env_delta_sha == "0" * 64:
                     continue
-                real_sig = sec_mgr.sign_waiver(draft_rec.signing_payload().encode("utf-8"))
-                signed_waivers.append(draft_rec.model_copy(update={"signature_or_token": real_sig}))
+                matches_commit_delta = hmac.compare_digest(env_delta_sha, expected_delta_sha)
+                matches_submitted_delta = bool(clean_submitted_sha) and hmac.compare_digest(
+                    env_delta_sha, clean_submitted_sha
+                )
+                if not (matches_commit_delta or matches_submitted_delta):
+                    continue
+            else:
+                if auth_role != "admin" or not hmac.compare_digest(env_base, expected_base_sha):
+                    continue
+
+            target_uris = [str(u) for u in (envelope.get("target_concept_uris") or []) if u]
+            rationale = str(envelope.get("rationale") or "").strip()
+            if not target_uris or len(rationale) < 10:
+                continue
+
+            draft_kwargs: dict[str, Any] = {
+                "proposal_id": _proposal_uuid_from_str(
+                    proposal_id or env_prop or delta.delta_id
+                ),
+                "proposal_delta_sha256": delta_sha,
+                "target_concept_uris": target_uris,
+                "base_sha256": base_sha,
+                "rationale": rationale,
+                "authorized_by": auth_by,
+                "authorized_role": "admin",
+                "signature_or_token": "placeholder",
+            }
+            if parsed_exp is not None:
+                now_dt = datetime.now(UTC)
+                if parsed_exp <= now_dt:
+                    continue
+                draft_kwargs["created_at"] = now_dt
+                draft_kwargs["expires_at"] = parsed_exp
+
+            try:
+                draft_rec = StewardWaiverRecord(**draft_kwargs)
+            except (ValidationError, ValueError):
+                continue
+            real_sig = sec_mgr.sign_waiver(draft_rec.signing_payload().encode("utf-8"))
+            signed_waivers.append(draft_rec.model_copy(update={"signature_or_token": real_sig}))
 
     # 2. Build inline admin waiver if low_confidence_waiver=True
     if low_confidence_waiver:
@@ -1424,7 +1377,7 @@ def init_studio(
     payload: InitStudioRequest | None = None,
     force: bool = Query(default=False),
 ) -> InitStudioResponse:
-    """Initialize local workbench loopback token (.local_token) for human:local_admin."""
+    """Compatibility bootstrap shim returning loopback open-access identity (human:local_user)."""
     server_mode = get_server_mode(request)
     if server_mode == SERVER_MODE_REMOTE:
         raise StudioAPIError(
@@ -1440,44 +1393,21 @@ def init_studio(
             instance=str(request.url.path),
         )
 
-    host_raw = request.headers.get("host") or request.headers.get("Host") or ""
-    host = urllib.parse.urlparse(f"//{host_raw}").hostname or host_raw
-    if host and not is_loopback_host(host):
-        raise StudioAPIError(
-            "LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE",
-            f"DNS rebinding protection: untrusted host header '{host_raw}' for loopback init.",
-            instance=str(request.url.path),
-        )
-
     verify_csrf(request)
 
-    auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
-    caller_token = None
-    if auth_header and auth_header.strip().lower().startswith("bearer "):
-        caller_token = auth_header.strip()[7:].strip()
-
-    eff_force = (payload.force if payload else False) or force
-
-    new_token, token_path = initialize_local_token(
-        studio_root,
-        force=eff_force,
-        caller_token=caller_token,
-        is_remote=False,
-    )
-
     request.state.studio_principal = StudioPrincipal(
-        principal="human:local_admin",
+        principal="human:local_user",
         role="admin",
         is_admin=True,
-        auth_method="local_token",
+        auth_method="loopback",
     )
 
     return InitStudioResponse(
         status="initialized",
-        token_path=str(token_path),
-        principal="human:local_admin",
+        token_path=str(get_local_token_path(studio_root)),
+        principal="human:local_user",
         role="admin",
-        local_token=new_token,
+        local_token=None,
         domain_namespace=payload.domain_namespace if payload else None,
     )
 
@@ -2881,8 +2811,6 @@ def apply_delta_endpoint(
                 "FORBIDDEN_ADMIN_REQUIRED",
                 "Administrative grounding waivers strictly require administrator role.",
             )
-        if payload.low_confidence_waiver:
-            _verify_waiver_key_header_if_present(request, session_mgr)
         raise StudioAPIError(
             "NO_OP_DELTA",
             "Direct delta commit requires at least one semantic operation.",
@@ -2907,8 +2835,6 @@ def apply_delta_endpoint(
             "Destructive (MAJOR) ontology revisions and grounding waivers "
             "require administrator role.",
         )
-    if payload.low_confidence_waiver:
-        _verify_waiver_key_header_if_present(request, session_mgr)
 
     # Evaluate If-Match / OCC head precondition BEFORE SemVer/structural checks on head_version
     raw_body_parent = (
@@ -3341,8 +3267,6 @@ def accept_proposal(
             "Destructive revisions, grounding waivers, and self-acceptance overrides "
             "require admin role.",
         )
-    if payload.low_confidence_waiver:
-        _verify_waiver_key_header_if_present(request, session_mgr)
 
     meta = _get_session_or_404(session_mgr, session_id)
     sdir = session_mgr.get_session_dir(session_id)
@@ -3416,14 +3340,6 @@ def accept_proposal(
             "FORBIDDEN_ADMIN_REQUIRED",
             "Destructive revisions, grounding waivers, and self-acceptance overrides "
             "require admin role.",
-        )
-
-    proposer = prop_data.get("proposer")
-    if proposer == principal.principal and not payload.self_acceptance_override:
-        raise StudioAPIError(
-            "PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN",
-            "Self-acceptance of proposals is forbidden without "
-            "--allow-self-accepted-proposals override.",
         )
 
     # Step 8: Waiver validation & K_waiver signing
@@ -4418,7 +4334,6 @@ def submit_waiver(
     principal: Annotated[StudioPrincipal, Depends(require_admin)],
 ) -> dict[str, Any]:
     """Authorize K_waiver-signed steward waiver and append signed audit record (CRITICAL-05)."""
-    _verify_waiver_key_header_if_present(request, session_mgr)
     meta = _get_session_or_404(session_mgr, session_id)
     sdir = session_mgr.get_session_dir(session_id)
 
@@ -4572,7 +4487,30 @@ def submit_waiver(
             try:
                 loaded_w = json.loads(waivers_file.read_text(encoding="utf-8"))
                 if isinstance(loaded_w, list):
-                    existing_waivers = loaded_w
+                    existing_waivers = [w for w in loaded_w if isinstance(w, dict)]
+                elif isinstance(loaded_w, dict) and isinstance(loaded_w.get("waivers"), list):
+                    for item in loaded_w["waivers"]:
+                        if not isinstance(item, dict):
+                            continue
+                        if isinstance(item.get("envelope"), dict) and isinstance(
+                            item.get("hmac_signature"), str
+                        ):
+                            rec = item.get("record")
+                            if not isinstance(rec, dict):
+                                rec = {
+                                    k: v
+                                    for k, v in item.items()
+                                    if k not in ("envelope", "hmac_signature")
+                                }
+                            existing_waivers.append(
+                                {
+                                    "envelope": item["envelope"],
+                                    "hmac_signature": item["hmac_signature"],
+                                    "record": rec,
+                                }
+                            )
+                        else:
+                            existing_waivers.append(item)
             except (OSError, json.JSONDecodeError) as exc:
                 raise StudioAPIError(
                     "CORRUPT_SESSION_RECORD",

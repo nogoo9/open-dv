@@ -436,29 +436,6 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 						);
 					}
 
-					const auth = req.headers.get("authorization") || "";
-					const waiverKey = req.headers.get("x-opendv-waiver-key") || "";
-					const body = (await req.json()) as Record<string, unknown>;
-					if (
-						body.low_confidence_waiver &&
-						!auth.includes("steward-secret-key") &&
-						!waiverKey.includes("steward-secret-key")
-					) {
-						return new Response(
-							JSON.stringify({
-								type: "urn:opendv:error:forbidden-admin-required",
-								title: "Forbidden Admin Required",
-								status: 403,
-								error_code: "FORBIDDEN_ADMIN_REQUIRED",
-								detail: "Admin/steward waiver key required.",
-							}),
-							{
-								status: 403,
-								headers: { "Content-Type": "application/problem+json" },
-							},
-						);
-					}
-
 					return Response.json({
 						session_id: "s1",
 						proposal_id: "p1",
@@ -963,9 +940,8 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 		expect(err.error_code).toBe("INVALID_GROUNDING_WAIVER");
 	});
 
-	it("proposal accept returns exit code 7 on missing waiver credentials", async () => {
+	it("proposal accept succeeds on loopback without waiver key credentials (FR-AUTH-02 / FR-CLI-06)", async () => {
 		const outLines: string[] = [];
-		const errLines: string[] = [];
 		const code = await runCli(
 			[
 				"ontology",
@@ -983,15 +959,16 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				"--low-confidence-waiver",
 				"--waiver-rationale",
 				"A valid rationale of more than ten characters",
+				"--token",
+				"legacy-ignored-token",
 				"--json",
 			],
 			(msg) => outLines.push(msg),
-			(msg) => errLines.push(msg),
 		);
 
-		expect(code).toBe(7);
-		const err = JSON.parse(errLines.join("\n"));
-		expect(err.error_code).toBe("FORBIDDEN_ADMIN_REQUIRED");
+		expect(code).toBe(0);
+		const out = JSON.parse(outLines.join("\n"));
+		expect(out.status).toBe("ACCEPTED");
 	});
 
 	it("proposal accept succeeds with valid waiver key and rationale", async () => {

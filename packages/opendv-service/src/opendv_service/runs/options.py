@@ -23,6 +23,41 @@ class NormalizedRunOptions:
     target_wave_id: str | None
 
 
+def resolve_effective_provider(
+    req: Any,
+    state: Any = None,
+    *,
+    fallback: str = "agy",
+) -> str:
+    """Resolve effective harness provider, preferring explicit caller override over config."""
+    explicit_override = (
+        req.get("provider_override")
+        if isinstance(req, dict)
+        else getattr(req, "provider_override", None)
+    )
+    if explicit_override:
+        return str(explicit_override)
+    fields_set = getattr(req, "model_fields_set", None)
+    if fields_set is not None:
+        if "harness_provider" in fields_set:
+            val = getattr(req, "harness_provider", None)
+            if val:
+                return str(val)
+    else:
+        val = (
+            req.get("harness_provider")
+            if isinstance(req, dict)
+            else getattr(req, "harness_provider", None)
+        )
+        if val:
+            return str(val)
+    if state is not None and hasattr(state, "get_active_harness_setup_dict"):
+        active = state.get_active_harness_setup_dict()
+        if isinstance(active, dict) and active.get("provider"):
+            return str(active["provider"])
+    return fallback
+
+
 def resolve_run_creation_options(
     req: Any,
     workspace_root: Path,
@@ -35,11 +70,23 @@ def resolve_run_creation_options(
     """
     harness_provider = getattr(req, "harness_provider", None)
     harness_config_path = getattr(req, "harness_config_path", None)
-    provider_override = (
-        harness_provider
-        if (harness_config_path is None or harness_provider != "antigravity")
+    fields_set = getattr(req, "model_fields_set", None)
+    has_explicit_provider = (
+        "harness_provider" in fields_set if fields_set is not None else bool(harness_provider)
+    )
+    explicit_override = (
+        req.get("provider_override")
+        if isinstance(req, dict)
         else getattr(req, "provider_override", None)
     )
+    if explicit_override:
+        provider_override = explicit_override
+    elif has_explicit_provider and (
+        harness_config_path is None or harness_provider != "antigravity"
+    ):
+        provider_override = harness_provider
+    else:
+        provider_override = None
 
     has_initial_contract = False
     initial_contract_path = getattr(req, "initial_contract_path", None)

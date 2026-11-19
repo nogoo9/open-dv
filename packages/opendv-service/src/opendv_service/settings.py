@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +14,8 @@ import yaml
 from pydantic import BaseModel, Field
 
 from opendv_contracts.errors import DEFAULT_MAX_INLINE_BYTES
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_SERVER_HOST = "127.0.0.1"
 DEFAULT_SERVER_PORT = 8420
@@ -30,7 +35,37 @@ def is_loopback_hostname(raw: str | None) -> bool:
     cleaned = raw.strip().lower()
     if cleaned.startswith("[") and cleaned.endswith("]"):
         cleaned = cleaned[1:-1]
-    return cleaned in LOOPBACK_HOSTNAMES
+    if cleaned in LOOPBACK_HOSTNAMES:
+        return True
+    try:
+        return ipaddress.ip_address(cleaned).is_loopback
+    except ValueError:
+        return False
+
+
+def validate_server_host_guard(
+    host: str,
+    *,
+    allow_remote_unauthenticated: bool = False,
+) -> None:
+    """Refuse non-loopback bind hosts with exit 40 unless remote-unauthenticated is enabled."""
+    if is_loopback_hostname(host):
+        return
+    if not allow_remote_unauthenticated:
+        sys.stderr.write(
+            f"ERROR: Refusing to bind unauthenticated server to non-loopback host '{host}'. "
+            "Use a loopback host (127.0.0.1, localhost, ::1) or pass "
+            "--allow-remote-unauthenticated.\n"
+        )
+        sys.stderr.flush()
+        raise SystemExit(40)
+    warning_msg = (
+        f"WARNING: Starting Open-DV server on non-loopback host '{host}' in "
+        "remote unauthenticated open-access mode (--allow-remote-unauthenticated)."
+    )
+    logger.warning(warning_msg)
+    sys.stderr.write(f"{warning_msg}\n")
+    sys.stderr.flush()
 
 
 class ConfigurationError(ValueError):
@@ -88,6 +123,10 @@ class OpenDVSettings(BaseModel):
     allowed_hosts: list[str] | None = Field(
         default=None,
         description="Allowed external hostnames for outbound connectors (SSRF protection).",
+    )
+    remote_unauthenticated_mode: bool = Field(
+        default=False,
+        description="True when non-loopback unauthenticated server mode is explicitly enabled.",
     )
 
     @classmethod
@@ -198,6 +237,16 @@ class OpenDVSettings(BaseModel):
         if allowed_hosts_val is not None:
             init_kwargs["allowed_hosts"] = allowed_hosts_val
 
+        env_remote_unauth = (
+            os.environ.get("OPENDV_ALLOW_REMOTE_UNAUTHENTICATED", "").strip().lower()
+        )
+        if env_remote_unauth in {"1", "true", "yes", "on"}:
+            init_kwargs["remote_unauthenticated_mode"] = True
+        elif cfg_data.get("remote_unauthenticated_mode") is not None:
+            init_kwargs["remote_unauthenticated_mode"] = bool(
+                cfg_data["remote_unauthenticated_mode"]
+            )
+
         return cls(**init_kwargs)
 
     def to_redacted_dict(self) -> dict[str, Any]:
@@ -212,10 +261,13 @@ class OpenDVSettings(BaseModel):
             "cors_origins": self.cors_origins,
             "allowed_hosts": self.allowed_hosts,
             "config_file_path": str(self.config_file_path) if self.config_file_path else None,
+            "remote_unauthenticated_mode": self.remote_unauthenticated_mode,
         }
 
 
 __all__ = [
     "ConfigurationError",
     "OpenDVSettings",
+    "is_loopback_hostname",
+    "validate_server_host_guard",
 ]

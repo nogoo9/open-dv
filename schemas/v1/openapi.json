@@ -7727,6 +7727,12 @@
             "title": "Providers",
             "type": "array"
           },
+          "remote_unauthenticated_mode": {
+            "default": false,
+            "description": "True when the platform server was launched with --allow-remote-unauthenticated",
+            "title": "Remote Unauthenticated Mode",
+            "type": "boolean"
+          },
           "resolved_persona_models": {
             "additionalProperties": {
               "type": "string"
@@ -15995,6 +16001,24 @@
       "post": {
         "description": "Deterministically validate candidate Platform & Agent Harness configuration.",
         "operationId": "validate_platform_config_api_v1_platform_config_validate_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -16461,6 +16485,22 @@
             "schema": {
               "title": "Run Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
             }
           }
         ],

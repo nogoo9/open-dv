@@ -311,6 +311,7 @@ def test_opendv_serve_invokes_platform_cli_or_uvicorn(
             "--workspace",
             str(tmp_path),
             "--open",
+            "--allow-remote-unauthenticated",
             "--json",
         ],
         executor=executor,
@@ -322,6 +323,7 @@ def test_opendv_serve_invokes_platform_cli_or_uvicorn(
     assert "--port" in captured_cli_args[0]
     assert "9420" in captured_cli_args[0]
     assert "--open" in captured_cli_args[0]
+    assert "--allow-remote-unauthenticated" in captured_cli_args[0]
 
     out = json.loads(capsys.readouterr().out)
     assert out["status"] == "OK"
@@ -335,7 +337,7 @@ def test_opendv_serve_loopback_launch_nonce_url(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Verify `opendv serve` on loopback in local_standalone emits Studio Launch URL."""
+    """Verify `opendv serve` on loopback in local_standalone emits clean Studio Launch URL."""
     fb_svc = _FallbackOnlyService(tmp_path)
     executor = LocalExecutor(service=fb_svc, workspace_root=tmp_path)  # type: ignore[arg-type]
 
@@ -352,10 +354,12 @@ def test_opendv_serve_loopback_launch_nonce_url(
     captured = capsys.readouterr()
     out = json.loads(captured.out)
     assert "studio_launch_url" in out
-    assert out["studio_launch_url"].startswith("http://127.0.0.1:8420/ontology#token=")
-    assert "Ontology Studio Launch URL: http://127.0.0.1:8420/ontology#token=" in captured.err
+    assert out["studio_launch_url"] == "http://127.0.0.1:8420/ontology"
+    assert "#token=" not in out["studio_launch_url"]
+    assert "Ontology Studio Launch URL: http://127.0.0.1:8420/ontology" in captured.err
+    assert "#token=" not in captured.err
 
-    # Remote platform mode must omit launch nonce URL
+    # Remote platform mode must omit launch URL
     monkeypatch.setenv("OPENDV_SERVER_MODE", "remote_platform")
     rc_rem = app_main(
         ["serve", "--host", "127.0.0.1", "--port", "8420", "--workspace", str(tmp_path), "--json"],
@@ -371,7 +375,7 @@ def test_opendv_serve_launch_nonce_honors_explicit_role_and_env_p13_maj04(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """P13 MAJ-04: `opendv serve` mints launch nonce with resolved (principal, role)."""
+    """`opendv serve` on loopback emits clean /ontology URL without minting #token= nonces."""
     fb_svc = _FallbackOnlyService(tmp_path)
     executor = LocalExecutor(service=fb_svc, workspace_root=tmp_path)  # type: ignore[arg-type]
 
@@ -389,65 +393,25 @@ def test_opendv_serve_launch_nonce_honors_explicit_role_and_env_p13_maj04(
 
     monkeypatch.setattr(cli_executor, "mint_launch_nonce", _spy_mint)
 
-    # 1. Default invocation -> ("human:local_admin", "admin")
-    assert (
-        app_main(
-            [
-                "serve",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                "8420",
-                "--workspace",
-                str(tmp_path),
-                "--json",
-            ],
-            executor=executor,
+    for extra in ([], ["--role", "VIEWER"]):
+        assert (
+            app_main(
+                [
+                    *extra,
+                    "serve",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    "8420",
+                    "--workspace",
+                    str(tmp_path),
+                    "--json",
+                ],
+                executor=executor,
+            )
+            == 0
         )
-        == 0
-    )
-    capsys.readouterr()
-    assert minted_calls[-1] == ("human:local_admin", "admin")
+        out = json.loads(capsys.readouterr().out)
+        assert out["studio_launch_url"] == "http://127.0.0.1:8420/ontology"
 
-    # 2. Explicit --role VIEWER -> ("human:local_viewer", "viewer")
-    assert (
-        app_main(
-            [
-                "--role",
-                "VIEWER",
-                "serve",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                "8420",
-                "--workspace",
-                str(tmp_path),
-                "--json",
-            ],
-            executor=executor,
-        )
-        == 0
-    )
-    capsys.readouterr()
-    assert minted_calls[-1] == ("human:local_viewer", "viewer")
-
-    # 3. OPENDV_ROLE=STEWARD -> ("human:local_editor", "editor")
-    monkeypatch.setenv("OPENDV_ROLE", "STEWARD")
-    assert (
-        app_main(
-            [
-                "serve",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                "8420",
-                "--workspace",
-                str(tmp_path),
-                "--json",
-            ],
-            executor=executor,
-        )
-        == 0
-    )
-    capsys.readouterr()
-    assert minted_calls[-1] == ("human:local_editor", "editor")
+    assert minted_calls == []

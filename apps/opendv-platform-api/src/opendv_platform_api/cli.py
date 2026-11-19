@@ -12,7 +12,11 @@ import uvicorn
 
 from opendv_platform_api.main import create_app
 from opendv_service import OpenDVSettings
-from opendv_service.settings import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
+from opendv_service.settings import (
+    DEFAULT_SERVER_HOST,
+    DEFAULT_SERVER_PORT,
+    validate_server_host_guard,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -51,6 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Open the Web Workbench in the default browser on startup",
     )
+    parser.add_argument(
+        "--allow-remote-unauthenticated",
+        action="store_true",
+        default=False,
+        help="Allow binding to a non-loopback host without authentication (unsafe)",
+    )
     return parser
 
 
@@ -76,8 +86,14 @@ def main(argv: list[str] | None = None) -> int:
 
     host = args.host or settings.server_host or DEFAULT_SERVER_HOST
     port = int(args.port or settings.server_port or DEFAULT_SERVER_PORT)
+    allow_remote_unauth = bool(
+        args.allow_remote_unauthenticated or settings.remote_unauthenticated_mode
+    )
+    validate_server_host_guard(host, allow_remote_unauthenticated=allow_remote_unauth)
+
     settings.server_host = host
     settings.server_port = port
+    settings.remote_unauthenticated_mode = allow_remote_unauth
 
     app = create_app(
         settings=settings,
@@ -87,10 +103,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.open:
         from opendv_platform_api.security.csrf import is_loopback_host
-        from opendv_platform_api.security.studio_auth import (
-            SERVER_MODE_REMOTE,
-            mint_launch_nonce,
-        )
+        from opendv_platform_api.security.studio_auth import SERVER_MODE_REMOTE
 
         browser_host = (
             DEFAULT_SERVER_HOST if host in {"0.0.0.0", "::", "::0", "0:0:0:0:0:0:0:0"} else host
@@ -110,8 +123,7 @@ def main(argv: list[str] | None = None) -> int:
             else browser_host
         )
         if eff_mode != SERVER_MODE_REMOTE and is_loopback_host(browser_host):
-            nonce = mint_launch_nonce(principal="human:local_admin", role="admin", ttl=60.0)
-            url = f"http://{fmt_host}:{port}/ontology#token={nonce}"
+            url = f"http://{fmt_host}:{port}/ontology"
         else:
             url = f"http://{fmt_host}:{port}"
         timer = threading.Timer(0.6, webbrowser.open, args=(url,))

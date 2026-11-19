@@ -123,7 +123,7 @@ async def run_pipeline(
         return await run_in_threadpool(
             execute_pipeline_run_sync, service.state, req, role=role
         )
-    handle = await service.execute_run_async(req)
+    handle = await service.execute_run_async(req, role=role)
     if hasattr(handle, "status_url"):
         response.headers["Location"] = handle.status_url
     return handle

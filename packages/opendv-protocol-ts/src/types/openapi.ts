@@ -5861,6 +5861,12 @@ export interface components {
 			 */
 			providers?: components["schemas"]["ProviderReadinessDTO"][];
 			/**
+			 * Remote Unauthenticated Mode
+			 * @description True when the platform server was launched with --allow-remote-unauthenticated
+			 * @default false
+			 */
+			remote_unauthenticated_mode: boolean;
+			/**
 			 * Resolved Persona Models
 			 * @description Effective resolved model IDs for each canonical agent persona
 			 */
@@ -10709,7 +10715,9 @@ export interface operations {
 	validate_platform_config_api_v1_platform_config_validate_post: {
 		parameters: {
 			query?: never;
-			header?: never;
+			header?: {
+				"X-OpenDV-Role"?: string | null;
+			};
 			path?: never;
 			cookie?: never;
 		};
@@ -11003,7 +11011,9 @@ export interface operations {
 	abort_run_api_v1_runs__run_id__abort_post: {
 		parameters: {
 			query?: never;
-			header?: never;
+			header?: {
+				"X-OpenDV-Role"?: string | null;
+			};
 			path: {
 				run_id: string;
 			};
