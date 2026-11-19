@@ -26,6 +26,7 @@ import shutil
 import threading
 import time
 import zlib
+from collections import deque
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -209,16 +210,43 @@ class SSEJournalWriter:
         self._init_cursor_from_file()
 
     def _init_cursor_from_file(self) -> None:
-        """Initialize next monotonic event ID by scanning existing journal segments."""
+        """Initialize next monotonic event ID via O(1) tail scan of active segment (no .gz reads)."""
         max_id = 0
-        for raw_line in _iter_journal_lines(self.journal_file):
-            line = raw_line.strip()
-            if line:
-                with contextlib.suppress(json.JSONDecodeError, KeyError, ValueError):
-                    rec = json.loads(line)
-                    eid = int(rec.get("id", 0))
-                    if eid > max_id:
-                        max_id = eid
+        if self.journal_file.is_file():
+            with contextlib.suppress(OSError):
+                size = self.journal_file.stat().st_size
+                if size > 0:
+                    chunk_size = min(size, 65536)
+                    with self.journal_file.open("rb") as fp:
+                        fp.seek(size - chunk_size)
+                        tail_bytes = fp.read(chunk_size)
+                    for raw_line in reversed(tail_bytes.splitlines()):
+                        line = raw_line.decode("utf-8", errors="ignore").strip()
+                        if not line:
+                            continue
+                        with contextlib.suppress(json.JSONDecodeError, KeyError, ValueError, TypeError):
+                            rec = json.loads(line)
+                            eid = int(rec.get("id", 0))
+                            if eid > max_id:
+                                max_id = eid
+                            break
+
+        if max_id == 0:
+            rotated = _list_rotated_segments(
+                self.journal_file.parent, f"{self.journal_file.name}."
+            )
+            for _idx, gz_path in reversed(rotated):
+                for raw in reversed(deque(_iter_gz_segment_lines(gz_path), maxlen=16)):
+                    line = raw.strip()
+                    if not line:
+                        continue
+                    with contextlib.suppress(json.JSONDecodeError, KeyError, ValueError, TypeError):
+                        eid = int(json.loads(line).get("id", 0))
+                        if eid > max_id:
+                            max_id = eid
+                        break
+                if max_id > 0:
+                    break
 
         with self._mu:
             self._next_id = max_id + 1

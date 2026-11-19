@@ -123,8 +123,7 @@ contract_version: '5.0'
 domain_namespace: global_commerce
 hubs:
 - business_key_sources:
-  - bkcc_column_expr: null
-    bkcc_prefix: CRM_SALESFORCE_CRM_CUSTOMERS
+  - bkcc_prefix: CRM_SALESFORCE_CRM_CUSTOMERS
     bronze_table: crm_salesforce.crm_customers
     key_authority_tier: TIER_3_LOCAL_SCOPED
     key_columns:
@@ -136,8 +135,7 @@ hubs:
   name: hub_customer
   ontology_concept_uri: urn:ontology:entity:customer
 - business_key_sources:
-  - bkcc_column_expr: null
-    bkcc_prefix: ERP_NETSUITE_ERP_ORDERS
+  - bkcc_prefix: ERP_NETSUITE_ERP_ORDERS
     bronze_table: erp_netsuite.erp_orders
     key_authority_tier: TIER_3_LOCAL_SCOPED
     key_columns:
@@ -149,8 +147,7 @@ hubs:
   name: hub_order
   ontology_concept_uri: urn:ontology:entity:order
 - business_key_sources:
-  - bkcc_column_expr: null
-    bkcc_prefix: ERP_NETSUITE
+  - bkcc_prefix: ERP_NETSUITE
     bronze_table: erp_netsuite.erp_orders
     key_authority_tier: TIER_3_LOCAL_SCOPED
     key_columns:
@@ -162,8 +159,7 @@ hubs:
   name: hub_promotion
   ontology_concept_uri: urn:ontology:entity:promotion
 - business_key_sources:
-  - bkcc_column_expr: null
-    bkcc_prefix: STRIPE_EU
+  - bkcc_prefix: STRIPE_EU
     bronze_table: billing_stripe.stripe_invoices
     key_authority_tier: TIER_3_LOCAL_SCOPED
     key_columns:

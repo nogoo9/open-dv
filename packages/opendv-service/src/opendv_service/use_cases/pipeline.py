@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -36,12 +36,21 @@ from opendv_contracts.dtos.pipeline import (
 )
 from opendv_service.errors import NotFoundError
 from opendv_service.rbac import normalize_rbac_role, redact_event_for_role
-from opendv_service.runs.options import resolve_effective_provider
+from opendv_service.runs.options import resolve_effective_provider, resolve_run_creation_options
 from opendv_service.seams import PipelineRunner, get_default_pipeline_runner
 from opendv_service.state import StateStore
 from opendv_service.use_cases.pipeline_normalizer import (
     DualBlueprintIngressNormalizer,
     normalize_blueprint_ingress,
+)
+from opendv_service.use_cases.pipeline_preflight import (
+    ensure_pipeline_agent_ready,
+)
+from opendv_service.use_cases.pipeline_preflight import (
+    resolve_cas_sources_list as _resolve_cas_sources_list,
+)
+from opendv_service.use_cases.pipeline_preflight import (
+    to_vault_blueprint_dto as _to_vault_blueprint_dto,
 )
 
 
@@ -264,72 +273,6 @@ class SingleRunExecutionResultDTO(BaseContractModel):
         return self.report.get(item, default)
 
 
-def _to_vault_blueprint_dto(raw_bp: Any) -> VaultBlueprintDTO | None:
-    if raw_bp is None or isinstance(raw_bp, VaultBlueprintDTO):
-        return raw_bp
-    if hasattr(raw_bp, "model_dump"):
-        d = raw_bp.model_dump(mode="json")
-    elif isinstance(raw_bp, dict):
-        d = dict(raw_bp)
-    else:
-        return None
-    clean_d = {k: v for k, v in d.items() if k != "blueprint_version"}
-    clean_d["blueprint_version"] = "1.0.0"
-    clean_d.pop("schema_version", None)
-    try:
-        return VaultBlueprintDTO.model_validate(clean_d)
-    except (ValueError, TypeError, KeyError):
-        return None
-
-
-def _resolve_cas_sources_list(
-    sources_list: Sequence[Any] | None,
-    cas_store: Any | None,
-) -> list[dict[str, Any]]:
-    """Resolve cas:// URIs in source feed definitions to staged filesystem or sqlite paths."""
-    if not sources_list:
-        return []
-    if cas_store is None or not hasattr(cas_store, "base_dir"):
-        return [
-            dict(s)
-            if isinstance(s, dict)
-            else (s.model_dump(mode="json") if hasattr(s, "model_dump") else dict(s))
-            for s in sources_list
-        ]
-    cas_base = Path(cas_store.base_dir).resolve()
-    resolved: list[dict[str, Any]] = []
-    for s in sources_list:
-        s_dict = (
-            dict(s)
-            if isinstance(s, dict)
-            else (s.model_dump(mode="json") if hasattr(s, "model_dump") else dict(s))
-        )
-        s_uri = str(s_dict.get("uri") or "").strip()
-        if s_uri.startswith("cas://"):
-            raw_target = s_uri[len("cas://") :].split("?")[0].split("#")[0].strip()
-            c_hash = raw_target.split("/")[0].strip().lower()
-            cands = [cas_base / c_hash.upper(), cas_base / c_hash.lower()]
-            cand_p = next((c for c in cands if c.is_file()), None)
-            if cand_p is not None:
-                is_sqlite = False
-                with contextlib.suppress(OSError), open(cand_p, "rb") as bf:
-                    if bf.read(16).startswith(b"SQLite format 3\x00"):
-                        is_sqlite = True
-                s_sys = s_dict.get("source_system") or "cas_store"
-                s_opts = dict(s_dict.get("options") or {})
-                s_opts["source_system"] = s_sys
-                s_dict["options"] = s_opts
-                s_dict["source_system"] = s_sys
-                if is_sqlite:
-                    s_dict["uri"] = f"sqlite:///{cand_p.as_posix()}"
-                    s_dict["adapter"] = "sqlite"
-                else:
-                    s_dict["uri"] = cand_p.as_posix()
-                    s_dict.setdefault("adapter", "file")
-        resolved.append(s_dict)
-    return resolved
-
-
 def execute_pipeline_run_sync(
     state_or_input: Any,
     request_or_state: Any = None,
@@ -384,6 +327,7 @@ def execute_pipeline_run_sync(
                 unstructured_documents=req.unstructured_documents,
                 target_dialect=req.target_dialect,
                 provider_override=prov_override,
+                session_id=getattr(req, "session_id", None),
             )
         elif isinstance(req, dict) and "blueprint" in req and "input_spec" not in req:
             resolved_srcs = _resolve_cas_sources_list(
@@ -398,11 +342,15 @@ def execute_pipeline_run_sync(
                 unstructured_documents=req.get("unstructured_documents", []),
                 target_dialect=req.get("target_dialect", "duckdb"),
                 provider_override=prov_override,
+                session_id=req.get("session_id"),
             )
         elif isinstance(req, PipelineRunRequest):
             run_req = req
         else:
             run_req = PipelineRunRequest.model_validate(req)
+
+        resolve_run_creation_options(run_req, workspace_root=getattr(state, "repo_root", None))
+        ensure_pipeline_agent_ready(state, run_req, pipeline_runner=pipeline_runner)
 
         eff_role = normalize_rbac_role(role, default=RbacRole.INTERNAL_MODELER)
         rep_dict = state.execute_agentic_pipeline_run(
@@ -431,6 +379,7 @@ def execute_pipeline_run_sync(
 
     # Standalone execution without StateStore
     spec_dict = req.model_dump(mode="json") if hasattr(req, "model_dump") else dict(req)
+    ensure_pipeline_agent_ready(None, req, pipeline_runner=pipeline_runner)
     spec_obj = PipelineInputSpec.model_validate(spec_dict)
     standalone_runner = pipeline_runner or run_agentic_vault_pipeline
     report = standalone_runner(
@@ -504,6 +453,7 @@ async def execute_run_async(
             target_dialect=req.target_dialect,
             provider_override=resolve_effective_provider(req, state),
             steward_hold_policy=str(hold_pol) if hold_pol else None,
+            session_id=getattr(req, "session_id", None),
         )
     elif isinstance(req, PipelineRunRequest):
         run_req = req

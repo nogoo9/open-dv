@@ -8,6 +8,7 @@ providing typed defaults with transparent environment variable overrides.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from functools import lru_cache
 from typing import Any
@@ -31,6 +32,40 @@ from opendv_core.constants import (
 
 # Standard environment variable prefix for core modeling overrides
 ENV_PREFIX = "OPENDV_"
+
+CREDENTIALS_REF_RE = re.compile(r"^(env|secret):[A-Za-z0-9_-]+$")
+FORBIDDEN_SECRET_KEYS: frozenset[str] = frozenset(
+    {
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "access_token",
+        "refresh_token",
+        "bearer_token",
+        "auth",
+        "auth_token",
+        "access_key",
+        "private_key",
+        "connection_string",
+        "dsn",
+    }
+)
+
+
+def validate_credentials_ref(creds: str | None) -> str | None:
+    """Validate credentials_ref per REQ-CFG-01 (must be env:NAME or secret:NAME)."""
+    if creds is None:
+        return None
+    cleaned = creds.strip()
+    if not cleaned or not CREDENTIALS_REF_RE.match(cleaned):
+        raise ValueError(
+            f"Literal secret detected in credentials_ref '{creds}'. "
+            "Must start with 'env:' or 'secret:'."
+        )
+    return cleaned
 
 
 class CoreModelingConfig(BaseModel):
@@ -295,7 +330,9 @@ def get_core_modeling_config() -> CoreModelingConfig:
 
 
 __all__ = [
+    "CREDENTIALS_REF_RE",
     "ENV_PREFIX",
     "CoreModelingConfig",
     "get_core_modeling_config",
+    "validate_credentials_ref",
 ]

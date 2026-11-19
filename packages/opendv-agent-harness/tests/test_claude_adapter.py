@@ -678,14 +678,12 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
     )
     from opendv_agent_harness.adapters.claude_cli_adapter import (
         _extract_json_from_stdout,
-        _strip_internal_stage_context,
     )
 
     assert ClaudeCodeCliAdapter is ClaudeCliHarnessAdapter
 
-    # 1. Verify internal stage context stripping & JSON extraction helper
-    prompt_with_ctx = 'Synthesize Pass 1 Triage\n__OPENDV_STAGE_CONTEXT_JSON__:{"secret": 456}'
-    assert _strip_internal_stage_context(prompt_with_ctx) == "Synthesize Pass 1 Triage"
+    # 1. Verify prompt inline context preservation & JSON extraction helper
+    prompt_with_ctx = 'Synthesize Pass 1 Triage\nInlineContext: {"secret": 456}'
     assert _extract_json_from_stdout('log line\n{"status": "SUCCESS", "result": "ok"}\n') == {
         "status": "SUCCESS",
         "result": "ok",
@@ -758,16 +756,19 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
 
     # 4. Verify subprocess invocation via claude_cli_runner (flags, --agents, --resume)
     captured_cmds: list[list[str]] = []
+    captured_inputs: list[str] = []
 
     def _fake_claude_runner(
         cmd: list[str],
         *,
         env: dict[str, str],
         timeout: float,
+        input_text: str = "",
     ) -> subprocess.CompletedProcess[str]:
         assert env.get("NO_COLOR") == "1"
         assert timeout > 0
         captured_cmds.append(list(cmd))
+        captured_inputs.append(input_text)
         out_payload = {
             "type": "result",
             "subtype": "success",
@@ -850,7 +851,9 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
     cmd0 = captured_cmds[0]
     assert cmd0[0] == str(fake_claude_exe)
     assert cmd0[1] == "-p"
-    assert "__OPENDV_STAGE_CONTEXT_JSON__" not in cmd0[2]
+    assert cmd0[2] == "--model"
+    assert "Synthesize Pass 1 Triage" not in " ".join(cmd0)
+    assert 'InlineContext: {"secret": 456}' in captured_inputs[0]
     assert cmd0[cmd0.index("--model") + 1] == "claude-opus-4-6"
     assert cmd0[cmd0.index("--output-format") + 1] == "stream-json"
     assert "--disable-slash-commands" in cmd0

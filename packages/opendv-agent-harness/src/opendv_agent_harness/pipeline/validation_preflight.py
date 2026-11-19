@@ -9,7 +9,6 @@ and cryptographic VaultBlueprint SHA-256 lineage verification.
 from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -17,10 +16,6 @@ import pydantic
 import yaml
 
 from opendv_agent_harness.pipeline.config import HarnessSetupConfig
-from opendv_agent_harness.pipeline.sandbox_compiler import (
-    _check_credentials_ref,
-    _validate_path_containment,
-)
 from opendv_agent_harness.pipeline.spec import (
     DeterministicValidationReport,
     PipelineInputSpec,
@@ -29,11 +24,13 @@ from opendv_agent_harness.pipeline.spec import (
 )
 from opendv_agent_harness.registry import list_available_harnesses
 from opendv_contracts.errors import OpenDVError
+from opendv_core.config import validate_credentials_ref
 from opendv_core.models.vault_blueprint import (
     VaultBlueprint,
     compute_contract_sha256,
 )
 from opendv_core.ontology_hashing import compute_ontology_sha256
+from opendv_core.paths import PathContainmentError, resolve_workspace_path
 from opendv_sources.models.specs import SourceSpec
 from opendv_sources.registry.source_registry import get_source_registry
 
@@ -287,23 +284,15 @@ def validate_pipeline_inputs(
         ("output_dir", getattr(spec, "output_dir", None)),
     ):
         if p_val and isinstance(p_val, (str, Path)):
-            raw_p = Path(p_val)
-            if ".." in raw_p.parts or ".." in str(p_val):
-                _diag(
-                    "PATH_TRAVERSAL_REJECTED",
-                    p_name,
-                    f"Path traversal ('..') is strictly forbidden: {p_val}",
-                )
-                continue
             try:
-                res = (eff_base / raw_p).resolve() if not raw_p.is_absolute() else raw_p.resolve()
-                tmp_res = Path(tempfile.gettempdir()).resolve()
-                if not (
-                    res.is_relative_to(eff_base)
-                    or res.is_relative_to(ws_root)
-                    or res.is_relative_to(tmp_res)
-                ):
-                    _diag("PATH_TRAVERSAL_REJECTED", p_name, f"Path '{p_val}' escapes workspace.")
+                resolve_workspace_path(
+                    str(p_val),
+                    workspace_root=ws_root,
+                    base_dir=eff_base,
+                    allow_temp=True,
+                )
+            except PathContainmentError as exc:
+                _diag("PATH_TRAVERSAL_REJECTED", p_name, str(exc))
             except (ValueError, OSError, RuntimeError):
                 _diag("PATH_TRAVERSAL_REJECTED", p_name, f"Invalid path '{p_val}'.")
 
@@ -415,9 +404,10 @@ def validate_pipeline_inputs(
 
     for idx, src in enumerate(all_sources):
         checked_items += 1
-        cred_err = _check_credentials_ref(src.credentials_ref)
-        if cred_err:
-            _diag("LITERAL_SECRET_DETECTED", f"sources[{idx}].credentials_ref", cred_err)
+        try:
+            validate_credentials_ref(src.credentials_ref)
+        except ValueError as exc:
+            _diag("LITERAL_SECRET_DETECTED", f"sources[{idx}].credentials_ref", str(exc))
 
         for opt_k in ("token", "api_key", "secret", "password"):
             if opt_k in src.options and not str(src.options[opt_k]).startswith(("env:", "secret:")):
@@ -440,11 +430,23 @@ def validate_pipeline_inputs(
         if dp and not str(dp).startswith(
             ("sqlite://", "databricks://", "uc://", "duckdb://", "http://", "https://", "cas://")
         ):
-            valid, resolved_p, err_msg = _validate_path_containment(str(dp), eff_base, ws_root)
-            if not valid:
-                _diag(
-                    "PATH_TRAVERSAL_REJECTED", f"sources[{idx}].data_path", err_msg or "Path escape"
+            resolved_p: Path | None = None
+            valid = True
+            try:
+                resolved_p = resolve_workspace_path(
+                    str(dp),
+                    workspace_root=ws_root,
+                    base_dir=eff_base,
+                    allow_temp=True,
                 )
+            except PathContainmentError as exc:
+                valid = False
+                _diag("PATH_TRAVERSAL_REJECTED", f"sources[{idx}].data_path", str(exc))
+            except (ValueError, OSError, RuntimeError) as exc:
+                valid = False
+                _diag("PATH_TRAVERSAL_REJECTED", f"sources[{idx}].data_path", str(exc))
+            if not valid:
+                pass
             elif resolved_p and not resolved_p.exists() and not src.options.get("allow_missing"):
                 _diag(
                     "SOURCE_FILE_MISSING",
@@ -501,13 +503,23 @@ def validate_pipeline_inputs(
             getattr(doc, "content", None) and str(doc.content).strip()
         )
         if fp and (not has_inline_content or ".." in str(fp)):
-            valid, resolved_p, err_msg = _validate_path_containment(str(fp), eff_base, ws_root)
-            if not valid:
-                _diag(
-                    "PATH_TRAVERSAL_REJECTED",
-                    f"documents[{idx}].document_path",
-                    err_msg or "Path escape",
+            resolved_p = None
+            doc_valid = True
+            try:
+                resolved_p = resolve_workspace_path(
+                    str(fp),
+                    workspace_root=ws_root,
+                    base_dir=eff_base,
+                    allow_temp=True,
                 )
+            except PathContainmentError as exc:
+                doc_valid = False
+                _diag("PATH_TRAVERSAL_REJECTED", f"documents[{idx}].document_path", str(exc))
+            except (ValueError, OSError, RuntimeError) as exc:
+                doc_valid = False
+                _diag("PATH_TRAVERSAL_REJECTED", f"documents[{idx}].document_path", str(exc))
+            if not doc_valid:
+                pass
             elif resolved_p and not resolved_p.exists() and not getattr(doc, "content", None):
                 _diag(
                     "SOURCE_FILE_MISSING",
@@ -552,6 +564,5 @@ def validate_pipeline_inputs(
 __all__ = [
     "_first_non_empty",
     "_load_yaml_or_json",
-    "_validate_path_containment",
     "validate_pipeline_inputs",
 ]

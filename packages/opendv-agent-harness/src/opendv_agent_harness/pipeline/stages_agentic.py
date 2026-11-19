@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import copy
 import inspect
-import json
 import uuid
 from typing import Any
 
 import yaml
 from pydantic import BaseModel
 
+from opendv_agent_harness.adapters.antigravity_adapter import ProviderConfigurationError
 from opendv_agent_harness.models import (
     AgentPersona,
     AgentTaskSpec,
@@ -25,31 +25,16 @@ from opendv_agent_harness.models import (
 from opendv_agent_harness.pipeline.spec import (
     PipelineStepReport,
     Stage00OrchestrationPlanOutput,
-    Stage01FeedDiscoveryItem,
     Stage01SourceDiscoveryOutput,
     Stage02UnstructuredDiscoveryOutput,
     Stage03ColumnTriageOutput,
     Stage04ContractSynthesisOutput,
 )
+from opendv_agent_harness.pipeline.stage_prompt_builder import (
+    build_inline_stage_prompt,
+    synthesize_stage_output_from_prompt,
+)
 from opendv_core.config import get_core_modeling_config
-from opendv_core.models.graph_a import GraphAOntology
-
-_STAGE_CONTEXT_MARKER = "\n__OPENDV_STAGE_CONTEXT_JSON__:"
-
-
-def _encode_stage_context(ctx: dict[str, Any]) -> str:
-    return f"{_STAGE_CONTEXT_MARKER}{json.dumps(ctx, sort_keys=True)}"
-
-
-def _decode_stage_context(prompt: str) -> dict[str, Any] | None:
-    if not prompt or _STAGE_CONTEXT_MARKER not in prompt:
-        return None
-    _, raw_json = prompt.rsplit(_STAGE_CONTEXT_MARKER, 1)
-    try:
-        parsed = json.loads(raw_json.strip())
-        return parsed if isinstance(parsed, dict) else None
-    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
-        return None
 
 
 class _SymbolicStageSynthesizer:
@@ -65,102 +50,6 @@ class _SymbolicStageSynthesizer:
 
 
 _DeterministicStageSynthesizer = _SymbolicStageSynthesizer
-
-
-def synthesize_stage_output_from_prompt(
-    schema_cls: type[BaseModel],
-    prompt: str = "",
-) -> Any:
-    """Synthesize a schema-valid stage output for deterministic runs."""
-    ctx = _decode_stage_context(prompt)
-    s_name = schema_cls.__name__
-
-    if s_name == "Stage00OrchestrationPlanOutput":
-        if ctx is not None:
-            from opendv_agent_harness.pipeline.mode_detector import infer_execution_plan
-            from opendv_agent_harness.pipeline.spec import (
-                PipelineSourceFeedInput,
-                PipelineUnstructuredDocInput,
-            )
-
-            sources = [PipelineSourceFeedInput.model_validate(s) for s in ctx.get("sources", [])]
-            docs = [
-                PipelineUnstructuredDocInput.model_validate(d) for d in ctx.get("documents", [])
-            ]
-            contract = ctx.get("deployed_contract")
-            plan = infer_execution_plan(contract=contract, sources=sources, documents=docs)
-            return Stage00OrchestrationPlanOutput(
-                plan_summary=plan.explanation,
-                inferred_action=plan.primary_action,
-                per_table_plan={t.table_name: t.action for t in plan.table_actions},
-            )
-        return Stage00OrchestrationPlanOutput(
-            plan_summary="Default deterministic orchestration plan.",
-            inferred_action="COLD_START_N1",
-        )
-
-    if s_name == "Stage01SourceDiscoveryOutput":
-        items: list[Stage01FeedDiscoveryItem] = []
-        if ctx is not None and "sources" in ctx:
-            for s in ctx.get("sources", []):
-                tname = s.get("table_name") or "table"
-                ss = s.get("source_system") or "source"
-                pks = list(s.get("business_keys") or [f"{tname}_id"])
-                items.append(
-                    Stage01FeedDiscoveryItem(
-                        source_system=ss,
-                        table_name=tname,
-                        column_count=len(pks) + 2,
-                        row_count=100,
-                        primary_keys=pks,
-                        foreign_keys=[],
-                        column_descriptors=[
-                            {"name": pk, "physical_type": "VARCHAR(64)", "is_primary_key": True}
-                            for pk in pks
-                        ],
-                    )
-                )
-        return Stage01SourceDiscoveryOutput(discovered_feeds=items)
-
-    if s_name == "Stage02UnstructuredDiscoveryOutput":
-        entities = []
-        if ctx is not None and "ontology" in ctx:
-            ont = GraphAOntology.model_validate(ctx["ontology"])
-            entities = [cbc.concept_name for cbc in ont.canonical_business_concepts]
-        return Stage02UnstructuredDiscoveryOutput(
-            discovered_entities=entities,
-            spans_extracted=len(entities),
-        )
-
-    if s_name == "Stage03ColumnTriageOutput":
-        ledger = []
-        if ctx is not None and "column_triage_ledger" in ctx:
-            ledger = ctx["column_triage_ledger"]
-        return Stage03ColumnTriageOutput(
-            triage_ledger=ledger,
-            column_triage_ledger=ledger,
-            ontology_deltas_proposed=[],
-        )
-
-    if s_name == "Stage04ContractSynthesisOutput":
-        from opendv_agent_harness.pipeline.contract_synthesizer import (
-            _synthesize_cumulative_contract,
-        )
-
-        contract = {}
-        if ctx is not None and "contract" in ctx and ctx["contract"]:
-            contract = ctx["contract"]
-        elif ctx is not None and "ontology" in ctx and ctx["ontology"]:
-            ont = GraphAOntology.model_validate(ctx["ontology"])
-            contract = _synthesize_cumulative_contract(
-                ontology=ont,
-                discovered_feeds=[],
-                deployed_contract=ctx.get("deployed_contract"),
-            )
-        return Stage04ContractSynthesisOutput(contract=contract)
-
-    # Generic fallback constructor
-    return schema_cls.model_validate({})
 
 
 def resolve_stage_model(
@@ -211,6 +100,7 @@ async def execute_stage_task(
     on_stream_event: Any | None = None,
     run_id: str = "run_default",
     context: dict[str, Any] | None = None,
+    stage_output_policy: str | None = None,
 ) -> tuple[dict[str, Any], Any]:
     """Execute LLM agent task on harness if active and return (metrics, structured_output)."""
     metrics: dict[str, Any] = {}
@@ -227,9 +117,7 @@ async def execute_stage_task(
             "STAGE_04_SHIP_VAULT_PASS2": Stage04ContractSynthesisOutput,
         }
         out_schema = schema_map.get(stage_id, BaseModel)
-        prompt_text = f"Execute {stage_id} for persona {persona} in wave {wave_idx}."
-        if context:
-            prompt_text = f"{prompt_text}{_encode_stage_context(context)}"
+        prompt_text = build_inline_stage_prompt(wave_idx, stage_id, persona, context)
         t_spec = AgentTaskSpec(
             task_id=f"task-w{wave_idx}-{stage_id.lower()}",
             run_id=run_id,
@@ -266,6 +154,9 @@ async def execute_stage_task(
             }
             if stage_id in flag_map:
                 metrics[flag_map[stage_id]] = True
+    except ProviderConfigurationError:
+        if stage_output_policy != "symbolic_completion":
+            raise
     except (TypeError, ValueError, KeyError, RuntimeError, AttributeError):
         pass
 
@@ -368,6 +259,7 @@ async def execute_stages_03_and_04(
         runner.on_stream_event,
         runner.run_id,
         context=s3_ctx,
+        stage_output_policy=runner.harness_setup.stage_output_policy,
     )
     if getattr(inference_plan, "primary_action", "") == "VERIFIED_NO_OP":
         pass
@@ -475,6 +367,7 @@ async def execute_stages_03_and_04(
         runner.on_stream_event,
         runner.run_id,
         context=s4_ctx,
+        stage_output_policy=runner.harness_setup.stage_output_policy,
     )
     cand_contract = None
     if s04_struct is not None:
@@ -565,14 +458,11 @@ async def execute_stages_03_and_04(
 
 __all__ = [
     "Stage00OrchestrationPlanOutput",
-    "Stage01FeedDiscoveryItem",
     "Stage01SourceDiscoveryOutput",
     "Stage02UnstructuredDiscoveryOutput",
     "Stage03ColumnTriageOutput",
     "Stage04ContractSynthesisOutput",
     "_SymbolicStageSynthesizer",
-    "_decode_stage_context",
-    "_encode_stage_context",
     "_step_tier",
     "execute_stage_task",
     "execute_stages_03_and_04",

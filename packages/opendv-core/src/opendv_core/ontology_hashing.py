@@ -168,6 +168,7 @@ _CBC_EXT: frozenset[str] = frozenset(
         "deprecated",
         "metadata",
         "source_hints",
+        "grounding_origin",
     }
 )
 _ATTR_OPT: frozenset[str] = frozenset(

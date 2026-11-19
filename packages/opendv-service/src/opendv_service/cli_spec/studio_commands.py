@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from opendv_service.cli_spec.schema import CommandDef, OptionDef
+from opendv_service.cli_spec.studio_wizard_commands import STUDIO_WIZARD_SUBCOMMANDS
 
 STUDIO_COMMAND = CommandDef(
     name="studio",
@@ -1321,6 +1322,7 @@ STUDIO_COMMAND = CommandDef(
                 ),
             ],
         ),
+        *STUDIO_WIZARD_SUBCOMMANDS,
     ],
 )
 

@@ -57,8 +57,8 @@ export interface paths {
 		 * Upload Cas Blob
 		 * @description Store an immutable binary blob into the Content-Addressable Store.
 		 *
-		 *     Validates optional X-CAS-SHA256 header, enforces max upload size, computes
-		 *     SHA-256 digest, and persists into the CAS store.
+		 *     Streams request payload in 64 KiB chunks to a temporary file, enforces
+		 *     MAX_CAS_UPLOAD_BYTES mid-stream, verifies optional X-CAS-SHA256, and persists via put_file().
 		 */
 		post: operations["upload_cas_blob_api_v1_cas_blobs_post"];
 		delete?: never;
@@ -207,6 +207,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/api/v1/ontology/studio/fibo/lookup": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Fibo Lookup Endpoint
+		 * @description Search bundled FIBO core ontology classes, definitions, and parent hierarchy.
+		 */
+		get: operations["fibo_lookup_endpoint_api_v1_ontology_studio_fibo_lookup_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/api/v1/ontology/studio/init": {
 		parameters: {
 			query?: never;
@@ -218,7 +238,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Init Studio
-		 * @description Initialize local workbench loopback token (.local_token) for human:local_admin.
+		 * @description Compatibility bootstrap shim returning loopback open-access identity.
 		 */
 		post: operations["init_studio_api_v1_ontology_studio_init_post"];
 		delete?: never;
@@ -276,7 +296,7 @@ export interface paths {
 		};
 		/**
 		 * Get Job Events Stream
-		 * @description Stream W3C Server-Sent Events with monotonic Last-Event-ID replay and 15s keepalive.
+		 * @description Stream W3C Server-Sent Events with monotonic Last-Event-ID replay and keepalive.
 		 */
 		get: operations["get_job_events_stream_api_v1_ontology_studio_jobs__job_id__events_get"];
 		put?: never;
@@ -296,7 +316,7 @@ export interface paths {
 		};
 		/**
 		 * List Sessions
-		 * @description List studio sessions with pagination and status filtering.
+		 * @description List studio sessions with pagination, status, and optional D25 wizard filtering.
 		 */
 		get: operations["list_sessions_api_v1_ontology_studio_sessions_get"];
 		put?: never;
@@ -322,9 +342,29 @@ export interface paths {
 		put?: never;
 		/**
 		 * Import Bundle Endpoint
-		 * @description Streaming import of .odvstudio.zip archive (editor allowed; admin required for ack).
+		 * @description Streaming import of .odvstudio.zip archive.
 		 */
 		post: operations["import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/import-ontology": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Import Ontology Session
+		 * @description Create a new Studio session from YAML, JSON, or Turtle ontology content.
+		 */
+		post: operations["import_ontology_session_api_v1_ontology_studio_sessions_import_ontology_post"];
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -419,6 +459,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/api/v1/ontology/studio/sessions/{session_id}/citations/resolve": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Resolve Citations Endpoint
+		 * @description Resolve document spans, table profiles, and FIBO definitions for EvidenceRef citations.
+		 */
+		post: operations["resolve_citations_endpoint_api_v1_ontology_studio_sessions__session_id__citations_resolve_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/api/v1/ontology/studio/sessions/{session_id}/clarifications": {
 		parameters: {
 			query?: never;
@@ -450,7 +510,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Trigger Clarification
-		 * @description Dispatch background clarification question generation (human editor/admin required).
+		 * @description Dispatch background clarification question generation.
 		 */
 		post: operations["trigger_clarification_api_v1_ontology_studio_sessions__session_id__clarify_post"];
 		delete?: never;
@@ -493,6 +553,46 @@ export interface paths {
 		 * @description Direct governed delta commit with strict OCC If-Match precondition.
 		 */
 		post: operations["apply_delta_endpoint_api_v1_ontology_studio_sessions__session_id__delta_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/evidence/chunks": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Evidence Chunks
+		 * @description Return parsed document chunks, char spans, confidence, and table_data.
+		 */
+		get: operations["get_evidence_chunks_api_v1_ontology_studio_sessions__session_id__evidence_chunks_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/evidence/tables": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Evidence Tables
+		 * @description Return profiled source tables, <= 50 sample rows, PK/FK hints, and FIBO gaps.
+		 */
+		get: operations["get_evidence_tables_api_v1_ontology_studio_sessions__session_id__evidence_tables_get"];
+		put?: never;
+		post?: never;
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -563,6 +663,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/api/v1/ontology/studio/sessions/{session_id}/fibo-qa": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Ask Fibo Qa Endpoint
+		 * @description Answer grounded FIBO + session evidence question using live agent harness.
+		 */
+		post: operations["ask_fibo_qa_endpoint_api_v1_ontology_studio_sessions__session_id__fibo_qa_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id}": {
 		parameters: {
 			query?: never;
@@ -612,9 +732,69 @@ export interface paths {
 		};
 		/**
 		 * Get Job Events Stream
-		 * @description Stream W3C Server-Sent Events with monotonic Last-Event-ID replay and 15s keepalive.
+		 * @description Stream W3C Server-Sent Events with monotonic Last-Event-ID replay and keepalive.
 		 */
 		get: operations["get_job_events_stream_api_v1_ontology_studio_sessions__session_id__jobs__job_id__events_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/logs": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Session Logs Endpoint
+		 * @description Query merged Studio journals and linked run ledgers with stage/step/persona filters.
+		 */
+		get: operations["get_session_logs_endpoint_api_v1_ontology_studio_sessions__session_id__logs_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/logs/export": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Export Session Logs Endpoint
+		 * @description Export full session agent & execution log trail as JSONL.
+		 */
+		get: operations["export_session_logs_endpoint_api_v1_ontology_studio_sessions__session_id__logs_export_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/logs/stream": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Stream Session Logs Endpoint
+		 * @description Stream session agent & execution logs over W3C SSE with Last-Event-ID replay.
+		 */
+		get: operations["stream_session_logs_endpoint_api_v1_ontology_studio_sessions__session_id__logs_stream_get"];
 		put?: never;
 		post?: never;
 		delete?: never;
@@ -698,7 +878,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Create Proposal
-		 * @description Submit candidate proposal without committing (automated restricted to additive ops).
+		 * @description Submit candidate proposal without committing.
 		 */
 		post: operations["create_proposal_api_v1_ontology_studio_sessions__session_id__proposals_post"];
 		delete?: never;
@@ -758,7 +938,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Rebase Proposal
-		 * @description Rebase proposal onto new session head via 24-op conflict matrix (P10::MAJ-04, MAJOR-06).
+		 * @description Rebase proposal onto new session head via 24-op conflict matrix.
 		 */
 		post: operations["rebase_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__rebase_post"];
 		delete?: never;
@@ -798,7 +978,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Reject Proposal
-		 * @description Mark proposal REJECTED while preserving in CAS for audit trace (human editor/admin).
+		 * @description Mark proposal REJECTED while preserving in CAS for audit trace.
 		 */
 		post: operations["reject_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__reject_post"];
 		delete?: never;
@@ -845,6 +1025,26 @@ export interface paths {
 		 * @description Stream document to CAS blob store and register in inputs/manifest.json.
 		 */
 		post: operations["upload_source_api_v1_ontology_studio_sessions__session_id__sources_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/sources/connectors": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Attach Connector Source Endpoint
+		 * @description Attach and profile a tabular connector source (SQLite/DuckDB/CSV/TSV/Parquet/XLSX/JSONL).
+		 */
+		post: operations["attach_connector_source_endpoint_api_v1_ontology_studio_sessions__session_id__sources_connectors_post"];
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -1026,7 +1226,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Submit Waiver
-		 * @description Authorize K_waiver-signed steward waiver and append signed audit record (CRITICAL-05).
+		 * @description Authorize K_waiver-signed steward waiver and append signed audit record.
 		 */
 		post: operations["submit_waiver_api_v1_ontology_studio_sessions__session_id__waiver_post"];
 		delete?: never;
@@ -1406,6 +1606,66 @@ export interface paths {
 		 * @description Resolve an active Tier U3 / G3 / G4 Captain-Hold with a Steward decision.
 		 */
 		post: operations["submit_captain_hold_decision_api_v1_runs__run_id__decisions_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/runs/{run_id}/dv-schema": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Data Vault 2.0 Schema Explorer projection for a run
+		 * @description Return DV 2.0 Hubs, Links, Satellites, triage ledger, and optional wave diff.
+		 */
+		get: operations["get_dv_schema_endpoint_api_v1_runs__run_id__dv_schema_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/runs/{run_id}/dv-schema/query": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Execute read-only SQL against a persisted DuckDB sandbox
+		 * @description Validate SQL against the strict allowlist and execute read-only in DuckDB.
+		 */
+		post: operations["query_dv_schema_endpoint_api_v1_runs__run_id__dv_schema_query_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/runs/{run_id}/dv-schema/tables/{table}/rows": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Preview rows from a persisted DuckDB sandbox table
+		 * @description Return paginated read-only rows from a persisted run sandbox `.duckdb` table.
+		 */
+		get: operations["get_dv_schema_table_rows_endpoint_api_v1_runs__run_id__dv_schema_tables__table__rows_get"];
+		put?: never;
+		post?: never;
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -1849,6 +2109,13 @@ export interface components {
 			governance_constraints?: {
 				[key: string]: unknown;
 			} | null;
+			/**
+			 * Grounding Origin
+			 * @description Ground-truth origin classification for ONT-EVO-002/004/005
+			 */
+			grounding_origin?:
+				| ("FIBO_GROUNDED" | "STRUCTURED_SCHEMA" | "DOCUMENT_OBSERVED")
+				| null;
 			/**
 			 * Key Authority Tiers
 			 * @description 3-Tier Business Key Authority specification
@@ -2958,6 +3225,11 @@ export interface components {
 			do_not_send_to_agent: boolean;
 			/** File */
 			file: string;
+			/**
+			 * Ocr Mode
+			 * @default auto
+			 */
+			ocr_mode: string;
 		};
 		/** BundleExportRequest */
 		BundleExportRequest: {
@@ -3095,6 +3367,11 @@ export interface components {
 		 * @description Multiple-choice option presented to human steward for resolving ambiguity.
 		 */
 		ClarificationOption: {
+			/**
+			 * Evidence Citations
+			 * @description Option-level citations grounding this resolution choice
+			 */
+			evidence_citations?: components["schemas"]["EvidenceRef"][];
 			/**
 			 * Fibo Uri
 			 * @description Optional FIBO concept URI associated with option
@@ -3307,6 +3584,36 @@ export interface components {
 			 * @description Target configuration field path
 			 */
 			target?: string | null;
+		};
+		/** ConnectorSourceRequest */
+		ConnectorSourceRequest: {
+			/** Adapter */
+			adapter: string;
+			/** Cas Hash */
+			cas_hash?: string | null;
+			/** Credentials Ref */
+			credentials_ref?: string | null;
+			/** Description */
+			description?: string | null;
+			/** Namespace */
+			namespace?:
+				| string
+				| {
+						[key: string]: unknown;
+				  }
+				| null;
+			/** Options */
+			options?: {
+				[key: string]: unknown;
+			};
+			/** Source Name */
+			source_name?: string | null;
+			/** Table */
+			table?: string | null;
+			/** Uri */
+			uri?: string | null;
+		} & {
+			[key: string]: unknown;
 		};
 		/**
 		 * ConnectorUIManifestDTO
@@ -3822,6 +4129,258 @@ export interface components {
 			sourceText: string;
 		};
 		/**
+		 * DvHubSchemaDTO
+		 * @description Projected Hub table metadata from Canonical IR / Contract V5.
+		 */
+		DvHubSchemaDTO: {
+			/** Bkcc Column Expr */
+			bkcc_column_expr?: string | null;
+			/** Business Keys */
+			business_keys?: string[];
+			/** Hk Column */
+			hk_column: string;
+			/** Name */
+			name: string;
+			/** Ontology Concept Uri */
+			ontology_concept_uri?: string | null;
+			/** Source Mappings */
+			source_mappings?: {
+				[key: string]: unknown;
+			}[];
+		};
+		/**
+		 * DvLinkSchemaDTO
+		 * @description Projected Link table metadata from Canonical IR / Contract V5.
+		 */
+		DvLinkSchemaDTO: {
+			/** Degenerate Columns */
+			degenerate_columns?: string[];
+			/** Hk Column */
+			hk_column: string;
+			/** Hub References */
+			hub_references?: {
+				[key: string]: unknown;
+			}[];
+			/**
+			 * Link Type
+			 * @default STANDARD
+			 */
+			link_type: string;
+			/** Name */
+			name: string;
+			/** Where Filter Condition */
+			where_filter_condition?: string | null;
+		};
+		/**
+		 * DvPitTableSchemaDTO
+		 * @description Projected Point-In-Time (`pit_*`) Business Vault table metadata.
+		 */
+		DvPitTableSchemaDTO: {
+			/** Name */
+			name: string;
+			/** Target Hub */
+			target_hub: string;
+			/** Tracked Satellites */
+			tracked_satellites?: string[];
+		};
+		/**
+		 * DvReferenceTableSchemaDTO
+		 * @description Projected Reference table (`ref_*`) metadata.
+		 */
+		DvReferenceTableSchemaDTO: {
+			/** Description Columns */
+			description_columns?: string[];
+			/** Name */
+			name: string;
+			/** Natural Code Column */
+			natural_code_column: string;
+		};
+		/**
+		 * DvSatelliteSchemaDTO
+		 * @description Projected Satellite table metadata from Canonical IR / Contract V5.
+		 */
+		DvSatelliteSchemaDTO: {
+			/**
+			 * Hash Diff Column
+			 * @default hash_diff
+			 */
+			hash_diff_column: string;
+			/**
+			 * Hash Diff Migration Policy
+			 * @default SPLIT_NEW_SATELLITE
+			 */
+			hash_diff_migration_policy: string;
+			/** Name */
+			name: string;
+			/** Parent Entity */
+			parent_entity: string;
+			/** Payload Columns */
+			payload_columns?: {
+				[key: string]: unknown;
+			}[];
+			/**
+			 * Satellite Type
+			 * @default STANDARD
+			 */
+			satellite_type: string;
+			/** Soft Deprecated Columns */
+			soft_deprecated_columns?: string[];
+		};
+		/**
+		 * DvSchemaProjectionDTO
+		 * @description Full Data Vault 2.0 Schema Explorer projection for a pipeline run.
+		 */
+		DvSchemaProjectionDTO: {
+			/** Column Triage Ledger */
+			column_triage_ledger?: {
+				[key: string]: unknown;
+			}[];
+			/** Compare Run Id */
+			compare_run_id?: string | null;
+			/** Hubs */
+			hubs?: components["schemas"]["DvHubSchemaDTO"][];
+			/** Links */
+			links?: components["schemas"]["DvLinkSchemaDTO"][];
+			/**
+			 * Model Name
+			 * @default
+			 */
+			model_name: string;
+			/** Pit Tables */
+			pit_tables?: components["schemas"]["DvPitTableSchemaDTO"][];
+			/** Reference Tables */
+			reference_tables?: components["schemas"]["DvReferenceTableSchemaDTO"][];
+			/** Run Id */
+			run_id: string;
+			/** Satellites */
+			satellites?: components["schemas"]["DvSatelliteSchemaDTO"][];
+			/** Scorecard */
+			scorecard?: {
+				[key: string]: unknown;
+			};
+			wave_diff?: components["schemas"]["DvSchemaWaveDiffDTO"] | null;
+		};
+		/**
+		 * DvSchemaQueryRequestDTO
+		 * @description Request payload for read-only custom SQL against a persisted sandbox DuckDB.
+		 */
+		DvSchemaQueryRequestDTO: {
+			/**
+			 * Max Rows
+			 * @default 500
+			 */
+			max_rows: number;
+			/** Sql */
+			sql: string;
+		};
+		/**
+		 * DvSchemaQueryResponseDTO
+		 * @description Response payload for read-only custom SQL execution in DV Schema Explorer.
+		 */
+		DvSchemaQueryResponseDTO: {
+			/** Columns */
+			columns?: string[];
+			/**
+			 * Duration Ms
+			 * @default 0
+			 */
+			duration_ms: number;
+			/**
+			 * Row Count
+			 * @default 0
+			 */
+			row_count: number;
+			/** Rows */
+			rows?: {
+				[key: string]: unknown;
+			}[];
+			/** Run Id */
+			run_id: string;
+			/**
+			 * Truncated
+			 * @default false
+			 */
+			truncated: boolean;
+		};
+		/**
+		 * DvSchemaTableRowsDTO
+		 * @description Paginated read-only row preview from a persisted sandbox DuckDB table.
+		 */
+		DvSchemaTableRowsDTO: {
+			/** Columns */
+			columns?: string[];
+			/**
+			 * Limit
+			 * @default 50
+			 */
+			limit: number;
+			/**
+			 * Offset
+			 * @default 0
+			 */
+			offset: number;
+			/**
+			 * Row Count
+			 * @default 0
+			 */
+			row_count: number;
+			/** Rows */
+			rows?: {
+				[key: string]: unknown;
+			}[];
+			/** Run Id */
+			run_id: string;
+			/**
+			 * Schema Name
+			 * @default raw_vault
+			 */
+			schema_name: string;
+			/** Table Name */
+			table_name: string;
+			/**
+			 * Total Count
+			 * @default 0
+			 */
+			total_count: number;
+			/**
+			 * Truncated
+			 * @default false
+			 */
+			truncated: boolean;
+		};
+		/**
+		 * DvSchemaWaveDiffDTO
+		 * @description Multi-wave DV schema comparison summary (`?compare=<run_id>`).
+		 */
+		DvSchemaWaveDiffDTO: {
+			/** Added Columns */
+			added_columns?: {
+				[key: string]: string;
+			}[];
+			/** Added Hubs */
+			added_hubs?: string[];
+			/** Added Links */
+			added_links?: string[];
+			/** Added Satellites */
+			added_satellites?: string[];
+			/** Compare Run Id */
+			compare_run_id: string;
+			/**
+			 * Dropped Columns Count
+			 * @default 0
+			 */
+			dropped_columns_count: number;
+			/**
+			 * Hash Diff Mutations Count
+			 * @default 0
+			 */
+			hash_diff_mutations_count: number;
+			/** Soft Deprecated Columns */
+			soft_deprecated_columns?: {
+				[key: string]: string;
+			}[];
+		};
+		/**
 		 * DvSvgEdgeSpec
 		 * @description SVG edge for Data Vault 2.0 model visualizer.
 		 */
@@ -3931,6 +4490,11 @@ export interface components {
 			 */
 			char_start?: number | null;
 			/**
+			 * Chunk Id
+			 * @description Evidence chunk identifier
+			 */
+			chunk_id?: string | null;
+			/**
 			 * Column Name
 			 * @description Source column name
 			 */
@@ -3952,6 +4516,16 @@ export interface components {
 			 */
 			evidence_type: string;
 			/**
+			 * Fibo Uri
+			 * @description Referenced FIBO concept or property URI
+			 */
+			fibo_uri?: string | null;
+			/**
+			 * Page Number
+			 * @description 1-based source page number
+			 */
+			page_number?: number | null;
+			/**
 			 * Reference Uri
 			 * @description Target reference pointer or URI
 			 */
@@ -3961,6 +4535,16 @@ export interface components {
 			 * @description Text snippet, excerpt, or sample value grounding the proposal
 			 */
 			snippet?: string | null;
+			/**
+			 * Source Label
+			 * @description Human-readable source filename or label
+			 */
+			source_label?: string | null;
+			/**
+			 * Table Id
+			 * @description Extracted table identifier
+			 */
+			table_id?: string | null;
 		};
 		/**
 		 * ExplorerBundleDTO
@@ -4068,10 +4652,7 @@ export interface components {
 			concept_uri?: string | null;
 			/** Proposal Id */
 			proposal_id?: string | null;
-			/**
-			 * Rating
-			 * @description Feedback rating ('up', 'down', or numeric score)
-			 */
+			/** Rating */
 			rating: string | number;
 		};
 		/** FeedbackSubmissionResponse */
@@ -4088,6 +4669,15 @@ export interface components {
 			status: string;
 			/** Timestamp */
 			timestamp: string;
+		};
+		/** FiboQAApiRequest */
+		FiboQAApiRequest: {
+			/** Concept Uri */
+			concept_uri?: string | null;
+			/** Question */
+			question: string;
+			/** Source Ids */
+			source_ids?: string[] | null;
 		};
 		/**
 		 * GateScorecardSummary
@@ -4374,6 +4964,32 @@ export interface components {
 			 * @default false
 			 */
 			read_only_workspace: boolean;
+		};
+		/** ImportOntologyRequest */
+		ImportOntologyRequest: {
+			/** Content */
+			content: string;
+			/** Description */
+			description?: string | null;
+			/**
+			 * Domain Namespace
+			 * @default default
+			 */
+			domain_namespace: string;
+			/**
+			 * Enterprise Owner
+			 * @default Enterprise
+			 */
+			enterprise_owner: string;
+			/** Expected Sha256 */
+			expected_sha256?: string | null;
+			/**
+			 * Format
+			 * @default yaml
+			 */
+			format: string;
+			/** Session Id */
+			session_id?: string | null;
 		};
 		/**
 		 * InferredExecutionPlanDTO
@@ -5481,6 +6097,11 @@ export interface components {
 				[key: string]: unknown;
 			} | null;
 			/**
+			 * Session Id
+			 * @description Optional Ontology Studio session ID linked to this pipeline run
+			 */
+			session_id?: string | null;
+			/**
 			 * Sources
 			 * @description Universal multi-connector source feeds
 			 */
@@ -5673,6 +6294,11 @@ export interface components {
 			 * @description Optional predetermined run identifier
 			 */
 			run_id?: string | null;
+			/**
+			 * Session Id
+			 * @description Optional Ontology Studio session ID linked to this pipeline run
+			 */
+			session_id?: string | null;
 			/**
 			 * Sources
 			 * @description Universal source feeds
@@ -6582,14 +7208,10 @@ export interface components {
 		RefineProposalRequest: {
 			/**
 			 * Mode
-			 * @description Execution mode: auto, agent, deterministic
 			 * @default auto
 			 */
 			mode: string;
-			/**
-			 * Steering Prompt
-			 * @description Natural-language steering guidance
-			 */
+			/** Steering Prompt */
 			steering_prompt: string;
 		};
 		/**
@@ -6985,6 +7607,13 @@ export interface components {
 			 * @default
 			 */
 			target_uri: string;
+		};
+		/** ResolveCitationsRequest */
+		ResolveCitationsRequest: {
+			/** Citations */
+			citations?: {
+				[key: string]: unknown;
+			}[];
 		};
 		/**
 		 * ReviseDescriptionOp
@@ -7528,6 +8157,59 @@ export interface components {
 			 */
 			rationale: string;
 		};
+		/**
+		 * SingleRunExecutionResultDTO
+		 * @description Result of a single-run pipeline execution.
+		 */
+		SingleRunExecutionResultDTO: {
+			/** Blueprint */
+			blueprint?:
+				| components["schemas"]["VaultBlueprintDTO"]
+				| {
+						[key: string]: unknown;
+				  }
+				| null;
+			/** Evolution Diff */
+			evolution_diff?: {
+				[key: string]: unknown;
+			};
+			/** Four Zone Sql */
+			four_zone_sql?: {
+				[key: string]: unknown;
+			};
+			/** Inference Plan */
+			inference_plan?:
+				| components["schemas"]["InferredExecutionPlanDTO"]
+				| {
+						[key: string]: unknown;
+				  }
+				| null;
+			/** Observability Events */
+			observability_events?: {
+				[key: string]: unknown;
+			}[];
+			/**
+			 * Overall Passed
+			 * @default false
+			 */
+			overall_passed: boolean;
+			/** Report */
+			report?: {
+				[key: string]: unknown;
+			};
+			/**
+			 * Run Id
+			 * @description Unique run identifier
+			 */
+			run_id: string;
+			/**
+			 * Status
+			 * @description Run status: COMPLETED, PAUSED_HOLD, FAILED
+			 */
+			status: string;
+		} & {
+			[key: string]: unknown;
+		};
 		/** SourceDocumentDTO */
 		SourceDocumentDTO: {
 			/**
@@ -7702,6 +8384,8 @@ export interface components {
 			filename: string;
 			/** Mime Type */
 			mime_type: string;
+			/** Ocr Mode */
+			ocr_mode?: string | null;
 			/** Size Bytes */
 			size_bytes: number;
 			/** Source Id */
@@ -8050,6 +8734,11 @@ export interface components {
 			status: string;
 			/** Updated At */
 			updated_at: string;
+			/**
+			 * Wizard Schema Version
+			 * @default 2
+			 */
+			wizard_schema_version: number;
 		};
 		/** StudioSessionDetailDTO */
 		StudioSessionDetailDTO: {
@@ -8077,6 +8766,11 @@ export interface components {
 			updated_at: string;
 			/** Versions Count */
 			versions_count: number;
+			/**
+			 * Wizard Schema Version
+			 * @default 2
+			 */
+			wizard_schema_version: number;
 		};
 		/** StudioSessionStatusDTO */
 		StudioSessionStatusDTO: {
@@ -8115,6 +8809,11 @@ export interface components {
 			status: string;
 			/** Updated At */
 			updated_at: string;
+			/**
+			 * Wizard Schema Version
+			 * @default 2
+			 */
+			wizard_schema_version: number;
 		};
 		/**
 		 * TableExecutionActionDTO
@@ -8184,32 +8883,21 @@ export interface components {
 		};
 		/** TextSourceUploadRequest */
 		TextSourceUploadRequest: {
-			/**
-			 * Description
-			 * @description Optional description
-			 */
+			/** Description */
 			description?: string | null;
 			/**
 			 * Do Not Send To Agent
-			 * @description Confidentiality taint flag
 			 * @default false
 			 */
 			do_not_send_to_agent: boolean;
 			/**
 			 * Format
-			 * @description Text format encoding: 'text' or 'markdown'
 			 * @default text
 			 */
 			format: string;
-			/**
-			 * Source Name
-			 * @description Descriptive document filename or label
-			 */
+			/** Source Name */
 			source_name?: string | null;
-			/**
-			 * Text
-			 * @description Raw text or markdown document content
-			 */
+			/** Text */
 			text: string;
 		};
 		/** TokenExchangeRequest */
@@ -8528,6 +9216,16 @@ export interface components {
 		} & {
 			[key: string]: unknown;
 		};
+		/** WizardSessionListResponse */
+		WizardSessionListResponse: {
+			/**
+			 * Legacy Session Count
+			 * @default 0
+			 */
+			legacy_session_count: number;
+			/** Sessions */
+			sessions: components["schemas"]["StudioSessionSummaryDTO"][];
+		};
 	};
 	responses: never;
 	parameters: never;
@@ -8844,6 +9542,40 @@ export interface operations {
 			};
 		};
 	};
+	fibo_lookup_endpoint_api_v1_ontology_studio_fibo_lookup_get: {
+		parameters: {
+			query: {
+				q: string;
+				limit?: number;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": {
+						[key: string]: unknown;
+					};
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
 	init_studio_api_v1_ontology_studio_init_post: {
 		parameters: {
 			query?: {
@@ -8992,6 +9724,7 @@ export interface operations {
 				limit?: number;
 				offset?: number;
 				status?: string | null;
+				wizard_only?: boolean;
 			};
 			header?: never;
 			path?: never;
@@ -9005,7 +9738,9 @@ export interface operations {
 					[name: string]: unknown;
 				};
 				content: {
-					"application/json": components["schemas"]["StudioSessionSummaryDTO"][];
+					"application/json":
+						| components["schemas"]["StudioSessionSummaryDTO"][]
+						| components["schemas"]["WizardSessionListResponse"];
 				};
 			};
 			/** @description Validation Error */
@@ -9067,6 +9802,39 @@ export interface operations {
 		requestBody: {
 			content: {
 				"multipart/form-data": components["schemas"]["Body_import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["StudioSessionDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	import_ontology_session_api_v1_ontology_studio_sessions_import_ontology_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["ImportOntologyRequest"];
 			};
 		};
 		responses: {
@@ -9290,6 +10058,43 @@ export interface operations {
 			};
 		};
 	};
+	resolve_citations_endpoint_api_v1_ontology_studio_sessions__session_id__citations_resolve_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["ResolveCitationsRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": {
+						[key: string]: unknown;
+					};
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
 	get_clarification_questions_api_v1_ontology_studio_sessions__session_id__clarifications_get: {
 		parameters: {
 			query?: never;
@@ -9417,6 +10222,72 @@ export interface operations {
 				};
 				content: {
 					"application/json": components["schemas"]["DeltaCommitResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_evidence_chunks_api_v1_ontology_studio_sessions__session_id__evidence_chunks_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": {
+						[key: string]: unknown;
+					};
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_evidence_tables_api_v1_ontology_studio_sessions__session_id__evidence_tables_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": {
+						[key: string]: unknown;
+					};
 				};
 			};
 			/** @description Validation Error */
@@ -9571,6 +10442,43 @@ export interface operations {
 			};
 		};
 	};
+	ask_fibo_qa_endpoint_api_v1_ontology_studio_sessions__session_id__fibo_qa_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["FiboQAApiRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": {
+						[key: string]: unknown;
+					};
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
 	get_job_status_endpoint_api_v1_ontology_studio_sessions__session_id__jobs__job_id__get: {
 		parameters: {
 			query?: never;
@@ -9650,6 +10558,121 @@ export interface operations {
 			path: {
 				job_id: string;
 				session_id: string | null;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": unknown;
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_session_logs_endpoint_api_v1_ontology_studio_sessions__session_id__logs_get: {
+		parameters: {
+			query?: {
+				stage_id?: string | null;
+				stage?: string | null;
+				wizard_step?: number | null;
+				step?: number | null;
+				persona?: string | null;
+				source_id?: string | null;
+				job_id?: string | null;
+				category?: string | null;
+				limit?: number;
+				offset?: number;
+			};
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": {
+						[key: string]: unknown;
+					};
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	export_session_logs_endpoint_api_v1_ontology_studio_sessions__session_id__logs_export_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": unknown;
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	stream_session_logs_endpoint_api_v1_ontology_studio_sessions__session_id__logs_stream_get: {
+		parameters: {
+			query?: {
+				once?: boolean;
+				stage_id?: string | null;
+				stage?: string | null;
+				wizard_step?: number | null;
+				persona?: string | null;
+				category?: string | null;
+			};
+			header?: {
+				"Last-Event-ID"?: string | null;
+			};
+			path: {
+				session_id: string;
 			};
 			cookie?: never;
 		};
@@ -10124,6 +11147,43 @@ export interface operations {
 			};
 		};
 	};
+	attach_connector_source_endpoint_api_v1_ontology_studio_sessions__session_id__sources_connectors_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["ConnectorSourceRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": {
+						[key: string]: unknown;
+					};
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
 	upload_text_source_api_v1_ontology_studio_sessions__session_id__sources_text_post: {
 		parameters: {
 			query?: never;
@@ -10571,7 +11631,9 @@ export interface operations {
 					[name: string]: unknown;
 				};
 				content: {
-					"application/json": components["schemas"]["PipelineRunHandle"];
+					"application/json":
+						| components["schemas"]["PipelineRunHandle"]
+						| components["schemas"]["SingleRunExecutionResultDTO"];
 				};
 			};
 			/** @description Validation Error */
@@ -11163,6 +12225,110 @@ export interface operations {
 				};
 				content: {
 					"application/json": components["schemas"]["CaptainHoldDecisionResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_dv_schema_endpoint_api_v1_runs__run_id__dv_schema_get: {
+		parameters: {
+			query?: {
+				/** @description Optional baseline run_id to compute multi-wave schema diff. */
+				compare?: string | null;
+			};
+			header?: never;
+			path: {
+				run_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["DvSchemaProjectionDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	query_dv_schema_endpoint_api_v1_runs__run_id__dv_schema_query_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				run_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["DvSchemaQueryRequestDTO"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["DvSchemaQueryResponseDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_dv_schema_table_rows_endpoint_api_v1_runs__run_id__dv_schema_tables__table__rows_get: {
+		parameters: {
+			query?: {
+				limit?: number;
+				offset?: number;
+			};
+			header?: never;
+			path: {
+				run_id: string;
+				table: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["DvSchemaTableRowsDTO"];
 				};
 			};
 			/** @description Validation Error */

@@ -91,7 +91,7 @@ BANNED_PE_IDENTIFIERS = [
 
 ALLOWLISTED_BLE001_BOUNDARIES = {
     "apps/opendv-cli/src/opendv_cli/main.py": "CLI main top-level execution boundary",
-    "apps/opendv-platform-api/src/opendv_platform_api/main.py": (
+    "apps/opendv-platform-api/src/opendv_platform_api/exception_handlers.py": (
         "API global exception handler boundary"
     ),
     "packages/opendv-sources/src/opendv_sources/adapters/databricks_inspector.py": "",

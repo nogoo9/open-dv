@@ -191,19 +191,27 @@ def transpile_duckdb_to_databricks_sql(sql: str) -> str:
     return "\n\n".join(statements)
 
 
-def compile_databricks_hub_ddl_and_zero_keys(hub: IRHub) -> str:
+_DEFAULT_UNITY_CATALOG = "opendv_catalog"
+
+
+def compile_databricks_hub_ddl_and_zero_keys(
+    hub: IRHub, *, catalog: str = _DEFAULT_UNITY_CATALOG
+) -> str:
+    cat = _validate_ident(catalog)
     tbl = _validate_ident(hub.name)
     hk = _validate_ident(hub.hk_column.name)
     bk_defs = [f"    {_validate_ident(bk.name)} STRING NOT NULL," for bk in hub.business_keys]
 
     ddl = "\n".join(
         [
-            f"CREATE TABLE IF NOT EXISTS raw_vault.{tbl} (",
+            f"CREATE TABLE IF NOT EXISTS {cat}.raw_vault.{tbl} (",
             f"    {hk} STRING NOT NULL,",
             *bk_defs,
             "    load_dts TIMESTAMP NOT NULL,",
             "    rec_src STRING NOT NULL",
-            ") USING DELTA;",
+            ") USING DELTA",
+            f"CLUSTER BY ({hk}, load_dts)",
+            "TBLPROPERTIES ('delta.appendOnly' = 'true');",
         ]
     )
 
@@ -220,7 +228,7 @@ def compile_databricks_hub_ddl_and_zero_keys(hub: IRHub) -> str:
     )
 
     zero_key_merge = (
-        f"MERGE INTO raw_vault.{tbl} AS target\n"
+        f"MERGE INTO {cat}.raw_vault.{tbl} AS target\n"
         f"USING (\n"
         f"    SELECT '{ZERO_KEY_UNKNOWN}' AS {hk}, {unknown_bks_csv}, "
         f"TIMESTAMP '{GHOST_DTS}' AS load_dts, '{ZERO_KEY_REC_SRC}' AS rec_src\n"
@@ -236,7 +244,10 @@ def compile_databricks_hub_ddl_and_zero_keys(hub: IRHub) -> str:
     return f"{ddl}\n\n{zero_key_merge}"
 
 
-def compile_databricks_link_ddl(link: IRLink) -> str:
+def compile_databricks_link_ddl(
+    link: IRLink, *, catalog: str = _DEFAULT_UNITY_CATALOG
+) -> str:
+    cat = _validate_ident(catalog)
     tbl = _validate_ident(link.name)
     hk = _validate_ident(link.hk_column.name)
     fk_defs = [
@@ -244,17 +255,22 @@ def compile_databricks_link_ddl(link: IRLink) -> str:
     ]
     return "\n".join(
         [
-            f"CREATE TABLE IF NOT EXISTS raw_vault.{tbl} (",
+            f"CREATE TABLE IF NOT EXISTS {cat}.raw_vault.{tbl} (",
             f"    {hk} STRING NOT NULL,",
             *fk_defs,
             "    load_dts TIMESTAMP NOT NULL,",
             "    rec_src STRING NOT NULL",
-            ") USING DELTA;",
+            ") USING DELTA",
+            f"CLUSTER BY ({hk}, load_dts)",
+            "TBLPROPERTIES ('delta.appendOnly' = 'true');",
         ]
     )
 
 
-def compile_databricks_satellite_ddl(sat: IRSatellite) -> str:
+def compile_databricks_satellite_ddl(
+    sat: IRSatellite, *, catalog: str = _DEFAULT_UNITY_CATALOG
+) -> str:
+    cat = _validate_ident(catalog)
     tbl = _validate_ident(sat.name)
     parent_hk = _validate_ident(sat.parent_hk_column.name)
     diff_col = _validate_ident(sat.hash_diff_column.name)
@@ -268,18 +284,23 @@ def compile_databricks_satellite_ddl(sat: IRSatellite) -> str:
 
     return "\n".join(
         [
-            f"CREATE TABLE IF NOT EXISTS raw_vault.{tbl} (",
+            f"CREATE TABLE IF NOT EXISTS {cat}.raw_vault.{tbl} (",
             f"    {parent_hk} STRING NOT NULL,",
             "    load_dts TIMESTAMP NOT NULL,",
             f"    {diff_col} STRING NOT NULL,",
             *data_col_defs,
             "    rec_src STRING NOT NULL",
-            ") USING DELTA;",
+            ") USING DELTA",
+            f"CLUSTER BY ({parent_hk}, load_dts)",
+            "TBLPROPERTIES ('delta.appendOnly' = 'true');",
         ]
     )
 
 
-def compile_databricks_zone_2_merge(ir_obj: CanonicalIR) -> str:
+def compile_databricks_zone_2_merge(
+    ir_obj: CanonicalIR, *, catalog: str = _DEFAULT_UNITY_CATALOG
+) -> str:
+    cat = _validate_ident(catalog)
     parts: list[str] = [
         "-- =============================================================================",
         "-- ZONE 2: IDEMPOTENT DELTA MERGE INTO RAW VAULT LOADS (DATABRICKS)",
@@ -295,11 +316,11 @@ def compile_databricks_zone_2_merge(ir_obj: CanonicalIR) -> str:
         source_bk_csv = ", ".join(f"source.{c}" for c in bk_cols)
 
         parts.append(
-            f"MERGE INTO raw_vault.{tbl} AS target\n"
+            f"MERGE INTO {cat}.raw_vault.{tbl} AS target\n"
             f"USING (\n"
             f"    SELECT src.{hk}, {src_bk_csv}, "
             f"MIN(src.load_dts) AS load_dts, ANY_VALUE(src.rec_src) AS rec_src\n"
-            f"    FROM staging.stg_{tbl} AS src\n"
+            f"    FROM {cat}.staging.stg_{tbl} AS src\n"
             f"    WHERE src.{hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
             f"    GROUP BY src.{hk}, {src_bk_csv}\n"
             f") AS source\n"
@@ -318,11 +339,11 @@ def compile_databricks_zone_2_merge(ir_obj: CanonicalIR) -> str:
         source_fk_csv = ", ".join(f"source.{c}" for c in fk_cols)
 
         parts.append(
-            f"MERGE INTO raw_vault.{tbl} AS target\n"
+            f"MERGE INTO {cat}.raw_vault.{tbl} AS target\n"
             f"USING (\n"
             f"    SELECT src.{hk}, {src_fk_csv}, "
             f"MIN(src.load_dts) AS load_dts, ANY_VALUE(src.rec_src) AS rec_src\n"
-            f"    FROM staging.stg_{tbl} AS src\n"
+            f"    FROM {cat}.staging.stg_{tbl} AS src\n"
             f"    WHERE src.{hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
             f"    GROUP BY src.{hk}, {src_fk_csv}\n"
             f") AS source\n"
@@ -344,9 +365,9 @@ def compile_databricks_zone_2_merge(ir_obj: CanonicalIR) -> str:
         src_cols_csv = ", ".join(f"src.{c}" for c in all_cols)
 
         parts.append(
-            f"MERGE INTO raw_vault.{tbl} AS target\n"
+            f"MERGE INTO {cat}.raw_vault.{tbl} AS target\n"
             f"USING (\n"
-            f"    SELECT {src_cols_csv} FROM staging.stg_{tbl} AS src\n"
+            f"    SELECT {src_cols_csv} FROM {cat}.staging.stg_{tbl} AS src\n"
             f"    WHERE src.{parent_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
             f") AS source\n"
             f"ON target.{parent_hk} = source.{parent_hk} AND target.load_dts = source.load_dts\n"
@@ -413,18 +434,21 @@ def transpile_bundle_to_databricks(bundle: Compiled4ZoneBundle) -> CompiledDatab
     )
 
 
-def compile_canonical_ir_to_databricks(ir_obj: CanonicalIR) -> CompiledDatabricksBundle:
+def compile_canonical_ir_to_databricks(
+    ir_obj: CanonicalIR, *, catalog: str = _DEFAULT_UNITY_CATALOG
+) -> CompiledDatabricksBundle:
+    cat = _validate_ident(catalog)
     ddl_parts: list[str] = [
-        "CREATE SCHEMA IF NOT EXISTS staging;",
-        "CREATE SCHEMA IF NOT EXISTS raw_vault;",
-        "CREATE SCHEMA IF NOT EXISTS business_vault;",
+        f"CREATE SCHEMA IF NOT EXISTS {cat}.staging;",
+        f"CREATE SCHEMA IF NOT EXISTS {cat}.raw_vault;",
+        f"CREATE SCHEMA IF NOT EXISTS {cat}.business_vault;",
     ]
     for hub in ir_obj.hubs:
-        ddl_parts.append(compile_databricks_hub_ddl_and_zero_keys(hub))
+        ddl_parts.append(compile_databricks_hub_ddl_and_zero_keys(hub, catalog=cat))
     for link in ir_obj.links:
-        ddl_parts.append(compile_databricks_link_ddl(link))
+        ddl_parts.append(compile_databricks_link_ddl(link, catalog=cat))
     for sat in ir_obj.satellites:
-        ddl_parts.append(compile_databricks_satellite_ddl(sat))
+        ddl_parts.append(compile_databricks_satellite_ddl(sat, catalog=cat))
 
     topological_order = (
         [h.name for h in ir_obj.hubs]
@@ -438,7 +462,7 @@ def compile_canonical_ir_to_databricks(ir_obj: CanonicalIR) -> CompiledDatabrick
         topological_load_order=topological_order,
         zone_0_sql="\n\n".join(ddl_parts),
         zone_1_sql="",
-        zone_2_sql=compile_databricks_zone_2_merge(ir_obj),
+        zone_2_sql=compile_databricks_zone_2_merge(ir_obj, catalog=cat),
         zone_3_sql="",
         zone_4_sql="",
         canonical_ir=ir_obj,

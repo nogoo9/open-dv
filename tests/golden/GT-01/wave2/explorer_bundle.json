@@ -704,17 +704,152 @@
       "events": [
         [
           "STAGE_00",
-          "Session start",
+          "Stage STAGE_00_ORCHESTRATION started by vault-first-mate.",
+          "PASS"
+        ],
+        [
+          "STAGE_00",
+          "Stream delta checkpoint.",
+          "PASS"
+        ],
+        [
+          "STAGE_00",
+          "Stream delta checkpoint.",
+          "PASS"
+        ],
+        [
+          "STAGE_00",
+          "Stream delta checkpoint.",
+          "PASS"
+        ],
+        [
+          "STAGE_00",
+          "Stage STAGE_00_ORCHESTRATION completed: PASS.",
+          "PASS"
+        ],
+        [
+          "STAGE_01",
+          "Stage STAGE_01_SCOUT_SOURCE started by scout-source.",
+          "PASS"
+        ],
+        [
+          "STAGE_00",
+          "Stream delta checkpoint.",
+          "PASS"
+        ],
+        [
+          "STAGE_01",
+          "Stream delta checkpoint.",
+          "PASS"
+        ],
+        [
+          "STAGE_01",
+          "Stream delta checkpoint.",
+          "PASS"
+        ],
+        [
+          "STAGE_01",
+          "Stage STAGE_01_SCOUT_SOURCE completed: PASS.",
+          "PASS"
+        ],
+        [
+          "STAGE_02",
+          "Stage STAGE_02_SCOUT_UNSTRUCTURED started by scout-unstructured.",
+          "PASS"
+        ],
+        [
+          "STAGE_00",
+          "Stream delta checkpoint.",
+          "PASS"
+        ],
+        [
+          "STAGE_02",
+          "Stream delta checkpoint.",
+          "PASS"
+        ],
+        [
+          "STAGE_02",
+          "Stream delta checkpoint.",
+          "PASS"
+        ],
+        [
+          "STAGE_02",
+          "Stage STAGE_02_SCOUT_UNSTRUCTURED completed: PASS.",
+          "PASS"
+        ],
+        [
+          "STAGE_03",
+          "Stage STAGE_03_SHIP_VAULT_PASS1 started by ship-vault.",
+          "PASS"
+        ],
+        [
+          "STAGE_00",
+          "Stream delta checkpoint.",
+          "PASS"
+        ],
+        [
+          "STAGE_03",
+          "Stream delta checkpoint.",
+          "PASS"
+        ],
+        [
+          "STAGE_03",
+          "Stream delta checkpoint.",
+          "PASS"
+        ],
+        [
+          "STAGE_03",
+          "Stage STAGE_03_SHIP_VAULT_PASS1 completed: PASS.",
+          "PASS"
+        ],
+        [
+          "STAGE_04",
+          "Stage STAGE_04_SHIP_VAULT_PASS2 started by ship-vault.",
+          "PASS"
+        ],
+        [
+          "STAGE_04",
+          "Stream delta checkpoint.",
+          "PASS"
+        ],
+        [
+          "STAGE_04",
+          "Stream delta checkpoint.",
+          "PASS"
+        ],
+        [
+          "STAGE_04",
+          "Stage STAGE_04_SHIP_VAULT_PASS2 completed: PASS.",
           "PASS"
         ],
         [
           "STAGE_05",
-          "Static verification complete",
+          "Stage STAGE_05_AXI_DV_STATIC_GATES started by axi-dv.",
+          "PASS"
+        ],
+        [
+          "STAGE_05",
+          "Stage STAGE_05_AXI_DV_STATIC_GATES completed: PASS.",
+          "PASS"
+        ],
+        [
+          "STAGE_06",
+          "Stage STAGE_06_AXI_DV_DYNAMIC_SANDBOX started by axi-dv.",
+          "PASS"
+        ],
+        [
+          "STAGE_06",
+          "Stage STAGE_06_AXI_DV_DYNAMIC_SANDBOX completed: PASS.",
           "PASS"
         ],
         [
           "STAGE_07",
-          "Deterministic compile complete",
+          "Stage STAGE_07_DETERMINISTIC_COMPILER started by deterministic-compiler.",
+          "PASS"
+        ],
+        [
+          "STAGE_07",
+          "Stage STAGE_07_DETERMINISTIC_COMPILER completed: PASS.",
           "PASS"
         ]
       ],

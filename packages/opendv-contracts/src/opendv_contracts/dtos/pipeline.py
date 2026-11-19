@@ -138,6 +138,10 @@ class PipelineInputDTO(BaseContractModel):
         default="antigravity",
         description="Execution harness provider ('agy', 'claude', etc.)",
     )
+    session_id: str | None = Field(
+        default=None,
+        description="Optional Ontology Studio session ID linked to this pipeline run",
+    )
 
 
 class PipelineValidateRequest(BaseContractModel):
@@ -253,6 +257,10 @@ class PipelineRunRequest(PipelineValidateRequest):
     config: dict[str, Any] = Field(
         default_factory=dict,
         description="Extended execution config",
+    )
+    session_id: str | None = Field(
+        default=None,
+        description="Optional Ontology Studio session ID linked to this pipeline run",
     )
 
 

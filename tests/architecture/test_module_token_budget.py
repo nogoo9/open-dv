@@ -211,8 +211,8 @@ def test_dynamic_git_diff_token_budget() -> None:
         # Exclude generated OpenAPI artifacts and schemas
         if "schemas" in p.parts or f.endswith("openapi.ts") or p.name == "playwright.config.ts":
             continue
-        # Exclude untouched Ontology Studio modules
-        if "ontology" in p.parts or "ontology_studio" in p.name:
+        # Exclude legacy pre-existing frontend ontology workbench modules only
+        if "opendv-web-workbench" in p.parts and "ontology" in p.parts:
             continue
         # Exclude legacy pre-existing files that already exceeded budget prior to ADR-020
         if f.replace("\\", "/") in baseline_exceeding_prior_to_adr020:

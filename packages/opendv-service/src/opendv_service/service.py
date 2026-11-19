@@ -276,6 +276,7 @@ class OpenDVService:
                 target_dialect=request.target_dialect,
                 provider_override=resolve_effective_provider(request, self.state),
                 steward_hold_policy=str(hold_pol) if hold_pol else None,
+                session_id=getattr(request, "session_id", None),
             )
         elif isinstance(request, PipelineRunRequest):
             req_obj = request
@@ -847,6 +848,27 @@ class OpenDVService:
             req_obj,
             workspace_root=self.workspace_root,
         )
+
+    # 18. Data Vault Schema Explorer (Phase 2 Track A delegation)
+    def get_dv_schema(self, run_id: str, *, compare_run_id: str | None = None) -> Any:
+        """Project CanonicalIR + Data Vault contract + wave diff for a run."""
+        from opendv_service.use_cases.dv_schema_explorer import get_dv_schema_projection
+
+        return get_dv_schema_projection(self.state, run_id, compare_run_id=compare_run_id)
+
+    def get_dv_schema_table_rows(
+        self, run_id: str, table: str, *, limit: int = 50, offset: int = 0
+    ) -> Any:
+        """Fetch paginated rows from a run's persisted DuckDB sandbox."""
+        from opendv_service.use_cases.dv_schema_explorer import get_dv_schema_table_rows
+
+        return get_dv_schema_table_rows(self.state, run_id, table, limit=limit, offset=offset)
+
+    def query_dv_schema(self, run_id: str, sql: str, *, max_rows: int = 500) -> Any:
+        """Execute a validated read-only SQL query against a run's persisted DuckDB sandbox."""
+        from opendv_service.use_cases.dv_schema_explorer import execute_dv_schema_query
+
+        return execute_dv_schema_query(self.state, run_id, sql=sql, max_rows=max_rows)
 
 
 __all__ = ["OpenDVService"]

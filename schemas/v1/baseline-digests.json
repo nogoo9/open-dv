@@ -100,7 +100,7 @@
   "schema_baselines": {
     "schemas/cli-spec.json": {
       "description": "Root CLI specification schema",
-      "sha256": "732aaa4ebe496ebf2cc8626fba7b91163b0e41c2e1a7d3472b0c66c8bf1d1b3e"
+      "sha256": "18d063ebeeaf90c8efae5c56979d496813c18086634529baa99a756b77440f04"
     },
     "schemas/dv2-canonical-ir.schema.json": {
       "description": "Data Vault 2.0 Canonical Intermediate Representation schema",
@@ -112,15 +112,15 @@
     },
     "schemas/openapi-v1.json": {
       "description": "OpenDV Platform API OpenAPI v1 specification",
-      "sha256": "5ee22d99bf3ea1e851ea296cb1e359077483db363968adedbba8246aefcfc162"
+      "sha256": "a1977e6663c2da0b39ab076f65502cb90b242996df056987529474a79d298781"
     },
     "schemas/v1/cli-spec.json": {
       "description": "v1 CLI specification schema",
-      "sha256": "732aaa4ebe496ebf2cc8626fba7b91163b0e41c2e1a7d3472b0c66c8bf1d1b3e"
+      "sha256": "18d063ebeeaf90c8efae5c56979d496813c18086634529baa99a756b77440f04"
     },
     "schemas/v1/error-codes.json": {
       "description": "v1 Closed Error Code Catalog schema",
-      "sha256": "1f0dc102a4fd3e993abb426371eaae533792d21328674512271083e46882beff"
+      "sha256": "5e9c329a002fef2cebd0cdd662de3919395b2738122e2d705b0fcacbeee3c58b"
     },
     "schemas/v1/ontology-coverage.schema.json": {
       "description": "v1 Ontology Coverage validation schema",
@@ -136,7 +136,7 @@
     },
     "schemas/v1/openapi.json": {
       "description": "v1 OpenAPI specification",
-      "sha256": "5ee22d99bf3ea1e851ea296cb1e359077483db363968adedbba8246aefcfc162"
+      "sha256": "a1977e6663c2da0b39ab076f65502cb90b242996df056987529474a79d298781"
     },
     "schemas/v1/steward-hold-option.schema.json": {
       "description": "v1 Steward Hold Option schema",

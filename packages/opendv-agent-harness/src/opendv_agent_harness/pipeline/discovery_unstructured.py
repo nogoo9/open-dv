@@ -375,6 +375,7 @@ async def execute_stage_02_unstructured(
         runner.on_stream_event,
         runner.run_id,
         context=s02_ctx,
+        stage_output_policy=runner.harness_setup.stage_output_policy,
     )
 
     has_u3 = False

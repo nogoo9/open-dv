@@ -165,6 +165,8 @@ def build_paused_pipeline_report(
     step_reports: list[PipelineStepReport],
     artifacts: list[PipelineArtifactRef],
     reason: str,
+    *,
+    drift_findings: list[dict[str, Any]] | None = None,
 ) -> AgenticPipelineReport:
     """Build and return an AgenticPipelineReport in PAUSED_HOLD state."""
     pending = [
@@ -201,7 +203,18 @@ def build_paused_pipeline_report(
         graph_a_sha256=runner.graph_a_sha256,
         ontology_version=getattr(runner.ontology, "ontology_version", "1.0.0"),
         parent_sha256=getattr(runner.ontology, "parent_sha256", None),
+        drift_findings=list(drift_findings or []),
         summary_markdown=f"# Pipeline Paused: {reason}\n",
+    )
+    from opendv_agent_harness.pipeline.drift_projection import persist_resumable_run_context
+
+    paused_stage_id = (
+        step_reports[-1].stage_id if step_reports else "STAGE_02_SCOUT_UNSTRUCTURED"
+    )
+    persist_resumable_run_context(
+        runner,
+        paused_stage_id=paused_stage_id,
+        paused_reason=reason,
     )
     report.output_validation = validate_pipeline_outputs(report, cas_store=runner.cas_store)
     return report
@@ -451,6 +464,16 @@ def build_completed_pipeline_report(
             else {}
         )
     )
+    from opendv_agent_harness.pipeline.drift_projection import enrich_drift_findings
+
+    for wr in wave_reports:
+        if getattr(wr, "schema_drift_events", None):
+            wr.schema_drift_events = enrich_drift_findings(list(wr.schema_drift_events))
+    aggregated_drift = [
+        ev
+        for wr in wave_reports
+        for ev in (getattr(wr, "schema_drift_events", None) or [])
+    ]
     report = AgenticPipelineReport(
         run_id=runner.run_id,
         pipeline_id=getattr(runner.input_spec, "pipeline_id", "default_pipeline"),
@@ -480,6 +503,7 @@ def build_completed_pipeline_report(
         recommender_errors=rec_errors if rec_errors else None,
         inference_plan=inference_plan.model_dump(mode="json") if inference_plan else {},
         four_zone_sql=four_zone_sql,
+        drift_findings=aggregated_drift,
         summary_markdown=f"# Open-DV Pipeline Run {runner.run_id}\n\n- Verdict: PASS\n",
     )
 

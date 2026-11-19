@@ -1124,6 +1124,17 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
                 },
             )
             assert res_resolve_hold.status_code == 200
+            for _ in range(300):
+                poll = await client.get(f"/api/v1/runs/{paused_run_id}")
+                if poll.status_code == 200 and poll.json().get("status") in {
+                    RunStatus.COMPLETED.value,
+                    RunStatus.FAILED.value,
+                }:
+                    break
+                await asyncio.sleep(0.05)
+            else:
+                pytest.fail(f"Run {paused_run_id} did not complete after hold resolution")
+
             res_synced_rep = await client.get(
                 f"/api/v1/runs/{paused_run_id}/report",
                 headers={"X-OpenDV-Role": "DATA_STEWARD"},

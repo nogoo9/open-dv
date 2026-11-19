@@ -81,12 +81,14 @@ from opendv_agent_harness.pipeline.spec import (
     Stage04ContractSynthesisOutput,
     _normalize_foreign_key_mappings,
 )
-from opendv_agent_harness.pipeline.stages_agentic import (
-    _decode_stage_context,
-    _DeterministicStageSynthesizer,
-    _encode_stage_context,
-    _SymbolicStageSynthesizer,
+from opendv_agent_harness.pipeline.stage_prompt_builder import (
+    build_inline_stage_prompt,
+    decode_inline_stage_context,
     synthesize_stage_output_from_prompt,
+)
+from opendv_agent_harness.pipeline.stages_agentic import (
+    _DeterministicStageSynthesizer,
+    _SymbolicStageSynthesizer,
 )
 from opendv_agent_harness.pipeline.validation_postflight import (
     advance_blueprint_lineage,
@@ -96,7 +98,6 @@ from opendv_agent_harness.pipeline.validation_postflight import (
 from opendv_agent_harness.pipeline.validation_preflight import (
     _first_non_empty,
     _load_yaml_or_json,
-    _validate_path_containment,
     validate_pipeline_inputs,
 )
 from opendv_core.models.vault_blueprint import VaultBlueprint, create_vault_blueprint
@@ -140,8 +141,6 @@ __all__ = [
     "_SymbolicStageSynthesizer",
     "_build_profiled_unstructured_doc",
     "_compute_candidate_er_metrics",
-    "_decode_stage_context",
-    "_encode_stage_context",
     "_first_non_empty",
     "_load_table_into_duckdb",
     "_load_yaml_or_json",
@@ -151,12 +150,13 @@ __all__ = [
     "_slugify",
     "_synthesize_cumulative_contract",
     "_to_source_target",
-    "_validate_path_containment",
     "advance_blueprint_lineage",
     "apply_ontology_deltas",
+    "build_inline_stage_prompt",
     "compile_and_execute_sandbox",
     "compute_blueprint_evolution_diff",
     "create_vault_blueprint",
+    "decode_inline_stage_context",
     "discover_tabular_feeds",
     "discover_unstructured_docs",
     "evolve_contract_single_run",

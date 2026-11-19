@@ -128,9 +128,11 @@ def test_compile_databricks_hub_ddl_and_zero_keys(
     hub = pe_canonical_ir.hubs[0]
     ddl_and_merge = compile_databricks_hub_ddl_and_zero_keys(hub)
 
-    assert f"CREATE TABLE IF NOT EXISTS raw_vault.{hub.name}" in ddl_and_merge
-    assert "USING DELTA;" in ddl_and_merge
-    assert f"MERGE INTO raw_vault.{hub.name} AS target" in ddl_and_merge
+    assert f"CREATE TABLE IF NOT EXISTS opendv_catalog.raw_vault.{hub.name}" in ddl_and_merge
+    assert "USING DELTA" in ddl_and_merge
+    assert f"CLUSTER BY ({hub.hk_column.name}, load_dts)" in ddl_and_merge
+    assert "TBLPROPERTIES ('delta.appendOnly' = 'true')" in ddl_and_merge
+    assert f"MERGE INTO opendv_catalog.raw_vault.{hub.name} AS target" in ddl_and_merge
     assert "WHEN NOT MATCHED THEN" in ddl_and_merge
     assert "INSERT" in ddl_and_merge
     # Zero key tokens
@@ -142,8 +144,10 @@ def test_compile_databricks_link_ddl(pe_canonical_ir: CanonicalIR) -> None:
     """Verify Delta DDL generation for Link."""
     link = pe_canonical_ir.links[0]
     ddl = compile_databricks_link_ddl(link)
-    assert f"CREATE TABLE IF NOT EXISTS raw_vault.{link.name}" in ddl
-    assert "USING DELTA;" in ddl
+    assert f"CREATE TABLE IF NOT EXISTS opendv_catalog.raw_vault.{link.name}" in ddl
+    assert "USING DELTA" in ddl
+    assert f"CLUSTER BY ({link.hk_column.name}, load_dts)" in ddl
+    assert "TBLPROPERTIES ('delta.appendOnly' = 'true')" in ddl
     assert link.hk_column.name in ddl
 
 
@@ -151,8 +155,10 @@ def test_compile_databricks_satellite_ddl(pe_canonical_ir: CanonicalIR) -> None:
     """Verify Delta DDL generation for Satellite."""
     sat = pe_canonical_ir.satellites[0]
     ddl = compile_databricks_satellite_ddl(sat)
-    assert f"CREATE TABLE IF NOT EXISTS raw_vault.{sat.name}" in ddl
-    assert "USING DELTA;" in ddl
+    assert f"CREATE TABLE IF NOT EXISTS opendv_catalog.raw_vault.{sat.name}" in ddl
+    assert "USING DELTA" in ddl
+    assert f"CLUSTER BY ({sat.parent_hk_column.name}, load_dts)" in ddl
+    assert "TBLPROPERTIES ('delta.appendOnly' = 'true')" in ddl
     assert sat.parent_hk_column.name in ddl
     assert sat.hash_diff_column.name in ddl
 
@@ -163,16 +169,16 @@ def test_compile_databricks_zone_2_merge(pe_canonical_ir: CanonicalIR) -> None:
     assert "ZONE 2: IDEMPOTENT DELTA MERGE INTO RAW VAULT LOADS" in merge_sql
 
     for hub in pe_canonical_ir.hubs:
-        assert f"MERGE INTO raw_vault.{hub.name} AS target" in merge_sql
+        assert f"MERGE INTO opendv_catalog.raw_vault.{hub.name} AS target" in merge_sql
         assert f"ON target.{hub.hk_column.name} = source.{hub.hk_column.name}" in merge_sql
         assert "WHEN NOT MATCHED THEN" in merge_sql
 
     for link in pe_canonical_ir.links:
-        assert f"MERGE INTO raw_vault.{link.name} AS target" in merge_sql
+        assert f"MERGE INTO opendv_catalog.raw_vault.{link.name} AS target" in merge_sql
         assert f"ON target.{link.hk_column.name} = source.{link.hk_column.name}" in merge_sql
 
     for sat in pe_canonical_ir.satellites:
-        assert f"MERGE INTO raw_vault.{sat.name} AS target" in merge_sql
+        assert f"MERGE INTO opendv_catalog.raw_vault.{sat.name} AS target" in merge_sql
         on_clause = (
             f"ON target.{sat.parent_hk_column.name} = source.{sat.parent_hk_column.name} "
             f"AND target.load_dts = source.load_dts"
@@ -186,7 +192,8 @@ def test_compile_canonical_ir_to_databricks(pe_canonical_ir: CanonicalIR) -> Non
     assert isinstance(bundle, CompiledDatabricksBundle)
     assert bundle.dialect == "databricks"
     assert bundle.model_name == pe_canonical_ir.model_name
-    assert "USING DELTA;" in bundle.zone_0_sql
+    assert "USING DELTA" in bundle.zone_0_sql
+    assert "TBLPROPERTIES ('delta.appendOnly' = 'true')" in bundle.zone_0_sql
     assert "MERGE INTO" in bundle.zone_2_sql
     assert len(bundle.full_sql_bundle) > 500
 

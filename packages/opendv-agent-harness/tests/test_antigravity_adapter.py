@@ -777,27 +777,28 @@ async def test_wp11_agy_cli_harness_adapter_subprocess_and_fallback(
 
     from opendv_agent_harness.adapters.agy_cli_adapter import (
         AgyCliHarnessAdapter,
-        _strip_internal_stage_context,
     )
 
-    # 1. Verify internal stage context marker stripping
-    prompt_with_ctx = 'Synthesize Pass 1 Triage\n__OPENDV_STAGE_CONTEXT_JSON__:{"secret": 123}'
-    assert _strip_internal_stage_context(prompt_with_ctx) == "Synthesize Pass 1 Triage"
+    # 1. Verify prompt preserves inline stage context and passes via stdin (no argv bloat)
+    prompt_with_ctx = 'Synthesize Pass 1 Triage\nInlineContext: {"secret": 123}'
 
     # 2. Verify subprocess invocation via custom agy_cli_runner
     fake_agy_exe = tmp_path / "fake_agy.exe"
     fake_agy_exe.write_text("echo fake", encoding="utf-8")
 
     captured_cmds: list[list[str]] = []
+    captured_inputs: list[str] = []
 
     def _fake_cli_runner(
         cmd: list[str],
         *,
         env: dict[str, str],
         timeout: float,
+        input_text: str = "",
     ) -> subprocess.CompletedProcess[str]:
         del env, timeout
         captured_cmds.append(list(cmd))
+        captured_inputs.append(input_text)
         out_payload = {
             "conversation_id": "conv-agy-cli-777",
             "status": "SUCCESS",
@@ -862,7 +863,8 @@ async def test_wp11_agy_cli_harness_adapter_subprocess_and_fallback(
     assert "gemini-4-argon-high" in captured_cmds[0]
     assert captured_cmds[0][captured_cmds[0].index("--output-format") + 1] == "stream-json"
     assert "--json-schema" in captured_cmds[0]
-    assert "__OPENDV_STAGE_CONTEXT_JSON__" not in captured_cmds[0][2]
+    assert "Synthesize Pass 1 Triage" not in " ".join(captured_cmds[0])
+    assert 'InlineContext: {"secret": 123}' in captured_inputs[0]
 
     # 3. Verify real-time NDJSON stream-json parsing (TEXT_DELTA & THOUGHT_DELTA)
     stream_cmds: list[list[str]] = []
@@ -1035,15 +1037,18 @@ async def test_wp20_antigravity_and_agy_cli_agent_models_propagation_to_agents_a
     fake_agy_exe = tmp_path / "fake_agy_wp20.exe"
     fake_agy_exe.write_text("echo fake", encoding="utf-8")
     cli_cmds: list[list[str]] = []
+    cli_inputs: list[str] = []
 
     def _runner(
         cmd: list[str],
         *,
         env: dict[str, str],
         timeout: float,
+        input_text: str = "",
     ) -> subprocess.CompletedProcess[str]:
         del env, timeout
         cli_cmds.append(list(cmd))
+        cli_inputs.append(input_text)
         return subprocess.CompletedProcess(
             args=cmd,
             returncode=0,
@@ -1074,8 +1079,8 @@ async def test_wp20_antigravity_and_agy_cli_agent_models_propagation_to_agents_a
     }
     model_idx = cli_cmds[-1].index("--model")
     assert cli_cmds[-1][model_idx + 1] == "tier-reasoning-model"
-    assert "scout-unstructured: model=custom-unstructured-v1" in cli_cmds[-1][2]
-    assert "ship-vault: model=custom-ship-v1" in cli_cmds[-1][2]
+    assert "scout-unstructured: model=custom-unstructured-v1" in cli_inputs[-1]
+    assert "ship-vault: model=custom-ship-v1" in cli_inputs[-1]
 
     cli_su_res = await cli_adapter.run_task(su_spec)
     assert cli_su_res.model_used == "custom-unstructured-v1"

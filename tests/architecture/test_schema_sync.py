@@ -85,7 +85,14 @@ def test_cli_spec_matches_definitions() -> None:
     for cmd_name, def_cmd in def_commands.items():
         _assert_command_matches(spec_commands[cmd_name], def_cmd, "")
 
-    # 3. Explicit check for all 14 studio subcommand groups
+    # 3. Verify `run dv-schema` subcommand is declared in cli-spec.json
+    run_cmd = spec_commands["run"]
+    run_subs = {s["name"] for s in run_cmd.get("subcommands", [])}
+    assert "dv-schema" in run_subs, (
+        f"Expected 'dv-schema' in 'run' subcommands, found {sorted(run_subs)}"
+    )
+
+    # 4. Explicit check for all 21 studio subcommand groups (18 legacy + 3 Phase 2)
     studio_cmd = spec_commands["ontology"]
     studio_subs = next(s for s in studio_cmd.get("subcommands", []) if s["name"] == "studio")
     expected_studio_groups = {
@@ -107,7 +114,11 @@ def test_cli_spec_matches_definitions() -> None:
         "text",
         "starter-pack",
         "staged",
+        "attach-source",
+        "fibo-qa",
+        "logs",
     }
+    assert len(expected_studio_groups) == 21
     actual_studio_groups = {s["name"] for s in studio_subs.get("subcommands", [])}
     assert actual_studio_groups == expected_studio_groups, (
         f"Studio subcommand groups mismatch: {actual_studio_groups ^ expected_studio_groups}"
@@ -136,7 +147,8 @@ def test_cli_reference_docs_strict_sync() -> None:
 
 @pytest.mark.architecture
 def test_openapi_specs_sync_with_fastapi_app() -> None:
-    """Assert schemas/v1/openapi.json matches live FastAPI routes and openapi-v1.json."""
+    """Assert schemas/v1/openapi.json matches live FastAPI routes and openapi-v1.json (Audit #12)."""
+    from opendv_platform_api.export_openapi import generate_openapi_spec
     from opendv_platform_api.main import create_app
 
     assert SCHEMAS_V1_OPENAPI.is_file(), f"Missing {SCHEMAS_V1_OPENAPI}"
@@ -145,9 +157,16 @@ def test_openapi_specs_sync_with_fastapi_app() -> None:
     v1_openapi = json.loads(SCHEMAS_V1_OPENAPI.read_text(encoding="utf-8"))
     root_openapi = json.loads(SCHEMAS_OPENAPI_V1.read_text(encoding="utf-8"))
 
-    # Both openapi schema files must match in paths
-    assert set(v1_openapi["paths"].keys()) == set(root_openapi["paths"].keys()), (
-        "schemas/v1/openapi.json and schemas/openapi-v1.json paths mismatch!"
+    # Audit #12: Full JSON equality between schemas/v1/openapi.json, schemas/openapi-v1.json,
+    # and live generate_openapi_spec() output.
+    assert v1_openapi == root_openapi, (
+        "schemas/v1/openapi.json and schemas/openapi-v1.json differ! "
+        "Run 'python -m opendv_platform_api.export_openapi' to synchronize."
+    )
+    generated_openapi = generate_openapi_spec()
+    assert generated_openapi == root_openapi, (
+        "Live FastAPI generate_openapi_spec() differs from schemas/openapi-v1.json! "
+        "Run 'python -m opendv_platform_api.export_openapi' to synchronize."
     )
 
     # Test live FastAPI app contains all paths
@@ -171,15 +190,46 @@ def test_openapi_specs_sync_with_fastapi_app() -> None:
 
 @pytest.mark.architecture
 def test_typescript_protocol_types_sync() -> None:
-    """Assert packages/opendv-protocol-ts/src/types/openapi.ts is up to date."""
-    assert TS_OPENAPI_TYPES.is_file(), f"Missing {TS_OPENAPI_TYPES}"
-    ts_content = TS_OPENAPI_TYPES.read_text(encoding="utf-8")
+    """Assert packages/opendv-protocol-ts/src/types/openapi.ts covers all OpenAPI paths & schemas."""
+    import re
 
-    # Verify crucial Studio paths and schemas exist in generated TS types
-    assert '"/api/v1/ontology/studio/sessions":' in ts_content
-    assert '"/api/v1/ontology/studio/init":' in ts_content
-    assert '"/api/v1/ontology/studio/jobs/{job_id}":' in ts_content
-    assert "StudioSessionDTO:" in ts_content
-    assert "CreateSessionRequest:" in ts_content
+    assert TS_OPENAPI_TYPES.is_file(), f"Missing {TS_OPENAPI_TYPES}"
+    assert SCHEMAS_OPENAPI_V1.is_file(), f"Missing {SCHEMAS_OPENAPI_V1}"
+    ts_content = TS_OPENAPI_TYPES.read_text(encoding="utf-8")
+    root_openapi = json.loads(SCHEMAS_OPENAPI_V1.read_text(encoding="utf-8"))
+
+    http_methods = {"get", "post", "put", "delete", "patch", "options", "head", "trace"}
+
+    # Audit #12: Verify EVERY path + HTTP method in root_openapi["paths"] appears in openapi.ts
+    missing_paths: list[str] = []
+    missing_methods: list[str] = []
+    for api_path, path_item in root_openapi.get("paths", {}).items():
+        path_marker = f'"{api_path}":'
+        idx = ts_content.find(path_marker)
+        if idx == -1:
+            missing_paths.append(api_path)
+            continue
+        next_path_idx = ts_content.find('\n\t"/', idx + len(path_marker))
+        paths_end_idx = ts_content.find("\n}", idx + len(path_marker))
+        candidates = [pos for pos in (next_path_idx, paths_end_idx) if pos != -1]
+        block_end = min(candidates) if candidates else len(ts_content)
+        path_block = ts_content[idx:block_end]
+        for method in path_item:
+            m_lower = method.lower()
+            if m_lower in http_methods and f"{m_lower}: operations[" not in path_block:
+                missing_methods.append(f"{m_lower.upper()} {api_path}")
+
+    assert not missing_paths, f"Paths missing from openapi.ts: {missing_paths}"
+    assert not missing_methods, f"HTTP methods missing from openapi.ts: {missing_methods}"
+
+    # Audit #12: Verify EVERY component schema in root_openapi["components"]["schemas"] appears in openapi.ts
+    schemas_dict = root_openapi.get("components", {}).get("schemas", {})
+    missing_schemas = [
+        schema_name
+        for schema_name in schemas_dict
+        if not re.search(rf'(?:^|\s)"?{re.escape(schema_name)}"?\s*:', ts_content, re.MULTILINE)
+    ]
+    assert not missing_schemas, f"Component schemas missing from openapi.ts: {missing_schemas}"
+
     assert 'OntologyDelta: components["schemas"]["OntologyDelta-Output"];' in ts_content
     assert "OntologyDelta: unknown;" not in ts_content

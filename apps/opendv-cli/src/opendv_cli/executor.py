@@ -275,6 +275,8 @@ class LocalExecutor(
                 "event_count": len(events),
                 "events": events,
             }
+        if action in {"dv-schema", "dv_schema"}:
+            return self._execute_dv_schema(run_id, args)
         if action == "explorer":
             bundle = self.service.get_explorer_bundle(run_id, role=role_raw)
             payload = bundle.model_dump(mode="json")
@@ -294,6 +296,27 @@ class LocalExecutor(
         payload = self.service.get_run(run_id).model_dump(mode="json")
         payload["mode"] = "local"
         return 0, payload
+
+    def _execute_dv_schema(self, run_id: str, args: argparse.Namespace) -> tuple[int, Any]:
+        from opendv_cli.commands.ontology_studio_common import _err_from_opendv_error
+
+        compare_run = getattr(args, "compare", None)
+        table = getattr(args, "table", None)
+        sql = getattr(args, "sql", None)
+        limit = int(getattr(args, "limit", None) or 50)
+        offset = int(getattr(args, "offset", None) or 0)
+        try:
+            if sql:
+                res = self.service.query_dv_schema(run_id, sql=str(sql), max_rows=limit)
+            elif table:
+                res = self.service.get_dv_schema_table_rows(run_id, str(table), limit=limit, offset=offset)
+            else:
+                res = self.service.get_dv_schema(run_id, compare_run_id=compare_run)
+            return 0, res.model_dump(mode="json") if hasattr(res, "model_dump") else res
+        except OpenDVError as exc:
+            return _err_from_opendv_error(exc, wizard_mode=True)
+        except ValueError as exc:
+            return 40, {"status": "ERROR", "error_code": "SYNTAX_INVALID_ARGUMENT", "detail": str(exc)}
 
     # 6. hold
     def _execute_hold(self, args: argparse.Namespace) -> tuple[int, Any]:

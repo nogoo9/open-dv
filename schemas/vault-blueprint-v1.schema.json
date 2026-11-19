@@ -383,6 +383,24 @@
           "default": null,
           "description": "Provenance hints identifying source data feeds",
           "title": "Source Hints"
+        },
+        "grounding_origin": {
+          "anyOf": [
+            {
+              "enum": [
+                "FIBO_GROUNDED",
+                "STRUCTURED_SCHEMA",
+                "DOCUMENT_OBSERVED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Grounding origin classification for the business concept",
+          "title": "Grounding Origin"
         }
       },
       "required": [

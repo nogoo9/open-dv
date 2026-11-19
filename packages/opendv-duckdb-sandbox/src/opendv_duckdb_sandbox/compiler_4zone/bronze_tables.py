@@ -7,6 +7,9 @@ from typing import Any
 
 from opendv_core.hashing import compute_dv2_length_prefixed_sha256
 from opendv_core.models.canonical_ir import CanonicalIR, IRHub
+from opendv_duckdb_sandbox.compiler_4zone.bronze_link_tables import (
+    compile_bronze_link_tables_sql,
+)
 from opendv_duckdb_sandbox.compiler_4zone.bronze_seed_resolver import (
     _filter_hub_rows_for_bkcc,
     _format_bronze_payload_sql_literal,
@@ -184,99 +187,16 @@ def compile_generic_bronze_tables_sql(
     }
 
     # 2. Bronze source tables & seed rows for each Link
-    for link in ir_obj.links:
-        tbl = _validate_ident(link.name)
-        sm0_dict = link.source_mappings[0] if link.source_mappings else {}
-        rec_src = (
-            str(sm0_dict.get("rec_src_value", "SYSTEM_SEED"))
-            if isinstance(sm0_dict, dict)
-            else "SYSTEM_SEED"
+    parts.extend(
+        compile_bronze_link_tables_sql(
+            ir_obj,
+            hub_by_name=hub_by_name,
+            hub_bk_rows=hub_bk_rows,
+            loaded_bronze=loaded_bronze,
+            bkcc_registry=bkcc_registry,
+            unstructured_links_by_name=unstructured_links_by_name,
         )
-        link_stg_tbl = (
-            str(sm0_dict.get("staging_table", f"stg_{tbl}"))
-            if isinstance(sm0_dict, dict)
-            else f"stg_{tbl}"
-        )
-        fk_src_map = sm0_dict.get("fk_source_columns") or {} if isinstance(sm0_dict, dict) else {}
-        col_defs = []
-        row1_tokens: list[str] = []
-        row2_tokens: list[str] = []
-        row3_tokens: list[str] = []
-        row4_tokens: list[str] = []
-        target_counts: dict[str, int] = {}
-        for ref_idx, ref in enumerate(link.hub_references):
-            fk_col = _validate_ident(ref.fk_column_name)
-            t_hub = hub_by_name[ref.target_hub]
-            occ = target_counts.get(t_hub.name, 0)
-            target_counts[t_hub.name] = occ + 1
-            fk_src_col = str(fk_src_map.get(ref.fk_column_name, ref.fk_column_name))
-            ref_bkcc_lit = resolve_staging_bkcc_literal(
-                ir_obj,
-                link_stg_tbl,
-                fk_src_col,
-                ref.target_hub,
-                role_name=ref.role_name,
-                registry=bkcc_registry,
-            )
-            scoped_rows = _filter_hub_rows_for_bkcc(t_hub, hub_bk_rows[t_hub.name], ref_bkcc_lit)
-            h_r1 = scoped_rows[0]
-            h_r2 = scoped_rows[1] if len(scoped_rows) > 1 else scoped_rows[0]
-            r1_bks = h_r1 if (occ == 0 or scoped_rows != hub_bk_rows[t_hub.name]) else h_r2
-            r2_bks = h_r2
-            for bk, val1, val2 in zip(t_hub.business_keys, r1_bks, r2_bks, strict=True):
-                raw_col = _validate_ident(f"{fk_col}__{bk.name}")
-                col_defs.append(f"    {raw_col} VARCHAR,")
-                esc1 = ((ref_bkcc_lit or val1) if bk.is_bkcc else val1).replace("'", "''")
-                esc2 = ((ref_bkcc_lit or val2) if bk.is_bkcc else val2).replace("'", "''")
-                row1_tokens.append(f"'{esc1}'")
-                if ref_idx == 0:
-                    row2_tokens.append(f"'{esc2}'")
-                    row3_tokens.append(f"'{esc1}'")
-                    row4_tokens.append(f"'{esc2}'")
-                else:
-                    row2_tokens.append(f"'{esc2}'" if bk.is_bkcc else "NULL")
-                    row3_tokens.append(f"'{esc1}'" if bk.is_bkcc else "'-1'")
-                    row4_tokens.append(f"'{esc2}'" if bk.is_bkcc else "'-2'")
-            t_bkcc_col_expr = _effective_hub_bkcc_column_expr(t_hub)
-            if t_bkcc_col_expr and t_bkcc_col_expr not in {bk.name for bk in t_hub.business_keys}:
-                t_bkcc_idx = next(
-                    (idx for idx, bk in enumerate(t_hub.business_keys) if bk.is_bkcc), 0
-                )
-                extra_fk_bkcc_col = _validate_ident(f"{fk_col}__{t_bkcc_col_expr}")
-                col_defs.append(f"    {extra_fk_bkcc_col} VARCHAR,")
-                v1_bkcc = r1_bks[t_bkcc_idx].replace("'", "''")
-                v2_bkcc = r2_bks[t_bkcc_idx].replace("'", "''")
-                row1_tokens.append(f"'{v1_bkcc}'")
-                row2_tokens.append(f"'{v2_bkcc}'")
-                row3_tokens.append(f"'{v1_bkcc}'")
-                row4_tokens.append(f"'{v2_bkcc}'")
-
-        col_defs.append("    load_dts TIMESTAMP,")
-        if link.name in unstructured_links_by_name:
-            col_defs.append("    rec_src VARCHAR,")
-            col_defs.append("    steward_gate_status VARCHAR")
-            steward_r1 = ", 'APPROVED'"
-            steward_r2 = ", 'STEWARD_HOLD'"
-            steward_r3 = ", 'STEWARD_HOLD'"
-            steward_r4 = ", 'STEWARD_HOLD'"
-        else:
-            col_defs.append("    rec_src VARCHAR")
-            steward_r1 = steward_r2 = steward_r3 = steward_r4 = ""
-
-        l_ts = "TIMESTAMP '2026-10-01 06:00:00'"
-        esc_rec = _sql_lit(rec_src)
-        parts.append(
-            _make_table_and_insert(
-                f"src_{tbl}",
-                col_defs,
-                [
-                    f"    ({', '.join(row1_tokens)}, {l_ts}, '{esc_rec}'{steward_r1})",
-                    f"    ({', '.join(row2_tokens)}, {l_ts}, '{esc_rec}'{steward_r2})",
-                    f"    ({', '.join(row3_tokens)}, {l_ts}, '{esc_rec}'{steward_r3})",
-                    f"    ({', '.join(row4_tokens)}, {l_ts}, '{esc_rec}'{steward_r4})",
-                ],
-            )
-        )
+    )
 
     # 3. Bronze source tables & seed rows for each Satellite
     for sat in ir_obj.satellites:

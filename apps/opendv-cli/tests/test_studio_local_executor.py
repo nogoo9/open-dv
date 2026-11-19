@@ -2308,7 +2308,9 @@ def test_studio_24op_rebase_conflicts_and_corrupt_head_fail_closed_p12_maj05(
 
 
 def test_studio_construct_modes_delete_and_greenfield_promote(
-    studio_env: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+    studio_env: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify `construct --mode agent`, `NOOP_CONSTRUCT`, greenfield promote, and `delete`."""
     ws, studio_root = studio_env
@@ -2319,24 +2321,34 @@ def test_studio_construct_modes_delete_and_greenfield_promote(
     sdir = studio_root / "lifecycle-sess"
     genesis_sha = json.loads((sdir / "session.json").read_text(encoding="utf-8"))["head_sha256"]
 
-    # 1. `construct --mode agent` without agent harness fails closed (exit 1 AGENT_UNAVAILABLE)
-    assert (
-        app_main(
-            [
-                "ontology",
-                "studio",
-                "construct",
-                "-s",
-                "lifecycle-sess",
-                "--mode",
-                "agent",
-                "--json",
-            ]
+    # 1. `construct --mode agent` without configured agent harness fails closed (exit 4 AGENT_NOT_CONFIGURED)
+    with monkeypatch.context() as mp:
+        for env_key in (
+            "OPENDV_AGY_CLI_BIN",
+            "OPENDV_CLAUDE_CLI_BIN",
+            "GEMINI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "OPENDV_AGENT_PROVIDER",
+        ):
+            mp.delenv(env_key, raising=False)
+        mp.setenv("PATH", "")
+        assert (
+            app_main(
+                [
+                    "ontology",
+                    "studio",
+                    "construct",
+                    "-s",
+                    "lifecycle-sess",
+                    "--mode",
+                    "agent",
+                    "--json",
+                ]
+            )
+            == 4
         )
-        == 1
-    )
     err_agent = _read_cli_json(capsys)
-    assert err_agent["error_code"] == "AGENT_UNAVAILABLE"
+    assert err_agent["error_code"] == "AGENT_NOT_CONFIGURED"
 
     # 2. Empty-evidence `construct --auto-commit` returns exit 0 `NOOP_CONSTRUCT` (does not fail!)
     assert (
@@ -2991,29 +3003,28 @@ def test_r3_s5_maj03_canonical_error_codes_and_exit_parity(
     from opendv_contracts.errors import ErrorCode
 
     registered = {e.value for e in ErrorCode}
-    src = Path(studio_mod.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(src)
-
     found_codes: list[str] = []
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "_err"
-            and len(node.args) >= 2
-            and isinstance(node.args[1], ast.Constant)
-            and isinstance(node.args[1].value, str)
-        ):
-            found_codes.append(node.args[1].value)
-        elif isinstance(node, ast.Dict):
-            for k, v in zip(node.keys, node.values, strict=False):
-                if (
-                    isinstance(k, ast.Constant)
-                    and k.value == "error_code"
-                    and isinstance(v, ast.Constant)
-                    and isinstance(v.value, str)
-                ):
-                    found_codes.append(v.value)
+    for sub_path in sorted(Path(studio_mod.__file__).parent.glob("ontology_studio*.py")):
+        tree = ast.parse(sub_path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_err"
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and isinstance(node.args[1].value, str)
+            ):
+                found_codes.append(node.args[1].value)
+            elif isinstance(node, ast.Dict):
+                for k, v in zip(node.keys, node.values, strict=False):
+                    if (
+                        isinstance(k, ast.Constant)
+                        and k.value == "error_code"
+                        and isinstance(v, ast.Constant)
+                        and isinstance(v.value, str)
+                    ):
+                        found_codes.append(v.value)
 
     assert len(found_codes) >= 25
     unregistered = sorted({c for c in found_codes if c not in registered})

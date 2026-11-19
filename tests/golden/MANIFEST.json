@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.0",
-  "generated_at": "2026-11-16T18:39:52.292908+00:00",
+  "generated_at": "2026-11-19T05:12:38.555006+00:00",
   "generator_transport": "STANDALONE_CLI",
   "entries": [
     {
@@ -14,18 +14,18 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/explorer_bundle.json",
-      "sha256": "e4fe12ee708bb083f1a91add43681d9de0028ee9075ade2ee93646d753a974c4",
-      "byte_size": 62462,
+      "sha256": "96eec3cbf06462dc62a6ecf744709322d7418bac80df42ae9729706a4334e954",
+      "byte_size": 65590,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/final_canonical_ir.json",
-      "sha256": "7325a729f57e08d1c6a6af678862cb80586ee3933b59f3eaca3be95cfc3ec249",
-      "byte_size": 18173,
+      "sha256": "f6856182678ce0399115e8ff8971ea20582b84c3d59e98807e2bf0f08ef36021",
+      "byte_size": 18244,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
@@ -38,18 +38,18 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/final_four_zone.sql",
-      "sha256": "9ee1f1f1d0d0470ff99a84dac5ec425c9bcc657a462f477aafe4004ae992f849",
-      "byte_size": 47516,
+      "sha256": "a3e318f6e90024912e107b6f75bf0efe1a29ef2e4c13685a53860ecf3e90d798",
+      "byte_size": 47763,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/pipeline_report.json",
-      "sha256": "5ee284e5fb806dda3ab1606f34b28e017806344ea5324859e84318afe83097b5",
-      "byte_size": 226020,
+      "sha256": "5736ea9e3fc6e9ec2f1424cb9213daae92f7257411cfcc8743918ba1540f0815",
+      "byte_size": 252612,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
@@ -62,42 +62,42 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/explorer_bundle.json",
-      "sha256": "16e3cd3867dda169fd2400fb5f4bebb96dd96a42d4dea4c4ff8b3fd3ef8d5f78",
-      "byte_size": 62462,
+      "sha256": "427f41561cb7c2afa371a79b0e8c2ebed094713cfbe7f5be6cfff5e8ef993933",
+      "byte_size": 65590,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/final_canonical_ir.json",
-      "sha256": "41c5404930223187d9f2f93a32e94993c61293da58eda30e01f046afb5ff5b96",
-      "byte_size": 21258,
+      "sha256": "41181b8f84ea75d582c7ba402a48cdd896823c697279fdee338d546476503322",
+      "byte_size": 21329,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/final_contract.yaml",
-      "sha256": "5529b53a2d753c85a897f18a2adc277e264b58449694977781bd3e241423989e",
-      "byte_size": 8931,
+      "sha256": "ddcf72dab23671e19ce518803a4683a994d47d4c5912953bc0ecb59dc529f842",
+      "byte_size": 8850,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/final_four_zone.sql",
-      "sha256": "141630cf74e8cef0698952b4f2cbcb7f32a31d5a800ca473029158e4eda63c98",
-      "byte_size": 53898,
+      "sha256": "30ecc1ff48425944b76fb3d9e75c8de82353a715aff03bc3c9ffa8cacfae59cc",
+      "byte_size": 54145,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/pipeline_report.json",
-      "sha256": "b62650906f163fdee78ee8adf0aeed5db0294a677f9f0c79eadd68307e158259",
-      "byte_size": 253887,
+      "sha256": "ff614bcb6e9d4763777f8560b232ccd2fd147c2f6c7eebd06052c48f8e575632",
+      "byte_size": 280290,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
@@ -110,42 +110,42 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/explorer_bundle.json",
-      "sha256": "198aca472ac0dd211dbbd6a55012d003f746913ab67bbb7f662111c42cf61239",
-      "byte_size": 62462,
+      "sha256": "5cf8311fc9a967e93a72f775c1c373a6027009d48dcbf5c4bb1284c243af7fff",
+      "byte_size": 65581,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/final_canonical_ir.json",
-      "sha256": "484a1bdf41ce5e2ff6167f6e9e59930ea953ee2594ba0ce5f5e70bceac7b9baf",
-      "byte_size": 23336,
+      "sha256": "fba83ae815ef9f5f3f835981ef8a95a7d11c2706afd0f0f6e32211f06085d448",
+      "byte_size": 23407,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/final_contract.yaml",
-      "sha256": "ca6620ddf09fda2cf958e7d5c73587e489fb22097a969fe27ff8a0af67fa8b28",
-      "byte_size": 9779,
+      "sha256": "93d5c383879f574bb8145b7f4cdbeaedc79487f18d9e8fc1c1096388be33ba96",
+      "byte_size": 9671,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/final_four_zone.sql",
-      "sha256": "4aa69a558ce5a8a9d6f4b1c9e87f852afd7f06841fce4abb7947c59fc01b214d",
-      "byte_size": 60037,
+      "sha256": "fba3cfb1b0b31aa9bb7d95689d6a862575b84928398925f6fc03f41e2feea0a3",
+      "byte_size": 60284,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/pipeline_report.json",
-      "sha256": "2edd647eee485947f64227ece598c491c229d43c726ef1cdaa98d2e6e2c894df",
-      "byte_size": 278289,
+      "sha256": "30ef262dc6e5c45dbe88da87591769160f7c87700c41ca74bf612b4a1fb2a3a8",
+      "byte_size": 305893,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
@@ -158,50 +158,50 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/explorer_bundle.json",
-      "sha256": "3231b3d1e65ea3c24121446a70f1ab34d4d48d72bc4640c7176772a713419917",
-      "byte_size": 62462,
+      "sha256": "12054d7122c5997938e41b0420349d3e3f8c76eb0fe53aa565ae8e50f652ca71",
+      "byte_size": 65581,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/final_canonical_ir.json",
-      "sha256": "2329b7d68c40ae9c06b31d4e6ab368c2986c6723e4cea1534d00fe4d8d44b09a",
-      "byte_size": 30528,
+      "sha256": "2bba50fde0aa44a84777a501c05f7b7e40a082a7bed8b3376bc251feb666d343",
+      "byte_size": 30599,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/final_contract.yaml",
-      "sha256": "d9bb6a6695dbd1f044eccb3e3a3ddb0b2dd69746e498541e609d56b889bfe3d8",
-      "byte_size": 11402,
+      "sha256": "aa2138f6e665affc47e6695504c24ab7850db3c151942299f0b43390cfef8f7d",
+      "byte_size": 11294,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#234] Update golden for Round 3 single-run pipeline report parity"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/final_four_zone.sql",
-      "sha256": "37240620599c186a7180c14d6e0dbe81a415e9943b49b8c219654dd0a4ad2037",
-      "byte_size": 82701,
+      "sha256": "b4b5f00306cf9c0bc4cddd24713a361aaef4b4a6f9c72ca40a0d6a39363ed8ee",
+      "byte_size": 82948,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/hold_record.json",
-      "sha256": "29c7ea69e46e8715e470f59d61a8ba3c23c747c86c3b902e878d244d58a8c4f1",
-      "byte_size": 953,
+      "sha256": "4fcfebb408044695bf18a25c28b6e31c5184413f5e2c21223ed39ff2c3c5e717",
+      "byte_size": 958,
       "generated_from": "PAR-S8-W3: opendv hold list",
-      "last_justified_change": "[#234] Update golden for Round 3 single-run pipeline report parity"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/pipeline_report.json",
-      "sha256": "ac893848916ea24c109e8ee56f0928427d74bfce970fb03ac517c7fbee8e93d2",
-      "byte_size": 354959,
+      "sha256": "8f9e65aed3ce1f528c2c46e3263f2a0efea10390e6e5e59ff8bb1082a66b3d9a",
+      "byte_size": 381287,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism"
+      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
     },
     {
       "golden_id": "GT-02",

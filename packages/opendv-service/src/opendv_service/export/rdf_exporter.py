@@ -192,10 +192,32 @@ def build_rdf_graph(ontology: GraphAOntology | BaseModel | dict[str, Any]) -> Gr
         DV2.enterpriseOwner,
         DV2.targetHub,
         DV2.elmArchetype,
+        DV2.domainNamespace,
+        DV2.isOptional,
+        DV2.hasMappingDetail,
+        DV2.mappingScheme,
+        DV2.mappingTarget,
+        DV2.mappingPredicate,
+        DV2.mappingConfidence,
         DV2.targetLink,
         DV2.hasEndpoint,
+        DV2.hasEndpointDetail,
+        DV2.endpointRef,
+        DV2.hasSynonymDetail,
+        DV2.orderIndex,
+        DV2.groundingOrigin,
+        DV2.rawDataType,
+        DV2.cardinality,
+        DV2.relationshipDescription,
+        DV2.mappingPinned,
+        DV2.mappingProvenance,
+        DV2.standardsReference,
+        DV2.decisionRef,
+        DV2.parentSha256,
         DV2.targetReferenceTable,
         DV2.allowedCode,
+        DV2.hasCodeDetail,
+        DV2.codeValue,
         SKOS.prefLabel,
         SKOS.altLabel,
         SKOS.definition,
@@ -219,14 +241,22 @@ def build_rdf_graph(ontology: GraphAOntology | BaseModel | dict[str, Any]) -> Gr
     graph.add((ont_uri, RDF.type, OWL.Ontology))
     graph.add((ont_uri, OWL.versionInfo, Literal(ont_obj.ontology_version)))
     graph.add((ont_uri, OWL.versionIRI, version_uri))
+    graph.add((ont_uri, DV2.domainNamespace, Literal(ont_obj.domain_namespace)))
     if ont_obj.description:
         graph.add((ont_uri, RDFS.comment, Literal(ont_obj.description)))
     if ont_obj.enterprise_owner:
         graph.add((ont_uri, DV2.enterpriseOwner, Literal(ont_obj.enterprise_owner)))
+    if ont_obj.parent_sha256:
+        graph.add((ont_uri, DV2.parentSha256, Literal(ont_obj.parent_sha256)))
+    for sref in ont_obj.standards_references:
+        graph.add((ont_uri, DV2.standardsReference, Literal(sref)))
+    for dref in ont_obj.decision_refs:
+        graph.add((ont_uri, DV2.decisionRef, Literal(dref)))
 
     # Canonical Business Concepts
     for concept in ont_obj.canonical_business_concepts:
         concept_uri = _safe_uriref(concept.concept_uri, field_name="concept_uri")
+        base_sep = "/" if "#" in str(concept_uri) else "#"
         graph.add((concept_uri, RDF.type, OWL.Class))
         if concept.concept_name:
             graph.add((concept_uri, RDFS.label, Literal(concept.concept_name)))
@@ -238,14 +268,23 @@ def build_rdf_graph(ontology: GraphAOntology | BaseModel | dict[str, Any]) -> Gr
             graph.add((concept_uri, DV2.targetHub, Literal(concept.target_hub)))
         if concept.elm_archetype:
             graph.add((concept_uri, DV2.elmArchetype, Literal(concept.elm_archetype)))
+        if concept.grounding_origin:
+            graph.add((concept_uri, DV2.groundingOrigin, Literal(concept.grounding_origin)))
         if concept.parent_concept_uri:
             parent_uri = _safe_uriref(concept.parent_concept_uri, field_name="parent_concept_uri")
             graph.add((concept_uri, RDFS.subClassOf, parent_uri))
         if concept.synonyms:
-            for syn in concept.synonyms:
+            for idx, syn in enumerate(concept.synonyms):
                 graph.add((concept_uri, SKOS.altLabel, Literal(syn)))
+                syn_uri = _safe_uriref(
+                    f"{concept.concept_uri.strip()}{base_sep}synonym_{idx}",
+                    field_name="synonym.detail_uri",
+                )
+                graph.add((concept_uri, DV2.hasSynonymDetail, syn_uri))
+                graph.add((syn_uri, DV2.orderIndex, Literal(idx)))
+                graph.add((syn_uri, SKOS.altLabel, Literal(syn)))
         if concept.external_mappings:
-            for mapping in concept.external_mappings:
+            for idx, mapping in enumerate(concept.external_mappings):
                 target_ref = _safe_uriref(
                     mapping.target_uri, field_name="external_mapping.target_uri"
                 )
@@ -262,25 +301,46 @@ def build_rdf_graph(ontology: GraphAOntology | BaseModel | dict[str, Any]) -> Gr
                 ):
                     graph.add((pred_ref, RDF.type, OWL.AnnotationProperty))
                 graph.add((concept_uri, pred_ref, target_ref))
+                map_uri = _safe_uriref(
+                    f"{concept.concept_uri.strip()}{base_sep}mapping_{idx}",
+                    field_name="external_mapping.detail_uri",
+                )
+                graph.add((concept_uri, DV2.hasMappingDetail, map_uri))
+                graph.add((map_uri, DV2.mappingScheme, Literal(mapping.scheme)))
+                graph.add((map_uri, DV2.mappingTarget, Literal(mapping.target_uri)))
+                if mapping.predicate is not None:
+                    graph.add((map_uri, DV2.mappingPredicate, Literal(mapping.predicate)))
+                if mapping.confidence is not None:
+                    graph.add((map_uri, DV2.mappingConfidence, Literal(float(mapping.confidence))))
+                if mapping.pinned is not None:
+                    graph.add((map_uri, DV2.mappingPinned, Literal(bool(mapping.pinned))))
+                if mapping.provenance is not None:
+                    graph.add((map_uri, DV2.mappingProvenance, Literal(mapping.provenance)))
         if concept.attributes:
-            for attr in concept.attributes:
+            for idx, attr in enumerate(concept.attributes):
                 clean_attr = urllib.parse.quote(attr.attribute_name.strip(), safe="")
-                sep = "/" if "#" in str(concept_uri) else "#"
                 attr_uri = _safe_uriref(
-                    f"{concept.concept_uri.strip()}{sep}{clean_attr}",
+                    f"{concept.concept_uri.strip()}{base_sep}{clean_attr}",
                     field_name="attribute_uri",
                 )
                 graph.add((attr_uri, RDF.type, OWL.DatatypeProperty))
                 graph.add((attr_uri, RDFS.domain, concept_uri))
                 graph.add((attr_uri, RDFS.label, Literal(attr.attribute_name)))
+                graph.add((attr_uri, DV2.orderIndex, Literal(idx)))
                 if getattr(attr, "data_type", None):
                     dt_key = attr.data_type.lower().strip()
                     xsd_type = XSD_TYPE_MAP.get(dt_key, XSD.string)
                     graph.add((attr_uri, RDFS.range, xsd_type))
+                    graph.add((attr_uri, DV2.rawDataType, Literal(attr.data_type)))
+                if getattr(attr, "is_optional", None) is not None:
+                    graph.add((attr_uri, DV2.isOptional, Literal(bool(attr.is_optional))))
+                if getattr(attr, "description", None):
+                    graph.add((attr_uri, RDFS.comment, Literal(attr.description)))
 
-    # Canonical Relationships (including full N-ary endpoint sets via DV2.hasEndpoint)
+    # Canonical Relationships (including ordered N-ary endpoints via DV2.hasEndpointDetail)
     for rel in ont_obj.canonical_relationships:
         rel_uri = _safe_uriref(rel.relationship_uri, field_name="relationship_uri")
+        rel_sep = "/" if "#" in str(rel_uri) else "#"
         graph.add((rel_uri, RDF.type, OWL.ObjectProperty))
         endpoints = list(getattr(rel, "endpoints", None) or [])
         source_uri = getattr(rel, "source_concept_uri", None) or (
@@ -297,23 +357,49 @@ def build_rdf_graph(ontology: GraphAOntology | BaseModel | dict[str, Any]) -> Gr
             graph.add(
                 (rel_uri, RDFS.range, _safe_uriref(target_uri, field_name="relationship.range"))
             )
-        for ep in endpoints:
+        for idx, ep in enumerate(endpoints):
             ep_ref = _safe_uriref(ep, field_name="relationship.endpoint")
             graph.add((rel_uri, DV2.hasEndpoint, ep_ref))
+            ep_detail = _safe_uriref(
+                f"{rel.relationship_uri.strip()}{rel_sep}endpoint_{idx}",
+                field_name="relationship.endpoint_detail",
+            )
+            graph.add((rel_uri, DV2.hasEndpointDetail, ep_detail))
+            graph.add((ep_detail, DV2.orderIndex, Literal(idx)))
+            graph.add((ep_detail, DV2.endpointRef, ep_ref))
         if rel.relationship_name:
             graph.add((rel_uri, RDFS.label, Literal(rel.relationship_name)))
         if rel.target_link:
             graph.add((rel_uri, DV2.targetLink, Literal(rel.target_link)))
         if rel.grain_semantics:
             graph.add((rel_uri, RDFS.comment, Literal(rel.grain_semantics)))
+        if rel.cardinality is not None:
+            graph.add((rel_uri, DV2.cardinality, Literal(rel.cardinality)))
+        if rel.description is not None:
+            graph.add((rel_uri, DV2.relationshipDescription, Literal(rel.description)))
 
     # Reference Enumerations
     for enum in ont_obj.reference_enumerations:
         enum_uri = _safe_uriref(enum.enum_uri, field_name="enum_uri")
+        enum_sep = "/" if "#" in str(enum_uri) else "#"
         graph.add((enum_uri, RDF.type, RDFS.Datatype))
         graph.add((enum_uri, DV2.targetReferenceTable, Literal(enum.target_reference_table)))
-        for code in enum.allowed_codes:
+        if enum.enumeration_name is not None:
+            graph.add((enum_uri, RDFS.label, Literal(enum.enumeration_name)))
+        if enum.description is not None:
+            graph.add((enum_uri, RDFS.comment, Literal(enum.description)))
+        code_descs = enum.code_descriptions or {}
+        for idx, code in enumerate(enum.allowed_codes):
             graph.add((enum_uri, DV2.allowedCode, Literal(code)))
+            code_uri = _safe_uriref(
+                f"{enum.enum_uri.strip()}{enum_sep}code_{idx}",
+                field_name="enum.code_detail",
+            )
+            graph.add((enum_uri, DV2.hasCodeDetail, code_uri))
+            graph.add((code_uri, DV2.orderIndex, Literal(idx)))
+            graph.add((code_uri, DV2.codeValue, Literal(code)))
+            if code in code_descs:
+                graph.add((code_uri, RDFS.comment, Literal(code_descs[code])))
 
     return graph
 

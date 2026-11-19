@@ -1,34 +1,28 @@
 """Claude Code CLI (`claude`) Adapter for the Open-DV Agent Harness.
 
 Executes non-interactive agentic turns via the local logged-in Claude Code CLI (`claude -p`)
-with `--output-format stream-json`, `--json-schema <schema_json>`, `--model <model_id>`,
-`--system-prompt <instructions>`, `--agents <subagents_json>`, `--disable-slash-commands`,
-and `--tools ""`.
-
-Conforms to docs/03-verification-and-agentic-architecture.md,
-docs/06-explainability-and-observability-spec.md,
-and docs/09-agnostic-agent-harness-and-sdk-spec.md.
+piping prompts over stdin with `--output-format stream-json`, `--json-schema <schema_json>`,
+`--model <model_id>`, `--system-prompt <instructions>`, `--agents <subagents_json>`,
+`--disable-slash-commands`, and `--tools ""`.
 """
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import json
 import os
 import shutil
-import subprocess
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-from opendv_agent_harness.adapters.agy_cli_adapter import (
-    _is_non_result_stream_event,
-    _parse_ndjson_stream_line,
-)
-from opendv_agent_harness.adapters.antigravity_adapter import (
-    ProviderConfigurationError,
-    _strip_markdown_json_fences,
+from opendv_agent_harness.adapters.antigravity_adapter import ProviderConfigurationError
+from opendv_agent_harness.adapters.cli_subprocess_base import (
+    build_cli_prompt,
+    extract_json_from_stdout,
+    make_cli_turn_meta,
+    parse_ndjson_stream_line,
+    stream_cli_subprocess_lines,
+    validate_cli_structured_output,
 )
 from opendv_agent_harness.models import (
     AgentPersona,
@@ -47,94 +41,20 @@ from opendv_agent_harness.routing import (
 )
 from opendv_contracts.fallbacks import FallbackKey
 
-_STAGE_CONTEXT_MARKERS: tuple[str, ...] = (
-    "\n__OPENDV_STAGE_CONTEXT_JSON__:",
-    "<!-- OPENDV_STAGE_CTX_B64:",
-)
-
-
-def _strip_internal_stage_context(prompt: str) -> str:
-    """Remove internal base64/JSON stage context footers before dispatching to `claude` CLI."""
-    cleaned = prompt
-    for marker in _STAGE_CONTEXT_MARKERS:
-        if marker in cleaned:
-            cleaned, _ = cleaned.split(marker, 1)
-    return cleaned.strip()
+_MAX_CLI_FLAG_CHARS = 7500
 
 
 def _extract_json_from_stdout(raw_stdout: str) -> dict[str, Any]:
-    """Extract the JSON result object emitted by `claude -p --output-format stream-json`."""
-    stripped = raw_stdout.strip()
-    if not stripped:
-        raise ProviderConfigurationError("Claude Code CLI ('claude') returned empty stdout.")
-
-    last_result: dict[str, Any] | None = None
-    streamed_text_chunks: list[str] = []
-    seen_fine = False
-    for raw_line in stripped.splitlines():
-        _, text_deltas, result_obj, is_fine = _parse_ndjson_stream_line(
-            raw_line,
-            seen_fine_grained_deltas=seen_fine,
-        )
-        if is_fine:
-            seen_fine = True
-        if text_deltas:
-            streamed_text_chunks.extend(text_deltas)
-        if result_obj is not None:
-            last_result = dict(result_obj)
-
-    if last_result is not None:
-        if not (last_result.get("result") or last_result.get("response")) and streamed_text_chunks:
-            last_result["result"] = "".join(streamed_text_chunks)
-        return last_result
-
-    if streamed_text_chunks:
-        return {
-            "status": "SUCCESS",
-            "result": "".join(streamed_text_chunks),
-        }
-
-    try:
-        parsed = json.loads(stripped)
-        if isinstance(parsed, dict) and not _is_non_result_stream_event(parsed):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-
-    for line in reversed(stripped.splitlines()):
-        candidate = line.strip()
-        if candidate.startswith("{") and candidate.endswith("}"):
-            try:
-                parsed_line = json.loads(candidate)
-                if isinstance(parsed_line, dict) and not _is_non_result_stream_event(parsed_line):
-                    return parsed_line
-            except json.JSONDecodeError:
-                continue
-
-    first_brace = stripped.find("{")
-    last_brace = stripped.rfind("}")
-    if 0 <= first_brace < last_brace:
-        try:
-            parsed_slice = json.loads(stripped[first_brace : last_brace + 1])
-            if isinstance(parsed_slice, dict) and not _is_non_result_stream_event(parsed_slice):
-                return parsed_slice
-        except json.JSONDecodeError:
-            pass
-
-    raise ProviderConfigurationError(
-        f"Claude Code CLI ('claude') output was not valid JSON: {stripped[:400]}"
+    """Extract the JSON result object emitted by ``claude -p --output-format stream-json``."""
+    return extract_json_from_stdout(
+        raw_stdout,
+        cli_label="Claude Code CLI ('claude')",
+        primary_text_key="result",
     )
 
 
 class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
-    """Production Adapter: Claude Code CLI (`claude`) via active logged-in CLI session.
-
-    Registered under `provider: 'claude-cli'` and `provider: 'claude-code'`.
-    Invokes the local `claude` binary in non-interactive `--print` (`-p`) mode with
-    `--model <model_id>`, `--output-format stream-json`, `--json-schema <schema_json>`,
-    `--system-prompt <instructions>`, `--agents <subagents_json>`,
-    `--disable-slash-commands`, and `--tools ""`.
-    """
+    """Production Adapter: Claude Code CLI (`claude`) via active logged-in CLI session."""
 
     def __init__(self, config: HarnessConfig, *, sdk_module: Any | None = None) -> None:
         super().__init__(config)
@@ -175,23 +95,19 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
                     return cand_str
         if has_explicit:
             return None
-
         for bin_name in ("claude", "claude.exe", "claude.cmd"):
             found = shutil.which(bin_name)
             if found:
                 return found
-
         return None
 
     def _resolve_subagent_models(self, spec: AgentTaskSpec[Any]) -> dict[str, str]:
-        """Resolve concrete model IDs for all subagents attached to `spec`."""
         return {
             sub.name: (sub.model_override or self.resolve_model(sub.model_tier, sub.persona))
             for sub in spec.subagents
         }
 
     def _build_agents_json(self, spec: AgentTaskSpec[Any]) -> str | None:
-        """Build the JSON mapping for `claude --agents <json>` with resolved subagent models."""
         if not spec.subagents:
             return None
         subagent_models = self._resolve_subagent_models(spec)
@@ -205,132 +121,50 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
         return json.dumps(agents_payload, separators=(",", ":"))
 
     def _build_cli_prompt(self, spec: AgentTaskSpec[Any], *, include_inline_schema: bool) -> str:
-        """Construct the clean non-interactive prompt sent to `claude -p`."""
-        clean_prompt = _strip_internal_stage_context(spec.prompt)
-        parts: list[str] = [
-            spec.system_instructions.strip(),
-            (
-                "EXECUTION DIRECTIVE: All required ontology, statistical profile, and sample "
-                "data are provided inline below. Do NOT invoke filesystem, shell, or search "
-                "tools. Respond immediately in a single turn with only the required JSON object."
-            ),
-            clean_prompt,
-        ]
-        if spec.subagents:
-            subagent_models = self._resolve_subagent_models(spec)
-            sub_lines = [
-                f"- {sub_name}: model={sub_model}"
-                for sub_name, sub_model in subagent_models.items()
-            ]
-            parts.append("DELEGATED SUBAGENT MODELS:\n" + "\n".join(sub_lines))
-        if include_inline_schema and spec.output_schema is not None:
-            schema_json = json.dumps(
-                spec.output_schema.model_json_schema(),
-                separators=(",", ":"),
-            )
-            parts.append(
-                "Return ONLY a valid JSON object conforming to this JSON Schema "
-                f"(no markdown fences or prose):\n{schema_json}"
-            )
-        parts.append(
-            "IMPORTANT: Do NOT call any tools, read_file, run_command, or search tools. "
-            "Produce your structured JSON response immediately in Turn 1."
-        )
-        full_prompt = "\n\n".join(p for p in parts if p)
-        if len(full_prompt) > 24000:
-            full_prompt = full_prompt[:23500] + (
-                "\n\n[Truncated for CLI argument length limit. "
-                "Respond immediately in Turn 1 with valid JSON only.]"
-            )
-        return full_prompt
-
-    def _invoke_claude_subprocess(
-        self,
-        cmd: list[str],
-        env: dict[str, str],
-        timeout_seconds: float,
-    ) -> subprocess.CompletedProcess[str]:
-        """Run the `claude` CLI subprocess synchronously (called via `asyncio.to_thread`)."""
-        custom_runner: Callable[..., subprocess.CompletedProcess[str]] | None = (
-            self._config.extra_provider_options.get("claude_cli_runner")
-        )
-        if callable(custom_runner):
-            return custom_runner(cmd, env=env, timeout=timeout_seconds)
-        self._config.state_dir.mkdir(parents=True, exist_ok=True)
-        return subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-            cwd=str(self._config.state_dir),
-            timeout=timeout_seconds,
-            check=False,
+        """Construct the full non-interactive stdin prompt sent to ``claude -p``."""
+        return build_cli_prompt(
+            spec,
+            subagent_models=self._resolve_subagent_models(spec),
+            include_inline_schema=include_inline_schema,
         )
 
-    async def _stream_claude_subprocess_lines(
+    async def _run_and_consume(
         self,
         cmd: list[str],
-        env: dict[str, str],
-        timeout_seconds: float,
-        state_out: dict[str, Any],
-    ) -> AsyncIterator[str]:
-        """Execute `claude` CLI and yield stdout lines in real time."""
+        *,
+        input_text: str,
+        proc_env: dict[str, str],
+        run_state: dict[str, Any],
+        make_event: Any,
+        streamed_text_chunks: list[str],
+    ) -> AsyncIterator[HarnessStreamEvent]:
         custom_runner = self._config.extra_provider_options.get("claude_cli_runner")
-        is_mock_subproc = getattr(subprocess.run, "__module__", "subprocess") != "subprocess"
-        if callable(custom_runner) or is_mock_subproc:
-            completed = await asyncio.to_thread(
-                self._invoke_claude_subprocess,
-                cmd,
-                env,
-                timeout_seconds,
+        seen_fine_grained = False
+        last_result_payload: dict[str, Any] | None = None
+        async for raw_line in stream_cli_subprocess_lines(
+            cmd,
+            input_text=input_text,
+            env=proc_env,
+            cwd=self._config.state_dir,
+            timeout_seconds=self._config.budget.timeout_seconds,
+            state_out=run_state,
+            cli_label="Claude Code CLI ('claude')",
+            custom_runner=custom_runner,
+        ):
+            thought_deltas, text_deltas, result_obj, is_fine = parse_ndjson_stream_line(
+                raw_line,
+                seen_fine_grained_deltas=seen_fine_grained,
             )
-            state_out["returncode"] = completed.returncode
-            state_out["stdout"] = completed.stdout or ""
-            state_out["stderr"] = completed.stderr or ""
-            for line in (completed.stdout or "").splitlines():
-                yield line
-            return
-
-        self._config.state_dir.mkdir(parents=True, exist_ok=True)
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-            cwd=str(self._config.state_dir),
-            limit=16 * 1024 * 1024,
-        )
-        stdout_lines: list[str] = []
-        stderr_bytes = b""
-        returncode = -1
-        try:
-            try:
-                async with asyncio.timeout(timeout_seconds):
-                    assert proc.stdout is not None
-                    while True:
-                        raw_bytes = await proc.stdout.readline()
-                        if not raw_bytes:
-                            break
-                        decoded_line = raw_bytes.decode("utf-8", errors="replace")
-                        stdout_lines.append(decoded_line)
-                        yield decoded_line.rstrip("\r\n")
-                    stderr_bytes = await proc.stderr.read() if proc.stderr is not None else b""
-                    returncode = await proc.wait()
-            except TimeoutError as exc:
-                raise ProviderConfigurationError(
-                    f"Claude Code CLI ('claude') timed out after {timeout_seconds}s."
-                ) from exc
-        finally:
-            if proc.returncode is None:
-                with contextlib.suppress(ProcessLookupError):
-                    proc.kill()
-                await proc.wait()
-
-        state_out["returncode"] = returncode
-        state_out["stdout"] = "".join(stdout_lines)
-        state_out["stderr"] = stderr_bytes.decode("utf-8", errors="replace")
+            if is_fine:
+                seen_fine_grained = True
+            for t_chunk in thought_deltas:
+                yield make_event(HarnessEventKind.THOUGHT_DELTA, delta_text=t_chunk)
+            for c_chunk in text_deltas:
+                streamed_text_chunks.append(c_chunk)
+                yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=c_chunk)
+            if result_obj is not None:
+                last_result_payload = dict(result_obj)
+        run_state["last_result_payload"] = last_result_payload
 
     async def _stream_provider_task(
         self,
@@ -338,15 +172,13 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
         ctx: ToolExecutionContext,
         model_id: str,
     ) -> AsyncIterator[HarnessStreamEvent]:
-        """Execute task via the local `claude` CLI (`claude -p`) and stream normalized events."""
+        """Execute task via local `claude` CLI piping prompt over stdin."""
         model_id = (
             spec.model_override or model_id or self.resolve_model(spec.model_tier, spec.persona)
         )
         subagent_models = self._resolve_subagent_models(spec)
         if self._sdk_override is not None:
-            from opendv_agent_harness.adapters.claude_adapter import (
-                ClaudeAgentHarnessAdapter,
-            )
+            from opendv_agent_harness.adapters.claude_adapter import ClaudeAgentHarnessAdapter
 
             delegate = ClaudeAgentHarnessAdapter(self._config, sdk_module=self._sdk_override)
             async for ev in delegate._stream_provider_task(spec, ctx, model_id):
@@ -365,30 +197,23 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
             return self._make_event(spec, ctx, kind, **kwargs)
 
         yield make_event(HarnessEventKind.SESSION_START)
-
         proc_env = dict(os.environ)
         proc_env.update(self._config.env)
         proc_env["NO_COLOR"] = "1"
 
         sys_prompt = spec.system_instructions.strip()
         agents_json = self._build_agents_json(spec)
-        schema_json_str: str | None = None
-        if spec.output_schema is not None:
-            schema_json_str = json.dumps(
-                spec.output_schema.model_json_schema(),
-                separators=(",", ":"),
-            )
+        schema_json_str = (
+            json.dumps(spec.output_schema.model_json_schema(), separators=(",", ":"))
+            if spec.output_schema is not None
+            else None
+        )
+        inline_schema = schema_json_str is not None and len(schema_json_str) > _MAX_CLI_FLAG_CHARS
+        prompt_text = self._build_cli_prompt(spec, include_inline_schema=inline_schema)
 
-        streamed_text_chunks: list[str] = []
-        emitted_any_text_delta = False
-        seen_fine_grained = False
-        last_result_payload: dict[str, Any] | None = None
-
-        prompt_text = self._build_cli_prompt(spec, include_inline_schema=False)
         cmd: list[str] = [
             claude_bin,
             "-p",
-            prompt_text,
             "--model",
             model_id,
             "--output-format",
@@ -397,38 +222,28 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
             "--tools",
             "",
         ]
-        if sys_prompt:
+        if sys_prompt and len(sys_prompt) <= _MAX_CLI_FLAG_CHARS:
             cmd.extend(["--system-prompt", sys_prompt])
-        if agents_json is not None:
+        if agents_json is not None and len(agents_json) <= _MAX_CLI_FLAG_CHARS:
             cmd.extend(["--agents", agents_json])
-        if schema_json_str is not None:
+        if schema_json_str is not None and not inline_schema:
             cmd.extend(["--json-schema", schema_json_str])
         if spec.resume_session_id:
             cmd.extend(["--resume", spec.resume_session_id])
 
+        streamed_text_chunks: list[str] = []
         run_state: dict[str, Any] = {"returncode": 0, "stdout": "", "stderr": ""}
-        async for raw_line in self._stream_claude_subprocess_lines(
+        async for ev in self._run_and_consume(
             cmd,
-            proc_env,
-            self._config.budget.timeout_seconds,
-            run_state,
+            input_text=prompt_text,
+            proc_env=proc_env,
+            run_state=run_state,
+            make_event=make_event,
+            streamed_text_chunks=streamed_text_chunks,
         ):
-            thought_deltas, text_deltas, result_obj, is_fine = _parse_ndjson_stream_line(
-                raw_line,
-                seen_fine_grained_deltas=seen_fine_grained,
-            )
-            if is_fine:
-                seen_fine_grained = True
-            for t_chunk in thought_deltas:
-                yield make_event(HarnessEventKind.THOUGHT_DELTA, delta_text=t_chunk)
-            for c_chunk in text_deltas:
-                streamed_text_chunks.append(c_chunk)
-                emitted_any_text_delta = True
-                yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=c_chunk)
-            if result_obj is not None:
-                last_result_payload = dict(result_obj)
+            yield ev
+        last_result_payload = run_state.get("last_result_payload")
 
-        # Fallback without --json-schema flag only if explicitly enabled and rejected
         allow_schema_retry = is_cli_schema_omission_retry_allowed(self._config)
         stderr_lower = str(run_state.get("stderr") or "").lower()
         is_schema_rejection = any(
@@ -450,14 +265,10 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
                 },
             )
             streamed_text_chunks.clear()
-            emitted_any_text_delta = False
-            seen_fine_grained = False
-            last_result_payload = None
             fallback_prompt = self._build_cli_prompt(spec, include_inline_schema=True)
             fallback_cmd: list[str] = [
                 claude_bin,
                 "-p",
-                fallback_prompt,
                 "--model",
                 model_id,
                 "--output-format",
@@ -466,33 +277,23 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
                 "--tools",
                 "",
             ]
-            if sys_prompt:
+            if sys_prompt and len(sys_prompt) <= _MAX_CLI_FLAG_CHARS:
                 fallback_cmd.extend(["--system-prompt", sys_prompt])
-            if agents_json is not None:
+            if agents_json is not None and len(agents_json) <= _MAX_CLI_FLAG_CHARS:
                 fallback_cmd.extend(["--agents", agents_json])
             if spec.resume_session_id:
                 fallback_cmd.extend(["--resume", spec.resume_session_id])
             run_state = {"returncode": 0, "stdout": "", "stderr": ""}
-            async for raw_line in self._stream_claude_subprocess_lines(
+            async for ev in self._run_and_consume(
                 fallback_cmd,
-                proc_env,
-                self._config.budget.timeout_seconds,
-                run_state,
+                input_text=fallback_prompt,
+                proc_env=proc_env,
+                run_state=run_state,
+                make_event=make_event,
+                streamed_text_chunks=streamed_text_chunks,
             ):
-                thought_deltas, text_deltas, result_obj, is_fine = _parse_ndjson_stream_line(
-                    raw_line,
-                    seen_fine_grained_deltas=seen_fine_grained,
-                )
-                if is_fine:
-                    seen_fine_grained = True
-                for t_chunk in thought_deltas:
-                    yield make_event(HarnessEventKind.THOUGHT_DELTA, delta_text=t_chunk)
-                for c_chunk in text_deltas:
-                    streamed_text_chunks.append(c_chunk)
-                    emitted_any_text_delta = True
-                    yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=c_chunk)
-                if result_obj is not None:
-                    last_result_payload = dict(result_obj)
+                yield ev
+            last_result_payload = run_state.get("last_result_payload")
 
         if run_state["returncode"] != 0:
             stderr_msg = str(run_state["stderr"]).strip()
@@ -536,7 +337,6 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
         )
         if raw_structured is None and isinstance(raw_result, dict):
             raw_structured = raw_result
-
         raw_response_text = str(raw_result) if isinstance(raw_result, str) else ""
         if not raw_response_text and streamed_text_chunks:
             raw_response_text = "".join(streamed_text_chunks)
@@ -544,8 +344,7 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
             raw_response_text = (
                 raw_structured if isinstance(raw_structured, str) else json.dumps(raw_structured)
             )
-
-        if raw_response_text and not emitted_any_text_delta:
+        if raw_response_text and not streamed_text_chunks:
             yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=raw_response_text)
 
         for obs_ev in ctx.pop_unstreamed_events():
@@ -553,63 +352,23 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
             if obs_ev.get("status") == "ASK-USER":
                 yield make_event(HarnessEventKind.STEWARD_HOLD, obs_event=obs_ev)
 
-        validated_structured: Any = None
-        if spec.output_schema is not None:
-            if raw_structured is not None:
-                if isinstance(raw_structured, dict):
-                    validated_structured = spec.output_schema.model_validate(raw_structured)
-                elif isinstance(raw_structured, str):
-                    validated_structured = spec.output_schema.model_validate_json(
-                        _strip_markdown_json_fences(raw_structured)
-                    )
-            elif raw_response_text.strip():
-                cleaned_text = _strip_markdown_json_fences(raw_response_text)
-                validated_structured = spec.output_schema.model_validate_json(cleaned_text)
-        else:
-            validated_structured = raw_structured
-
-        raw_usage = payload.get("usage")
-        usage_dict: dict[str, Any] = raw_usage if isinstance(raw_usage, dict) else {}
-        in_tok = int(usage_dict.get("input_tokens") or 0)
-        cached_tok = int(
-            usage_dict.get("cache_read_input_tokens")
-            or usage_dict.get("cache_read_tokens")
-            or usage_dict.get("cached_input_tokens")
-            or 0
+        validated = validate_cli_structured_output(
+            spec,
+            raw_structured=raw_structured,
+            raw_response_text=raw_response_text,
         )
-        out_tok = int(usage_dict.get("output_tokens") or 0)
-        think_tok = int(
-            usage_dict.get("thinking_tokens") or usage_dict.get("reasoning_tokens") or 0
-        )
-        tot_tok = int(usage_dict.get("total_tokens") or (in_tok + out_tok + think_tok))
-        num_turns = max(1, int(payload.get("num_turns") or usage_dict.get("num_turns") or 1))
-        cost_usd = float(
-            payload.get("total_cost_usd")
-            or payload.get("cost_usd")
-            or usage_dict.get("total_cost_usd")
-            or usage_dict.get("cost_usd")
-            or 0.0
-        )
-
-        turn_meta: dict[str, Any] = {
-            "session_id": str(
+        turn_meta = make_cli_turn_meta(
+            spec,
+            payload,
+            session_id=str(
                 payload.get("session_id")
                 or payload.get("conversation_id")
                 or spec.resume_session_id
                 or spec.task_id
             ),
-            "structured_output": validated_structured,
-            "subagent_models": subagent_models,
-            "usage": {
-                "input_tokens": in_tok,
-                "cached_input_tokens": cached_tok,
-                "output_tokens": out_tok,
-                "reasoning_tokens": think_tok,
-                "total_tokens": tot_tok,
-                "model_calls": num_turns,
-                "cost_usd": cost_usd,
-            },
-        }
+            validated_structured=validated,
+            subagent_models=subagent_models,
+        )
         yield make_event(HarnessEventKind.TURN_COMPLETE, tool_result=turn_meta)
 
 
@@ -619,5 +378,4 @@ __all__ = [
     "ClaudeCliHarnessAdapter",
     "ClaudeCodeCliAdapter",
     "_extract_json_from_stdout",
-    "_strip_internal_stage_context",
 ]

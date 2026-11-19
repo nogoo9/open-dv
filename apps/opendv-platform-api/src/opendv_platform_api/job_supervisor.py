@@ -399,6 +399,13 @@ class JobSupervisor:
         if not session_dir.is_dir() or not (session_dir / "session.json").is_file():
             raise StudioAPIError("SESSION_NOT_FOUND", f"Session '{session_id}' not found.")
 
+        if self.count_active_jobs(session_mgr, session_id) > 0:
+            raise StudioAPIError(
+                "SESSION_JOB_ACTIVE",
+                f"Session '{session_id}' already has an active running job.",
+                status_code=409,
+            )
+
         job_id = f"job-{uuid.uuid4().hex[:12]}"
         now_iso = datetime.now(UTC).isoformat()
         writer = SSEJournalWriter(session_dir=session_dir, job_id=job_id, session_id=session_id)
@@ -417,6 +424,15 @@ class JobSupervisor:
         )
 
         with self._lock:
+            if any(
+                jctx.session_id == session_id and jctx.status.lower() in ("pending", "running")
+                for jctx in self._jobs.values()
+            ):
+                raise StudioAPIError(
+                    "SESSION_JOB_ACTIVE",
+                    f"Session '{session_id}' already has an active running job.",
+                    status_code=409,
+                )
             self._jobs[job_id] = ctx
             self._evict_terminal_jobs_locked()
 

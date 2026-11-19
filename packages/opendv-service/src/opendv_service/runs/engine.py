@@ -26,6 +26,7 @@ from opendv_service.models import (
 from opendv_service.runs.callbacks import build_pipeline_callbacks
 from opendv_service.runs.options import resolve_effective_provider, resolve_run_creation_options
 from opendv_service.seams import PipelineRunner, get_default_pipeline_runner
+from opendv_service.use_cases.pipeline_preflight import ensure_pipeline_agent_ready
 
 if TYPE_CHECKING:
     from opendv_service.state import StateStore
@@ -46,6 +47,7 @@ class RunContext:
     )
     is_done: bool = False
     final_status: RunStatus | None = None
+    session_id: str | None = None
     created_at_utc: str = field(
         default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     )
@@ -98,9 +100,15 @@ class RunExecutionEngine:
         )
 
         run_opts = resolve_run_creation_options(request, workspace_root=state.repo_root)
+        ensure_pipeline_agent_ready(state, req_with_id, pipeline_runner=pipeline_runner)
         has_initial_contract = run_opts.has_initial_contract
         initial_contract_path = run_opts.initial_contract_path
         lifecycle_stage = run_opts.lifecycle_stage
+        session_id = getattr(request, "session_id", None) or (
+            request.input_spec.get("session_id")
+            if isinstance(getattr(request, "input_spec", None), dict)
+            else None
+        )
 
         run_dto = ProjectRunDTO(
             run_id=run_id,
@@ -122,8 +130,10 @@ class RunExecutionEngine:
         )
         state.runs[run_id] = run_dto
         state.run_events[run_id] = []
+        if session_id and hasattr(state, "run_session_ids"):
+            state.run_session_ids[run_id] = str(session_id)
 
-        context = RunContext(run_id=run_id, created_at_utc=now_utc)
+        context = RunContext(run_id=run_id, created_at_utc=now_utc, session_id=session_id)
         with self._engine_lock:
             self._contexts[run_id] = context
 
@@ -183,6 +193,8 @@ class RunExecutionEngine:
                         final_status.value if hasattr(final_status, "value") else str(final_status)
                     )
                     is_hold = term_stat == "PAUSED_HOLD" or final_status == RunStatus.PAUSED_HOLD
+                    if is_hold and hasattr(state, "explicit_hold_runs"):
+                        state.explicit_hold_runs.add(run_id)
                     terminal_event = {
                         "event_id": f"evt-{run_id}-hold" if is_hold else f"evt-{run_id}-complete",
                         "run_id": run_id,

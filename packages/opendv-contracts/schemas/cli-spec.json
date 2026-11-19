@@ -944,6 +944,89 @@
               "help": "Artifact ID to retrieve"
             }
           ]
+        },
+        {
+          "name": "dv-schema",
+          "description": "Inspect Data Vault 2.1 schema graph, table rows, or run bounded read-only DuckDB SQL queries",
+          "help": "Inspect DV2.1 schema and data explorer",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": null,
+          "response_dto": null,
+          "options": [
+            {
+              "name": "run_id",
+              "flag": "--run-id",
+              "short": "-r",
+              "type": "string",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target pipeline run ID"
+            },
+            {
+              "name": "compare",
+              "flag": "--compare",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Optional baseline run ID to diff schema nodes and edges against"
+            },
+            {
+              "name": "table",
+              "flag": "--table",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Inspect paged sample rows for a specific DV table"
+            },
+            {
+              "name": "sql",
+              "flag": "--sql",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Execute a bounded read-only SELECT/WITH SQL query against run tables"
+            },
+            {
+              "name": "limit",
+              "flag": "--limit",
+              "short": null,
+              "type": "integer",
+              "required": false,
+              "default": 50,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Maximum number of table rows to return"
+            },
+            {
+              "name": "offset",
+              "flag": "--offset",
+              "short": null,
+              "type": "integer",
+              "required": false,
+              "default": 0,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Pagination row offset when reading --table"
+            }
+          ]
         }
       ]
     },
@@ -3713,6 +3796,267 @@
                   ]
                 }
               ]
+            },
+            {
+              "name": "attach-source",
+              "description": "Attach and profile a tabular connector source (filesystem/SQLite/DuckDB/CSV/Parquet/XLSX/JSONL)",
+              "help": "Attach connector source",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": null,
+              "response_dto": null,
+              "options": [
+                {
+                  "name": "session",
+                  "flag": "--session",
+                  "short": "-s",
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Target studio session identifier"
+                },
+                {
+                  "name": "adapter",
+                  "flag": "--adapter",
+                  "short": null,
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Connector adapter type (e.g. filesystem, sqlite, duckdb, csv)"
+                },
+                {
+                  "name": "uri",
+                  "flag": "--uri",
+                  "short": null,
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Source URI, file path, or connection identifier"
+                },
+                {
+                  "name": "table",
+                  "flag": "--table",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Target table name or alias"
+                },
+                {
+                  "name": "namespace",
+                  "flag": "--namespace",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Optional domain namespace override"
+                },
+                {
+                  "name": "credentials_ref",
+                  "flag": "--credentials-ref",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Secret reference (env:... or secret:...) — plaintext credentials are rejected"
+                },
+                {
+                  "name": "description",
+                  "flag": "--description",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Optional human source description"
+                },
+                {
+                  "name": "do_not_send_to_agent",
+                  "flag": "--do-not-send-to-agent",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Mark connector source confidential (taint perimeter)"
+                }
+              ]
+            },
+            {
+              "name": "fibo-qa",
+              "description": "Ask read-only FIBO & evidence alignment questions against a Studio session",
+              "help": "Query FIBO Q&A",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": null,
+              "response_dto": null,
+              "options": [
+                {
+                  "name": "session",
+                  "flag": "--session",
+                  "short": "-s",
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Target studio session identifier"
+                },
+                {
+                  "name": "question",
+                  "flag": "--question",
+                  "short": "-q",
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Natural-language FIBO/evidence question"
+                },
+                {
+                  "name": "source_id",
+                  "flag": "--source-id",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Optional source ID scope"
+                },
+                {
+                  "name": "concept_uri",
+                  "flag": "--concept-uri",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Optional concept URI scope"
+                }
+              ]
+            },
+            {
+              "name": "logs",
+              "description": "Inspect or stream Studio session AI & compiler execution logs",
+              "help": "Inspect session logs",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": null,
+              "response_dto": null,
+              "options": [
+                {
+                  "name": "session",
+                  "flag": "--session",
+                  "short": "-s",
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Target studio session identifier"
+                },
+                {
+                  "name": "session_id",
+                  "flag": "--session-id",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Target studio session identifier alias"
+                },
+                {
+                  "name": "stage",
+                  "flag": "--stage",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Filter by stage ID or stage pill alias (STAGE_00..07 or 00..06)"
+                },
+                {
+                  "name": "step",
+                  "flag": "--step",
+                  "short": null,
+                  "type": "integer",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Filter by wizard step number"
+                },
+                {
+                  "name": "category",
+                  "flag": "--category",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Filter by log entry category (e.g. agent, compiler)"
+                },
+                {
+                  "name": "persona",
+                  "flag": "--persona",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Filter by persona (e.g. @ship-vault)"
+                },
+                {
+                  "name": "follow",
+                  "flag": "--follow",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Stream logs live via SSE until stage completes"
+                }
+              ]
             }
           ]
         }
@@ -5210,6 +5554,20 @@
       "http_status": 422,
       "problem_title": "Harness Configuration Invalid",
       "problem_type_uri": "urn:opendv:error:harness-config-invalid"
+    },
+    {
+      "error_code": "AGENT_NOT_CONFIGURED",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Agent Not Configured",
+      "problem_type_uri": "urn:opendv:error:agent-not-configured"
+    },
+    {
+      "error_code": "SESSION_JOB_ACTIVE",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Session Job Already Active",
+      "problem_type_uri": "urn:opendv:error:session-job-active"
     }
   ],
   "global_options": [

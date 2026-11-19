@@ -334,6 +334,7 @@ class SessionMetadata(BaseModel):
     promoted_versions: list[str] = Field(default_factory=list)
     last_promoted_sha256: str | None = None
     imported_audit_anchor_sha256: str | None = None
+    wizard_schema_version: int | None = None
 
     @property
     def active_version(self) -> str:
@@ -1046,6 +1047,7 @@ class StudioSessionManager:
             domain_namespace=effective_ns,
             enterprise_owner=enterprise_owner,
             committed_versions=committed_versions,
+            wizard_schema_version=2,
         )
         _atomic_write_session_json(session_dir, metadata)
         return metadata
@@ -1449,7 +1451,7 @@ class StudioSessionManager:
         if not session_dir.exists():
             raise SessionNotFoundError(f"Session '{session_id}' not found")
 
-        raw_bytes = text.encode("utf-8")
+        raw_bytes = text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
         size_bytes = len(raw_bytes)
         if size_bytes == 0:
             raise OpenDVError(

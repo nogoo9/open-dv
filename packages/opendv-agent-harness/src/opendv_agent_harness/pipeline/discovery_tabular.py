@@ -306,6 +306,7 @@ async def execute_stage_01_tabular(
         runner.on_stream_event,
         runner.run_id,
         context=s01_ctx,
+        stage_output_policy=runner.harness_setup.stage_output_policy,
     )
     cov_art, unmapped_tables = emit_stage01_ontology_coverage(
         runner.ontology,

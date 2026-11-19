@@ -344,6 +344,23 @@
             "description": "Governance, PII, and MNPI constraints",
             "title": "Governance Constraints"
           },
+          "grounding_origin": {
+            "anyOf": [
+              {
+                "enum": [
+                  "FIBO_GROUNDED",
+                  "STRUCTURED_SCHEMA",
+                  "DOCUMENT_OBSERVED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ground-truth origin classification for ONT-EVO-002/004/005",
+            "title": "Grounding Origin"
+          },
           "key_authority_tiers": {
             "anyOf": [
               {
@@ -2217,6 +2234,11 @@
             "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
+          },
+          "ocr_mode": {
+            "default": "auto",
+            "title": "Ocr Mode",
+            "type": "string"
           }
         },
         "required": [
@@ -2519,6 +2541,14 @@
         "additionalProperties": false,
         "description": "Multiple-choice option presented to human steward for resolving ambiguity.",
         "properties": {
+          "evidence_citations": {
+            "description": "Option-level citations grounding this resolution choice",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "title": "Evidence Citations",
+            "type": "array"
+          },
           "fibo_uri": {
             "anyOf": [
               {
@@ -2898,6 +2928,107 @@
           "message"
         ],
         "title": "ConfigValidationDiagnosticDTO",
+        "type": "object"
+      },
+      "ConnectorSourceRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "adapter": {
+            "minLength": 1,
+            "title": "Adapter",
+            "type": "string"
+          },
+          "cas_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cas Hash"
+          },
+          "credentials_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credentials Ref"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace"
+          },
+          "options": {
+            "additionalProperties": true,
+            "title": "Options",
+            "type": "object"
+          },
+          "source_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Name"
+          },
+          "table": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table"
+          },
+          "uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uri"
+          }
+        },
+        "required": [
+          "adapter"
+        ],
+        "title": "ConnectorSourceRequest",
         "type": "object"
       },
       "ConnectorUIManifestDTO": {
@@ -3860,6 +3991,507 @@
         "title": "DocVizDTO",
         "type": "object"
       },
+      "DvHubSchemaDTO": {
+        "additionalProperties": false,
+        "description": "Projected Hub table metadata from Canonical IR / Contract V5.",
+        "properties": {
+          "bkcc_column_expr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bkcc Column Expr"
+          },
+          "business_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Business Keys",
+            "type": "array"
+          },
+          "hk_column": {
+            "title": "Hk Column",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "ontology_concept_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ontology Concept Uri"
+          },
+          "source_mappings": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Source Mappings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "hk_column"
+        ],
+        "title": "DvHubSchemaDTO",
+        "type": "object"
+      },
+      "DvLinkSchemaDTO": {
+        "additionalProperties": false,
+        "description": "Projected Link table metadata from Canonical IR / Contract V5.",
+        "properties": {
+          "degenerate_columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Degenerate Columns",
+            "type": "array"
+          },
+          "hk_column": {
+            "title": "Hk Column",
+            "type": "string"
+          },
+          "hub_references": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Hub References",
+            "type": "array"
+          },
+          "link_type": {
+            "default": "STANDARD",
+            "title": "Link Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "where_filter_condition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Where Filter Condition"
+          }
+        },
+        "required": [
+          "name",
+          "hk_column"
+        ],
+        "title": "DvLinkSchemaDTO",
+        "type": "object"
+      },
+      "DvPitTableSchemaDTO": {
+        "additionalProperties": false,
+        "description": "Projected Point-In-Time (`pit_*`) Business Vault table metadata.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "target_hub": {
+            "title": "Target Hub",
+            "type": "string"
+          },
+          "tracked_satellites": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tracked Satellites",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "target_hub"
+        ],
+        "title": "DvPitTableSchemaDTO",
+        "type": "object"
+      },
+      "DvReferenceTableSchemaDTO": {
+        "additionalProperties": false,
+        "description": "Projected Reference table (`ref_*`) metadata.",
+        "properties": {
+          "description_columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Description Columns",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "natural_code_column": {
+            "title": "Natural Code Column",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "natural_code_column"
+        ],
+        "title": "DvReferenceTableSchemaDTO",
+        "type": "object"
+      },
+      "DvSatelliteSchemaDTO": {
+        "additionalProperties": false,
+        "description": "Projected Satellite table metadata from Canonical IR / Contract V5.",
+        "properties": {
+          "hash_diff_column": {
+            "default": "hash_diff",
+            "title": "Hash Diff Column",
+            "type": "string"
+          },
+          "hash_diff_migration_policy": {
+            "default": "SPLIT_NEW_SATELLITE",
+            "title": "Hash Diff Migration Policy",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_entity": {
+            "title": "Parent Entity",
+            "type": "string"
+          },
+          "payload_columns": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Payload Columns",
+            "type": "array"
+          },
+          "satellite_type": {
+            "default": "STANDARD",
+            "title": "Satellite Type",
+            "type": "string"
+          },
+          "soft_deprecated_columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Soft Deprecated Columns",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "parent_entity"
+        ],
+        "title": "DvSatelliteSchemaDTO",
+        "type": "object"
+      },
+      "DvSchemaProjectionDTO": {
+        "additionalProperties": false,
+        "description": "Full Data Vault 2.0 Schema Explorer projection for a pipeline run.",
+        "properties": {
+          "column_triage_ledger": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Column Triage Ledger",
+            "type": "array"
+          },
+          "compare_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compare Run Id"
+          },
+          "hubs": {
+            "items": {
+              "$ref": "#/components/schemas/DvHubSchemaDTO"
+            },
+            "title": "Hubs",
+            "type": "array"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/DvLinkSchemaDTO"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "model_name": {
+            "default": "",
+            "title": "Model Name",
+            "type": "string"
+          },
+          "pit_tables": {
+            "items": {
+              "$ref": "#/components/schemas/DvPitTableSchemaDTO"
+            },
+            "title": "Pit Tables",
+            "type": "array"
+          },
+          "reference_tables": {
+            "items": {
+              "$ref": "#/components/schemas/DvReferenceTableSchemaDTO"
+            },
+            "title": "Reference Tables",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "satellites": {
+            "items": {
+              "$ref": "#/components/schemas/DvSatelliteSchemaDTO"
+            },
+            "title": "Satellites",
+            "type": "array"
+          },
+          "scorecard": {
+            "additionalProperties": true,
+            "title": "Scorecard",
+            "type": "object"
+          },
+          "wave_diff": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DvSchemaWaveDiffDTO"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "DvSchemaProjectionDTO",
+        "type": "object"
+      },
+      "DvSchemaQueryRequestDTO": {
+        "additionalProperties": false,
+        "description": "Request payload for read-only custom SQL against a persisted sandbox DuckDB.",
+        "properties": {
+          "max_rows": {
+            "default": 500,
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Max Rows",
+            "type": "integer"
+          },
+          "sql": {
+            "maxLength": 16384,
+            "minLength": 1,
+            "title": "Sql",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sql"
+        ],
+        "title": "DvSchemaQueryRequestDTO",
+        "type": "object"
+      },
+      "DvSchemaQueryResponseDTO": {
+        "additionalProperties": false,
+        "description": "Response payload for read-only custom SQL execution in DV Schema Explorer.",
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "duration_ms": {
+            "default": 0.0,
+            "title": "Duration Ms",
+            "type": "number"
+          },
+          "row_count": {
+            "default": 0,
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "DvSchemaQueryResponseDTO",
+        "type": "object"
+      },
+      "DvSchemaTableRowsDTO": {
+        "additionalProperties": false,
+        "description": "Paginated read-only row preview from a persisted sandbox DuckDB table.",
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "row_count": {
+            "default": 0,
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "schema_name": {
+            "default": "raw_vault",
+            "title": "Schema Name",
+            "type": "string"
+          },
+          "table_name": {
+            "title": "Table Name",
+            "type": "string"
+          },
+          "total_count": {
+            "default": 0,
+            "title": "Total Count",
+            "type": "integer"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "run_id",
+          "table_name"
+        ],
+        "title": "DvSchemaTableRowsDTO",
+        "type": "object"
+      },
+      "DvSchemaWaveDiffDTO": {
+        "additionalProperties": false,
+        "description": "Multi-wave DV schema comparison summary (`?compare=<run_id>`).",
+        "properties": {
+          "added_columns": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Added Columns",
+            "type": "array"
+          },
+          "added_hubs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Added Hubs",
+            "type": "array"
+          },
+          "added_links": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Added Links",
+            "type": "array"
+          },
+          "added_satellites": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Added Satellites",
+            "type": "array"
+          },
+          "compare_run_id": {
+            "title": "Compare Run Id",
+            "type": "string"
+          },
+          "dropped_columns_count": {
+            "default": 0,
+            "title": "Dropped Columns Count",
+            "type": "integer"
+          },
+          "hash_diff_mutations_count": {
+            "default": 0,
+            "title": "Hash Diff Mutations Count",
+            "type": "integer"
+          },
+          "soft_deprecated_columns": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Soft Deprecated Columns",
+            "type": "array"
+          }
+        },
+        "required": [
+          "compare_run_id"
+        ],
+        "title": "DvSchemaWaveDiffDTO",
+        "type": "object"
+      },
       "DvSvgEdgeSpec": {
         "additionalProperties": false,
         "description": "SVG edge for Data Vault 2.0 model visualizer.",
@@ -4026,6 +4658,18 @@
             "description": "Starting character offset",
             "title": "Char Start"
           },
+          "chunk_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Evidence chunk identifier",
+            "title": "Chunk Id"
+          },
           "column_name": {
             "anyOf": [
               {
@@ -4063,6 +4707,30 @@
             "title": "Evidence Type",
             "type": "string"
           },
+          "fibo_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Referenced FIBO concept or property URI",
+            "title": "Fibo Uri"
+          },
+          "page_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "1-based source page number",
+            "title": "Page Number"
+          },
           "reference_uri": {
             "anyOf": [
               {
@@ -4086,6 +4754,30 @@
             ],
             "description": "Text snippet, excerpt, or sample value grounding the proposal",
             "title": "Snippet"
+          },
+          "source_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable source filename or label",
+            "title": "Source Label"
+          },
+          "table_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Extracted table identifier",
+            "title": "Table Id"
           }
         },
         "required": [
@@ -4272,7 +4964,6 @@
                 "type": "integer"
               }
             ],
-            "description": "Feedback rating ('up', 'down', or numeric score)",
             "title": "Rating"
           }
         },
@@ -4318,6 +5009,45 @@
           "timestamp"
         ],
         "title": "FeedbackSubmissionResponse",
+        "type": "object"
+      },
+      "FiboQAApiRequest": {
+        "properties": {
+          "concept_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Uri"
+          },
+          "question": {
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "source_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Ids"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "FiboQAApiRequest",
         "type": "object"
       },
       "GateScorecardSummary": {
@@ -4717,6 +5447,68 @@
           }
         },
         "title": "HarnessSandboxPolicyDTO",
+        "type": "object"
+      },
+      "ImportOntologyRequest": {
+        "properties": {
+          "content": {
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "domain_namespace": {
+            "default": "default",
+            "title": "Domain Namespace",
+            "type": "string"
+          },
+          "enterprise_owner": {
+            "default": "Enterprise",
+            "title": "Enterprise Owner",
+            "type": "string"
+          },
+          "expected_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Sha256"
+          },
+          "format": {
+            "default": "yaml",
+            "title": "Format",
+            "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "ImportOntologyRequest",
         "type": "object"
       },
       "InferredExecutionPlanDTO": {
@@ -7024,6 +7816,18 @@
             "description": "Fallback ontology mapping if blueprint is omitted",
             "title": "Ontology Source"
           },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional Ontology Studio session ID linked to this pipeline run",
+            "title": "Session Id"
+          },
           "sources": {
             "description": "Universal multi-connector source feeds",
             "items": {
@@ -7377,6 +8181,18 @@
             ],
             "description": "Optional predetermined run identifier",
             "title": "Run Id"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional Ontology Studio session ID linked to this pipeline run",
+            "title": "Session Id"
           },
           "sources": {
             "anyOf": [
@@ -9046,12 +9862,10 @@
         "properties": {
           "mode": {
             "default": "auto",
-            "description": "Execution mode: auto, agent, deterministic",
             "title": "Mode",
             "type": "string"
           },
           "steering_prompt": {
-            "description": "Natural-language steering guidance",
             "maxLength": 5000,
             "minLength": 1,
             "title": "Steering Prompt",
@@ -9637,6 +10451,20 @@
           "new_confidence"
         ],
         "title": "RescoreExternalMappingOp",
+        "type": "object"
+      },
+      "ResolveCitationsRequest": {
+        "properties": {
+          "citations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Citations",
+            "type": "array"
+          }
+        },
+        "title": "ResolveCitationsRequest",
         "type": "object"
       },
       "ReviseDescriptionOp": {
@@ -10461,6 +11289,86 @@
         "title": "SetParentConceptOp",
         "type": "object"
       },
+      "SingleRunExecutionResultDTO": {
+        "additionalProperties": true,
+        "description": "Result of a single-run pipeline execution.",
+        "properties": {
+          "blueprint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VaultBlueprintDTO"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blueprint"
+          },
+          "evolution_diff": {
+            "additionalProperties": true,
+            "title": "Evolution Diff",
+            "type": "object"
+          },
+          "four_zone_sql": {
+            "additionalProperties": true,
+            "title": "Four Zone Sql",
+            "type": "object"
+          },
+          "inference_plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InferredExecutionPlanDTO"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inference Plan"
+          },
+          "observability_events": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Observability Events",
+            "type": "array"
+          },
+          "overall_passed": {
+            "default": false,
+            "title": "Overall Passed",
+            "type": "boolean"
+          },
+          "report": {
+            "additionalProperties": true,
+            "title": "Report",
+            "type": "object"
+          },
+          "run_id": {
+            "description": "Unique run identifier",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "Run status: COMPLETED, PAUSED_HOLD, FAILED",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "status"
+        ],
+        "title": "SingleRunExecutionResultDTO",
+        "type": "object"
+      },
       "SourceDocumentDTO": {
         "properties": {
           "byte_count": {
@@ -10760,6 +11668,17 @@
           "mime_type": {
             "title": "Mime Type",
             "type": "string"
+          },
+          "ocr_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ocr Mode"
           },
           "size_bytes": {
             "title": "Size Bytes",
@@ -11355,6 +12274,11 @@
           "updated_at": {
             "title": "Updated At",
             "type": "string"
+          },
+          "wizard_schema_version": {
+            "default": 2,
+            "title": "Wizard Schema Version",
+            "type": "integer"
           }
         },
         "required": [
@@ -11421,6 +12345,11 @@
           },
           "versions_count": {
             "title": "Versions Count",
+            "type": "integer"
+          },
+          "wizard_schema_version": {
+            "default": 2,
+            "title": "Wizard Schema Version",
             "type": "integer"
           }
         },
@@ -11507,6 +12436,11 @@
           "updated_at": {
             "title": "Updated At",
             "type": "string"
+          },
+          "wizard_schema_version": {
+            "default": 2,
+            "title": "Wizard Schema Version",
+            "type": "integer"
           }
         },
         "required": [
@@ -11639,18 +12573,15 @@
                 "type": "null"
               }
             ],
-            "description": "Optional description",
             "title": "Description"
           },
           "do_not_send_to_agent": {
             "default": false,
-            "description": "Confidentiality taint flag",
             "title": "Do Not Send To Agent",
             "type": "boolean"
           },
           "format": {
             "default": "text",
-            "description": "Text format encoding: 'text' or 'markdown'",
             "title": "Format",
             "type": "string"
           },
@@ -11664,11 +12595,9 @@
                 "type": "null"
               }
             ],
-            "description": "Descriptive document filename or label",
             "title": "Source Name"
           },
           "text": {
-            "description": "Raw text or markdown document content",
             "maxLength": 10000000,
             "minLength": 1,
             "title": "Text",
@@ -12403,6 +13332,27 @@
         },
         "title": "WaiverSubmissionRequest",
         "type": "object"
+      },
+      "WizardSessionListResponse": {
+        "properties": {
+          "legacy_session_count": {
+            "default": 0,
+            "title": "Legacy Session Count",
+            "type": "integer"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/StudioSessionSummaryDTO"
+            },
+            "title": "Sessions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sessions"
+        ],
+        "title": "WizardSessionListResponse",
+        "type": "object"
       }
     }
   },
@@ -12501,7 +13451,7 @@
     },
     "/api/v1/cas/blobs": {
       "post": {
-        "description": "Store an immutable binary blob into the Content-Addressable Store.\n\nValidates optional X-CAS-SHA256 header, enforces max upload size, computes\nSHA-256 digest, and persists into the CAS store.",
+        "description": "Store an immutable binary blob into the Content-Addressable Store.\n\nStreams request payload in 64 KiB chunks to a temporary file, enforces\nMAX_CAS_UPLOAD_BYTES mid-stream, verifies optional X-CAS-SHA256, and persists via put_file().",
         "operationId": "upload_cas_blob_api_v1_cas_blobs_post",
         "parameters": [
           {
@@ -12856,9 +13806,67 @@
         ]
       }
     },
+    "/api/v1/ontology/studio/fibo/lookup": {
+      "get": {
+        "description": "Search bundled FIBO core ontology classes, definitions, and parent hierarchy.",
+        "operationId": "fibo_lookup_endpoint_api_v1_ontology_studio_fibo_lookup_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Fibo Lookup Endpoint Api V1 Ontology Studio Fibo Lookup Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fibo Lookup Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
     "/api/v1/ontology/studio/init": {
       "post": {
-        "description": "Initialize local workbench loopback token (.local_token) for human:local_admin.",
+        "description": "Compatibility bootstrap shim returning loopback open-access identity.",
         "operationId": "init_studio_api_v1_ontology_studio_init_post",
         "parameters": [
           {
@@ -13055,7 +14063,7 @@
     },
     "/api/v1/ontology/studio/jobs/{job_id}/events": {
       "get": {
-        "description": "Stream W3C Server-Sent Events with monotonic Last-Event-ID replay and 15s keepalive.",
+        "description": "Stream W3C Server-Sent Events with monotonic Last-Event-ID replay and keepalive.",
         "operationId": "get_job_events_stream_api_v1_ontology_studio_jobs__job_id__events_get",
         "parameters": [
           {
@@ -13128,7 +14136,7 @@
     },
     "/api/v1/ontology/studio/sessions": {
       "get": {
-        "description": "List studio sessions with pagination and status filtering.",
+        "description": "List studio sessions with pagination, status, and optional D25 wizard filtering.",
         "operationId": "list_sessions_api_v1_ontology_studio_sessions_get",
         "parameters": [
           {
@@ -13169,6 +14177,16 @@
               ],
               "title": "Status"
             }
+          },
+          {
+            "in": "query",
+            "name": "wizard_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Wizard Only",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -13176,11 +14194,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/StudioSessionSummaryDTO"
-                  },
-                  "title": "Response List Sessions Api V1 Ontology Studio Sessions Get",
-                  "type": "array"
+                  "anyOf": [
+                    {
+                      "items": {
+                        "$ref": "#/components/schemas/StudioSessionSummaryDTO"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "$ref": "#/components/schemas/WizardSessionListResponse"
+                    }
+                  ],
+                  "title": "Response List Sessions Api V1 Ontology Studio Sessions Get"
                 }
               }
             },
@@ -13245,7 +14270,7 @@
     },
     "/api/v1/ontology/studio/sessions/bundle/import": {
       "post": {
-        "description": "Streaming import of .odvstudio.zip archive (editor allowed; admin required for ack).",
+        "description": "Streaming import of .odvstudio.zip archive.",
         "operationId": "import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post",
         "parameters": [
           {
@@ -13334,6 +14359,48 @@
           }
         },
         "summary": "Import Bundle Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/import-ontology": {
+      "post": {
+        "description": "Create a new Studio session from YAML, JSON, or Turtle ontology content.",
+        "operationId": "import_ontology_session_api_v1_ontology_studio_sessions_import_ontology_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportOntologyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioSessionDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Ontology Session",
         "tags": [
           "ontology-studio"
         ]
@@ -13636,6 +14703,61 @@
         ]
       }
     },
+    "/api/v1/ontology/studio/sessions/{session_id}/citations/resolve": {
+      "post": {
+        "description": "Resolve document spans, table profiles, and FIBO definitions for EvidenceRef citations.",
+        "operationId": "resolve_citations_endpoint_api_v1_ontology_studio_sessions__session_id__citations_resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveCitationsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Resolve Citations Endpoint Api V1 Ontology Studio Sessions  Session Id  Citations Resolve Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Citations Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
     "/api/v1/ontology/studio/sessions/{session_id}/clarifications": {
       "get": {
         "description": "Read generated ambiguity questions from session clarifications/questions.json.",
@@ -13685,7 +14807,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/clarify": {
       "post": {
-        "description": "Dispatch background clarification question generation (human editor/admin required).",
+        "description": "Dispatch background clarification question generation.",
         "operationId": "trigger_clarification_api_v1_ontology_studio_sessions__session_id__clarify_post",
         "parameters": [
           {
@@ -13869,6 +14991,96 @@
           }
         },
         "summary": "Apply Delta Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/evidence/chunks": {
+      "get": {
+        "description": "Return parsed document chunks, char spans, confidence, and table_data.",
+        "operationId": "get_evidence_chunks_api_v1_ontology_studio_sessions__session_id__evidence_chunks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Evidence Chunks Api V1 Ontology Studio Sessions  Session Id  Evidence Chunks Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Evidence Chunks",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/evidence/tables": {
+      "get": {
+        "description": "Return profiled source tables, <= 50 sample rows, PK/FK hints, and FIBO gaps.",
+        "operationId": "get_evidence_tables_api_v1_ontology_studio_sessions__session_id__evidence_tables_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Evidence Tables Api V1 Ontology Studio Sessions  Session Id  Evidence Tables Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Evidence Tables",
         "tags": [
           "ontology-studio"
         ]
@@ -14127,6 +15339,61 @@
         ]
       }
     },
+    "/api/v1/ontology/studio/sessions/{session_id}/fibo-qa": {
+      "post": {
+        "description": "Answer grounded FIBO + session evidence question using live agent harness.",
+        "operationId": "ask_fibo_qa_endpoint_api_v1_ontology_studio_sessions__session_id__fibo_qa_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FiboQAApiRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Ask Fibo Qa Endpoint Api V1 Ontology Studio Sessions  Session Id  Fibo Qa Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ask Fibo Qa Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
     "/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id}": {
       "get": {
         "description": "Get background job status, stage, pct_complete, and error/result.",
@@ -14265,7 +15532,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id}/events": {
       "get": {
-        "description": "Stream W3C Server-Sent Events with monotonic Last-Event-ID replay and 15s keepalive.",
+        "description": "Stream W3C Server-Sent Events with monotonic Last-Event-ID replay and keepalive.",
         "operationId": "get_job_events_stream_api_v1_ontology_studio_sessions__session_id__jobs__job_id__events_get",
         "parameters": [
           {
@@ -14331,6 +15598,390 @@
           }
         },
         "summary": "Get Job Events Stream",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/logs": {
+      "get": {
+        "description": "Query merged Studio journals and linked run ledgers with stage/step/persona filters.",
+        "operationId": "get_session_logs_endpoint_api_v1_ontology_studio_sessions__session_id__logs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "stage_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stage Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "stage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stage"
+            }
+          },
+          {
+            "in": "query",
+            "name": "wizard_step",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Wizard Step"
+            }
+          },
+          {
+            "in": "query",
+            "name": "step",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Step"
+            }
+          },
+          {
+            "in": "query",
+            "name": "persona",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Persona"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 5000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Session Logs Endpoint Api V1 Ontology Studio Sessions  Session Id  Logs Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session Logs Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/logs/export": {
+      "get": {
+        "description": "Export full session agent & execution log trail as JSONL.",
+        "operationId": "export_session_logs_endpoint_api_v1_ontology_studio_sessions__session_id__logs_export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Session Logs Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/logs/stream": {
+      "get": {
+        "description": "Stream session agent & execution logs over W3C SSE with Last-Event-ID replay.",
+        "operationId": "stream_session_logs_endpoint_api_v1_ontology_studio_sessions__session_id__logs_stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "once",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Once",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "stage_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stage Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "stage",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stage"
+            }
+          },
+          {
+            "in": "query",
+            "name": "wizard_step",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Wizard Step"
+            }
+          },
+          {
+            "in": "query",
+            "name": "persona",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Persona"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Session Logs Endpoint",
         "tags": [
           "ontology-studio"
         ]
@@ -14564,7 +16215,7 @@
         ]
       },
       "post": {
-        "description": "Submit candidate proposal without committing (automated restricted to additive ops).",
+        "description": "Submit candidate proposal without committing.",
         "operationId": "create_proposal_api_v1_ontology_studio_sessions__session_id__proposals_post",
         "parameters": [
           {
@@ -14747,7 +16398,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/rebase": {
       "post": {
-        "description": "Rebase proposal onto new session head via 24-op conflict matrix (P10::MAJ-04, MAJOR-06).",
+        "description": "Rebase proposal onto new session head via 24-op conflict matrix.",
         "operationId": "rebase_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__rebase_post",
         "parameters": [
           {
@@ -14887,7 +16538,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/reject": {
       "post": {
-        "description": "Mark proposal REJECTED while preserving in CAS for audit trace (human editor/admin).",
+        "description": "Mark proposal REJECTED while preserving in CAS for audit trace.",
         "operationId": "reject_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__reject_post",
         "parameters": [
           {
@@ -15094,6 +16745,61 @@
           }
         },
         "summary": "Upload Source",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/sources/connectors": {
+      "post": {
+        "description": "Attach and profile a tabular connector source (SQLite/DuckDB/CSV/TSV/Parquet/XLSX/JSONL).",
+        "operationId": "attach_connector_source_endpoint_api_v1_ontology_studio_sessions__session_id__sources_connectors_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Attach Connector Source Endpoint Api V1 Ontology Studio Sessions  Session Id  Sources Connectors Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Attach Connector Source Endpoint",
         "tags": [
           "ontology-studio"
         ]
@@ -15569,7 +17275,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/waiver": {
       "post": {
-        "description": "Authorize K_waiver-signed steward waiver and append signed audit record (CRITICAL-05).",
+        "description": "Authorize K_waiver-signed steward waiver and append signed audit record.",
         "operationId": "submit_waiver_api_v1_ontology_studio_sessions__session_id__waiver_post",
         "parameters": [
           {
@@ -15783,7 +17489,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PipelineRunHandle"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PipelineRunHandle"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SingleRunExecutionResultDTO"
+                    }
+                  ],
+                  "title": "Response Run Pipeline Api V1 Pipelines Runs Post"
                 }
               }
             },
@@ -16756,6 +18470,195 @@
         "summary": "Submit Captain Hold Decision",
         "tags": [
           "decisions"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/dv-schema": {
+      "get": {
+        "description": "Return DV 2.0 Hubs, Links, Satellites, triage ledger, and optional wave diff.",
+        "operationId": "get_dv_schema_endpoint_api_v1_runs__run_id__dv_schema_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional baseline run_id to compute multi-wave schema diff.",
+            "in": "query",
+            "name": "compare",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional baseline run_id to compute multi-wave schema diff.",
+              "title": "Compare"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DvSchemaProjectionDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Data Vault 2.0 Schema Explorer projection for a run",
+        "tags": [
+          "dv-schema"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/dv-schema/query": {
+      "post": {
+        "description": "Validate SQL against the strict allowlist and execute read-only in DuckDB.",
+        "operationId": "query_dv_schema_endpoint_api_v1_runs__run_id__dv_schema_query_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DvSchemaQueryRequestDTO"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DvSchemaQueryResponseDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Execute read-only SQL against a persisted DuckDB sandbox",
+        "tags": [
+          "dv-schema"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/dv-schema/tables/{table}/rows": {
+      "get": {
+        "description": "Return paginated read-only rows from a persisted run sandbox `.duckdb` table.",
+        "operationId": "get_dv_schema_table_rows_endpoint_api_v1_runs__run_id__dv_schema_tables__table__rows_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "table",
+            "required": true,
+            "schema": {
+              "title": "Table",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DvSchemaTableRowsDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview rows from a persisted DuckDB sandbox table",
+        "tags": [
+          "dv-schema"
         ]
       }
     },

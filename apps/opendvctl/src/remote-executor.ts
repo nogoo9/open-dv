@@ -27,6 +27,7 @@ import { handleConfig, handleSource } from "./remote/source";
 import { handleStudioDeltas } from "./remote/studio-deltas";
 import { handleStudioProposalsAndBundles } from "./remote/studio-proposals";
 import { handleStudioSessions } from "./remote/studio-sessions";
+import { handleStudioWizard, withWizardExitCode } from "./remote/studio-wizard";
 import type { RemoteExecutorConfig } from "./remote/types";
 import {
 	type CliCommand,
@@ -130,7 +131,15 @@ export class RemoteExecutor extends RemoteHttpClient {
 				payload = await handlePipeline(this, subcommand, enrichedOptions);
 				break;
 			case "run":
-				payload = await handleRun(this, subcommand, enrichedOptions);
+				if (subcommand === "dv-schema") {
+					try {
+						payload = await handleRun(this, subcommand, enrichedOptions);
+					} catch (err) {
+						withWizardExitCode(err);
+					}
+				} else {
+					payload = await handleRun(this, subcommand, enrichedOptions);
+				}
 				break;
 			case "hold":
 				payload = await handleHold(this, subcommand, enrichedOptions);
@@ -146,20 +155,45 @@ export class RemoteExecutor extends RemoteHttpClient {
 				const sub = subcommand.toLowerCase();
 				if (sub.startsWith("studio")) {
 					const studioSub = sub.replace(/^studio\s*/, "").trim();
-					const sessRes = await handleStudioSessions(this, studioSub, enrichedOptions);
-					if (sessRes.handled) {
-						payload = sessRes.payload;
-					} else {
-						const deltaRes = await handleStudioDeltas(this, studioSub, enrichedOptions);
-						if (deltaRes.handled) {
-							payload = deltaRes.payload;
-						} else {
-							const propRes = await handleStudioProposalsAndBundles(
+					if (
+						studioSub === "attach-source" ||
+						studioSub === "fibo-qa" ||
+						studioSub === "logs"
+					) {
+						try {
+							const wizRes = await handleStudioWizard(
 								this,
 								studioSub,
 								enrichedOptions,
 							);
-							payload = propRes.payload;
+							payload = wizRes.payload;
+						} catch (err) {
+							withWizardExitCode(err);
+						}
+					} else {
+						const sessRes = await handleStudioSessions(
+							this,
+							studioSub,
+							enrichedOptions,
+						);
+						if (sessRes.handled) {
+							payload = sessRes.payload;
+						} else {
+							const deltaRes = await handleStudioDeltas(
+								this,
+								studioSub,
+								enrichedOptions,
+							);
+							if (deltaRes.handled) {
+								payload = deltaRes.payload;
+							} else {
+								const propRes = await handleStudioProposalsAndBundles(
+									this,
+									studioSub,
+									enrichedOptions,
+								);
+								payload = propRes.payload;
+							}
 						}
 					}
 				} else {

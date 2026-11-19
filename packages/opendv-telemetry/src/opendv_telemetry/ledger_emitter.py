@@ -90,6 +90,55 @@ class VaultLedgerEmitter:
         self.cas_store = cas_store or ContentAddressableStore(self.ledger_path.parent / "artifacts")
         self._lock = threading.Lock()
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
+        self._subscriber_loops: dict[
+            asyncio.Queue[dict[str, Any]], asyncio.AbstractEventLoop | None
+        ] = {}
+
+    def subscribe_queue(
+        self,
+        queue: asyncio.Queue[dict[str, Any]],
+        loop: asyncio.AbstractEventLoop | None = None,
+    ) -> None:
+        """Register an async subscriber queue bound to `loop` for thread-safe delivery."""
+        eff_loop = loop
+        if eff_loop is None:
+            with contextlib.suppress(RuntimeError):
+                eff_loop = asyncio.get_running_loop()
+        with self._lock:
+            self._subscribers.add(queue)
+            self._subscriber_loops[queue] = eff_loop
+
+    def unsubscribe_queue(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
+        """Unregister an async subscriber queue."""
+        with self._lock:
+            self._subscribers.discard(queue)
+            self._subscriber_loops.pop(queue, None)
+
+    def _deliver_to_subscribers(self, payload: dict[str, Any]) -> None:
+        """Deliver `payload` to live subscriber queues via loop.call_soon_threadsafe."""
+        with self._lock:
+            subs = [(q, self._subscriber_loops.get(q)) for q in self._subscribers]
+        if not subs:
+            return
+        try:
+            caller_loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            caller_loop = None
+
+        def _put(target_q: asyncio.Queue[dict[str, Any]], item: dict[str, Any]) -> None:
+            with contextlib.suppress(asyncio.QueueFull):
+                target_q.put_nowait(item)
+
+        for q, target_loop in subs:
+            item = copy.deepcopy(payload)
+            if target_loop is not None and not target_loop.is_closed():
+                if target_loop is caller_loop:
+                    _put(q, item)
+                else:
+                    with contextlib.suppress(RuntimeError):
+                        target_loop.call_soon_threadsafe(_put, q, item)
+            else:
+                _put(q, item)
 
     def _prepare_event_dict(
         self, event: dict[str, Any] | VaultObservabilityEvent
@@ -137,10 +186,8 @@ class VaultLedgerEmitter:
                 f.write(line)
                 f.flush()
 
-        # Broadcast copy to live subscribers
-        for q in list(self._subscribers):
-            with contextlib.suppress(asyncio.QueueFull):
-                q.put_nowait(copy.deepcopy(validated))
+        # Broadcast copy to live subscribers via loop.call_soon_threadsafe
+        self._deliver_to_subscribers(validated)
 
         return validated
 
@@ -158,9 +205,7 @@ class VaultLedgerEmitter:
 
         await asyncio.to_thread(_sync_write)
 
-        for q in list(self._subscribers):
-            with contextlib.suppress(asyncio.QueueFull):
-                q.put_nowait(copy.deepcopy(validated))
+        self._deliver_to_subscribers(validated)
 
         return validated
 
@@ -220,7 +265,7 @@ class VaultLedgerEmitter:
     ) -> AsyncIterator[str]:
         """Subscribe to Server-Sent Events (SSE) with cursor replay and monotonic ordering."""
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=1024)
-        self._subscribers.add(queue)
+        self.subscribe_queue(queue)
 
         try:
             all_events = self.read_all_events()
@@ -262,7 +307,7 @@ class VaultLedgerEmitter:
                     yield 'event: run_complete\ndata: {"status":"COMPLETED"}\n\n'
                     break
         finally:
-            self._subscribers.discard(queue)
+            self.unsubscribe_queue(queue)
 
     def count_events(self) -> int:
         """Count total events in the ledger."""

@@ -28,12 +28,19 @@ export interface ResolvedError {
 export class CliDomainError extends Error {
 	readonly errorCode: string;
 	readonly httpStatus?: number | undefined;
+	readonly exitCodeOverride?: number | undefined;
 
-	constructor(errorCode: string, message: string, httpStatus?: number) {
+	constructor(
+		errorCode: string,
+		message: string,
+		httpStatus?: number,
+		exitCodeOverride?: number,
+	) {
 		super(message);
 		this.name = "CliDomainError";
 		this.errorCode = errorCode;
 		this.httpStatus = httpStatus;
+		this.exitCodeOverride = exitCodeOverride;
 	}
 }
 
@@ -309,6 +316,9 @@ export class ErrorHandler {
 			writer(jsonOutput);
 		} else {
 			writer(`Error: ${resolved.detail}`);
+		}
+		if (error instanceof CliDomainError && error.exitCodeOverride !== undefined) {
+			return error.exitCodeOverride;
 		}
 		return resolved.exitCode;
 	}

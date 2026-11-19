@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any, Literal
 
 from pydantic import Field, field_validator
 
 from opendv_contracts.dtos.common import BaseContractModel
-from opendv_core.config import get_core_modeling_config
+from opendv_core.config import get_core_modeling_config, validate_credentials_ref
 
-_CREDENTIAL_REF_REGEX = re.compile(r"^(env|secret):[A-Za-z0-9_]+$")
 _DISALLOWED_OPTION_KEYS = {
     "password",
     "secret",
@@ -148,12 +146,15 @@ class SourceSpec(BaseContractModel):
     @field_validator("credentials_ref")
     @classmethod
     def _validate_credentials_ref(cls, v: str | None) -> str | None:
-        if v is not None and not _CREDENTIAL_REF_REGEX.match(v.strip()):
+        if v is None:
+            return None
+        try:
+            return validate_credentials_ref(v)
+        except ValueError as exc:
             raise ValueError(
                 f"credentials_ref must use 'env:NAME' or 'secret:NAME' format, got '{v}'. "
                 "Literal passwords/secrets are strictly forbidden (REQ-CFG-01)."
-            )
-        return v.strip() if v else None
+            ) from exc
 
     @field_validator("options")
     @classmethod

@@ -22,6 +22,7 @@ from opendv_contracts.dtos.sources import (
     SourceInspectResponseDTO,
     TableSelectionDTO,
 )
+from opendv_core import config as _core_config
 from opendv_core.paths import PathContainmentError
 from opendv_sources.adapters.databricks_uc import DatabricksUnityCatalogAdapter
 from opendv_sources.adapters.duckdb_attach import DuckdbAttachSourceAdapter
@@ -30,7 +31,10 @@ from opendv_sources.exceptions import SourceError, SourceNotFoundError
 from opendv_sources.models.specs import NamespaceRef, SourceSpec, TableRef
 from opendv_sources.registry.scheme_registry import SourceSchemeRegistry, get_scheme_registry
 
-_CREDENTIALS_REF_RE = re.compile(r"^(env|secret):[A-Za-z0-9_-]+$")
+CREDENTIALS_REF_RE: re.Pattern[str] = getattr(
+    _core_config, "CREDENTIALS_REF_RE", re.compile(r"^(env|secret):[A-Za-z0-9_-]+$")
+)
+_CREDENTIALS_REF_RE = CREDENTIALS_REF_RE
 _HEX64_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 _FORBIDDEN_SECRET_KEYS = frozenset(
     {"password", "secret", "token", "api_key", "access_token", "auth", "access_key", "private_key"}

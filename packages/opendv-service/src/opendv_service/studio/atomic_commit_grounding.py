@@ -25,6 +25,7 @@ from opendv_service.ontology.applier import compute_next_semver
 from opendv_service.ontology.validator import (
     InvalidGroundingWaiverError,
     UngroundedConceptError,
+    is_path_b_empirically_grounded,
 )
 from opendv_service.studio.atomic_commit_errors import (
     _SEMVER_REGEX,
@@ -297,10 +298,10 @@ def verify_ont_evo_002_post_state_grounding(
                     path_a_ok = True
                     break
 
-        if path_a_ok:
+        if path_a_ok or is_path_b_empirically_grounded(concept_uri, concept, delta):
             continue
 
-        # Path B: Administrative steward waiver (admin-only per master-plan.md)
+        # Path B (Admin Waiver): Administrative steward waiver (admin-only per master-plan.md)
         path_b_ok = False
         for w in waiver_list:
             if concept_uri in w.target_concept_uris:

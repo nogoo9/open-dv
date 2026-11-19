@@ -141,6 +141,8 @@ class IRSourceMapping(StrictIRModel):
 
     staging_table: str
     rec_src_value: str
+    soft_deprecated_columns: list[str] | None = None
+    column_aliases: dict[str, str] | None = None
 
 
 class IRLink(StrictIRModel):

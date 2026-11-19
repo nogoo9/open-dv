@@ -542,6 +542,7 @@ async def execute_stage_00_orchestration(
         runner.on_stream_event,
         runner.run_id,
         context=s00_ctx,
+        stage_output_policy=runner.harness_setup.stage_output_policy,
     )
     step_00 = PipelineStepReport(
         stage_index=0,

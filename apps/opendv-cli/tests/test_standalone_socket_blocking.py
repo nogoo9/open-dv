@@ -121,6 +121,13 @@ def test_opendv_pipeline_run_standalone_with_sockets_blocked(
             **{**kwargs, "sdk_module": build_deterministic_agy_sdk_shim()},
         )
 
+    import os
+
+    saved_env = {k: os.environ.get(k) for k in ("OPENDV_STATE_DIR", "OPENDV_STORAGE_ROOT")}
+    isolated_state = tmp_path / "cli_state_offline"
+    isolated_state.mkdir(parents=True, exist_ok=True)
+    os.environ["OPENDV_STATE_DIR"] = str(isolated_state)
+    os.environ["OPENDV_STORAGE_ROOT"] = str(isolated_state)
     set_pipeline_runner_override(shim_runner)
     try:
         wave0_spec = str(
@@ -155,6 +162,11 @@ def test_opendv_pipeline_run_standalone_with_sockets_blocked(
         assert (out_dir / "final_contract.yaml").is_file()
     finally:
         set_pipeline_runner_override(None)
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 def test_dump_cli_tree_canonical_jcs(capsys: pytest.CaptureFixture[str]) -> None:

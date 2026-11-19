@@ -173,6 +173,9 @@ def test_stress_dump_cli_tree_rfc8785_canonical_jcs_equality(
         "starter-pack",
         "text",
         "staged",
+        "attach-source",
+        "fibo-qa",
+        "logs",
     }
     assert set(py_groups.keys()) == expected_groups
     assert py_groups["init"]["availability"] == "standalone_only"

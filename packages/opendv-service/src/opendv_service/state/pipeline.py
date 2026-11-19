@@ -229,6 +229,34 @@ class PipelineStateMixin:
             else:
                 raw_spec["initial_contract"] = init_contract_val
 
+        has_explicit_baseline = bool(
+            raw_spec.get("initial_contract")
+            or raw_spec.get("initial_contract_path")
+            or raw_spec.get("initial_contract_content")
+            or raw_spec.get("blueprint")
+            or raw_spec.get("blueprint_path")
+            or raw_spec.get("blueprint_content")
+        )
+        waves_val = raw_spec.get("waves")
+        explicit_cold_wave = bool(
+            isinstance(waves_val, list)
+            and waves_val
+            and isinstance(waves_val[0], dict)
+            and str(waves_val[0].get("wave_type") or "").upper() == "COLD_START"
+        )
+        proj_id = str(raw_spec.get("project_id") or "").strip()
+        if (
+            not has_explicit_baseline
+            and not explicit_cold_wave
+            and proj_id
+            and hasattr(self, "projects")
+        ):
+            proj = self.projects.get(proj_id)
+            if proj is not None and proj.contract_path:
+                cand_contract = Path(proj.contract_path)
+                if cand_contract.is_file():
+                    raw_spec["initial_contract_path"] = str(cand_contract.resolve())
+
         if getattr(req, "run_id", None):
             raw_spec["run_id"] = req.run_id
 
