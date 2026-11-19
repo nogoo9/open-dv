@@ -156,3 +156,16 @@ All work touching CAS/hashing, file locks, async SSE jobs, CLI/API/Workbench con
 4. **Cross-Surface `extra="forbid"` & OCC Parity:** Keep `cli-spec.json`, `error-codes.json`, `opendv`, `opendvctl`, FastAPI, Web Workbench (`studioFetch` with `credentials: "include"` + `X-OpenDV-Workbench: 1`), and tested doc snippets (`tests/docs/test_doc_code_snippets.py`) strictly aligned. Never auto-fetch current server `head_sha256` to populate `If-Match` over stale client deltas/canvas edits, and sanitize untrusted LLM/PDF identifiers and comments in all exporters.
 5. **Fail-Closed Governance, Sticky Privacy & Portable Audits:** Enforce Path A `FIBO` `skos:exactMatch`/`skos:closeMatch >= 0.6500` (`skos:broadMatch` excluded) over `concept_name + synonyms` with mutation-triggered grandfather/waiver revocation, never derive trusted bootstrap overrides (`allow_bootstrap` / `allow_legacy_ip1_bootstrap`) from caller-controlled payload metadata, use `(?<![A-Za-z0-9])` boundaries in pseudonymizers with sticky `do_not_send_to_agent` taint, and maintain HMAC-signed `audit.jsonl` chains across bundle imports.
 6. **Multi-Agent Wave Hygiene:** Never commit scratch context/critique dumps or one-off scripts into `scripts/` or `reports/`.
+
+---
+
+## 8. Ponytail Engineering Discipline & Attribution (MIT)
+
+All contributors and AI agents must also follow [`.agents/rules/ponytail.md`](.agents/rules/ponytail.md) and apply the vendored Ponytail skills (`.agents/skills/ponytail*/SKILL.md`: `/ponytail`, `/ponytail-review`, `/ponytail-audit`, `/ponytail-debt`, `/ponytail-gain`, `/ponytail-help`):
+- **Before you write:** Read the task and touched code; list callers, tests, fixtures, config, and exports (`scope`), and check what could break.
+- **The 6-Rung Simplicity Ladder:** (1) Does it need to exist? (2) Already in this codebase? (3) Stdlib/platform feature? (4) Installed dependency? (5) One readable line? (6) Minimum complete code that works.
+- **Discipline & Checks:** Deletion beats addition; grep all callers on bug fixes; preserve error handling/validation; leave a focused test/assert for non-trivial logic; mark intentional bounded deferrals as `shortcut: <limit>, <upgrade trigger>`.
+- **Never cut:** Validation at trust boundaries (`OBJ-01`, `FR-DOM-*`, `INV-01..06`, `EVO-01..08`, security/privacy/RBAC, accessibility, user-requested behavior).
+- **Reply Footer:** End implementation replies with 1–2 lines stating what was skipped/not checked and any risk the user must know.
+
+> **Attribution:** Ponytail rules and skills are vendored from [`@dietrichgebert/ponytail`](https://github.com/DietrichGebert/ponytail) v5.3.3 by **Dietrich Gebert**, licensed under the **MIT License**.

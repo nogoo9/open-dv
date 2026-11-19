@@ -15,6 +15,8 @@ worktrees/
 .agents/*
 !.agents/rules/
 !.agents/rules/**
+!.agents/skills/
+!.agents/skills/**
 .env
 .critique/
 reports/*.json
