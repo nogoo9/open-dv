@@ -42,5 +42,5 @@ async def submit_captain_hold_decision(
     run_session_id = getattr(run, "session_id", None) or (
         getattr(service.state, "run_session_ids", None) or {}
     ).get(run_id)
-    with reserve_session_run(service, run_session_id):
+    with reserve_session_run(service, None if req.action == "REJECT" else run_session_id):
         return service.resolve_captain_hold(run_id, req)

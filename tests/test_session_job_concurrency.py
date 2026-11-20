@@ -445,3 +445,43 @@ def test_sync_pipeline_run_reserves_session_against_concurrent_run_and_studio_jo
         first.join(timeout=5.0)
 
     assert sid not in studio_deps.get_job_supervisor()._reserved_run_sessions
+
+
+def test_rejecting_held_run_while_session_has_active_run_is_allowed(tmp_path: Path) -> None:
+    """D27: REJECT never resumes the held run, so it is not blocked by another active session run."""
+    from opendv_agent_harness import StewardHoldManager
+    from opendv_telemetry import VaultLedgerEmitter
+
+    client = _client(tmp_path)
+    sid = "held-sess-03"
+    pstate = client.app.state.platform_state
+    _seed_run(pstate, "run-held-3", sid, RunStatus.PAUSED_HOLD)
+    _seed_run(pstate, "run-live-3", sid, RunStatus.RUNNING)
+    hm = StewardHoldManager(state_dir=tmp_path / "holds" / "run-held-3")
+    hm.record_hold(
+        run_id="run-held-3",
+        task_id="t1",
+        session_id=sid,
+        stage_id="STAGE_02_SCOUT_UNSTRUCTURED",
+        persona="vault-first-mate",
+        decision_id="hold-03",
+        hold_id="hold-03",
+        event_id="evt-03",
+        headline="Ambiguous entity",
+        escalation_reason="TIER_U3",
+        rule_id="ALG-A9B",
+        options=[],
+    )
+    pstate.hold_managers["run-held-3"] = hm
+    pstate.run_decisions["run-held-3"] = []
+    pstate.run_events["run-held-3"] = []
+    pstate.run_ledgers["run-held-3"] = VaultLedgerEmitter(
+        ledger_path=tmp_path / "ledgers" / "run-held-3.jsonl", cas_store=pstate.cas
+    )
+
+    resp = client.post(
+        "/api/v1/runs/run-held-3/decisions", json={"hold_id": "hold-03", "action": "REJECT"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["updated_run_status"] == "FAILED"
+    assert pstate.runs["run-live-3"].status == RunStatus.RUNNING
