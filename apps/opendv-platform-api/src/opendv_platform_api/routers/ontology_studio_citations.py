@@ -66,6 +66,7 @@ def trigger_clarification(
         **_sd.get_job_supervisor().submit_job(
             session_mgr=session_mgr, session_id=session_id, job_type="clarify",
             runner_fn=run_clarify_job, principal=principal.principal, role=principal.role,
+            active_run_check=lambda: _sd.has_active_pipeline_run(pstate, session_id),
             mode=payload.mode, max_questions=payload.max_questions,
             focus_concepts=payload.focus_concepts,
         )
@@ -136,6 +137,7 @@ def trigger_construction(
         **_sd.get_job_supervisor().submit_job(
             session_mgr=session_mgr, session_id=session_id, job_type="construct",
             runner_fn=run_construct_job, principal=principal.principal, role=principal.role,
+            active_run_check=lambda: _sd.has_active_pipeline_run(pstate, session_id),
             base_version=base_ver, base_sha256=base_sha, auto_commit=payload.auto_commit,
             fibo_modules=payload.fibo_modules, mode=clean_mode, if_match=clean_if,
             steering_prompt=payload.steering_prompt, agent_runner=agent_runner,

@@ -165,6 +165,7 @@ def parse_sources(
         **_sd.get_job_supervisor().submit_job(
             session_mgr=session_mgr, session_id=session_id, job_type="parse",
             runner_fn=run_parse_job, principal=principal.principal, role=principal.role,
+            active_run_check=lambda: _sd.has_active_pipeline_run(pstate, session_id),
             source_ids=payload.source_ids, ocr_mode=raw_ocr,
         )
     )

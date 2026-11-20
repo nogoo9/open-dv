@@ -7,7 +7,7 @@ import os
 import re
 import secrets
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Annotated, Any, Final
 
@@ -342,12 +342,12 @@ def ensure_no_active_session_job(
         )
 
 
-def enforce_no_active_session_run(service: Any, session_id: Any | None) -> None:
-    """Enforce D27 single active job/run per session for `/runs` and `/pipelines/runs`."""
-    if not session_id:
-        return
-    sid_str = str(session_id).strip()
+@contextlib.contextmanager
+def reserve_session_run(service: Any, session_id: Any | None) -> Iterator[None]:
+    """Atomically enforce D27 single active job/run per session while the body registers a run."""
+    sid_str = str(session_id or "").strip()
     if not sid_str:
+        yield
         return
     from opendv_service.studio.workspace_security import DEFAULT_STUDIO_DIR
 
@@ -358,14 +358,10 @@ def enforce_no_active_session_run(service: Any, session_id: Any | None) -> None:
         else (service.workspace_root / DEFAULT_STUDIO_DIR).resolve()
     )
     smgr = StudioSessionManager(studio_root=studio_root, workspace_root=service.workspace_root)
-    if (
-        has_active_pipeline_run(service.state, sid_str)
-        or get_job_supervisor().count_active_jobs(smgr, sid_str) > 0
+    with get_job_supervisor().reserve_run_session(
+        smgr, sid_str, lambda: has_active_pipeline_run(service.state, sid_str)
     ):
-        raise OpenDVError(
-            f"Session '{sid_str}' already has an active running job.",
-            error_code=ErrorCode.SESSION_JOB_ACTIVE,
-        )
+        yield
 
 
 def resolve_server_allowed_hosts(service: Any) -> list[str] | None:
@@ -451,7 +447,7 @@ def session_logs_activity_hooks(
             return True
         for r in _linked_runs():
             st = str(getattr(getattr(r, "status", None), "value", getattr(r, "status", ""))).upper()
-            if st in {"QUEUED", "RUNNING", "PAUSED_HOLD"}:
+            if st in {"PENDING", "QUEUED", "RUNNING"}:
                 return True
         return False
 
@@ -484,7 +480,6 @@ __all__ = [
     "_resolve_allowed_workspace_roots",
     "_resolve_deployment_workspace_root",
     "derive_session_status",
-    "enforce_no_active_session_run",
     "ensure_no_active_session_job",
     "get_effective_max_bundle_import_bytes",
     "get_effective_max_source_upload_bytes",
@@ -500,6 +495,7 @@ __all__ = [
     "require_editor_or_automated",
     "require_principal",
     "require_viewer",
+    "reserve_session_run",
     "resolve_platform_ledger_dirs",
     "resolve_proposal_file",
     "resolve_server_allowed_hosts",

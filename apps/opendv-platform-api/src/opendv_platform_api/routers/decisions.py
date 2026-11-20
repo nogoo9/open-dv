@@ -7,7 +7,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from opendv_platform_api.deps import get_opendv_service, get_rbac_role
-from opendv_platform_api.studio_deps import ViewerDep
+from opendv_platform_api.studio_deps import ViewerDep, reserve_session_run
 from opendv_service import CaptainHoldDecisionRequest, CaptainHoldDecisionResponse, OpenDVService
 from opendv_service.rbac import RbacRole
 
@@ -38,4 +38,9 @@ async def submit_captain_hold_decision(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden: Public role cannot resolve Steward Captain-Hold decisions.",
         )
-    return service.resolve_captain_hold(run_id, req)
+    run = service.state.runs.get(run_id)
+    run_session_id = getattr(run, "session_id", None) or (
+        getattr(service.state, "run_session_ids", None) or {}
+    ).get(run_id)
+    with reserve_session_run(service, run_session_id):
+        return service.resolve_captain_hold(run_id, req)

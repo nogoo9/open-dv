@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from opendv_contracts import PipelineRunHandle, RbacRole, RunArtifactDTO
 from opendv_contracts.dtos.pipeline import PipelineInputDTO
 from opendv_platform_api.deps import get_opendv_service, get_rbac_role
-from opendv_platform_api.studio_deps import enforce_no_active_session_run
+from opendv_platform_api.studio_deps import reserve_session_run
 from opendv_service import (
     CreateRunRequest,
     OpenDVService,
@@ -63,8 +63,7 @@ async def start_run(
                 )
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
 
-    enforce_no_active_session_run(service, getattr(req, "session_id", None))
-
+    session_id = getattr(req, "session_id", None)
     is_proj = (
         isinstance(req, PipelineInputDTO)
         and getattr(req, "project_id", None)
@@ -96,20 +95,23 @@ async def start_run(
                 kw_s["harness_provider"] = req.harness_provider
             single_input = PipelineInputDTO(**kw_s)
         if sync:
-            res = await run_in_threadpool(
-                execute_pipeline_run_sync, service.state, single_input, role=role
-            )
+            with reserve_session_run(service, session_id):
+                res = await run_in_threadpool(
+                    execute_pipeline_run_sync, service.state, single_input, role=role
+                )
             response.status_code = status.HTTP_200_OK
             res_dict = res if isinstance(res, dict) else res.model_dump(mode="json")
             if isinstance(res_dict, dict) and "observability_events" in res_dict:
                 evs = res_dict.get("observability_events", [])
                 res_dict["observability_events"] = [redact_event_for_role(ev, role) for ev in evs]
             return res_dict
-        handle = await execute_run_async_use_case(
-            service.state, single_input, role=role, pipeline_runner=service.pipeline_runner
-        )
+        with reserve_session_run(service, session_id):
+            handle = await execute_run_async_use_case(
+                service.state, single_input, role=role, pipeline_runner=service.pipeline_runner
+            )
     else:
-        handle = await service.create_run_async(req, role=role)
+        with reserve_session_run(service, session_id):
+            handle = await service.create_run_async(req, role=role)
     response.headers["Location"] = handle.status_url
     return handle
 
