@@ -447,8 +447,21 @@ def test_sync_pipeline_run_reserves_session_against_concurrent_run_and_studio_jo
     assert sid not in studio_deps.get_job_supervisor()._reserved_run_sessions
 
 
-def test_rejecting_held_run_while_session_has_active_run_is_allowed(tmp_path: Path) -> None:
-    """D27: REJECT never resumes the held run, so it is not blocked by another active session run."""
+_REJECT_OPTION = {"kind": "reject_ontology_delta", "reason": "stale delta"}
+
+
+@pytest.mark.parametrize(
+    "decision",
+    [
+        {"action": "REJECT"},
+        {"action": "APPROVE", "hold_option": _REJECT_OPTION},
+        {"action": "ANSWER", "hold_option": _REJECT_OPTION},
+    ],
+)
+def test_rejecting_held_run_while_session_has_active_run_is_allowed(
+    tmp_path: Path, decision: dict[str, Any]
+) -> None:
+    """D27: rejections never resume the held run, so another active session run does not block them."""
     from opendv_agent_harness import StewardHoldManager
     from opendv_telemetry import VaultLedgerEmitter
 
@@ -480,7 +493,7 @@ def test_rejecting_held_run_while_session_has_active_run_is_allowed(tmp_path: Pa
     )
 
     resp = client.post(
-        "/api/v1/runs/run-held-3/decisions", json={"hold_id": "hold-03", "action": "REJECT"}
+        "/api/v1/runs/run-held-3/decisions", json={"hold_id": "hold-03", **decision}
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["updated_run_status"] == "FAILED"
