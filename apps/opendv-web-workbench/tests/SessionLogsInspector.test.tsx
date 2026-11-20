@@ -24,6 +24,7 @@ import { createExplorerStore } from "../src/explorer/explorer-store";
 import {
 	SessionLogsInspector,
 	connectSessionLogsStream,
+	mergeEntriesBySeq,
 	resolvePillToCanonicalStages,
 } from "../src/ontology/wizard/SessionLogsInspector";
 import {
@@ -426,6 +427,47 @@ describe("M4: Session Agent & Execution Logs Inspector (FR-LOG-01..07)", () => {
 				expect(findTestIdValue(treeReopen03, "logs-filter-stage")).toBe("03");
 			} finally {
 				internals.H = prevH;
+			}
+		});
+	});
+
+	describe("6. O(1) Fast-Path SSE Entry Merge (mergeEntriesBySeq)", () => {
+		it("appends monotonic seq entries in O(1) without calling sort, while sorting out-of-order replay and replacing duplicates", () => {
+			const e1 = { ...SAMPLE_ENTRIES[0], seq: 1 };
+			const e2 = { ...SAMPLE_ENTRIES[1], seq: 2 };
+			const e3 = { ...SAMPLE_ENTRIES[0], seq: 3, headline: "step-3" };
+			const e2Updated = { ...SAMPLE_ENTRIES[1], seq: 2, headline: "updated-2" };
+			const e0Replay = { ...SAMPLE_ENTRIES[0], seq: 0, headline: "replay-0" };
+
+			const origSort = Array.prototype.sort;
+			let sortCalls = 0;
+			Array.prototype.sort = function (
+				this: unknown[],
+				compareFn?: (a: unknown, b: unknown) => number,
+			) {
+				sortCalls += 1;
+				return origSort.call(this, compareFn as never);
+			};
+
+			try {
+				const s1 = mergeEntriesBySeq([], e1);
+				const s2 = mergeEntriesBySeq(s1, e2);
+				const s3 = mergeEntriesBySeq(s2, e3);
+				expect(s3.map((e) => e.seq)).toEqual([1, 2, 3]);
+				expect(sortCalls).toBe(0);
+
+				// Duplicate seq replaces in place without calling sort
+				const sDup = mergeEntriesBySeq(s3, e2Updated);
+				expect(sDup.map((e) => e.seq)).toEqual([1, 2, 3]);
+				expect(sDup[1]?.headline).toBe("updated-2");
+				expect(sortCalls).toBe(0);
+
+				// Out-of-order replay falls back to sorted insertion
+				const sOut = mergeEntriesBySeq(sDup, e0Replay);
+				expect(sOut.map((e) => e.seq)).toEqual([0, 1, 2, 3]);
+				expect(sortCalls).toBe(1);
+			} finally {
+				Array.prototype.sort = origSort;
 			}
 		});
 	});

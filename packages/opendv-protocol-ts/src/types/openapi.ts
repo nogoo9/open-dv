@@ -6836,6 +6836,11 @@ export interface components {
 			 */
 			sandbox_url: string;
 			/**
+			 * Session Id
+			 * @description Optional Ontology Studio session ID linked to this run
+			 */
+			session_id?: string | null;
+			/**
 			 * Started At Utc
 			 * @description ISO 8601 UTC start timestamp
 			 */

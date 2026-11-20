@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import logging
 import uuid
 from typing import Any
 
@@ -30,11 +31,17 @@ from opendv_agent_harness.pipeline.spec import (
     Stage03ColumnTriageOutput,
     Stage04ContractSynthesisOutput,
 )
+from opendv_agent_harness.pipeline.stage_outputs import (
+    sanitize_column_triage_entry,
+    sanitize_contract_dict,
+)
 from opendv_agent_harness.pipeline.stage_prompt_builder import (
     build_inline_stage_prompt,
     synthesize_stage_output_from_prompt,
 )
 from opendv_core.config import get_core_modeling_config
+
+logger = logging.getLogger(__name__)
 
 
 class _SymbolicStageSynthesizer:
@@ -157,8 +164,15 @@ async def execute_stage_task(
     except ProviderConfigurationError:
         if stage_output_policy != "symbolic_completion":
             raise
-    except (TypeError, ValueError, KeyError, RuntimeError, AttributeError):
-        pass
+    except (TypeError, ValueError, KeyError, RuntimeError, AttributeError) as exc:
+        logger.warning(
+            "execute_stage_task failed for %s (%s): %s",
+            stage_id,
+            persona,
+            exc,
+            exc_info=True,
+        )
+        metrics["stage_task_error"] = f"{type(exc).__name__}: {exc}"
 
     return metrics, structured_out
 
@@ -266,6 +280,8 @@ async def execute_stages_03_and_04(
     elif s03_struct is not None and getattr(s03_struct, "column_triage_ledger", None):
         for entry in s03_struct.column_triage_ledger:
             e_dict = entry.model_dump(mode="json") if hasattr(entry, "model_dump") else entry
+            if isinstance(e_dict, dict):
+                e_dict = sanitize_column_triage_entry(e_dict)
             b_tbl = e_dict.get("bronze_table")
             c_name = e_dict.get("column_name")
             ledger = contract_dict.setdefault("column_triage_ledger", [])
@@ -290,6 +306,11 @@ async def execute_stages_03_and_04(
             details={"wave_index": w_idx, "completed_fields": ["column_triage_ledger"]},
         )
     else:
+        err_suffix = (
+            f" Error: {s03_metrics['stage_task_error']}"
+            if s03_metrics.get("stage_task_error")
+            else ""
+        )
         step_03 = PipelineStepReport(
             stage_index=3,
             stage_id=s03_id,
@@ -302,7 +323,7 @@ async def execute_stages_03_and_04(
             duration_ms=25.0,
             summary=(
                 "Stage 03 Pass 1 Column Triage LLM output is missing or invalid "
-                "under llm_only policy."
+                f"under llm_only policy.{err_suffix}"
             ),
             metrics=s03_metrics,
             wave_index=w_idx,
@@ -396,6 +417,8 @@ async def execute_stages_03_and_04(
                     cand_ledger.append(entry)
                     existing_cols.add(key)
 
+        cand_dict = sanitize_contract_dict(cand_dict) or cand_dict
+
         if curr_contract is not None:
             from opendv_axi_verifier.verifiers.alg_a7_evolution_lock import (
                 verify_additive_evolution_invariants,
@@ -413,6 +436,11 @@ async def execute_stages_03_and_04(
             details={"wave_index": w_idx, "completed_fields": ["contract"]},
         )
     else:
+        err_suffix = (
+            f" Error: {s04_metrics['stage_task_error']}"
+            if s04_metrics.get("stage_task_error")
+            else ""
+        )
         step_04 = PipelineStepReport(
             stage_index=4,
             stage_id=s04_id,
@@ -425,7 +453,7 @@ async def execute_stages_03_and_04(
             duration_ms=10.0,
             summary=(
                 "Stage 04 Contract Synthesis LLM output is missing or invalid "
-                "under llm_only policy."
+                f"under llm_only policy.{err_suffix}"
             ),
             metrics=s04_metrics,
             wave_index=w_idx,

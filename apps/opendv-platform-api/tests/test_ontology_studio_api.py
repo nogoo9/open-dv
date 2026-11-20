@@ -2664,3 +2664,98 @@ def test_create_proposal_synthesizes_missing_op_id(
     ops = created["operations"]
     assert len(ops) == 1
     assert str(ops[0]["op_id"]).startswith("op-")
+
+
+def test_parse_job_mixed_connectors_and_documents_preserves_connector_tables(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path
+) -> None:
+    """POST /sessions/{id}/parse skips structured connectors and preserves connector tables."""
+    import sqlite3
+
+    session_id = "s-mixed-parse-api"
+    create_resp = client.post(
+        "/api/v1/ontology/studio/sessions",
+        json={"session_id": session_id, "domain_namespace": "wealth_mgmt"},
+        headers=auth_headers,
+    )
+    assert create_resp.status_code == 201
+
+    # 1. Build a SQLite file, upload blob to CAS via /sources, and attach via /sources/connectors
+    db_path = tmp_path / "baseline.sqlite"
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("CREATE TABLE issuers (cik TEXT PRIMARY KEY, legal_name TEXT)")
+        conn.execute("INSERT INTO issuers VALUES ('0000320193', 'Apple Inc.')")
+        conn.commit()
+    finally:
+        conn.close()
+
+    sqlite_upload = client.post(
+        f"/api/v1/ontology/studio/sessions/{session_id}/sources",
+        files={"file": ("baseline.sqlite", db_path.read_bytes(), "application/octet-stream")},
+        headers=auth_headers,
+    )
+    assert sqlite_upload.status_code == 201
+    sqlite_sha = sqlite_upload.json()["source_sha256"]
+
+    conn_resp = client.post(
+        f"/api/v1/ontology/studio/sessions/{session_id}/sources/connectors",
+        json={
+            "adapter": "sqlite",
+            "uri": f"cas://{sqlite_sha}",
+            "cas_hash": sqlite_sha,
+            "source_name": "ds01_baseline",
+        },
+        headers=auth_headers,
+    )
+    assert conn_resp.status_code == 201
+    assert conn_resp.json()["table_count"] == 1
+
+    # 2. Upload an unstructured markdown document containing a table + text
+    md_bytes = (
+        b"# Custody Addendum\n\n| Account | Rule |\n| --- | --- |\n| CUST-1 | T+1 |\n"
+    )
+    md_upload = client.post(
+        f"/api/v1/ontology/studio/sessions/{session_id}/sources",
+        files={"file": ("addendum.md", md_bytes, "text/markdown")},
+        headers=auth_headers,
+    )
+    assert md_upload.status_code == 201
+
+    # 3. Trigger POST /parse with source_ids omitted (UI default)
+    parse_resp = client.post(
+        f"/api/v1/ontology/studio/sessions/{session_id}/parse",
+        json={"ocr_mode": "auto"},
+        headers=auth_headers,
+    )
+    assert parse_resp.status_code == 202
+    job_id = parse_resp.json()["job_id"]
+
+    poll_data: dict[str, Any] = {}
+    for _ in range(100):
+        poll = client.get(
+            f"/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id}",
+            headers=auth_headers,
+        )
+        poll_data = poll.json()
+        if poll_data["status"] in ("completed", "failed"):
+            break
+        time.sleep(0.05)
+
+    assert poll_data.get("status") == "completed", f"Parse failed: {poll_data}"
+
+    tables_resp = client.get(
+        f"/api/v1/ontology/studio/sessions/{session_id}/evidence/tables",
+        headers=auth_headers,
+    )
+    assert tables_resp.status_code == 200
+    table_names = {t["table_name"] for t in tables_resp.json()["tables"]}
+    assert "issuers" in table_names
+
+    chunks_resp = client.get(
+        f"/api/v1/ontology/studio/sessions/{session_id}/evidence/chunks",
+        headers=auth_headers,
+    )
+    assert chunks_resp.status_code == 200
+    assert len(chunks_resp.json()["chunks"]) >= 1
+

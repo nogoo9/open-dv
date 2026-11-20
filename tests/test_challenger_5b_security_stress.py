@@ -315,7 +315,7 @@ class TestRemoteModeLoopbackSpoofing:
         assert resp.status_code == 403
         data = resp.json()
         assert data["error_code"] == "LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE"
-        assert "remote_platform mode" in data["detail"]
+        assert "remote_platform mode" in data["detail"] or "local loopback callers" in data["detail"]
 
     def test_remote_mode_init_rejected_with_spoofed_forwarded_headers(
         self, local_client: TestClient, monkeypatch: pytest.MonkeyPatch

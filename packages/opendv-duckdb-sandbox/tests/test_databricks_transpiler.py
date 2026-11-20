@@ -217,3 +217,81 @@ def test_transpile_bundle_to_databricks(pe_canonical_ir: CanonicalIR) -> None:
     assert "USING DELTA;" in db_bundle.zone_0_sql
     assert "MERGE INTO" in db_bundle.zone_2_sql
     assert "SHA2(" in db_bundle.zone_1_sql
+
+
+def test_databricks_zone2_emits_steward_and_sparse_and_sal_predicates_valid_sqlglot(
+    pe_canonical_ir: CanonicalIR,
+) -> None:
+    """Bug D: Databricks Zone 2 MERGE emits steward_gate_status='APPROVED', sparse IS NOT NULL,
+    and SAME_AS anti-self-link predicate, all parsing cleanly under sqlglot databricks dialect.
+    """
+    import sqlglot
+
+    ir_copy = pe_canonical_ir.model_copy(deep=True)
+    base_link = ir_copy.links[0]
+
+    unstructured_link = base_link.model_copy(
+        update={
+            "name": "lnk_doc_claim",
+            "link_type": "UNSTRUCTURED_EXTRACTION_LINK",
+            "requires_steward_approval_gate": True,
+            "steward_filter_predicate": "steward_gate_status = 'APPROVED'",
+            "hk_column": base_link.hk_column.model_copy(update={"name": "hk_lnk_doc_claim"}),
+            "source_mappings": [
+                {
+                    **dict(base_link.source_mappings[0]),
+                    "steward_filter_predicate": "steward_gate_status = 'APPROVED'",
+                }
+            ],
+        }
+    )
+
+    sparse_link = base_link.model_copy(
+        update={
+            "name": "lnk_encounter_partner_sparse",
+            "link_type": "STANDARD",
+            "requires_steward_approval_gate": False,
+            "steward_filter_predicate": None,
+            "hk_column": base_link.hk_column.model_copy(
+                update={"name": "hk_lnk_encounter_partner_sparse"}
+            ),
+            "source_mappings": [
+                {
+                    **dict(base_link.source_mappings[0]),
+                    "where_filter_condition": "partner_clinic_id IS NOT NULL",
+                }
+            ],
+        }
+    )
+
+    sal_refs = [
+        base_link.hub_references[0].model_copy(update={"fk_column_name": "hk_master_patient"}),
+        base_link.hub_references[1].model_copy(update={"fk_column_name": "hk_duplicate_patient"}),
+    ]
+    sal_link = base_link.model_copy(
+        update={
+            "name": "sal_patient",
+            "link_type": "SAME_AS",
+            "requires_steward_approval_gate": False,
+            "steward_filter_predicate": None,
+            "hk_column": base_link.hk_column.model_copy(update={"name": "hk_sal_patient"}),
+            "hub_references": sal_refs,
+            "source_mappings": [
+                {
+                    **dict(base_link.source_mappings[0]),
+                    "where_filter_condition": "master_patient_id <> duplicate_patient_code",
+                }
+            ],
+        }
+    )
+
+    ir_copy.links = [unstructured_link, sparse_link, sal_link]
+    merge_sql = compile_databricks_zone_2_merge(ir_copy)
+
+    assert "steward_gate_status = 'APPROVED'" in merge_sql
+    assert "IS NOT NULL" in merge_sql
+    assert "src.hk_master_patient <> src.hk_duplicate_patient" in merge_sql
+
+    parsed = sqlglot.parse(merge_sql, read="databricks")
+    assert all(stmt is not None for stmt in parsed)
+

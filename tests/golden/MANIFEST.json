@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.0",
-  "generated_at": "2026-11-19T05:12:38.555006+00:00",
+  "generated_at": "2026-11-20T03:46:18.778379+00:00",
   "generator_transport": "STANDALONE_CLI",
   "entries": [
     {
@@ -14,10 +14,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/explorer_bundle.json",
-      "sha256": "96eec3cbf06462dc62a6ecf744709322d7418bac80df42ae9729706a4334e954",
-      "byte_size": 65590,
+      "sha256": "1d6beaa7897cb8fef8062a239566bf43a9c7589ad7472e26ba1a71922dbae124",
+      "byte_size": 426857,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-01",
@@ -46,10 +46,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/pipeline_report.json",
-      "sha256": "5736ea9e3fc6e9ec2f1424cb9213daae92f7257411cfcc8743918ba1540f0815",
-      "byte_size": 252612,
+      "sha256": "d9d7f33276bdb814221b3b1c98c5dfc8163b105d376cbb3e61d85c9a3d6324d9",
+      "byte_size": 252852,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-01",
@@ -62,10 +62,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/explorer_bundle.json",
-      "sha256": "427f41561cb7c2afa371a79b0e8c2ebed094713cfbe7f5be6cfff5e8ef993933",
-      "byte_size": 65590,
+      "sha256": "9a9b32e05f5ac84e85325fabe0760e2046c8c95a401eae44ddd364e78633ba0a",
+      "byte_size": 473853,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-01",
@@ -94,10 +94,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/pipeline_report.json",
-      "sha256": "ff614bcb6e9d4763777f8560b232ccd2fd147c2f6c7eebd06052c48f8e575632",
-      "byte_size": 280290,
+      "sha256": "c6826205589c406211213fecca13300458a05d18b07f451c4cde9fd88c0a56e2",
+      "byte_size": 281961,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-01",
@@ -110,42 +110,42 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/explorer_bundle.json",
-      "sha256": "5cf8311fc9a967e93a72f775c1c373a6027009d48dcbf5c4bb1284c243af7fff",
-      "byte_size": 65581,
+      "sha256": "590b62e6574009686cc456f71e59dd7b1235cb1259136e99869c6124ad730646",
+      "byte_size": 504880,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/final_canonical_ir.json",
-      "sha256": "fba83ae815ef9f5f3f835981ef8a95a7d11c2706afd0f0f6e32211f06085d448",
-      "byte_size": 23407,
+      "sha256": "9f5bbe7b970c1ebac810712e28e00edfc9b7f1a327472982781e09de66084306",
+      "byte_size": 22954,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/final_contract.yaml",
-      "sha256": "93d5c383879f574bb8145b7f4cdbeaedc79487f18d9e8fc1c1096388be33ba96",
-      "byte_size": 9671,
+      "sha256": "8068d6469522f9c9be30397321c144e0fdc1dddcb6c4079f12ee32d43103f8b7",
+      "byte_size": 9582,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/final_four_zone.sql",
-      "sha256": "fba3cfb1b0b31aa9bb7d95689d6a862575b84928398925f6fc03f41e2feea0a3",
-      "byte_size": 60284,
+      "sha256": "fb960daa3a4486f9f531c5f98ccf787a71bb2b4a417fefcbd0a1c4ab996cb92f",
+      "byte_size": 58917,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/pipeline_report.json",
-      "sha256": "30ef262dc6e5c45dbe88da87591769160f7c87700c41ca74bf612b4a1fb2a3a8",
-      "byte_size": 305893,
+      "sha256": "e1f7d09dc65f5e857fdaa0afa7d7422321fa2e8bff7a74d33672d0dc4f113171",
+      "byte_size": 301913,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-01",
@@ -158,34 +158,34 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/explorer_bundle.json",
-      "sha256": "12054d7122c5997938e41b0420349d3e3f8c76eb0fe53aa565ae8e50f652ca71",
-      "byte_size": 65581,
+      "sha256": "7182f733febeb8c094f6d54b29998b0c9b2681499eed4d6cf5b71b58ec335cfc",
+      "byte_size": 613598,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/final_canonical_ir.json",
-      "sha256": "2bba50fde0aa44a84777a501c05f7b7e40a082a7bed8b3376bc251feb666d343",
-      "byte_size": 30599,
+      "sha256": "0ec4a6c18eaa57789cf5d946cf6d8b43780f6b9b907ab4b61be61ab4827506c2",
+      "byte_size": 30146,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/final_contract.yaml",
-      "sha256": "aa2138f6e665affc47e6695504c24ab7850db3c151942299f0b43390cfef8f7d",
-      "byte_size": 11294,
+      "sha256": "b47ca35b237f89a1b0dd3bc34ee42b2807e0dc312cf3aec0c30e093767cd0a11",
+      "byte_size": 11205,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/final_four_zone.sql",
-      "sha256": "b4b5f00306cf9c0bc4cddd24713a361aaef4b4a6f9c72ca40a0d6a39363ed8ee",
-      "byte_size": 82948,
+      "sha256": "80e4ea57ac899267638ec69481db44d772501ea4d4834949873689060b33eae0",
+      "byte_size": 81581,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-01",
@@ -198,10 +198,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/pipeline_report.json",
-      "sha256": "8f9e65aed3ce1f528c2c46e3263f2a0efea10390e6e5e59ff8bb1082a66b3d9a",
-      "byte_size": 381287,
+      "sha256": "9ca00ab2f5d48166e45057fa1eb6800f66c8074dabf2d1453681caa51a5637bf",
+      "byte_size": 377211,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-02",
@@ -326,10 +326,10 @@
     {
       "golden_id": "GT-03",
       "file": "GT-03/06_schema_invalid/problem.json",
-      "sha256": "326bc93f72b4585be711fc6c9b6bc720c13bebbdd8259623129c22689a04c472",
-      "byte_size": 24420,
+      "sha256": "66bfd570e501c63085e6e0519dd15975cd6e4be3ade25bcd110bbc4fe64fa0f4",
+      "byte_size": 24777,
       "generated_from": "GT-03: opendv verify 06_schema_invalid",
-      "last_justified_change": "[#120] Update golden files for single-run contract purity and wave field removal"
+      "last_justified_change": "[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates"
     },
     {
       "golden_id": "GT-05",

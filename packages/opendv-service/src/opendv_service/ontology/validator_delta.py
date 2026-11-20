@@ -225,7 +225,10 @@ def validate_ontology_delta(
                     else:
                         existing_spec = c.key_authority_tiers.tier_3_local_scoped
                         tier_name = "tier_3_local_scoped"
-                    if existing_spec is not None and existing_spec.authority_name != op.authority_name:
+                    if (
+                        existing_spec is not None
+                        and existing_spec.authority_name != op.authority_name
+                    ):
                         violations.append(
                             f"ONT-EVO-003: Non-additive conflict: Concept '{op.concept_uri}' "
                             f"already has authority '{existing_spec.authority_name}' for "

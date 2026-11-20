@@ -135,7 +135,8 @@ class ConnectorSourceRequest(BaseModel):
     def _validate_uri_or_cas_and_no_allowed_hosts(self) -> ConnectorSourceRequest:
         if "allowed_hosts" in (self.model_extra or {}):
             raise ValueError(
-                "Client-supplied 'allowed_hosts' is forbidden; configure server OPENDV_ALLOWED_HOSTS."
+                "Client-supplied 'allowed_hosts' is forbidden; "
+                "configure server OPENDV_ALLOWED_HOSTS."
             )
         has_uri = bool(self.uri and self.uri.strip())
         has_cas = bool(self.cas_hash and self.cas_hash.strip())

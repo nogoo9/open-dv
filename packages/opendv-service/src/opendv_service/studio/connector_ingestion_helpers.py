@@ -41,7 +41,8 @@ def validate_connector_payload(payload: dict[str, Any]) -> None:
             for k, v in obj.items():
                 if str(k).lower().strip() in FORBIDDEN_SECRET_KEYS and v not in (None, ""):
                     raise OpenDVError(
-                        f"Raw secret field '{k}' is forbidden; use credentials_ref ('env:...' or 'secret:...').",
+                        f"Raw secret field '{k}' is forbidden; "
+                        "use credentials_ref ('env:...' or 'secret:...').",
                         error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
                     )
                 _scan(v)
@@ -76,7 +77,9 @@ def resolve_connector_local_path(session_manager: StudioSessionManager, raw_uri:
     """Resolve and strictly contain a local connector path inside workspace_root."""
     cleaned = strip_file_uri(raw_uri)
     if not cleaned:
-        raise OpenDVError("Connector 'uri' is required.", error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT)
+        raise OpenDVError(
+            "Connector 'uri' is required.", error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT
+        )
 
     raw_parts = {part.lower() for part in Path(cleaned).parts}
     if raw_parts & _FORBIDDEN_INTERNAL_PARTS:
@@ -86,9 +89,7 @@ def resolve_connector_local_path(session_manager: StudioSessionManager, raw_uri:
 
     ws_root = getattr(session_manager, "workspace_root", None)
     if ws_root is None:
-        raise PathContainmentError(
-            "workspace_root is required for local connector ingestion."
-        )
+        raise PathContainmentError("workspace_root is required for local connector ingestion.")
 
     resolved = resolve_workspace_path(cleaned, workspace_root=Path(ws_root), allow_temp=False)
     resolved_parts = {part.lower() for part in resolved.parts}
@@ -103,7 +104,8 @@ def resolve_connector_local_path(session_manager: StudioSessionManager, raw_uri:
     size_bytes = resolved.stat().st_size
     if size_bytes <= 0:
         raise OpenDVError(
-            f"Connector source file is empty: '{raw_uri}'.", error_code=ErrorCode.CORRUPT_SOURCE_BLOB
+            f"Connector source file is empty: '{raw_uri}'.",
+            error_code=ErrorCode.CORRUPT_SOURCE_BLOB,
         )
     if size_bytes > MAX_CONNECTOR_BLOB_BYTES:
         raise OpenDVError(
@@ -126,7 +128,9 @@ def infer_cas_extension(raw_bytes: bytes, hint_name: str, adapter: str) -> str:
     suffix = Path(strip_file_uri(hint_name)).suffix.lower().lstrip(".")
     if suffix:
         return suffix
-    return adapter if adapter in {"sqlite", "duckdb", "csv", "tsv", "parquet", "xlsx", "jsonl"} else ""
+    return (
+        adapter if adapter in {"sqlite", "duckdb", "csv", "tsv", "parquet", "xlsx", "jsonl"} else ""
+    )
 
 
 def resolve_cas_connector_bytes(
@@ -149,13 +153,28 @@ def resolve_cas_connector_bytes(
     session_cas = session_mgr.get_cas(session_id)
     if hasattr(session_cas, "has") and session_cas.has(lower_hash):
         raw_bytes = session_cas.get(lower_hash)
-    elif platform_cas is not None:
-        if hasattr(platform_cas, "get_bytes"):
-            with contextlib.suppress(FileNotFoundError, KeyError):
-                raw_bytes = platform_cas.get_bytes(clean_hash)
-        elif hasattr(platform_cas, "get"):
-            with contextlib.suppress(FileNotFoundError, KeyError):
-                raw_bytes = platform_cas.get(clean_hash)
+    else:
+        resolved_platform_cas = platform_cas
+        if resolved_platform_cas is None:
+            from opendv_service.settings import OpenDVSettings
+            from opendv_telemetry.cas_store import ContentAddressableStore
+
+            ws_root = getattr(session_mgr, "workspace_root", None)
+            cas_dir = OpenDVSettings.load(workspace_root=Path(ws_root) if ws_root else None).cas_dir
+            has_studio = getattr(session_mgr, "studio_root", None) is not None
+            if (cas_dir is None or not cas_dir.is_dir()) and has_studio:
+                s_root = Path(session_mgr.studio_root)
+                if s_root.parent.name == ".opendv":
+                    cas_dir = s_root.parent / "state" / "cas"
+            if cas_dir is not None and cas_dir.is_dir():
+                resolved_platform_cas = ContentAddressableStore(cas_dir)
+        if resolved_platform_cas is not None:
+            if hasattr(resolved_platform_cas, "get_bytes"):
+                with contextlib.suppress(FileNotFoundError, KeyError):
+                    raw_bytes = resolved_platform_cas.get_bytes(clean_hash)
+            elif hasattr(resolved_platform_cas, "get"):
+                with contextlib.suppress(FileNotFoundError, KeyError):
+                    raw_bytes = resolved_platform_cas.get(clean_hash)
 
     if raw_bytes is None:
         raise OpenDVError(
@@ -284,7 +303,9 @@ def fibo_gaps_for_columns(table_name: str, columns: list[dict[str, Any]]) -> lis
                         "table_name": table_name,
                         "column_name": cname,
                         "best_fibo_score": round(best_score, 4),
-                        "recommendation": "Use Path B STRUCTURED_SCHEMA grounding if domain concept.",
+                        "recommendation": (
+                            "Use Path B STRUCTURED_SCHEMA grounding if domain concept."
+                        ),
                     }
                 )
     return gaps
@@ -303,8 +324,13 @@ def build_table_entry(
     profiler = GraphBProfiler(conn)
     col_metrics = profiler.profile_table_columns(table_name)
     quoted_t = f'"{table_name.replace(chr(34), chr(34) * 2)}"'
-    sample_raw = conn.execute(f"SELECT * FROM {quoted_t} LIMIT {SAMPLE_ROW_CAP}").fetchall()
     headers = [m.column_name for m in col_metrics]
+    select_exprs = (
+        ", ".join(f'CAST("{c.replace(chr(34), chr(34) * 2)}" AS VARCHAR)' for c in headers) or "*"
+    )
+    sample_raw = conn.execute(
+        f"SELECT {select_exprs} FROM {quoted_t} LIMIT {SAMPLE_ROW_CAP}"
+    ).fetchall()
     sample_rows = [
         ["" if v is None else str(v) for v in row] for row in sample_raw[:SAMPLE_ROW_CAP]
     ]
@@ -367,7 +393,9 @@ def build_databricks_table_entry(
                 "column": str(fk.get("referenced_column") or fk.get("column") or ""),
             }
     raw_cols = list(table_meta.get("columns") or [])
-    headers = [str(c.get("name") or c.get("column_name") or "") for c in raw_cols if isinstance(c, dict)]
+    headers = [
+        str(c.get("name") or c.get("column_name") or "") for c in raw_cols if isinstance(c, dict)
+    ]
     rich_cols: list[dict[str, Any]] = []
     for c in raw_cols:
         if not isinstance(c, dict):

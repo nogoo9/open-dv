@@ -20,6 +20,7 @@ from __future__ import annotations
 import io
 import json
 import math
+import os
 import random
 import shutil
 import subprocess
@@ -688,8 +689,18 @@ def test_cli_spec_draft202012_schema_validation() -> None:
 def test_standalone_cli_in_process_local_executor(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Execute standalone opendv commands in-process and verify RFC 8785 JSON output."""
+    state_dir = tmp_path / "state"
+    studio_dir = tmp_path / "studio"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    studio_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("OPENDV_WORKSPACE_ROOT", str(Path.cwd().resolve()))
+    monkeypatch.setenv("OPENDV_STORAGE_ROOT", str(state_dir))
+    monkeypatch.setenv("OPENDV_STATE_DIR", str(state_dir))
+    monkeypatch.setenv("OPENDV_STUDIO_ROOT", str(studio_dir))
+
     pe_contract = "examples/private_equity/dv_pe_model_contract.yaml"
     pe_graph_a = "examples/private_equity/pe_graph_a_ontology.yaml"
     pe_graph_b = "examples/private_equity/pe_graph_b_profile.json"
@@ -1014,8 +1025,20 @@ def test_json_flag_precedence_over_toon(capsys: pytest.CaptureFixture[str]) -> N
     assert raw == dumps_jcs(parsed)
 
 
-def test_all_subcommands_subprocess_isolation() -> None:
+def test_all_subcommands_subprocess_isolation(tmp_path: Path) -> None:
     """Verify isolated subprocess execution across all subcommands leaves sys.modules clean."""
+    state_dir = tmp_path / "state"
+    studio_dir = tmp_path / "studio"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    studio_dir.mkdir(parents=True, exist_ok=True)
+    repo_root = Path.cwd().resolve()
+    isolated_env = {
+        **os.environ,
+        "OPENDV_WORKSPACE_ROOT": str(repo_root),
+        "OPENDV_STORAGE_ROOT": str(state_dir),
+        "OPENDV_STATE_DIR": str(state_dir),
+        "OPENDV_STUDIO_ROOT": str(studio_dir),
+    }
     pe_contract = "examples/private_equity/dv_pe_model_contract.yaml"
     pe_graph_a = "examples/private_equity/pe_graph_a_ontology.yaml"
     pe_graph_b = "examples/private_equity/pe_graph_b_profile.json"
@@ -1074,7 +1097,13 @@ def test_all_subcommands_subprocess_isolation() -> None:
             "loaded = banned.intersection(sys.modules.keys())\n"
             "assert not loaded, f'Forbidden modules loaded in sys.modules: {loaded}'\n"
         )
-        res = subprocess.run([sys.executable, "-c", probe_code], capture_output=True, text=True)
+        res = subprocess.run(
+            [sys.executable, "-c", probe_code],
+            cwd=str(repo_root),
+            env=isolated_env,
+            capture_output=True,
+            text=True,
+        )
         assert res.returncode == 0, (
             f"Subprocess isolation failed for cmd {cmd_args[0]}:\nstderr: {res.stderr}"
         )

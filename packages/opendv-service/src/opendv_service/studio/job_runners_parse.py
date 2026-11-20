@@ -32,6 +32,12 @@ from opendv_sources.ingestion.service import IngestionService
 logger = logging.getLogger(__name__)
 
 
+def _is_structured_connector_entry(entry: dict[str, Any]) -> bool:
+    """Return True for manifest entries already profiled by `connector_ingestion`."""
+    adapter = entry.get("connector_adapter")
+    return isinstance(adapter, str) and bool(adapter.strip())
+
+
 def _should_normalize_crlf(filename: str, mime_type: str | None, entry: dict[str, Any]) -> bool:
     """Return True if raw text bytes should normalize CRLF -> LF before offset slicing."""
     if str(entry.get("kind") or "").lower() in ("inline_note", "text", "markdown", "note"):
@@ -165,7 +171,8 @@ def run_parse_session_sources(
             if str(e.get("source_id") or e.get("id") or "") in requested_set
         ]
     else:
-        files = active_entries
+        # Structured connectors are already profiled into evidence/tables.jsonl on attach.
+        files = [e for e in active_entries if not _is_structured_connector_entry(e)]
 
     svc = ingestion_service or build_studio_ingestion_service(ocr_mode=ocr_mode)
     cas = session_manager.get_cas(session_id)
@@ -214,7 +221,11 @@ def run_parse_session_sources(
         )
         eff_ocr_mode = (
             str(entry["ocr_mode"]).strip().lower()
-            if ocr_mode == "auto" and isinstance(entry.get("ocr_mode"), str) and entry["ocr_mode"].strip()
+            if (
+                ocr_mode == "auto"
+                and isinstance(entry.get("ocr_mode"), str)
+                and entry["ocr_mode"].strip()
+            )
             else ocr_mode
         )
 

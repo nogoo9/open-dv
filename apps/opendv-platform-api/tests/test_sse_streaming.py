@@ -308,3 +308,87 @@ async def test_unknown_run_id_returns_404_problem(tmp_path: Path, repo_root: Pat
         body = res.json()
         assert body["status"] == 404
         assert "not found" in body["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_paused_hold_emits_and_replays_rich_hold_sse_frame(
+    tmp_path: Path, repo_root: Path
+) -> None:
+    """Bug B (D14): PAUSED_HOLD emits and replays `event: hold` with hold_id, stage_id,
+    reason/escalation_reason, and resolution options.
+    """
+    import yaml
+
+    s3_dir = repo_root / "examples" / "scenarios" / "s3_unmapped_feed"
+    sample_dir = repo_root / "examples" / "pipeline_samples" / "global_commerce_vault"
+    s3_input = tmp_path / "s3_hold_input.yaml"
+    s3_input.write_text(
+        yaml.safe_dump(
+            {
+                "pipeline_id": "pipe-s3-sse-hold",
+                "project_id": "proj-s3-sse-hold",
+                "domain_namespace": "logistics_and_commerce",
+                "graph_a_ontology_path": str((s3_dir / "graph_a_ontology.yaml").resolve()),
+                "sources": [
+                    {
+                        "feed_id": "feed-unmapped-supplier",
+                        "source_system": "bronze_logistics",
+                        "table_name": "feed_unmapped_supplier",
+                        "data_path": str((s3_dir / "feed_unmapped_supplier.csv").resolve()),
+                        "business_key_columns": ["delivery_id"],
+                        "target_hub_name": "hub_supplier_delivery",
+                        "record_source_code": "LOGISTICS_FEED",
+                        "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                        "bkcc_namespace": "GLOBAL",
+                    }
+                ],
+                "unstructured_documents": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = PlatformStateContainer(state_dir=tmp_path / "state", workspace_root=repo_root)
+    app = create_app(platform_state=state, workspace_root=repo_root)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        res = await client.post(
+            "/api/v1/pipelines/runs",
+            json={
+                "input_spec_path": str(s3_input),
+                "harness_config_path": str((sample_dir / "harness_config.yaml").resolve()),
+                "provider_override": "agy",
+                "steward_hold_policy": "pause",
+            },
+        )
+        assert res.status_code == 202
+        run_id = res.json()["run_id"]
+
+        for _ in range(200):
+            poll = await client.get(f"/api/v1/runs/{run_id}")
+            if poll.status_code == 200 and poll.json().get("status") == "PAUSED_HOLD":
+                break
+            await asyncio.sleep(0.1)
+        else:
+            st = poll.json().get("status")
+            pytest.fail(f"Run {run_id} did not reach PAUSED_HOLD (status={st})")
+
+        # Reconnect / subscribe to /events while run is paused on hold
+        sse_res = await client.get(f"/api/v1/runs/{run_id}/events")
+        assert sse_res.status_code == 200
+        frames = _parse_sse_frames(sse_res.text)
+        hold_frames = [f for f in frames if f.get("event") == "hold"]
+        assert len(hold_frames) >= 1, f"Expected event: hold in SSE stream, got {frames}"
+
+        hold_payload = json.loads(hold_frames[-1]["data"])
+        assert hold_payload.get("run_id") == run_id
+        assert hold_payload.get("hold_id"), f"Missing hold_id in hold SSE payload: {hold_payload}"
+        assert hold_payload.get("stage_id"), f"Missing stage_id in hold SSE payload: {hold_payload}"
+        assert hold_payload.get("reason") or hold_payload.get("escalation_reason"), (
+            f"Missing reason in hold SSE payload: {hold_payload}"
+        )
+        assert isinstance(hold_payload.get("options"), list) and len(hold_payload["options"]) >= 1
+

@@ -127,6 +127,7 @@ class RunExecutionEngine:
             has_initial_contract=has_initial_contract,
             initial_contract_path=initial_contract_path,
             lifecycle_stage=lifecycle_stage,
+            session_id=str(session_id) if session_id else None,
         )
         state.runs[run_id] = run_dto
         state.run_events[run_id] = []
@@ -195,16 +196,53 @@ class RunExecutionEngine:
                     is_hold = term_stat == "PAUSED_HOLD" or final_status == RunStatus.PAUSED_HOLD
                     if is_hold and hasattr(state, "explicit_hold_runs"):
                         state.explicit_hold_runs.add(run_id)
-                    terminal_event = {
-                        "event_id": f"evt-{run_id}-hold" if is_hold else f"evt-{run_id}-complete",
-                        "run_id": run_id,
-                        "timestamp_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "stage_id": (
-                            "STAGE_02_SCOUT_UNSTRUCTURED" if is_hold else "STAGE_07_CERTIFICATION"
-                        ),
-                        "event_type": "hold" if is_hold else "run_complete",
-                        "payload": {"status": term_stat},
-                    }
+                    if is_hold:
+                        from opendv_service.runs.broadcaster import build_hold_sse_payload
+
+                        hold_payload = build_hold_sse_payload(state, run_id)
+                        terminal_event = {
+                            "event_id": f"evt-{run_id}-hold",
+                            "run_id": run_id,
+                            "timestamp_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "stage_id": str(
+                                hold_payload.get("stage_id") or "STAGE_04_SHIP_VAULT_PASS2"
+                            ),
+                            "event_type": "hold",
+                            "payload": hold_payload,
+                        }
+                    else:
+                        rep = (getattr(state, "pipeline_reports", None) or {}).get(run_id) or {}
+                        raw_df = rep.get("drift_findings") or [
+                            ev
+                            for wr in (rep.get("wave_reports") or [])
+                            if isinstance(wr, dict)
+                            for ev in (wr.get("schema_drift_events") or [])
+                        ]
+                        drift_findings = [f for f in raw_df if isinstance(f, dict)]
+                        drift_cols: list[str] = []
+                        seen_dc: set[str] = set()
+                        for item in rep.get("drift_columns") or []:
+                            s = str(item or "").strip()
+                            if s and s not in seen_dc:
+                                seen_dc.add(s)
+                                drift_cols.append(s)
+                        for f in drift_findings:
+                            col = str(f.get("column_name") or f.get("column") or "").strip()
+                            if col and col not in seen_dc:
+                                seen_dc.add(col)
+                                drift_cols.append(col)
+                        terminal_event = {
+                            "event_id": f"evt-{run_id}-complete",
+                            "run_id": run_id,
+                            "timestamp_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "stage_id": "STAGE_07_CERTIFICATION",
+                            "event_type": "run_complete",
+                            "payload": {
+                                "status": term_stat,
+                                "drift_columns": drift_cols,
+                                "drift_findings": drift_findings,
+                            },
+                        }
                     context.event_buffer.append(terminal_event)
                     subs = list(context.subscribers)
 

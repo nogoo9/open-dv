@@ -3,24 +3,20 @@
 from __future__ import annotations
 
 import copy
-import re
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from opendv_axi_verifier.codemods.alg_a9a_similarity import (
+    are_types_compatible,
+    best_rename_match,
+    is_lossless_type_widening,
+    levenshtein_distance,
+    levenshtein_similarity,
+    merge_satellite_column_aliases,
+)
 from opendv_core.config import get_core_modeling_config
 
 _CORE_CFG = get_core_modeling_config()
-
-_VARCHAR_RE = re.compile(r"^(?:VAR)?CHAR\s*\(\s*(\d+)\s*\)$", re.IGNORECASE)
-_NUMERIC_RE = re.compile(r"^(?:NUMERIC|DECIMAL)\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)$", re.IGNORECASE)
-_INT_RANK: dict[str, int] = {
-    "TINYINT": 1,
-    "SMALLINT": 2,
-    "INT": 3,
-    "INTEGER": 3,
-    "BIGINT": 4,
-    "HUGEINT": 5,
-}
 
 
 @dataclass(frozen=True)
@@ -39,54 +35,6 @@ class DriftFinding:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-
-def levenshtein_distance(s1: str, s2: str) -> int:
-    a, b = s1.lower(), s2.lower()
-    if a == b:
-        return 0
-    if not a or not b:
-        return len(b) or len(a)
-    prev = list(range(len(b) + 1))
-    for i, ca in enumerate(a, start=1):
-        curr = [i]
-        for j, cb in enumerate(b, start=1):
-            cost = 0 if ca == cb else 1
-            curr.append(min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost))
-        prev = curr
-    return prev[-1]
-
-
-def levenshtein_similarity(s1: str, s2: str) -> float:
-    m = max(len(s1), len(s2))
-    return 1.0 if m == 0 else 1.0 - (levenshtein_distance(s1, s2) / m)
-
-
-def is_lossless_type_widening(old_type: str, new_type: str) -> bool:
-    ou, nu = old_type.strip().upper(), new_type.strip().upper()
-    if ou == nu:
-        return False
-    mo, mn = _VARCHAR_RE.match(ou), _VARCHAR_RE.match(nu)
-    if mo and mn:
-        return int(mn.group(1)) > int(mo.group(1))
-    if mo and nu in {"VARCHAR", "TEXT", "STRING"}:
-        return True
-    if ou in _INT_RANK and nu in _INT_RANK:
-        return _INT_RANK[nu] > _INT_RANK[ou]
-    mno, mnn = _NUMERIC_RE.match(ou), _NUMERIC_RE.match(nu)
-    if mno and mnn:
-        p1, s1 = int(mno.group(1)), int(mno.group(2))
-        p2, s2 = int(mnn.group(1)), int(mnn.group(2))
-        return (p2 > p1 or s2 > s1) and s2 >= s1 and (p2 - s2) >= (p1 - s1)
-    return ou == "DATE" and nu in {"TIMESTAMP", "TIMESTAMPTZ"}
-
-
-def are_types_compatible(old_type: str | None, new_type: str | None) -> bool:
-    if not old_type or not new_type:
-        return True
-    if old_type.strip().upper() == new_type.strip().upper():
-        return True
-    return is_lossless_type_widening(old_type, new_type)
 
 
 def reconstruct_baseline_metadata_from_contract(
@@ -259,18 +207,23 @@ def detect_intra_source_schema_drift(
                     message=f"Incompatible type change on '{col}': {old_t[col]} -> {new_t[col]}.",
                 )
 
+    struct_thresh = core_cfg.structural_rename_similarity_threshold
     raw_rem = sorted((dep_set - cand_set) - keys)
     raw_add = sorted((cand_set - dep_set) - keys)
     m_rem, m_add = set(), set()
 
     for oc in raw_rem:
-        b_new, b_sc = None, 0.0
-        for nc in raw_add:
-            if nc in m_add or not are_types_compatible(old_t.get(oc), new_t.get(nc)):
-                continue
-            sc = max(levenshtein_similarity(oc, nc), jmap.get((oc, nc), jmap.get((nc, oc), 0.0)))
-            if (sc >= sim_thresh or jmap.get((oc, nc), 0.0) >= jaccard_thresh) and sc > b_sc:
-                b_sc, b_new = sc, nc
+        b_new, b_sc = best_rename_match(
+            oc,
+            raw_add,
+            matched_new=m_add,
+            old_types=old_t,
+            new_types=new_t,
+            value_jaccard=jmap,
+            lev_threshold=sim_thresh,
+            jaccard_threshold=jaccard_thresh,
+            structural_threshold=struct_thresh,
+        )
         if b_new is not None:
             m_rem.add(oc)
             m_add.add(b_new)
@@ -410,7 +363,7 @@ def codemod_intra_source_schema_drift(
             _, old_types, _ = reconstruct_baseline_metadata_from_contract(deployed_contract, bt)
         new_types = sat.pop("column_types", None)
         val_jaccard = sat.pop("value_jaccard", None)
-        sat.pop("staging_column_aliases", None)
+        staging_aliases = sat.pop("staging_column_aliases", None)
 
         findings = detect_intra_source_schema_drift(
             deployed_columns=dep_cols,
@@ -449,6 +402,9 @@ def codemod_intra_source_schema_drift(
                         _sync_ledger_target(entry, "ESCALATED", "ESCALATED_AMBIGUOUS")
 
         sat["payload_columns"] = sorted(dep_cols)
+        merged_aliases = merge_satellite_column_aliases(dep_sat, sat, staging_aliases, findings)
+        if merged_aliases:
+            sat["column_aliases"] = merged_aliases
         if removed_cols:
             sat["soft_deprecated_columns"] = sorted(
                 set(sat.get("soft_deprecated_columns") or ()).union(removed_cols)

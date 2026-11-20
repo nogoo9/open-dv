@@ -75,10 +75,14 @@ const SELECT_STYLE: CSSProperties = {
 	color: CLAUDE_TOKENS.colors.ink,
 };
 
-function mergeEntriesBySeq(
+export function mergeEntriesBySeq(
 	prev: readonly SessionLogEntry[],
 	incoming: SessionLogEntry,
 ): SessionLogEntry[] {
+	const last = prev[prev.length - 1];
+	if (last === undefined || incoming.seq > last.seq) {
+		return [...prev, incoming];
+	}
 	const idx = prev.findIndex((e) => e.seq === incoming.seq);
 	if (idx >= 0) {
 		const next = [...prev];

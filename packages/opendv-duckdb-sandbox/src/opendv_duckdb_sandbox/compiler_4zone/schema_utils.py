@@ -316,42 +316,88 @@ def _effective_pit_tables(ir_obj: CanonicalIR) -> list[IRPitTable]:
     return []
 
 
+def _bitemporal_restatement_sql_literal(sat: IRSatellite, col: IRColumnDef, row_idx: int) -> str:
+    """Return a Batch 4 restatement SQL literal that mutates `sat`'s payload cleanly."""
+    if sat.satellite_type == "EFFECTIVITY" or sat.name.startswith("esat_"):
+        col_lower = col.name.lower()
+        if col_lower == "is_active_flag":
+            return "FALSE"
+        if col_lower == "effective_to_dts":
+            return "TIMESTAMP '2026-11-15 09:15:00'"
+        if col_lower == "effective_to_date":
+            return "DATE '2026-11-15'"
+    return _satellite_seed_sql_literal(col, row_idx)
+
+
+def _is_standard_raw_satellite(sat: IRSatellite) -> bool:
+    return sat.satellite_type == "STANDARD" and _satellite_schema(sat) == "raw_vault"
+
+
 def _find_bitemporal_satellite(ir_obj: CanonicalIR) -> IRSatellite | None:
     """Identify the primary satellite subject to bi-temporal restatement or PIT tracking."""
     if not ir_obj.satellites:
         return None
     effective_pits = _effective_pit_tables(ir_obj)
     pit_tracked = {sat_name for pit in effective_pits for sat_name in pit.tracked_satellites}
+    val_cols = {"entry_ev_multiple", "ev_ebitda_multiple", "current_nav_usd"}
     valuation_tracked = next(
         (
             s
             for s in ir_obj.satellites
-            if s.name in pit_tracked
-            and any(
-                c.name.lower() in {"entry_ev_multiple", "ev_ebitda_multiple", "current_nav_usd"}
-                for c in s.payload_columns
-            )
+            if s.name in pit_tracked and any(c.name.lower() in val_cols for c in s.payload_columns)
         ),
         None,
     )
     if valuation_tracked is not None:
         return valuation_tracked
-    applied_sat = next((s for s in ir_obj.satellites if s.applied_dts_column is not None), None)
-    if applied_sat is not None:
-        return applied_sat
+    std_applied_pit = next(
+        (
+            s
+            for s in ir_obj.satellites
+            if _is_standard_raw_satellite(s)
+            and s.applied_dts_column is not None
+            and s.name in pit_tracked
+        ),
+        None,
+    )
+    if std_applied_pit is not None:
+        return std_applied_pit
+    std_applied = next(
+        (
+            s
+            for s in ir_obj.satellites
+            if _is_standard_raw_satellite(s) and s.applied_dts_column is not None
+        ),
+        None,
+    )
+    if std_applied is not None:
+        return std_applied
     valuation_any = next(
         (
             s
             for s in ir_obj.satellites
-            if any(
-                c.name.lower() in {"entry_ev_multiple", "ev_ebitda_multiple", "current_nav_usd"}
-                for c in s.payload_columns
-            )
+            if any(c.name.lower() in val_cols for c in s.payload_columns)
         ),
         None,
     )
     if valuation_any is not None:
         return valuation_any
+    std_pit = next(
+        (
+            s
+            for s in ir_obj.satellites
+            if _is_standard_raw_satellite(s) and s.name in pit_tracked
+        ),
+        None,
+    )
+    if std_pit is not None:
+        return std_pit
+    std_any = next((s for s in ir_obj.satellites if _is_standard_raw_satellite(s)), None)
+    if std_any is not None:
+        return std_any
+    applied_sat = next((s for s in ir_obj.satellites if s.applied_dts_column is not None), None)
+    if applied_sat is not None:
+        return applied_sat
     pit_any = next((s for s in ir_obj.satellites if s.name in pit_tracked), None)
     if pit_any is not None:
         return pit_any
@@ -359,6 +405,7 @@ def _find_bitemporal_satellite(ir_obj: CanonicalIR) -> IRSatellite | None:
 
 
 __all__ = [
+    "_bitemporal_restatement_sql_literal",
     "_effective_hub_bkcc_column_expr",
     "_effective_hub_bkcc_literal",
     "_effective_hub_sm_bkcc_literal",

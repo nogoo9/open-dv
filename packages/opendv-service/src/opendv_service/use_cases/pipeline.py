@@ -122,9 +122,7 @@ def validate_pipeline(
             if hasattr(actual_input, "model_dump")
             else (dict(actual_input) if isinstance(actual_input, dict) else {})
         )
-        harness_prov = getattr(actual_input, "harness_provider", None) or req_dict.get(
-            "harness_provider"
-        )
+        harness_prov = req_dict.get("harness_provider")
         prov_override = (
             getattr(actual_input, "provider_override", None)
             or req_dict.get("provider_override")
@@ -335,6 +333,8 @@ def execute_pipeline_run_sync(
                 sources=resolved_srcs,
                 unstructured_documents=resolved_docs,
                 target_dialect=req.target_dialect,
+                initial_contract_path=req.initial_contract_path,
+                initial_contract_content=req.initial_contract_content,
                 provider_override=prov_override,
                 session_id=eff_sid,
             )
@@ -482,6 +482,8 @@ async def execute_run_async(
             sources=resolved_srcs,
             unstructured_documents=resolved_docs,
             target_dialect=req.target_dialect,
+            initial_contract_path=req.initial_contract_path,
+            initial_contract_content=req.initial_contract_content,
             provider_override=resolve_effective_provider(req, state),
             steward_hold_policy=str(hold_pol) if hold_pol else None,
             session_id=eff_sid,

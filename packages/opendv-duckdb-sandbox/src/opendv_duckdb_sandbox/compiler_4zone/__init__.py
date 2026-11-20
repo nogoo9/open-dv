@@ -36,6 +36,7 @@ from opendv_duckdb_sandbox.compiler_4zone.hashing import (
     build_length_prefixed_token_sql,
 )
 from opendv_duckdb_sandbox.compiler_4zone.schema_utils import (
+    _bitemporal_restatement_sql_literal,
     _effective_hub_bkcc_column_expr,
     _effective_hub_bkcc_literal,
     _effective_hub_sm_bkcc_literal,
@@ -56,7 +57,10 @@ from opendv_duckdb_sandbox.compiler_4zone.staging_registry import (
     resolve_staging_bkcc_literal,
 )
 from opendv_duckdb_sandbox.compiler_4zone.zone_0 import _compile_generic_zone_0_sql
-from opendv_duckdb_sandbox.compiler_4zone.zone_1 import _compile_generic_zone_1_staging_views
+from opendv_duckdb_sandbox.compiler_4zone.zone_1 import (
+    _compile_generic_zone_1_staging_views,
+    _compile_satellite_parent_hk_expr,
+)
 from opendv_duckdb_sandbox.compiler_4zone.zone_2 import _compile_generic_zone_2_raw_vault_dml
 from opendv_duckdb_sandbox.compiler_4zone.zone_3 import (
     _build_generic_pit_view_sql,
@@ -113,6 +117,7 @@ def compile_canonical_ir_to_4zone_sql(
 
 __all__ = [
     "Compiled4ZoneBundle",
+    "_bitemporal_restatement_sql_literal",
     "_build_generic_pit_view_sql",
     "_compile_generic_hub_ddl_and_zero_keys",
     "_compile_generic_link_ddl_and_zero_keys",
@@ -123,6 +128,7 @@ __all__ = [
     "_compile_generic_zone_2_raw_vault_dml",
     "_compile_generic_zone_3_business_vault_sql",
     "_compile_generic_zone_4_information_mart_views",
+    "_compile_satellite_parent_hk_expr",
     "_effective_hub_bkcc_column_expr",
     "_effective_hub_bkcc_literal",
     "_effective_hub_sm_bkcc_literal",

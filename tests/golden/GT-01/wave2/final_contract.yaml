@@ -4,8 +4,8 @@ lifecycle_stage: MULTI_SOURCE_EXPANSION
 column_triage_ledger:
 - bronze_table: crm_salesforce.crm_customers
   column_name: customer_tax_id
-  elm_classification: DESCRIPTIVE_PAYLOAD
-  target_dv_entity: sat_customer_core_ext_v2
+  elm_classification: BUSINESS_KEY
+  target_dv_entity: hub_customer
   source_sql_type: VARCHAR
 - bronze_table: crm_salesforce.crm_customers
   column_name: customer_row_seq
@@ -35,12 +35,12 @@ column_triage_ledger:
 - bronze_table: crm_salesforce.crm_customers
   column_name: contact_email
   elm_classification: DESCRIPTIVE_PAYLOAD
-  target_dv_entity: sat_customer_core_ext_v2
+  target_dv_entity: sat_customer_pii
   source_sql_type: VARCHAR
 - bronze_table: crm_salesforce.crm_customers
   column_name: tax_ssn_tin
   elm_classification: DESCRIPTIVE_PAYLOAD
-  target_dv_entity: sat_customer_core_ext_v2
+  target_dv_entity: sat_customer_pii
   source_sql_type: VARCHAR
 - bronze_table: erp_netsuite.erp_orders
   column_name: order_id
@@ -235,11 +235,8 @@ satellites:
   volatility_tier: ADDITIVE_DRIFT_COMPANION
   payload_columns:
   - annual_spend_band
-  - contact_email
   - customer_row_seq
-  - customer_tax_id
   - loyalty_tier_code
-  - tax_ssn_tin
   soft_deprecated_columns: []
 - name: sat_customer_pii
   satellite_type: STANDARD_SATELLITE

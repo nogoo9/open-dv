@@ -339,3 +339,57 @@ def test_evidence_chunks_preview_returns_required_fields_and_table_data(tmp_path
     for required_key in ("chunk_id", "page_number", "start_char", "end_char", "confidence", "is_table", "table_data"):
         assert required_key in first
     assert "observed_term_counts" in payload
+
+
+def test_standalone_attach_source_resolves_cas_from_platform_state_cas(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    isolated_env: Path,
+) -> None:
+    """Standalone `attach-source` resolves `cas://<sha256>` stored in platform/state CAS (.opendv/state/cas)."""
+    from opendv_cli.main import app_main
+    from opendv_service.studio.connector_ingestion_helpers import resolve_cas_connector_bytes
+    from opendv_service.studio.session_manager import StudioSessionManager
+    from opendv_telemetry.cas_store import ContentAddressableStore
+
+    ws_root = tmp_path / "workspace"
+    state_dir = ws_root / ".opendv" / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("OPENDV_WORKSPACE_ROOT", str(ws_root))
+    monkeypatch.setenv("OPENDV_STATE_DIR", str(state_dir))
+    monkeypatch.setenv("OPENDV_STORAGE_ROOT", str(state_dir))
+
+    csv_bytes = b"trade_id,symbol,notional\nT-1,AAPL,1000.5\nT-2,MSFT,2500.0\n"
+    sha_upper = ContentAddressableStore(state_dir / "cas").put(csv_bytes)
+    sha_lower = sha_upper.lower()
+
+    assert app_main(["ontology", "studio", "init", "--json"]) == 0
+    assert (
+        app_main(["ontology", "studio", "create", "--session", "cas-attach-01", "--json"]) == 0
+    )
+
+    # Direct helper fallback check when platform_cas=None (before attach-source copies to session CAS)
+    mgr = StudioSessionManager(studio_root=isolated_env, workspace_root=ws_root)
+    raw_fallback, resolved_sha = resolve_cas_connector_bytes(
+        cas_hash=sha_lower, session_mgr=mgr, session_id="cas-attach-01", platform_cas=None
+    )
+    assert raw_fallback == csv_bytes
+    assert resolved_sha == sha_lower
+
+    rc = app_main(
+        [
+            "ontology",
+            "studio",
+            "attach-source",
+            "--session",
+            "cas-attach-01",
+            "--adapter",
+            "csv",
+            "--uri",
+            f"cas://{sha_lower}",
+            "--table",
+            "trades",
+            "--json",
+        ]
+    )
+    assert rc == 0

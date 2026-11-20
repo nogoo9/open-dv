@@ -39,6 +39,29 @@ def _extract_enum_uris(ontology_graph: dict[str, Any]) -> set[str]:
     return enum_uris
 
 
+def _extract_core_uris(ontology_graph: dict[str, Any]) -> set[str]:
+    core_uris: set[str] = set()
+    if not isinstance(ontology_graph, dict):
+        return core_uris
+
+    enum_classes = {"ENUMERATION", "REFERENCE_CODE", "REFERENCE_CONCEPT"}
+    for concept in ontology_graph.get("canonical_business_concepts", []):
+        if isinstance(concept, dict) and "concept_uri" in concept:
+            t_cls = str(
+                concept.get("taxonomy_class") or concept.get("elm_archetype") or ""
+            ).upper()
+            if t_cls not in enum_classes:
+                core_uris.add(str(concept["concept_uri"]))
+
+    for uri, meta in ontology_graph.items():
+        if isinstance(meta, dict) and str(uri).startswith("urn:"):
+            t_cls = str(meta.get("taxonomy_class") or meta.get("elm_archetype") or "").upper()
+            if t_cls not in enum_classes:
+                core_uris.add(str(uri))
+
+    return core_uris
+
+
 def _extract_col_metrics(bronze_profile: dict[str, Any]) -> dict[str, dict[str, dict[str, Any]]]:
     col_metrics: dict[str, dict[str, dict[str, Any]]] = {}
     if not isinstance(bronze_profile, dict):
@@ -80,8 +103,17 @@ def _extract_col_metrics(bronze_profile: dict[str, Any]) -> dict[str, dict[str, 
         for col_name, metrics in raw_tbl.items():
             if isinstance(metrics, dict):
                 t_map[col_name] = {
-                    "distinct_count": int(metrics.get("distinct_count", 9999)),
-                    "key_growth_30d": float(metrics.get("key_growth_30d", 1.0)),
+                    "distinct_count": int(
+                        metrics.get("distinct_count", metrics.get("approx_distinct", 9999))
+                    ),
+                    "key_growth_30d": float(
+                        metrics.get(
+                            "key_growth_30d",
+                            0.0
+                            if metrics.get("candidate_role") == "ENUM_REFERENCE_CODE"
+                            else 1.0,
+                        )
+                    ),
                     "candidate_role": str(metrics.get("candidate_role", "")),
                 }
         col_metrics[b_table] = t_map
@@ -96,6 +128,7 @@ def codemod_demote_enum_hubs_to_ref(
     """Algorithm A.2: Demote Low-Cardinality Enum Hubs to Reference Tables (`ref_*`)."""
     ir = copy.deepcopy(contract)
     enum_uris = _extract_enum_uris(ontology_graph)
+    core_uris = _extract_core_uris(ontology_graph)
     col_metrics = _extract_col_metrics(bronze_profile)
 
     demoted_hubs: dict[str, dict[str, Any]] = {}
@@ -106,8 +139,10 @@ def codemod_demote_enum_hubs_to_ref(
         is_enum_concept = (
             uri in enum_uris
             or uri.startswith("urn:ontology:enum:")
+            or uri.startswith("urn:opendv:enum:")
             or uri.startswith("urn:ontology:ref:")
         )
+        is_core_concept = (uri in core_uris) and not is_enum_concept
 
         bk_sources = list(hub.get("business_key_sources", []))
         all_sources_static_low_card = bool(bk_sources) and all(
@@ -125,7 +160,7 @@ def codemod_demote_enum_hubs_to_ref(
             for src in bk_sources
         )
 
-        if is_enum_concept or all_sources_static_low_card:
+        if is_enum_concept or (all_sources_static_low_card and not is_core_concept):
             demoted_hubs[str(hub["name"])] = hub
         else:
             retained_hubs.append(hub)
@@ -163,7 +198,7 @@ def codemod_demote_enum_hubs_to_ref(
             else {"bronze_table": "unknown", "key_columns": ["code"]}
         )
         raw_uri = str(hub.get("ontology_concept_uri") or "")
-        if raw_uri.startswith("urn:ontology:enum:"):
+        if raw_uri.startswith(("urn:ontology:enum:", "urn:opendv:enum:")):
             enum_uri = raw_uri
         elif ":" in raw_uri:
             enum_uri = f"urn:ontology:enum:{raw_uri.rsplit(':', 1)[-1]}"

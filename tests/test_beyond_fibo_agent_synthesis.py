@@ -221,3 +221,131 @@ def test_governance_validator_path_a_and_path_b_ont_evo_001_to_005() -> None:
         gv.validate_grounding(base, delta_bad, target_bad)
     with pytest.raises(UngroundedConceptError):
         verify_ont_evo_002_post_state_grounding(base, delta_bad, target_bad)
+
+
+def test_fibo_grounded_fallback_to_empirical_evidence_refs_b1() -> None:
+    """B1: FIBO_GROUNDED with failing Path A mapping falls back to verifiable empirical evidence_refs."""
+    from opendv_service.ontology.validator_models import is_path_b_empirically_grounded
+
+    base = create_genesis_ontology("wealth_mgmt")
+    base_sha = compute_ontology_sha256(base)
+
+    col_op = AddConceptOp(
+        op_id="op-fibo-col-fallback",
+        concept_uri="urn:ontology:entity:position_lot",
+        concept_name="Position Lot",
+        target_hub="hub_position_lot",
+        definition="Tax lot position backed by structured schema column profile.",
+        grounding_origin="FIBO_GROUNDED",
+        external_mappings=[
+            ExternalMapping(
+                scheme="fibo",
+                target_uri="https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/FinancialProductsAndServices/Position",
+                predicate="skos:broadMatch",
+                confidence=0.42,
+            )
+        ],
+        evidence_refs=[
+            EvidenceRef(
+                evidence_type="column_profile",
+                bronze_table="daily_positions",
+                column_name="lot_id",
+                confidence=0.95,
+            )
+        ],
+    )
+    doc_op = AddConceptOp(
+        op_id="op-fibo-doc-fallback",
+        concept_uri="urn:ontology:entity:settlement_window",
+        concept_name="Settlement Window",
+        target_hub="hub_settlement_window",
+        definition="Settlement cutoff rule backed by document span.",
+        grounding_origin="FIBO_GROUNDED",
+        external_mappings=[
+            ExternalMapping(
+                scheme="fibo",
+                target_uri="https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/BusinessCenters/SettlementCycle",
+                predicate="skos:exactMatch",
+                confidence=0.51,
+            )
+        ],
+        evidence_refs=[
+            EvidenceRef(
+                evidence_type="document_span",
+                chunk_id="chk-settle-1",
+                doc_sha256="a" * 64,
+                char_start=12,
+                char_end=64,
+            )
+        ],
+    )
+    delta = OntologyDelta(
+        delta_id="d-fibo-fallback-ok",
+        parent_sha256=base_sha,
+        base_version="0.0.0",
+        target_version="1.0.0",
+        domain_namespace="wealth_mgmt",
+        operations=[col_op, doc_op],
+    )
+    target = apply_delta(base, delta, validate_structural=True)
+    target_map = {c.concept_uri: c for c in target.canonical_business_concepts}
+
+    assert is_path_b_empirically_grounded(
+        col_op.concept_uri, target_map[col_op.concept_uri], delta
+    ) is True
+    assert is_path_b_empirically_grounded(
+        doc_op.concept_uri, target_map[doc_op.concept_uri], delta
+    ) is True
+
+    gv = GovernanceValidator(strict_verifier_required=False)
+    gv.validate_grounding(base, delta, target)
+    verify_ont_evo_002_post_state_grounding(base, delta, target)
+
+
+def test_fibo_grounded_without_verifiable_evidence_refs_fails_closed_b2() -> None:
+    """B2: FIBO_GROUNDED + failing Path A + empty or unanchored evidence_refs raises UngroundedConceptError."""
+    from opendv_service.ontology.validator_models import is_path_b_empirically_grounded
+
+    base = create_genesis_ontology("wealth_mgmt")
+    base_sha = compute_ontology_sha256(base)
+    gv = GovernanceValidator(strict_verifier_required=False)
+
+    for case_id, bad_refs in [
+        ("empty", []),
+        ("unanchored_col", [EvidenceRef(evidence_type="column_profile")]),
+        ("unanchored_doc", [EvidenceRef(evidence_type="document_span")]),
+    ]:
+        bad_op = AddConceptOp(
+            op_id=f"op-bad-{case_id}",
+            concept_uri="urn:ontology:entity:ungrounded_fibo",
+            concept_name="Ungrounded Fibo",
+            target_hub="hub_ungrounded_fibo",
+            definition="Low-confidence FIBO mapping without valid empirical anchor.",
+            grounding_origin="FIBO_GROUNDED",
+            external_mappings=[
+                ExternalMapping(
+                    scheme="fibo",
+                    target_uri="https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Documents/Record",
+                    predicate="skos:broadMatch",
+                    confidence=0.45,
+                )
+            ],
+            evidence_refs=bad_refs,
+        )
+        delta_bad = OntologyDelta(
+            delta_id=f"d-bad-{case_id}",
+            parent_sha256=base_sha,
+            base_version="0.0.0",
+            target_version="1.0.0",
+            domain_namespace="wealth_mgmt",
+            operations=[bad_op],
+        )
+        target_bad = apply_delta(base, delta_bad, validate_structural=True)
+        target_map = {c.concept_uri: c for c in target_bad.canonical_business_concepts}
+        assert is_path_b_empirically_grounded(
+            bad_op.concept_uri, target_map[bad_op.concept_uri], delta_bad
+        ) is False
+        with pytest.raises(UngroundedConceptError):
+            gv.validate_grounding(base, delta_bad, target_bad)
+        with pytest.raises(UngroundedConceptError):
+            verify_ont_evo_002_post_state_grounding(base, delta_bad, target_bad)

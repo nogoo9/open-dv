@@ -20,6 +20,7 @@ from opendv_platform_api.security.csrf import verify_csrf
 from opendv_platform_api.security.error_catalog import StudioAPIError
 from opendv_platform_api.security.studio_auth import StudioPrincipal, authenticate_studio_request
 from opendv_service.studio.atomic_commit import parse_strong_etag
+from opendv_service.studio.delta_normalizer import StudioWorkflowError
 from opendv_service.studio.session_manager import (
     InvalidSessionIdentifierError,
     SessionMetadata,
@@ -161,6 +162,12 @@ def require_admin(
 
 require_principal = require_viewer
 
+MgrDep = Annotated[StudioSessionManager, Depends(get_session_manager)]
+ViewerDep = Annotated[StudioPrincipal, Depends(require_viewer)]
+EditorDep = Annotated[StudioPrincipal, Depends(require_editor)]
+EdAutoDep = Annotated[StudioPrincipal, Depends(require_editor_or_automated)]
+AdminDep = Annotated[StudioPrincipal, Depends(require_admin)]
+
 
 def raise_from_opendv_error(exc: OpenDVError) -> StudioAPIError:
     """Convert a domain OpenDVError into a canonical catalog StudioAPIError."""
@@ -174,6 +181,15 @@ def raise_from_opendv_error(exc: OpenDVError) -> StudioAPIError:
         status_code=getattr(exc, "http_status", None),
         extensions=extra,
     )
+
+
+@contextlib.contextmanager
+def translate_studio_errors() -> Any:
+    """Translate StudioWorkflowError/OpenDVError into canonical StudioAPIError."""
+    try:
+        yield
+    except StudioWorkflowError as exc:
+        raise raise_from_opendv_error(exc) from exc
 
 
 def get_session_or_404(
@@ -292,13 +308,63 @@ def resolve_proposal_file(sdir: Path, proposal_id: str) -> Path:
     return target_file
 
 
-def ensure_no_active_session_job(session_mgr: StudioSessionManager, session_id: str) -> None:
+def has_active_pipeline_run(platform_state: Any | None, session_id: str) -> bool:
+    """Return True if `platform_state.runs` has an active pipeline run for `session_id`."""
+    if platform_state is None or not session_id or not hasattr(platform_state, "runs"):
+        return False
+    lock = getattr(platform_state, "_state_lock", None)
+    with lock if lock is not None else contextlib.nullcontext():
+        runs_snapshot = list(platform_state.runs.values())
+        run_session_ids = dict(getattr(platform_state, "run_session_ids", {}) or {})
+    for r in runs_snapshot:
+        st = str(getattr(getattr(r, "status", None), "value", getattr(r, "status", ""))).upper()
+        if st not in {"PENDING", "QUEUED", "RUNNING"}:
+            continue
+        rid = getattr(r, "run_id", None)
+        rsid = getattr(r, "session_id", None) or (run_session_ids.get(rid) if rid else None)
+        if rsid == session_id:
+            return True
+    return False
+
+
+def ensure_no_active_session_job(
+    session_mgr: StudioSessionManager,
+    session_id: str,
+    platform_state: Any | None = None,
+) -> None:
     """Enforce single active job per session (`409 SESSION_JOB_ACTIVE`, `D27`)."""
-    if get_job_supervisor().count_active_jobs(session_mgr, session_id) > 0:
+    active_jobs = get_job_supervisor().count_active_jobs(session_mgr, session_id)
+    if active_jobs > 0 or has_active_pipeline_run(platform_state, session_id):
         raise StudioAPIError(
             "SESSION_JOB_ACTIVE",
             f"Session '{session_id}' already has an active running job.",
             status_code=409,
+        )
+
+
+def enforce_no_active_session_run(service: Any, session_id: Any | None) -> None:
+    """Enforce D27 single active job/run per session for `/runs` and `/pipelines/runs`."""
+    if not session_id:
+        return
+    sid_str = str(session_id).strip()
+    if not sid_str:
+        return
+    from opendv_service.studio.workspace_security import DEFAULT_STUDIO_DIR
+
+    studio_env = os.environ.get("OPENDV_STUDIO_ROOT", "").strip()
+    studio_root = (
+        Path(studio_env).resolve()
+        if studio_env
+        else (service.workspace_root / DEFAULT_STUDIO_DIR).resolve()
+    )
+    smgr = StudioSessionManager(studio_root=studio_root, workspace_root=service.workspace_root)
+    if (
+        has_active_pipeline_run(service.state, sid_str)
+        or get_job_supervisor().count_active_jobs(smgr, sid_str) > 0
+    ):
+        raise OpenDVError(
+            f"Session '{sid_str}' already has an active running job.",
+            error_code=ErrorCode.SESSION_JOB_ACTIVE,
         )
 
 
@@ -355,14 +421,16 @@ def session_logs_activity_hooks(
         with lock if lock is not None else contextlib.nullcontext():
             run_events = getattr(platform_state, "run_events", None)
             events_snapshot = (
-                list(run_events.get(rid, ()))
-                if rid and isinstance(run_events, dict)
-                else []
+                list(run_events.get(rid, ())) if rid and isinstance(run_events, dict) else []
             )
         for ev in events_snapshot:
             if not isinstance(ev, dict):
                 continue
-            l2 = ev.get("layer2_visual_payload") if isinstance(ev.get("layer2_visual_payload"), dict) else {}
+            l2 = (
+                ev.get("layer2_visual_payload")
+                if isinstance(ev.get("layer2_visual_payload"), dict)
+                else {}
+            )
             l2_m = l2.get("summary_metrics") if isinstance(l2.get("summary_metrics"), dict) else {}
             top_m = ev.get("summary_metrics") if isinstance(ev.get("summary_metrics"), dict) else {}
             ev_sid = ev.get("session_id") or l2_m.get("session_id") or top_m.get("session_id")
@@ -408,9 +476,15 @@ __all__ = [
     "MAX_BUNDLE_IMPORT_BYTES",
     "MAX_SOURCE_UPLOAD_BYTES",
     "UPLOAD_STREAM_CHUNK_BYTES",
+    "AdminDep",
+    "EdAutoDep",
+    "EditorDep",
+    "MgrDep",
+    "ViewerDep",
     "_resolve_allowed_workspace_roots",
     "_resolve_deployment_workspace_root",
     "derive_session_status",
+    "enforce_no_active_session_run",
     "ensure_no_active_session_job",
     "get_effective_max_bundle_import_bytes",
     "get_effective_max_source_upload_bytes",
@@ -418,6 +492,7 @@ __all__ = [
     "get_session_manager",
     "get_session_or_404",
     "get_studio_root",
+    "has_active_pipeline_run",
     "parse_strong_etag_or_400",
     "raise_from_opendv_error",
     "require_admin",
@@ -430,6 +505,7 @@ __all__ = [
     "resolve_server_allowed_hosts",
     "session_logs_activity_hooks",
     "stream_upload_to_tempfile",
+    "translate_studio_errors",
     "validate_job_id_param",
     "validate_proposal_id_param",
     "validate_session_param",

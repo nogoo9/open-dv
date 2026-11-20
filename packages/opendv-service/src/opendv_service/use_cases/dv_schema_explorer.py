@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import duckdb
-import yaml
 
 from opendv_contracts.dtos.dv_schema import (
     DvHubSchemaDTO,
@@ -21,7 +18,6 @@ from opendv_contracts.dtos.dv_schema import (
     DvSchemaWaveDiffDTO,
 )
 from opendv_contracts.errors import ErrorCode
-from opendv_duckdb_sandbox.ir_lowerer import lower_contract_to_canonical_ir
 from opendv_duckdb_sandbox.sandbox_persistence import (
     execute_readonly_sandbox_sql,
     get_sandbox_db_path,
@@ -29,111 +25,36 @@ from opendv_duckdb_sandbox.sandbox_persistence import (
 )
 from opendv_duckdb_sandbox.sql_guard import validate_safe_sql
 from opendv_service.errors import InputValidationError, NotFoundError
+from opendv_service.rbac import RbacRole
+from opendv_service.use_cases.dv_schema_helpers import (
+    assert_dv_schema_pii_access,
+    normalize_hub_source_mappings,
+    normalize_triage_ledger,
+    redact_dv_schema_rows,
+    resolve_run_artifact_sources,
+    resolve_wave_label,
+)
 
 if TYPE_CHECKING:
     from opendv_service.state.base import BaseStateContainer
 
 
-def _resolve_existing_file(state: BaseStateContainer, raw_path: str | None) -> Path | None:
-    if not raw_path:
-        return None
-    p = Path(raw_path)
-    if p.is_file():
-        return p.resolve()
-    cand = (state.repo_root / raw_path).resolve()
-    if cand.is_file():
-        return cand
-    return None
-
-
 def _load_run_ir_and_contract(
     state: BaseStateContainer,
     run_id: str,
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    if run_id not in state.runs:
-        raise NotFoundError(f"Run '{run_id}' not found.", error_code=ErrorCode.RUN_NOT_FOUND)
-
-    run_dto = state.runs[run_id]
-    report = state.pipeline_reports.get(run_id)
-    report_dict: dict[str, Any] = report if isinstance(report, dict) else {}
-
-    ir_dict: dict[str, Any] = {}
-    contract_dict: dict[str, Any] = {}
-    if isinstance(report_dict.get("contract"), dict):
-        contract_dict = dict(report_dict["contract"])
-
-    candidate_dirs: list[Path] = []
-    final_arts = report_dict.get("final_artifacts")
-    if isinstance(final_arts, dict):
-        ir_ref = final_arts.get("final_canonical_ir")
-        if isinstance(ir_ref, dict):
-            ir_p = _resolve_existing_file(state, ir_ref.get("file_path") or ir_ref.get("path"))
-            if ir_p is not None:
-                candidate_dirs.append(ir_p.parent)
-                ir_dict = json.loads(ir_p.read_text(encoding="utf-8"))
-        fc_ref = final_arts.get("final_contract")
-        if isinstance(fc_ref, dict):
-            fc_p = _resolve_existing_file(state, fc_ref.get("file_path") or fc_ref.get("path"))
-            if fc_p is not None:
-                candidate_dirs.append(fc_p.parent)
-                if not contract_dict:
-                    loaded = yaml.safe_load(fc_p.read_text(encoding="utf-8"))
-                    if isinstance(loaded, dict):
-                        contract_dict = loaded
-
-    for art_ref in report_dict.get("artifacts") or []:
-        if not isinstance(art_ref, dict):
-            continue
-        p = _resolve_existing_file(state, art_ref.get("file_path") or art_ref.get("path"))
-        if p is not None:
-            candidate_dirs.append(p.parent)
-            if p.name == "final_canonical_ir.json" and not ir_dict:
-                ir_dict = json.loads(p.read_text(encoding="utf-8"))
-            elif p.name == "final_contract.yaml" and not contract_dict:
-                loaded = yaml.safe_load(p.read_text(encoding="utf-8"))
-                if isinstance(loaded, dict):
-                    contract_dict = loaded
-
-    proj = state.projects.get(run_dto.project_id)
-    if proj is not None:
-        if not ir_dict and proj.canonical_ir_path:
-            p = _resolve_existing_file(state, proj.canonical_ir_path)
-            if p is not None:
-                candidate_dirs.append(p.parent)
-                ir_dict = json.loads(p.read_text(encoding="utf-8"))
-        if not contract_dict and proj.contract_path:
-            p = _resolve_existing_file(state, proj.contract_path)
-            if p is not None:
-                candidate_dirs.append(p.parent)
-                loaded = yaml.safe_load(p.read_text(encoding="utf-8"))
-                if isinstance(loaded, dict):
-                    contract_dict = loaded
-
-    for c_dir in candidate_dirs:
-        ir_cand = c_dir / "final_canonical_ir.json"
-        if not ir_dict and ir_cand.is_file():
-            ir_dict = json.loads(ir_cand.read_text(encoding="utf-8"))
-        fc_cand = c_dir / "final_contract.yaml"
-        if not contract_dict and fc_cand.is_file():
-            loaded = yaml.safe_load(fc_cand.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
-                contract_dict = loaded
-
-    if not ir_dict and contract_dict:
-        ir_obj = lower_contract_to_canonical_ir(contract_dict, validate_schema=False)
-        ir_dict = ir_obj.model_dump(mode="json", exclude_none=True)
-
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], str]:
+    sources = resolve_run_artifact_sources(state, run_id)
+    ir_dict = sources["ir_dict"]
+    contract_dict = sources["contract_dict"]
+    scorecard = sources["scorecard"]
+    report_dict = sources["report_dict"]
     if not ir_dict:
         raise NotFoundError(
             f"Compiled DV schema is not available for run '{run_id}'.",
             error_code=ErrorCode.ARTIFACT_NOT_FOUND,
         )
-
-    scorecard = dict(report_dict.get("gate_scorecard") or {})
-    if not scorecard:
-        scorecard = run_dto.gate_scorecard.model_dump(mode="json")
-
-    return ir_dict, contract_dict, scorecard
+    wave_label = resolve_wave_label(report_dict, contract_dict)
+    return ir_dict, contract_dict, scorecard, wave_label
 
 
 def _build_projection_from_ir(
@@ -142,9 +63,15 @@ def _build_projection_from_ir(
     contract_dict: dict[str, Any],
     scorecard: dict[str, Any],
     *,
+    wave_label: str = "W1",
     compare_run_id: str | None = None,
     wave_diff: DvSchemaWaveDiffDTO | None = None,
 ) -> DvSchemaProjectionDTO:
+    contract_hubs_by_name = {
+        str(h.get("name")): h
+        for h in (contract_dict.get("hubs") or [])
+        if isinstance(h, dict) and h.get("name")
+    }
     contract_sats_by_name = {
         str(s.get("name")): s
         for s in (contract_dict.get("satellites") or [])
@@ -156,22 +83,32 @@ def _build_projection_from_ir(
         if isinstance(lnk, dict) and lnk.get("name")
     }
 
-    hubs = [
-        DvHubSchemaDTO(
-            name=str(h.get("name", "")),
-            hk_column=str((h.get("hk_column") or {}).get("name", "")),
-            business_keys=[
-                str(bk.get("name", ""))
-                for bk in (h.get("business_keys") or [])
-                if isinstance(bk, dict)
-            ],
-            bkcc_column_expr=h.get("bkcc_column_expr"),
-            ontology_concept_uri=h.get("ontology_concept_uri"),
-            source_mappings=list(h.get("source_mappings") or []),
+    hubs = []
+    for h in ir_dict.get("hubs") or []:
+        if not isinstance(h, dict):
+            continue
+        hname = str(h.get("name", ""))
+        c_hub = contract_hubs_by_name.get(hname, {})
+        hubs.append(
+            DvHubSchemaDTO(
+                name=hname,
+                hk_column=str((h.get("hk_column") or {}).get("name", "")),
+                business_keys=[
+                    str(bk.get("name", ""))
+                    for bk in (h.get("business_keys") or [])
+                    if isinstance(bk, dict)
+                ],
+                bkcc_column_expr=h.get("bkcc_column_expr") or h.get("bkcc_literal"),
+                ontology_concept_uri=(
+                    h.get("ontology_concept_uri")
+                    or c_hub.get("ontology_concept_uri")
+                    or h.get("business_concept")
+                ),
+                source_mappings=normalize_hub_source_mappings(
+                    list(h.get("source_mappings") or [])
+                ),
+            )
         )
-        for h in (ir_dict.get("hubs") or [])
-        if isinstance(h, dict)
-    ]
 
     links = []
     for lnk in ir_dict.get("links") or []:
@@ -244,7 +181,7 @@ def _build_projection_from_ir(
     pit_tables = [
         DvPitTableSchemaDTO(
             name=str(p.get("name", "")),
-            target_hub=str(p.get("target_hub", "")),
+            target_hub=str(p.get("target_hub") or p.get("parent_entity") or ""),
             tracked_satellites=list(p.get("tracked_satellites") or []),
         )
         for p in (ir_dict.get("pit_tables") or [])
@@ -260,7 +197,7 @@ def _build_projection_from_ir(
         satellites=satellites,
         reference_tables=ref_tables,
         pit_tables=pit_tables,
-        column_triage_ledger=list(contract_dict.get("column_triage_ledger") or []),
+        column_triage_ledger=normalize_triage_ledger(contract_dict, ir_dict, wave_label),
         scorecard=scorecard,
         wave_diff=wave_diff,
     )
@@ -299,14 +236,16 @@ def _compute_wave_diff(
         base_cols = [
             str(c.get("name", "")) for c in base_sat.payload_columns if isinstance(c, dict)
         ]
-        curr_set = set(curr_cols) | set(sat.soft_deprecated_columns)
-        for b_col in base_cols:
-            if b_col not in curr_set:
-                dropped_count += 1
-        if curr_cols[: len(base_cols)] != base_cols:
+        curr_name_set = set(curr_cols)
+        base_name_set = set(base_cols)
+        curr_set = curr_name_set | set(sat.soft_deprecated_columns)
+        dropped_in_place = [b_col for b_col in base_cols if b_col not in curr_set]
+        dropped_count += len(dropped_in_place)
+        added_in_place = curr_name_set - base_name_set
+        if dropped_in_place or added_in_place:
             hash_diff_mutations += 1
         for c in curr_cols:
-            if c not in set(base_cols):
+            if c not in base_name_set:
                 added_columns.append({"satellite": sat.name, "column": c})
 
     return DvSchemaWaveDiffDTO(
@@ -328,12 +267,16 @@ def get_dv_schema_projection(
     compare_run_id: str | None = None,
 ) -> DvSchemaProjectionDTO:
     """Project DV 2.0 schema metadata and optional cross-wave diff for ``run_id``."""
-    ir_dict, contract_dict, scorecard = _load_run_ir_and_contract(state, run_id)
-    curr_proj = _build_projection_from_ir(run_id, ir_dict, contract_dict, scorecard)
+    ir_dict, contract_dict, scorecard, wave_label = _load_run_ir_and_contract(state, run_id)
+    curr_proj = _build_projection_from_ir(
+        run_id, ir_dict, contract_dict, scorecard, wave_label=wave_label
+    )
 
     if compare_run_id:
-        b_ir, b_contract, b_score = _load_run_ir_and_contract(state, compare_run_id)
-        base_proj = _build_projection_from_ir(compare_run_id, b_ir, b_contract, b_score)
+        b_ir, b_contract, b_score, b_wave = _load_run_ir_and_contract(state, compare_run_id)
+        base_proj = _build_projection_from_ir(
+            compare_run_id, b_ir, b_contract, b_score, wave_label=b_wave
+        )
         diff = _compute_wave_diff(curr_proj, base_proj, compare_run_id=compare_run_id)
         return curr_proj.model_copy(
             update={"compare_run_id": compare_run_id, "wave_diff": diff}
@@ -348,10 +291,12 @@ def get_dv_schema_table_rows(
     *,
     limit: int = 50,
     offset: int = 0,
+    role: RbacRole | str = RbacRole.PRIVILEGED_CUSTODIAN,
 ) -> DvSchemaTableRowsDTO:
     """Read paginated rows from a persisted DuckDB sandbox table for ``run_id``."""
     if run_id not in state.runs:
         raise NotFoundError(f"Run '{run_id}' not found.", error_code=ErrorCode.RUN_NOT_FOUND)
+    assert_dv_schema_pii_access(state, run_id, role=role, table_name=table_name)
     try:
         db_path = get_sandbox_db_path(state.state_dir, run_id)
     except ValueError as exc:
@@ -367,6 +312,7 @@ def get_dv_schema_table_rows(
         raise NotFoundError(str(exc), error_code=ErrorCode.ARTIFACT_NOT_FOUND) from exc
     except ValueError as exc:
         raise InputValidationError(str(exc), error_code=ErrorCode.INVALID_REQUEST) from exc
+    res["rows"] = redact_dv_schema_rows(list(res.get("rows") or []), role=role)
     return DvSchemaTableRowsDTO(run_id=run_id, **res)
 
 
@@ -376,10 +322,12 @@ def execute_dv_schema_query(
     *,
     sql: str,
     max_rows: int = 500,
+    role: RbacRole | str = RbacRole.PRIVILEGED_CUSTODIAN,
 ) -> DvSchemaQueryResponseDTO:
     """Validate and execute read-only SQL against the persisted DuckDB sandbox."""
     if run_id not in state.runs:
         raise NotFoundError(f"Run '{run_id}' not found.", error_code=ErrorCode.RUN_NOT_FOUND)
+    assert_dv_schema_pii_access(state, run_id, role=role, sql=sql)
     try:
         validate_safe_sql(sql)
         db_path = get_sandbox_db_path(state.state_dir, run_id)
@@ -394,6 +342,7 @@ def execute_dv_schema_query(
         res = execute_readonly_sandbox_sql(db_path, sql, max_rows=max_rows)
     except (ValueError, duckdb.Error) as exc:
         raise InputValidationError(str(exc), error_code=ErrorCode.INVALID_REQUEST) from exc
+    res["rows"] = redact_dv_schema_rows(list(res.get("rows") or []), role=role)
     return DvSchemaQueryResponseDTO(run_id=run_id, **res)
 
 

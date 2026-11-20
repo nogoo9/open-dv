@@ -24,6 +24,7 @@ import {
 	syncStep4DecisionsToStore,
 } from "./wizard-step4-adapter";
 import {
+	WIZARD_STEP_LABELS,
 	type WizardStepNumber,
 	computeStep5DiffSummary,
 	mapAskFiboActions,
@@ -55,15 +56,6 @@ export interface OntologyWizardShellProps {
 	fetchImpl?: typeof fetch | undefined;
 	apiUrl?: string | undefined;
 }
-
-const STEP_LABELS: Array<{ step: WizardStepNumber; label: string }> = [
-	{ step: 1, label: "1. Scope & Baseline" },
-	{ step: 2, label: "2. Sources & Notes" },
-	{ step: 3, label: "3. Preview Evidence" },
-	{ step: 4, label: "4. Agent Discovery" },
-	{ step: 5, label: "5. Diff, Graph & Export" },
-	{ step: 6, label: "6. DV 2.0 Build & Run" },
-];
 
 export const OntologyWizardShell: React.FC<OntologyWizardShellProps> = ({
 	sessionId: initialSessionId,
@@ -114,7 +106,13 @@ export const OntologyWizardShell: React.FC<OntologyWizardShellProps> = ({
 		void store.loadSessions(fetchImpl, { wizardOnly: true });
 		void store.loadStarterPacks(fetchImpl);
 		void store.loadPipelineBaselines(fetchImpl);
-		if (initialSessionId) {
+	}, []);
+
+	safeUseEffect(() => {
+		if (
+			initialSessionId &&
+			studioStore.getState().activeSession?.session_id !== initialSessionId
+		) {
 			void store.selectSession(initialSessionId, fetchImpl);
 		}
 	}, [initialSessionId]);
@@ -127,6 +125,13 @@ export const OntologyWizardShell: React.FC<OntologyWizardShellProps> = ({
 			]);
 		} else if (activeStep === 6) {
 			void store.loadPipelineBaselines(fetchImpl);
+			if (
+				effectiveSessionId &&
+				!store.activeRunId &&
+				!store.isRunningPipeline
+			) {
+				void store.hydrateSessionLatestRun(fetchImpl, effectiveSessionId);
+			}
 		}
 	}, [activeStep, effectiveSessionId]);
 
@@ -179,7 +184,7 @@ export const OntologyWizardShell: React.FC<OntologyWizardShellProps> = ({
 				}}
 			>
 				<div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-					{STEP_LABELS.map((item) => {
+					{WIZARD_STEP_LABELS.map((item) => {
 						const isCurrent = activeStep === item.step;
 						return (
 							<button
@@ -270,18 +275,19 @@ export const OntologyWizardShell: React.FC<OntologyWizardShellProps> = ({
 							if (created && packIds.length > 0) {
 								await store.applyStarterPacks(packIds, fetchImpl);
 							}
-							if (created) setActiveStep(2);
+							if (created) setActiveStep((prev) => (prev === 1 ? 2 : prev));
 						}}
 						onImportOntology={async ({ format, content, domainNamespace }) => {
 							const imported = await store.importOntologySession(
 								{ format, content, domain_namespace: domainNamespace },
 								fetchImpl,
 							);
-							if (imported) setActiveStep(2);
+							if (imported) setActiveStep((prev) => (prev === 1 ? 2 : prev));
 						}}
 						onSelectSession={async (sid) => {
+							// Advance Step 1 -> 2 before async hydration so jumping to Step 6 is not overwritten
+							setActiveStep((prev) => (prev === 1 ? 2 : prev));
 							await store.selectSession(sid, fetchImpl);
-							setActiveStep(2);
 						}}
 						onContinue={() => setActiveStep(2)}
 					/>
@@ -366,6 +372,7 @@ export const OntologyWizardShell: React.FC<OntologyWizardShellProps> = ({
 						breakingCandidates={breakingList}
 						clarifications={store.clarifications}
 						activeSessionJobId={store.activeSessionJobId}
+						isRunningPipeline={store.isRunningPipeline}
 						budgetHold={store.budgetHold}
 						askFiboAnswer={store.fiboQaResult?.answer ?? null}
 						askFiboCitations={store.fiboQaResult?.citations ?? []}
@@ -474,6 +481,9 @@ export const OntologyWizardShell: React.FC<OntologyWizardShellProps> = ({
 						topologyRows={store.topologyRows}
 						stageStatuses={store.stageStatuses}
 						zoneSqlByZone={store.zoneSqlByZone}
+						zoneSqlByDialect={store.zoneSqlByDialect}
+						gateScorecard={store.gateScorecard}
+						sessionRuns={store.sessionRuns}
 						activeRunId={store.activeRunId}
 						activeSessionJobId={store.activeSessionJobId}
 						isRunningPipeline={store.isRunningPipeline}
@@ -488,6 +498,7 @@ export const OntologyWizardShell: React.FC<OntologyWizardShellProps> = ({
 							)
 						}
 						onSelectBaseline={(rid) => store.setSelectedBaselineRunId(rid)}
+						onSelectViewedRun={(rid) => store.selectViewedRun(rid, fetchImpl)}
 						onUploadBaselineContract={(yaml) =>
 							store.setSelectedBaselineRunId("__uploaded__", yaml)
 						}

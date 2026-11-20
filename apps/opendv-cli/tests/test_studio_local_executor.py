@@ -2321,7 +2321,7 @@ def test_studio_construct_modes_delete_and_greenfield_promote(
     sdir = studio_root / "lifecycle-sess"
     genesis_sha = json.loads((sdir / "session.json").read_text(encoding="utf-8"))["head_sha256"]
 
-    # 1. `construct --mode agent` without configured agent harness fails closed (exit 4 AGENT_NOT_CONFIGURED)
+    # 1. `construct --mode agent` without configured harness fails closed (AGENT_NOT_CONFIGURED)
     with monkeypatch.context() as mp:
         for env_key in (
             "OPENDV_AGY_CLI_BIN",

@@ -108,6 +108,7 @@ export interface ContractSatelliteDTO {
 	security_classification?: ContractSecurityClassification | undefined;
 	volatility_tier?: ContractVolatilityTier | undefined;
 	soft_deprecated_columns?: string[] | undefined;
+	column_aliases?: Record<string, string> | undefined;
 	payload_columns: string[];
 }
 

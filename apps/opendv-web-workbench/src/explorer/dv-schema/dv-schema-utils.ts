@@ -5,10 +5,90 @@
 
 import type {
 	DvColumnMeta,
+	DvEntityKind,
 	DvGraphEntity,
 	DvSchemaProjectionDTO,
 	DvSchemaZoneFilter,
+	ZoneSqlMap,
 } from "./types";
+
+export interface NormalizedTriageRow {
+	wave: string;
+	source_table: string;
+	source_column: string;
+	triage_role: string;
+	graph_a_uri: string;
+	staging_expr: string;
+	target_entity: string;
+}
+
+function nonEmptyStr(val: unknown): string | undefined {
+	if (val === null || val === undefined) return undefined;
+	const s = String(val).trim();
+	return s.length > 0 ? s : undefined;
+}
+
+export function normalizeTriageRow(
+	row: Record<string, unknown>,
+): NormalizedTriageRow {
+	const source_table =
+		nonEmptyStr(row.source_table) ?? nonEmptyStr(row.bronze_table) ?? "";
+	const source_column =
+		nonEmptyStr(row.source_column) ?? nonEmptyStr(row.column_name) ?? "";
+	const triage_role =
+		nonEmptyStr(row.triage_role) ?? nonEmptyStr(row.elm_classification) ?? "";
+	const target_entity =
+		nonEmptyStr(row.target_entity) ?? nonEmptyStr(row.target_dv_entity) ?? "";
+	const sqlType = nonEmptyStr(row.source_sql_type);
+	const defaultStagingExpr = source_column
+		? triage_role === "SYSTEM_SURROGATE_DROPPED"
+			? "-- DROPPED (surrogate)"
+			: sqlType
+				? `CAST(${source_column} AS ${sqlType})`
+				: source_column
+		: "";
+	return {
+		wave: nonEmptyStr(row.wave) ?? "W1",
+		source_table,
+		source_column,
+		triage_role,
+		graph_a_uri:
+			nonEmptyStr(row.graph_a_uri) ??
+			nonEmptyStr(row.ontology_concept_uri) ??
+			"",
+		staging_expr: nonEmptyStr(row.staging_expr) ?? defaultStagingExpr,
+		target_entity,
+	};
+}
+
+export function resolveDvSchemaName(
+	entityName: string,
+	kind: DvEntityKind,
+	satelliteType?: string,
+	parentEntity?: string,
+): string {
+	if (kind === "STG") return "staging";
+	if (kind === "PIT" || kind === "SAL") return "business_vault";
+	const lower = entityName.toLowerCase();
+	if (
+		lower.startsWith("esat_") ||
+		lower.startsWith("sal_") ||
+		lower.startsWith("hal_") ||
+		lower.startsWith("pit_") ||
+		lower.startsWith("brg_") ||
+		(satelliteType ?? "").toUpperCase().includes("EFFECTIVITY") ||
+		/^(sal|hal)_/i.test(parentEntity ?? "")
+	) {
+		return "business_vault";
+	}
+	return "raw_vault";
+}
+
+function toCanonicalStgName(rawTable: string): string {
+	const cleaned = rawTable.trim();
+	if (cleaned.startsWith("stg_")) return cleaned;
+	return `stg_${cleaned.replace(/[^a-zA-Z0-9_]+/g, "_")}`;
+}
 
 function csvCell(val: unknown): string {
 	const str = val === null || val === undefined ? "" : String(val);
@@ -21,7 +101,7 @@ function csvCell(val: unknown): string {
 export function formatTriageCsv(
 	ledger: readonly Record<string, unknown>[] = [],
 ): string {
-	const headers = [
+	const headers: ReadonlyArray<keyof NormalizedTriageRow> = [
 		"wave",
 		"source_table",
 		"source_column",
@@ -32,7 +112,8 @@ export function formatTriageCsv(
 	];
 	const lines = [headers.join(",")];
 	for (const row of ledger) {
-		lines.push(headers.map((h) => csvCell(row[h])).join(","));
+		const norm = normalizeTriageRow(row);
+		lines.push(headers.map((h) => csvCell(norm[h])).join(","));
 	}
 	return lines.join("\n");
 }
@@ -47,6 +128,7 @@ export function buildAlgorithmA5Sql(columns: readonly string[]): string {
 
 export function buildDvEntities(
 	projection: DvSchemaProjectionDTO,
+	zoneSql?: ZoneSqlMap,
 ): DvGraphEntity[] {
 	const diff = projection.wave_diff;
 	const addedHubs = new Set(diff?.added_hubs ?? []);
@@ -70,7 +152,7 @@ export function buildDvEntities(
 		entities.push({
 			id: `ref:${r.name}`,
 			name: r.name,
-			schemaName: "raw_vault",
+			schemaName: resolveDvSchemaName(r.name, "REF"),
 			kind: "REF",
 			zone: "Z0",
 			subtitle: `Ref · ${r.natural_code_column}`,
@@ -82,20 +164,100 @@ export function buildDvEntities(
 		});
 	}
 
-	const stgSet = new Set<string>();
-	for (const row of projection.column_triage_ledger ?? []) {
-		const st = String(row.source_table ?? "").trim();
-		if (st) stgSet.add(st);
+	const stgMap = new Map<
+		string,
+		{ sourceTable: string; columns: DvColumnMeta[] }
+	>();
+	const upsertStg = (
+		rawName: string,
+		sourceLabel: string,
+		col?: DvColumnMeta,
+	) => {
+		const stgName = toCanonicalStgName(rawName);
+		let entry = stgMap.get(stgName);
+		if (!entry) {
+			entry = { sourceTable: sourceLabel, columns: [] };
+			stgMap.set(stgName, entry);
+		}
+		if (col?.name && !entry.columns.some((c) => c.name === col.name)) {
+			entry.columns.push(col);
+		}
+	};
+
+	for (const rawRow of projection.column_triage_ledger ?? []) {
+		const norm = normalizeTriageRow(rawRow);
+		if (!norm.source_table) continue;
+		upsertStg(
+			norm.source_table,
+			norm.source_table,
+			norm.source_column
+				? {
+						name: norm.source_column,
+						sqlType: nonEmptyStr(rawRow.source_sql_type) ?? "VARCHAR",
+						role: norm.triage_role || "STAGED",
+					}
+				: undefined,
+		);
 	}
-	for (const st of stgSet) {
-		const stgName = st.startsWith("stg_") ? st : `stg_${st}`;
-		const mappedCols = (projection.column_triage_ledger ?? [])
-			.filter((r) => String(r.source_table ?? "") === st)
-			.map((r) => ({
-				name: String(r.source_column ?? ""),
-				sqlType: "VARCHAR",
-				role: String(r.triage_role ?? "STAGED"),
-			}));
+
+	const rawStagingViews = (
+		projection as DvSchemaProjectionDTO & { staging_views?: unknown }
+	).staging_views;
+	if (Array.isArray(rawStagingViews)) {
+		for (const sv of rawStagingViews) {
+			if (typeof sv === "string" && sv.trim()) {
+				upsertStg(sv, sv.trim());
+			} else if (sv && typeof sv === "object") {
+				const obj = sv as Record<string, unknown>;
+				const svName =
+					nonEmptyStr(obj.name) ??
+					nonEmptyStr(obj.staging_table) ??
+					nonEmptyStr(obj.source_table);
+				if (svName) upsertStg(svName, svName);
+			}
+		}
+	}
+
+	for (const h of projection.hubs ?? []) {
+		for (const m of h.source_mappings ?? []) {
+			const mRec = m as Record<string, unknown>;
+			const stgOrSrc =
+				nonEmptyStr(mRec.staging_table) ??
+				nonEmptyStr(mRec.source_table) ??
+				nonEmptyStr(mRec.bronze_table);
+			if (!stgOrSrc) continue;
+			const srcLabel = nonEmptyStr(mRec.bronze_table) ?? stgOrSrc;
+			const bkList = Array.isArray(mRec.bk_source_columns)
+				? mRec.bk_source_columns.map(String).filter((c) => c !== "bkcc")
+				: nonEmptyStr(mRec.source_column)
+					? [String(mRec.source_column)]
+					: [];
+			if (bkList.length === 0) {
+				upsertStg(stgOrSrc, srcLabel);
+			} else {
+				for (const colName of bkList) {
+					upsertStg(stgOrSrc, srcLabel, {
+						name: colName,
+						sqlType: "VARCHAR",
+						role: "BUSINESS_KEY",
+					});
+				}
+			}
+		}
+	}
+
+	if (stgMap.size === 0 && zoneSql?.Z1) {
+		const viewRe =
+			/CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(?:[a-zA-Z0-9_]+\.)?(stg_[a-zA-Z0-9_]+)/gi;
+		let match: RegExpExecArray | null = viewRe.exec(zoneSql.Z1);
+		while (match !== null) {
+			if (match[1]) upsertStg(match[1], match[1]);
+			match = viewRe.exec(zoneSql.Z1);
+		}
+	}
+
+	for (const [stgName, entry] of stgMap.entries()) {
+		const mappedCols = entry.columns;
 		entities.push({
 			id: `stg:${stgName}`,
 			name: stgName,
@@ -107,12 +269,13 @@ export function buildDvEntities(
 			isWaveDelta: false,
 			isPii: mappedCols.some((c) => c.role.toUpperCase().includes("PII")),
 			algA5Sql: buildAlgorithmA5Sql(mappedCols.slice(0, 2).map((c) => c.name)),
-			sourceLineage: `source.${st} -> staging.${stgName}`,
+			sourceLineage: `source.${entry.sourceTable} -> staging.${stgName}`,
 		});
 	}
 
 	for (const h of projection.hubs ?? []) {
-		const bks = h.business_keys ?? [];
+		const hRec = h as typeof h & { bkcc_literal?: string | null };
+		const bks = (h.business_keys ?? []).filter((bk) => bk !== "bkcc");
 		const cols: DvColumnMeta[] = [
 			{ name: h.hk_column, sqlType: "CHAR(64)", role: "PK · Hash Key" },
 			...bks.map((bk) => ({
@@ -125,27 +288,48 @@ export function buildDvEntities(
 			{ name: "record_source", sqlType: "VARCHAR(128)", role: "Provenance" },
 		];
 		const mappings = (h.source_mappings ?? [])
-			.map(
-				(m) =>
-					`${String(m.source_table ?? "src")}.${String(m.source_column ?? "bk")}`,
-			)
+			.map((m) => {
+				const mRec = m as Record<string, unknown>;
+				const tbl =
+					nonEmptyStr(mRec.source_table) ??
+					nonEmptyStr(mRec.bronze_table) ??
+					nonEmptyStr(mRec.staging_table) ??
+					"src";
+				const bkCols = Array.isArray(mRec.bk_source_columns)
+					? mRec.bk_source_columns.map(String).filter((c) => c !== "bkcc")
+					: [];
+				const col =
+					nonEmptyStr(mRec.source_column) ??
+					(bkCols.length > 0 ? bkCols.join(", ") : "bk");
+				return `${tbl}.${col}`;
+			})
 			.join(", ");
+		const sm0 = (h.source_mappings ?? [])[0] as
+			| Record<string, unknown>
+			| undefined;
+		const bkccTier = nonEmptyStr(sm0?.key_authority_tier);
+		const bkccPrefix =
+			nonEmptyStr(sm0?.bkcc_prefix) ??
+			nonEmptyStr(sm0?.bkcc_literal) ??
+			nonEmptyStr(hRec.bkcc_literal);
+		const bkccExpr =
+			nonEmptyStr(h.bkcc_column_expr) ??
+			(bkccTier && bkccPrefix
+				? `${bkccTier}:'${bkccPrefix}'`
+				: (bkccPrefix ?? bkccTier));
 		entities.push({
 			id: `hub:${h.name}`,
 			name: h.name,
-			schemaName: "raw_vault",
+			schemaName: resolveDvSchemaName(h.name, "HUB"),
 			kind: "HUB",
 			zone: "Z2",
 			subtitle: `BK: ${bks.join(", ") || "key"}`,
 			columns: cols,
-			bkccExpr: h.bkcc_column_expr,
+			bkccExpr,
 			ontologyUri: h.ontology_concept_uri,
 			isWaveDelta: addedHubs.has(h.name),
 			isPii: false,
-			algA5Sql: buildAlgorithmA5Sql([
-				...bks,
-				...(h.bkcc_column_expr ? ["bkcc"] : []),
-			]),
+			algA5Sql: buildAlgorithmA5Sql([...bks, ...(bkccExpr ? ["bkcc"] : [])]),
 			sourceLineage: mappings
 				? `${mappings} -> ${h.ontology_concept_uri ?? h.name} -> raw_vault.${h.name}`
 				: `raw_vault.${h.name}`,
@@ -155,17 +339,24 @@ export function buildDvEntities(
 	for (const lnk of projection.links ?? []) {
 		const isSal =
 			lnk.link_type.toUpperCase().includes("SAL") ||
+			lnk.link_type.toUpperCase().includes("SAME_AS") ||
 			lnk.name.startsWith("sal_");
-		const hubRefs = (lnk.hub_references ?? []).map((r) =>
-			String(r.hub_name ?? ""),
-		);
+		const hubRefs = (lnk.hub_references ?? [])
+			.map((r) => String(r.hub_name ?? r.target_hub ?? ""))
+			.filter(Boolean);
 		const cols: DvColumnMeta[] = [
 			{ name: lnk.hk_column, sqlType: "CHAR(64)", role: "PK · Link HK" },
-			...(lnk.hub_references ?? []).map((r) => ({
-				name: String(r.hk_column ?? r.hub_name ?? "hk"),
-				sqlType: "CHAR(64)",
-				role: `FK -> ${String(r.hub_name ?? "hub")}`,
-			})),
+			...(lnk.hub_references ?? []).map((r) => {
+				const hubName = String(r.hub_name ?? r.target_hub ?? "hub");
+				const fkCol = String(
+					r.hk_column ?? r.fk_column_name ?? r.target_hk_column ?? hubName,
+				);
+				return {
+					name: fkCol,
+					sqlType: "CHAR(64)",
+					role: `FK -> ${hubName}`,
+				};
+			}),
 			...(lnk.degenerate_columns ?? []).map((dc) => ({
 				name: dc,
 				sqlType: "VARCHAR(128)",
@@ -173,11 +364,12 @@ export function buildDvEntities(
 			})),
 			{ name: "load_dts", sqlType: "TIMESTAMP", role: "Assertion Time" },
 		];
+		const linkKind: DvEntityKind = isSal ? "SAL" : "LINK";
 		entities.push({
 			id: `lnk:${lnk.name}`,
 			name: lnk.name,
-			schemaName: isSal ? "business_vault" : "raw_vault",
-			kind: isSal ? "SAL" : "LINK",
+			schemaName: resolveDvSchemaName(lnk.name, linkKind),
+			kind: linkKind,
 			zone: "Z2",
 			subtitle: lnk.where_filter_condition
 				? `WHERE ${lnk.where_filter_condition}`
@@ -189,7 +381,14 @@ export function buildDvEntities(
 			isPii: false,
 			algA5Sql: buildAlgorithmA5Sql(
 				(lnk.hub_references ?? []).map((r) =>
-					String(r.hk_column ?? r.hub_name ?? "hk"),
+					String(
+						r.hk_column ??
+							r.fk_column_name ??
+							r.target_hk_column ??
+							r.hub_name ??
+							r.target_hub ??
+							"hk",
+					),
 				),
 			),
 			sourceLineage: `Bipartite Link connecting ${hubRefs.join(" <-> ")}${lnk.where_filter_condition ? ` (WHERE ${lnk.where_filter_condition})` : ""}`,
@@ -218,7 +417,7 @@ export function buildDvEntities(
 				if (cname) payloadNames.push(cname);
 				return {
 					name: cname,
-					sqlType: String(pc.sql_type ?? "VARCHAR"),
+					sqlType: String(pc.sql_type ?? pc.data_type ?? "VARCHAR"),
 					role: pc.pii ? "PII Sensitive Attr" : "Descriptive Payload",
 					pii: Boolean(pc.pii),
 				};
@@ -229,11 +428,17 @@ export function buildDvEntities(
 				role: "Alg A.5 Payload Digest",
 			},
 		];
+		const satKind: DvEntityKind = isPii ? "SAT_PII" : "SAT";
 		entities.push({
 			id: `sat:${sat.name}`,
 			name: sat.name,
-			schemaName: "raw_vault",
-			kind: isPii ? "SAT_PII" : "SAT",
+			schemaName: resolveDvSchemaName(
+				sat.name,
+				satKind,
+				sat.satellite_type,
+				sat.parent_entity,
+			),
+			kind: satKind,
 			zone: "Z2",
 			subtitle: `${sat.satellite_type} · ${payloadNames.length} cols`,
 			columns: cols,
@@ -248,13 +453,20 @@ export function buildDvEntities(
 		});
 	}
 
+	const hubNames = new Set((projection.hubs ?? []).map((h) => h.name));
 	for (const pit of projection.pit_tables ?? []) {
 		const isBridge = pit.name.startsWith("brg_");
+		const pitRec = pit as typeof pit & { parent_entity?: string };
+		const candidateHub = `hub_${pit.name.replace(/^(pit_|brg_)/, "")}`;
+		const targetHub =
+			nonEmptyStr(pit.target_hub) ??
+			nonEmptyStr(pitRec.parent_entity) ??
+			(hubNames.has(candidateHub) ? candidateHub : "");
 		const cols: DvColumnMeta[] = [
 			{
-				name: `hk_${pit.target_hub.replace(/^hub_/, "")}`,
+				name: `hk_${targetHub.replace(/^hub_/, "")}`,
 				sqlType: "CHAR(64)",
-				role: `PK/FK -> ${pit.target_hub}`,
+				role: `PK/FK -> ${targetHub}`,
 			},
 			{ name: "snapshot_dts", sqlType: "TIMESTAMP", role: "PK · Snapshot" },
 			...(pit.tracked_satellites ?? []).map((ts) => ({
@@ -266,17 +478,17 @@ export function buildDvEntities(
 		entities.push({
 			id: `pit:${pit.name}`,
 			name: pit.name,
-			schemaName: "business_vault",
+			schemaName: resolveDvSchemaName(pit.name, "PIT"),
 			kind: "PIT",
 			zone: "Z3",
 			subtitle: `${isBridge ? "Bridge" : "PIT"} · ${(pit.tracked_satellites ?? []).length} Sats`,
 			columns: cols,
-			parentEntity: pit.target_hub,
+			parentEntity: targetHub,
 			trackedSatellites: pit.tracked_satellites ?? [],
 			isWaveDelta: false,
 			isPii: false,
 			algA5Sql: `COALESCE(${pit.tracked_satellites?.[0] ?? "sat"}.load_dts, TIMESTAMP '1900-01-01 00:00:00')`,
-			sourceLineage: `${pit.target_hub} + [${(pit.tracked_satellites ?? []).join(", ")}] -> business_vault.${pit.name}`,
+			sourceLineage: `${targetHub} + [${(pit.tracked_satellites ?? []).join(", ")}] -> business_vault.${pit.name}`,
 		});
 	}
 

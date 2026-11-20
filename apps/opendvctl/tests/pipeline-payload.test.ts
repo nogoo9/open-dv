@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildSingleRunPayload } from "../src/remote/pipeline-payload";
-import { handlePipeline, handleRun, handleSandbox } from "../src/remote/pipeline";
+import { handleHold, handlePipeline, handleRun, handleSandbox } from "../src/remote/pipeline";
 import { handleSource } from "../src/remote/source";
 import type { RemoteHttpClient } from "../src/remote/http-client";
 
@@ -214,5 +214,34 @@ describe("buildSingleRunPayload (R3-C2)", () => {
 		expect(capturedBody.initial_contract_path).toBeUndefined();
 		expect(capturedBody.pipeline_input_path).toBeUndefined();
 		expect(capturedBody.blueprint_path).toBeUndefined();
+	});
+
+	it("hold list queries /api/v1/runs/{run_id}/decisions (not /holds)", async () => {
+		let capturedEndpoint = "";
+		const mockClientForHold = {
+			baseUrl: "http://127.0.0.1:8000",
+			getHeaders: () => ({}),
+			getJson: async (ep: string) => {
+				capturedEndpoint = ep;
+				return {
+					run_id: "run-global-commerce-sample-001",
+					active_holds: [],
+					decisions: [],
+				};
+			},
+		} as unknown as RemoteHttpClient;
+
+		const result = await handleHold(mockClientForHold, "list", {
+			run_id: "run-global-commerce-sample-001",
+		});
+
+		expect(capturedEndpoint).toBe(
+			"/api/v1/runs/run-global-commerce-sample-001/decisions",
+		);
+		expect(result).toEqual({
+			run_id: "run-global-commerce-sample-001",
+			active_holds: [],
+			decisions: [],
+		});
 	});
 });

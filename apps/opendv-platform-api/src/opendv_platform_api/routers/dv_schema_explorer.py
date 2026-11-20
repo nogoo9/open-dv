@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from opendv_contracts.dtos.dv_schema import (
     DvSchemaProjectionDTO,
@@ -12,7 +12,8 @@ from opendv_contracts.dtos.dv_schema import (
     DvSchemaQueryResponseDTO,
     DvSchemaTableRowsDTO,
 )
-from opendv_platform_api.deps import get_opendv_service
+from opendv_platform_api.deps import get_opendv_service, get_rbac_role
+from opendv_platform_api.studio_deps import ViewerDep
 from opendv_service import InputValidationError, NotFoundError, OpenDVService
 from opendv_service.use_cases.dv_schema_explorer import (
     execute_dv_schema_query,
@@ -31,6 +32,7 @@ router = APIRouter(tags=["dv-schema"])
 async def get_dv_schema_endpoint(
     run_id: str,
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
+    _principal: ViewerDep,
     compare: Annotated[
         str | None,
         Query(description="Optional baseline run_id to compute multi-wave schema diff."),
@@ -53,11 +55,14 @@ async def get_dv_schema_endpoint(
 async def get_dv_schema_table_rows_endpoint(
     run_id: str,
     table: str,
+    request: Request,
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
+    _principal: ViewerDep,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> DvSchemaTableRowsDTO:
     """Return paginated read-only rows from a persisted run sandbox `.duckdb` table."""
+    role = get_rbac_role(request)
     try:
         return get_dv_schema_table_rows(
             service.state,
@@ -65,6 +70,7 @@ async def get_dv_schema_table_rows_endpoint(
             table,
             limit=limit,
             offset=offset,
+            role=role,
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -80,15 +86,19 @@ async def get_dv_schema_table_rows_endpoint(
 async def query_dv_schema_endpoint(
     run_id: str,
     req: DvSchemaQueryRequestDTO,
+    request: Request,
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
+    _principal: ViewerDep,
 ) -> DvSchemaQueryResponseDTO:
     """Validate SQL against the strict allowlist and execute read-only in DuckDB."""
+    role = get_rbac_role(request)
     try:
         return execute_dv_schema_query(
             service.state,
             run_id,
             sql=req.sql,
             max_rows=req.max_rows,
+            role=role,
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

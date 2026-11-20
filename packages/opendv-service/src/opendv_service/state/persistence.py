@@ -6,7 +6,6 @@ import contextlib
 import copy
 import json
 import os
-import re
 import secrets
 import uuid
 from collections.abc import Callable
@@ -26,49 +25,17 @@ from opendv_service.models import (
     ProjectRunDTO,
     SandboxExecutionResponse,
 )
+from opendv_service.state.pii_redaction import (
+    redact_event_pii,
+    redact_pii_text,
+    sanitize_layer1_summary,
+)
 from opendv_telemetry import VaultLedgerEmitter
 
 if TYPE_CHECKING:
     from opendv_service.state.base import BaseStateContainer
 
 STATE_SNAPSHOT_FILENAME: Final[str] = "platform_state.json"
-
-_RE_SSN: Final[re.Pattern[str]] = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
-_RE_EIN: Final[re.Pattern[str]] = re.compile(r"\b\d{2}-\d{7}\b")
-_RE_EMAIL: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-_RE_HEX64: Final[re.Pattern[str]] = re.compile(r"\b[0-9A-Fa-f]{64}\b")
-
-
-def redact_pii_text(text: str, *, mask_hex64: bool = False) -> str:
-    """Scrub SSN, EIN, email, and optionally raw 64-hex digests from telemetry strings."""
-    cleaned = _RE_SSN.sub("<MASKED_PII>", text)
-    cleaned = _RE_EIN.sub("<MASKED_PII>", cleaned)
-    cleaned = _RE_EMAIL.sub("<MASKED_PII>", cleaned)
-    if mask_hex64:
-        cleaned = _RE_HEX64.sub("[REDACTED_DIGEST]", cleaned)
-    return cleaned
-
-
-def _redact_obj(obj: Any, *, mask_hex64: bool = False) -> Any:
-    if isinstance(obj, str):
-        return redact_pii_text(obj, mask_hex64=mask_hex64)
-    if isinstance(obj, dict):
-        out: dict[str, Any] = {}
-        for k, v in obj.items():
-            if k == "session_id":
-                out[k] = v
-                continue
-            sub_mask = mask_hex64 or k in ("layer1_story_banner", "summary_metrics")
-            out[k] = _redact_obj(v, mask_hex64=sub_mask)
-        return out
-    if isinstance(obj, list):
-        return [_redact_obj(item, mask_hex64=mask_hex64) for item in obj]
-    return obj
-
-
-def redact_event_pii(event: dict[str, Any]) -> dict[str, Any]:
-    """Return a deep-copied observability event with PII/raw-digest leaks scrubbed."""
-    return _redact_obj(copy.deepcopy(event), mask_hex64=False)
 
 
 def _snapshot_container(container: BaseStateContainer | Any) -> dict[str, Any]:
@@ -81,7 +48,9 @@ def _snapshot_container(container: BaseStateContainer | Any) -> dict[str, Any]:
         "run_session_ids": {
             str(k): str(v) for k, v in getattr(container, "run_session_ids", {}).items() if v
         },
-        "explicit_hold_runs": sorted(str(r) for r in getattr(container, "explicit_hold_runs", set())),
+        "explicit_hold_runs": sorted(
+            str(r) for r in getattr(container, "explicit_hold_runs", set())
+        ),
         "run_gate_reports": copy.deepcopy(container.run_gate_reports),
         "run_sandbox_history": {
             k: [item.model_dump(mode="json") for item in v]
@@ -150,7 +119,7 @@ def load_platform_state(container: BaseStateContainer | Any) -> bool:
         for rid, sid_val in (raw.get("run_session_ids") or {}).items():
             if sid_val and hasattr(container, "run_session_ids"):
                 container.run_session_ids[str(rid)] = str(sid_val)
-        for rid in (raw.get("explicit_hold_runs") or []):
+        for rid in raw.get("explicit_hold_runs") or []:
             if rid and hasattr(container, "explicit_hold_runs"):
                 container.explicit_hold_runs.add(str(rid))
         for rid, greport in (raw.get("run_gate_reports") or {}).items():
@@ -184,10 +153,24 @@ def load_platform_state(container: BaseStateContainer | Any) -> bool:
                 for ev in container.run_events.get(rid, ()):
                     if not isinstance(ev, dict):
                         continue
-                    l2 = ev.get("layer2_visual_payload") if isinstance(ev.get("layer2_visual_payload"), dict) else {}
-                    l2_m = l2.get("summary_metrics") if isinstance(l2.get("summary_metrics"), dict) else {}
-                    top_m = ev.get("summary_metrics") if isinstance(ev.get("summary_metrics"), dict) else {}
-                    ev_sid = ev.get("session_id") or l2_m.get("session_id") or top_m.get("session_id")
+                    l2 = (
+                        ev.get("layer2_visual_payload")
+                        if isinstance(ev.get("layer2_visual_payload"), dict)
+                        else {}
+                    )
+                    l2_m = (
+                        l2.get("summary_metrics")
+                        if isinstance(l2.get("summary_metrics"), dict)
+                        else {}
+                    )
+                    top_m = (
+                        ev.get("summary_metrics")
+                        if isinstance(ev.get("summary_metrics"), dict)
+                        else {}
+                    )
+                    ev_sid = (
+                        ev.get("session_id") or l2_m.get("session_id") or top_m.get("session_id")
+                    )
                     if ev_sid:
                         container.run_session_ids[rid] = str(ev_sid)
                         break
@@ -226,7 +209,7 @@ def emit_incremental_ledger_event(
     run_id: str,
     evt: dict[str, Any],
 ) -> None:
-    """Redact PII, record in `container.run_events`, and flush incrementally to VaultLedgerEmitter."""
+    """Redact PII, record in `container.run_events`, and flush to VaultLedgerEmitter."""
     clean_evt = redact_event_pii(evt)
     lock = getattr(container, "_state_lock", None)
 
@@ -337,6 +320,7 @@ def wrap_pipeline_callbacks_with_ledger_flush(
         st_id = getattr(step_report, "stage_id", "STAGE_00_ORCHESTRATION")
         status_raw = str(getattr(step_report, "status", "PASS"))
         passed = status_raw in {"PASS", "COMPLETED", "AUTO-FIX", "AUTO_REPAIRED"}
+        safe_summary = sanitize_layer1_summary(str(getattr(step_report, "summary", "")), 200)
         evt = build_observability_event_dict(
             event_id=f"evt-{eff_run_id}-{st_id.lower()}-done-{uuid.uuid4().hex[:6]}",
             event_type=(
@@ -350,8 +334,7 @@ def wrap_pipeline_callbacks_with_ledger_flush(
             agent_persona=getattr(step_report, "persona", "vault-first-mate"),
             status="PASS" if passed else "REJECT-WITH-TRACE",
             headline=f"Stage {st_id} completed: {status_raw}.",
-            business_impact=str(getattr(step_report, "summary", ""))[:200]
-            or f"Wave {wave_idx} stage complete.",
+            business_impact=safe_summary or f"Wave {wave_idx} stage complete.",
             summary_metrics=_with_session(
                 {
                     "wave_index": wave_idx,
@@ -372,6 +355,7 @@ def wrap_pipeline_callbacks_with_ledger_flush(
         obs = getattr(harness_event, "observability_event", None)
         if delta_txt or thought_txt or obs:
             summary_txt = str(thought_txt or delta_txt or "Harness stream checkpoint").strip()
+            safe_impact = sanitize_layer1_summary(summary_txt, 100)
             stage_val = getattr(harness_event, "stage_id", None)
             stage_str = (
                 stage_val.value
@@ -391,7 +375,7 @@ def wrap_pipeline_callbacks_with_ledger_flush(
                 agent_persona="vault-first-mate",
                 status="PASS",
                 headline="Stream delta checkpoint.",
-                business_impact=summary_txt[:100] or "LLM stream activity.",
+                business_impact=safe_impact or "LLM stream activity.",
                 summary_metrics=_with_session({"delta_length": len(summary_txt)}),
             )
             emit_incremental_ledger_event(container, eff_run_id, evt)
@@ -408,7 +392,7 @@ def finalize_run_ledger(
     target_session_id: str | None,
     report_events: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Merge callback/report events, embed session_id in layer2 summary_metrics, and flush atomically."""
+    """Merge events, embed session_id in layer2 summary_metrics, and flush atomically."""
     lock = getattr(container, "_state_lock", None)
     events_list = list(report_events)
     with lock if lock is not None else contextlib.nullcontext():

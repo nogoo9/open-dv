@@ -8,15 +8,24 @@ import {
 	pickerRowWrapStyle as rowWrapStyle,
 } from "./catalogPickerStyles";
 
-export interface ForeignKeyHintLike { target_table?: string; target_column?: string; target_columns?: string[] }
+export interface ForeignKeyHintLike {
+	table?: string;
+	column?: string;
+	target_table?: string;
+	target_column?: string;
+	target_columns?: string[];
+}
 
 export function formatForeignKeyRef(fk: unknown): string | null {
 	if (!fk) return null;
 	if (typeof fk === "string") return fk.trim() || null;
 	if (typeof fk !== "object") return null;
 	const r = fk as ForeignKeyHintLike;
-	const tbl = r.target_table?.trim() ?? "";
-	const col = r.target_column?.trim() || r.target_columns?.[0]?.trim() || "";
+	const tbl = (r.target_table ?? r.table)?.trim() ?? "";
+	const col =
+		(r.target_column ?? r.column)?.trim() ||
+		r.target_columns?.[0]?.trim() ||
+		"";
 	return tbl && col ? `${tbl}.${col}` : tbl || col || null;
 }
 

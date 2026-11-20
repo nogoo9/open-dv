@@ -79,6 +79,7 @@ def compile_bronze_link_tables_sql(
         row3_tokens: list[str] = []
         row4_tokens: list[str] = []
         target_counts: dict[str, int] = {}
+        seen_first_rows: dict[str, list[str]] = {}
         for ref_idx, ref in enumerate(link.hub_references):
             fk_col = _validate_ident(ref.fk_column_name)
             t_hub = hub_by_name[ref.target_hub]
@@ -96,7 +97,11 @@ def compile_bronze_link_tables_sql(
             scoped_rows = _filter_hub_rows_for_bkcc(t_hub, hub_bk_rows[t_hub.name], ref_bkcc_lit)
             h_r1 = scoped_rows[0]
             h_r2 = scoped_rows[1] if len(scoped_rows) > 1 else scoped_rows[0]
-            r1_bks = h_r1 if (occ == 0 or scoped_rows != hub_bk_rows[t_hub.name]) else h_r2
+            if occ == 0 or seen_first_rows.get(t_hub.name) != h_r1:
+                r1_bks = h_r1
+                seen_first_rows.setdefault(t_hub.name, h_r1)
+            else:
+                r1_bks = h_r2
             r2_bks = h_r2
             t_bkcc_col_expr = _effective_hub_bkcc_column_expr(t_hub)
             for bk, val1, val2 in zip(t_hub.business_keys, r1_bks, r2_bks, strict=True):

@@ -417,16 +417,53 @@ RUN_COMMAND = CommandDef(
         ),
         CommandDef(
             name="dv-schema",
-            description="Inspect Data Vault 2.1 schema graph, table rows, or run bounded read-only DuckDB SQL queries",
+            description=(
+                "Inspect Data Vault 2.1 schema graph, table rows, "
+                "or run bounded read-only DuckDB SQL queries"
+            ),
             help="Inspect DV2.1 schema and data explorer",
             availability="both",
             options=[
-                OptionDef(name="run_id", flag="--run-id", short="-r", type="string", required=True, help="Target pipeline run ID"),
-                OptionDef(name="compare", flag="--compare", type="string", help="Optional baseline run ID to diff schema nodes and edges against"),
-                OptionDef(name="table", flag="--table", type="string", help="Inspect paged sample rows for a specific DV table"),
-                OptionDef(name="sql", flag="--sql", type="string", help="Execute a bounded read-only SELECT/WITH SQL query against run tables"),
-                OptionDef(name="limit", flag="--limit", type="integer", default=50, help="Maximum number of table rows to return"),
-                OptionDef(name="offset", flag="--offset", type="integer", default=0, help="Pagination row offset when reading --table"),
+                OptionDef(
+                    name="run_id",
+                    flag="--run-id",
+                    short="-r",
+                    type="string",
+                    required=True,
+                    help="Target pipeline run ID",
+                ),
+                OptionDef(
+                    name="compare",
+                    flag="--compare",
+                    type="string",
+                    help="Optional baseline run ID to diff schema nodes and edges against",
+                ),
+                OptionDef(
+                    name="table",
+                    flag="--table",
+                    type="string",
+                    help="Inspect paged sample rows for a specific DV table",
+                ),
+                OptionDef(
+                    name="sql",
+                    flag="--sql",
+                    type="string",
+                    help="Execute a bounded read-only SELECT/WITH SQL query against run tables",
+                ),
+                OptionDef(
+                    name="limit",
+                    flag="--limit",
+                    type="integer",
+                    default=50,
+                    help="Maximum number of table rows to return",
+                ),
+                OptionDef(
+                    name="offset",
+                    flag="--offset",
+                    type="integer",
+                    default=0,
+                    help="Pagination row offset when reading --table",
+                ),
             ],
         ),
     ],

@@ -57,7 +57,9 @@ def handle_logs(args: argparse.Namespace, executor: LocalExecutor | None = None)
         return auth_res  # type: ignore[return-value]
     sid_raw = getattr(args, "session", None) or getattr(args, "session_id", None)
     if not sid_raw:
-        return _err(40, "SYNTAX_INVALID_ARGUMENT", "Missing required --session or --session-id flag.")
+        return _err(
+            40, "SYNTAX_INVALID_ARGUMENT", "Missing required --session or --session-id flag."
+        )
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
         return ctx  # type: ignore[return-value]

@@ -477,7 +477,7 @@ export async function handleHold(
 	if (subcommand === "list") {
 		if (!runId) throw new Error("Missing --run-id");
 		payload = await client.getJson(
-			`/api/v1/runs/${encodeURIComponent(runId)}/holds`,
+			`/api/v1/runs/${encodeURIComponent(runId)}/decisions`,
 		);
 	} else if (
 		subcommand === "approve" ||

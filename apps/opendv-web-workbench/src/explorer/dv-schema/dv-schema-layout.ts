@@ -57,13 +57,19 @@ export function buildBipartiteFlowElements(
 	});
 
 	const edges: Edge[] = [];
+	const seenEdgeIds = new Set<string>();
+	const pushEdge = (edge: Edge) => {
+		if (seenEdgeIds.has(edge.id)) return;
+		seenEdgeIds.add(edge.id);
+		edges.push(edge);
+	};
 	for (const e of entities) {
 		// INV-05: Bipartite Hub <-> Link only (never Hub->Hub or Link->Link)
 		if (e.kind === "LINK" || e.kind === "SAL") {
 			for (const hubName of e.hubReferences ?? []) {
 				const hub = byName.get(hubName);
 				if (hub && hub.kind === "HUB") {
-					edges.push({
+					pushEdge({
 						id: `edge:${hub.id}->${e.id}`,
 						source: hub.id,
 						target: e.id,
@@ -74,7 +80,7 @@ export function buildBipartiteFlowElements(
 		} else if (e.kind === "SAT" || e.kind === "SAT_PII") {
 			const parent = e.parentEntity ? byName.get(e.parentEntity) : undefined;
 			if (parent) {
-				edges.push({
+				pushEdge({
 					id: `edge:${parent.id}->${e.id}`,
 					source: parent.id,
 					target: e.id,
@@ -89,7 +95,7 @@ export function buildBipartiteFlowElements(
 		} else if (e.kind === "PIT") {
 			const hub = e.parentEntity ? byName.get(e.parentEntity) : undefined;
 			if (hub) {
-				edges.push({
+				pushEdge({
 					id: `edge:${e.id}->${hub.id}`,
 					source: e.id,
 					target: hub.id,
@@ -103,7 +109,7 @@ export function buildBipartiteFlowElements(
 			for (const satName of e.trackedSatellites ?? []) {
 				const sat = byName.get(satName);
 				if (sat) {
-					edges.push({
+					pushEdge({
 						id: `edge:${e.id}->${sat.id}`,
 						source: e.id,
 						target: sat.id,
@@ -262,6 +268,35 @@ export interface HydratedRunArtifacts {
 	zoneSqlDatabricks?: ZoneSqlMap | undefined;
 }
 
+function isStaticDummyContractStub(content: string): boolean {
+	return (
+		content.includes("model_name: global_commerce_vault") &&
+		content.includes("customer_tax_id")
+	);
+}
+
+function isStaticDummyIrStub(content: string): boolean {
+	try {
+		const parsed = JSON.parse(content) as Record<string, unknown>;
+		return (
+			Array.isArray(parsed.hubs) &&
+			parsed.hubs.length === 2 &&
+			parsed.hubs[0] === "hub_party" &&
+			parsed.hubs[1] === "hub_order" &&
+			!parsed.ir_version &&
+			!parsed.satellites
+		);
+	} catch {
+		return false;
+	}
+}
+
+function serializeYamlOrJson(val: unknown): string | undefined {
+	if (typeof val === "string") return val.trim() ? val : undefined;
+	if (val && typeof val === "object") return JSON.stringify(val, null, 2);
+	return undefined;
+}
+
 export async function fetchDvRunReportAndArtifacts(
 	base: string,
 	runId: string,
@@ -308,27 +343,25 @@ export async function fetchDvRunReportAndArtifacts(
 		? normalizeFourZoneSql(report.four_zone_sql)
 		: {};
 	const reportContract =
-		typeof report?.contract_content === "string"
-			? report.contract_content
-			: bpContract
-				? typeof bpContract === "string"
-					? bpContract
-					: JSON.stringify(bpContract, null, 2)
-				: undefined;
-	const reportIr = report?.canonical_ir
-		? typeof report.canonical_ir === "string"
-			? report.canonical_ir
-			: JSON.stringify(report.canonical_ir, null, 2)
-		: undefined;
-	return {
-		contractYaml:
-			typeof contractArt?.content === "string" && contractArt.content
+		serializeYamlOrJson(report?.contract_content) ??
+		serializeYamlOrJson(report?.contract) ??
+		serializeYamlOrJson(bpContract);
+	const reportIr = serializeYamlOrJson(report?.canonical_ir);
+	const artContract =
+		typeof contractArt?.content === "string" && contractArt.content.trim()
+			? !(report && isStaticDummyContractStub(contractArt.content))
 				? contractArt.content
-				: reportContract,
-		irJson:
-			typeof irArt?.content === "string" && irArt.content
+				: undefined
+			: undefined;
+	const artIr =
+		typeof irArt?.content === "string" && irArt.content.trim()
+			? !(report && isStaticDummyIrStub(irArt.content))
 				? irArt.content
-				: reportIr,
+				: undefined
+			: undefined;
+	return {
+		contractYaml: reportContract ?? artContract,
+		irJson: reportIr ?? artIr,
 		zoneSqlDuckDb: normalizedZones.zoneSqlDuckDb,
 		zoneSqlDatabricks: normalizedZones.zoneSqlDatabricks,
 	};

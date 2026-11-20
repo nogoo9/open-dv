@@ -24,7 +24,6 @@ from opendv_service.studio.session_manager import (
     GENESIS_VERSION,
     StudioSessionManager,
 )
-from opendv_service.studio.workspace_security import WorkspaceSecurityManager
 
 
 def test_journey_1_greenfield_genesis(
@@ -493,9 +492,6 @@ def test_journey_5_administrative_waiver(
     assert app_main(["ontology", "studio", "init"]) == 0
     assert app_main(["ontology", "studio", "create", "-s", session_id, "--json"]) == 0
 
-    sec_mgr = WorkspaceSecurityManager(studio_root=studio_root)
-    valid_waiver_key = sec_mgr.get_waiver_key().hex()
-
     # Prepare ungrounded proposal (< 0.6500)
     meta_path = studio_root / session_id / "session.json"
     session_meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -524,10 +520,12 @@ def test_journey_5_administrative_waiver(
     }
     (props_dir / f"{prop_id}.json").write_text(json.dumps(prop_data), encoding="utf-8")
 
-    # 1. Attempt accept without waiver credentials -> rejected with exit 7
+    # 1. Non-admin role attempting low-confidence waiver -> rejected with exit 7 (FR-AUTH-02)
     monkeypatch.delenv("OPENDV_WAIVER_KEY", raising=False)
     exit_unauth = app_main(
         [
+            "--role",
+            "EDITOR",
             "ontology",
             "studio",
             "proposal",
@@ -546,8 +544,7 @@ def test_journey_5_administrative_waiver(
     )
     assert exit_unauth == 7
 
-    # 2. Set valid OPENDV_WAIVER_KEY in environment -> acceptance succeeds with exit 0
-    monkeypatch.setenv("OPENDV_WAIVER_KEY", valid_waiver_key)
+    # 2. Admin role succeeds without OPENDV_WAIVER_KEY (FR-AUTH-02 removed K_waiver)
     exit_success = app_main(
         [
             "ontology",
@@ -562,7 +559,7 @@ def test_journey_5_administrative_waiver(
             head_sha,
             "--low-confidence-waiver",
             "--waiver-rationale",
-            "Authorizing ungrounded proprietary algorithm concept with steward key.",
+            "Authorizing ungrounded proprietary algorithm concept as local admin.",
             "--json",
         ]
     )

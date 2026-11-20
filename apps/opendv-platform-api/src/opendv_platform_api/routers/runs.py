@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from opendv_contracts import PipelineRunHandle, RbacRole, RunArtifactDTO
 from opendv_contracts.dtos.pipeline import PipelineInputDTO
 from opendv_platform_api.deps import get_opendv_service, get_rbac_role
+from opendv_platform_api.studio_deps import enforce_no_active_session_run
 from opendv_service import (
     CreateRunRequest,
     OpenDVService,
@@ -18,12 +19,8 @@ from opendv_service import (
     RunStatus,
     redact_event_for_role,
 )
-from opendv_service.use_cases.pipeline import (
-    execute_pipeline_run_sync,
-)
-from opendv_service.use_cases.pipeline import (
-    execute_run_async as execute_run_async_use_case,
-)
+from opendv_service.use_cases.pipeline import execute_pipeline_run_sync
+from opendv_service.use_cases.pipeline import execute_run_async as execute_run_async_use_case
 
 router = APIRouter(tags=["runs"])
 _SERVER_PATH_FIELDS = ("blueprint_path",)
@@ -65,6 +62,8 @@ async def start_run(
                     "inline content or CAS references, not raw server filesystem paths."
                 )
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+
+    enforce_no_active_session_run(service, getattr(req, "session_id", None))
 
     is_proj = (
         isinstance(req, PipelineInputDTO)

@@ -17,6 +17,11 @@ from opendv_agent_harness.models import (
     PipelineStageId,
 )
 from opendv_agent_harness.pipeline.config import HarnessSetupConfig
+from opendv_agent_harness.pipeline.evolution_matching import (
+    harmonize_cross_source_types,
+    match_deployed_table_cross_source,
+    resolve_feed_value_jaccard,
+)
 from opendv_agent_harness.telemetry.translator import build_observability_event_dict
 from opendv_axi_verifier.codemods.alg_a9a_schema_drift import (
     detect_intra_source_schema_drift,
@@ -35,6 +40,9 @@ _CATEGORY_TO_UF: dict[str, tuple[str, str, str]] = {
 def project_stage_drift_findings(
     curr_contract: dict[str, Any] | None,
     discovered_feeds: list[Any] | tuple[Any, ...],
+    *,
+    profile_summaries: dict[str, Any] | None = None,
+    conn: Any = None,
 ) -> list[dict[str, Any]]:
     """Detect structured UF-1..UF-5 drift findings comparing feeds against ``curr_contract``."""
     if not curr_contract or not discovered_feeds:
@@ -78,11 +86,30 @@ def project_stage_drift_findings(
             )
             cand_cols = [str(pk) for pk in pks if pk]
 
-        dep_cols, old_types, key_cols = reconstruct_baseline_metadata_from_contract(
-            curr_contract,
-            table_name,
-            source_system=source_sys or None,
-        )
+        match = match_deployed_table_cross_source(curr_contract, source_sys, table_name, cand_cols)
+        if match is None:
+            dep_cols, old_types, key_cols = reconstruct_baseline_metadata_from_contract(
+                curr_contract,
+                table_name,
+                source_system=source_sys or None,
+            )
+            target_entity = f"sat_{table_name}"
+            val_jaccard: dict[tuple[str, str], float] | None = None
+        else:
+            dep_cols, old_types, key_cols = reconstruct_baseline_metadata_from_contract(
+                curr_contract,
+                match["bronze_table"],
+            )
+            target_entity = match["matched_entity"]
+            val_jaccard = resolve_feed_value_jaccard(
+                feed,
+                match,
+                dep_cols - key_cols,
+                cand_cols,
+                profile_summaries=profile_summaries,
+                conn=conn,
+            )
+
         if not dep_cols:
             projected.append(
                 {
@@ -101,14 +128,16 @@ def project_stage_drift_findings(
             )
             continue
 
+        eff_new_types = harmonize_cross_source_types(old_types, cand_types, val_jaccard)
         raw_findings = detect_intra_source_schema_drift(
             deployed_columns=dep_cols,
             candidate_columns=cand_cols,
             source_table=qualified,
-            target_entity=f"sat_{table_name}",
+            target_entity=target_entity,
             key_columns=key_cols,
             old_types=old_types,
-            new_types=cand_types,
+            new_types=eff_new_types,
+            value_jaccard=val_jaccard,
         )
         for finding in raw_findings:
             fd = finding.to_dict()

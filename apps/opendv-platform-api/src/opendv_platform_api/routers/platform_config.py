@@ -18,6 +18,7 @@ from opendv_contracts import (
     RbacRole as ContractsRbacRole,
 )
 from opendv_platform_api.deps import get_opendv_service, get_rbac_role
+from opendv_platform_api.studio_deps import ViewerDep
 from opendv_service import OpenDVService, RolePermissionError
 from opendv_service.rbac import RbacRole
 
@@ -67,6 +68,7 @@ async def update_platform_config(
 async def validate_platform_config(
     req: PlatformConfigValidateRequest,
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
+    _principal: ViewerDep,
     _role: Annotated[RbacRole, Depends(get_rbac_role)],
 ) -> PlatformConfigValidationResponse:
     """Deterministically validate candidate Platform & Agent Harness configuration."""

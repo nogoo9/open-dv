@@ -28,9 +28,12 @@ STUDIO_MAX_SOURCE_UPLOAD_BYTES = MAX_SOURCE_UPLOAD_BYTES
 STUDIO_MAX_BUNDLE_IMPORT_BYTES = MAX_BUNDLE_IMPORT_BYTES
 
 
-def _init_studio_agent_runner(active_service: OpenDVService, active_settings: OpenDVSettings) -> Any:
+def _init_studio_agent_runner(
+    active_service: OpenDVService, active_settings: OpenDVSettings
+) -> Any:
     from opendv_agent_harness.models import HarnessConfig
     from opendv_service.studio.agent_runner import StudioAgentRunner
+    from opendv_service.studio.agent_runner_helpers import DEFAULT_AGENT_TIMEOUT_SECONDS
 
     provider_str = os.environ.get("OPENDV_AGENT_PROVIDER", "agy").strip().lower()
     harness_cfg = HarnessConfig(
@@ -43,7 +46,9 @@ def _init_studio_agent_runner(active_service: OpenDVService, active_settings: Op
     )
     kwargs: dict[str, Any] = {
         "harness_config": harness_cfg,
-        "timeout_seconds": float(os.environ.get("OPENDV_STUDIO_AGENT_TIMEOUT", "20.0")),
+        "timeout_seconds": float(
+            os.environ.get("OPENDV_STUDIO_AGENT_TIMEOUT", str(DEFAULT_AGENT_TIMEOUT_SECONDS))
+        ),
     }
     if "state_container" in inspect.signature(StudioAgentRunner.__init__).parameters:
         kwargs["state_container"] = active_service.state
@@ -148,7 +153,9 @@ def create_app(
     if getattr(active_service.state, "settings", None) is None:
         active_service.state.settings = active_settings
 
-    application.state.studio_agent_runner = _init_studio_agent_runner(active_service, active_settings)
+    application.state.studio_agent_runner = _init_studio_agent_runner(
+        active_service, active_settings
+    )
 
     cors_origins = list(active_settings.cors_origins or [])
     application.add_middleware(

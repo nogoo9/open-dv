@@ -42,6 +42,7 @@ from opendv_duckdb_sandbox.ir_lowerer_helpers import (
     _lower_hub,
     _resolve_link_ref_bkcc_literal,
     _sanitize_model_name,
+    _sanitize_sql_ident,
     _staging_table_name,
 )
 
@@ -98,7 +99,8 @@ def _lower_link(
             role_name = role_slug or h_name.removeprefix("hub_").removeprefix("bhub_")
 
         src_fk_col = ref.source_fk_columns[0] if ref.source_fk_columns else fk_col_name
-        fk_source_columns[fk_col_name] = src_fk_col
+        clean_src_fk = _sanitize_sql_ident(src_fk_col)
+        fk_source_columns[fk_col_name] = clean_src_fk
         fk_bkcc_literals[fk_col_name] = _resolve_link_ref_bkcc_literal(
             contract_link.source_bronze_table,
             src_fk_col,
@@ -119,9 +121,10 @@ def _lower_link(
             )
         )
 
+    used_degen: set[str] = set()
     degen_cols = [
         IRColumnDef(
-            name=col_name,
+            name=_sanitize_sql_ident(col_name, used_degen),
             data_type="VARCHAR(255)",
             nullable=False,
         )
@@ -214,19 +217,27 @@ def _lower_satellite(
         _derive_hub_hk_name(contract_sat.parent_entity),
     )
 
-    payload_cols = [
-        IRColumnDef(
-            name=col_name,
-            data_type=_infer_sql_data_type(col_name, profile_types),
-            nullable=True,
+    used_sat_cols: set[str] = set()
+    raw_to_clean: dict[str, str] = {}
+    payload_cols: list[IRColumnDef] = []
+    for col_name in contract_sat.payload_columns:
+        clean_name = _sanitize_sql_ident(col_name, used_sat_cols)
+        raw_to_clean[col_name] = clean_name
+        inferred_dt = _infer_sql_data_type(col_name, profile_types)
+        if inferred_dt == "VARCHAR(255)" and clean_name != col_name:
+            inferred_dt = _infer_sql_data_type(clean_name, profile_types)
+        payload_cols.append(
+            IRColumnDef(
+                name=clean_name,
+                data_type=inferred_dt,
+                nullable=True,
+            )
         )
-        for col_name in contract_sat.payload_columns
-    ]
 
     cdk_cols = (
         [
             IRColumnDef(
-                name=contract_sat.sub_sequence_column,
+                name=_sanitize_sql_ident(contract_sat.sub_sequence_column),
                 data_type=_infer_sql_data_type(contract_sat.sub_sequence_column, profile_types),
                 nullable=False,
             )
@@ -235,10 +246,14 @@ def _lower_satellite(
         else None
     )
 
-    driving_keys = [contract_sat.driving_key_column] if contract_sat.driving_key_column else None
+    driving_keys = (
+        [_sanitize_sql_ident(contract_sat.driving_key_column)]
+        if contract_sat.driving_key_column
+        else None
+    )
 
     has_applied_dts = any(
-        col.name
+        col.name.lower()
         in {
             "applied_dts",
             "effective_from_date",
@@ -261,6 +276,20 @@ def _lower_satellite(
     rec_src_val = bronze_to_rec_src.get(
         contract_sat.source_bronze_table,
         contract_sat.source_bronze_table.split(".")[0].upper(),
+    )
+
+    clean_soft_deprecated = (
+        [raw_to_clean.get(c, _sanitize_sql_ident(c)) for c in contract_sat.soft_deprecated_columns]
+        if contract_sat.soft_deprecated_columns
+        else None
+    )
+    clean_aliases = (
+        {
+            raw_to_clean.get(k, _sanitize_sql_ident(k)): _sanitize_sql_ident(v)
+            for k, v in contract_sat.column_aliases.items()
+        }
+        if contract_sat.column_aliases
+        else None
     )
 
     return IRSatellite(
@@ -294,11 +323,8 @@ def _lower_satellite(
         source_mapping=IRSourceMapping(
             staging_table=_staging_table_name(contract_sat.source_bronze_table),
             rec_src_value=rec_src_val,
-            soft_deprecated_columns=(
-                list(contract_sat.soft_deprecated_columns)
-                if contract_sat.soft_deprecated_columns
-                else None
-            ),
+            soft_deprecated_columns=clean_soft_deprecated,
+            column_aliases=clean_aliases,
         ),
     )
 
@@ -365,7 +391,7 @@ def lower_contract_to_canonical_ir(
     ir_refs: list[IRReferenceTable] = [
         IRReferenceTable(
             name=c_ref.name,
-            natural_code_column=c_ref.code_column,
+            natural_code_column=_sanitize_sql_ident(c_ref.code_column),
             satellites=[],
         )
         for c_ref in contract_obj.reference_tables

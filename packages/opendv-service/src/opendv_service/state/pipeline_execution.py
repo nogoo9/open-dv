@@ -7,6 +7,7 @@ import os
 import shutil
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -16,7 +17,6 @@ from opendv_agent_harness import (
     AgenticPipelineReport,
     HarnessStreamEvent,
     PipelineStepReport,
-    StewardHoldManager,
 )
 from opendv_core import resolve_workspace_path
 from opendv_service.models import (
@@ -253,46 +253,11 @@ class PipelineExecutionMixin:
             report_events=list(report.observability_events),
         )
 
-        shutil.rmtree(self.state_dir / report.run_id / "holds", ignore_errors=True)
-        hold_mgr = StewardHoldManager(state_dir=self.state_dir / report.run_id)
-        def _rec_h(h: dict[str, Any], headline_def: str) -> tuple[str, Any]:
-            hid = str(h.get("hold_id") or h.get("decision_id") or f"hold-{report.run_id}")
-            rec = hold_mgr.record_hold(
-                run_id=report.run_id,
-                task_id=str(h.get("task_id") or f"task-{report.run_id}"),
-                session_id=str(h.get("session_id") or f"sess-{report.run_id}"),
-                stage_id=str(h.get("stage_id") or "STAGE_02_SCOUT_UNSTRUCTURED"),
-                persona=str(h.get("persona") or "vault-first-mate"),
-                decision_id=str(h.get("decision_id") or hid),
-                hold_id=hid,
-                event_id=str(
-                    h.get("event_id") or (events_list[-1]["event_id"] if events_list else "evt-0")
-                ),
-                headline=str(h.get("headline") or headline_def),
-                escalation_reason=str(h.get("escalation_reason") or "TIER_U3_AMBIGUOUS_ENTITY"),
-                rule_id=str(h.get("rule_id") or "ALG-A9B"),
-                options=list(h.get("options") or []),
-            )
-            return hid, rec
+        from opendv_service.state.hold_resume import sync_report_holds_to_manager
 
-        active_hold_ids: list[str] = [
-            _rec_h(h, "Steward hold pending resolution.")[0] for h in report.active_holds
-        ]
-        for h in report.resolved_holds:
-            _, r = _rec_h(h, "Steward hold resolved.")
-            hold_mgr.resolve_hold(
-                r.decision_id,
-                action="REJECT" if str(h.get("status")) == "REJECTED" else "APPROVE",
-                selected_option_id=h.get("selected_option_id"),
-                resolution_notes=h.get("resolution_notes"),
-            )
-        self.hold_managers[report.run_id] = hold_mgr
-        self.run_decisions[report.run_id] = []
-        self.run_sandbox_history[report.run_id] = []
-        if target_run_id and target_run_id != report.run_id:
-            self.hold_managers[target_run_id] = hold_mgr
-            self.run_decisions.setdefault(target_run_id, [])
-            self.run_sandbox_history.setdefault(target_run_id, [])
+        active_hold_ids = sync_report_holds_to_manager(
+            self, report, events_list, target_run_id=target_run_id
+        )
 
         all_codemods = {c for w in report.wave_reports for c in w.applied_codemods}
         last_w = report.wave_reports[-1] if report.wave_reports else None
@@ -358,13 +323,23 @@ class PipelineExecutionMixin:
         has_initial_contract = getattr(report, "has_initial_contract", False) or bool(
             getattr(spec_obj, "initial_contract_path", None)
             or getattr(spec_obj, "initial_contract", None)
+            or getattr(spec_obj, "initial_contract_content", None)
+            or (getattr(getattr(spec_obj, "blueprint", None), "contract", None) is not None)
         )
         init_c_path = getattr(report, "initial_contract_path", None) or getattr(
             spec_obj, "initial_contract_path", None
         )
         wave_id_val = getattr(report, "wave_id", None) or getattr(spec_obj, "wave_id", None)
-        lifecycle_stage = getattr(report, "lifecycle_stage", None) or (
-            "MULTI_SOURCE_EXPANSION" if has_initial_contract else "COLD_START_N1"
+        rep_lc = getattr(report, "lifecycle_stage", None)
+        lifecycle_stage = (
+            "MULTI_SOURCE_EXPANSION"
+            if has_initial_contract and rep_lc in (None, "COLD_START_N1")
+            else (rep_lc or ("MULTI_SOURCE_EXPANSION" if has_initial_contract else "COLD_START_N1"))
+        )
+        resolved_sid = (
+            target_session_id
+            or getattr(self, "run_session_ids", {}).get(report.run_id)
+            or (getattr(self, "run_session_ids", {}).get(target_run_id) if target_run_id else None)
         )
         run_dto = ProjectRunDTO(
             run_id=report.run_id,
@@ -385,6 +360,7 @@ class PipelineExecutionMixin:
             has_initial_contract=has_initial_contract,
             initial_contract_path=init_c_path,
             lifecycle_stage=lifecycle_stage,
+            session_id=str(resolved_sid) if resolved_sid else None,
         )
 
         gate_rep = self._build_default_gate_report(report.run_id, run_dto=run_dto)
@@ -470,6 +446,28 @@ class PipelineExecutionMixin:
                     self.explicit_hold_runs.discard(report.run_id)
                     if target_run_id:
                         self.explicit_hold_runs.discard(target_run_id)
+            if run_status == RunStatus.PAUSED_HOLD:
+                from opendv_service.runs.broadcaster import build_hold_sse_payload
+
+                eff_hold_run = target_run_id or report.run_id
+                hold_payload = build_hold_sse_payload(self, eff_hold_run)
+                hold_evt_id = f"evt-{eff_hold_run}-hold"
+                ev_list = self.run_events.setdefault(eff_hold_run, [])
+                if not any(
+                    isinstance(e, dict) and e.get("event_id") == hold_evt_id for e in ev_list
+                ):
+                    ev_list.append(
+                        {
+                            "event_id": hold_evt_id,
+                            "run_id": eff_hold_run,
+                            "timestamp_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "stage_id": str(
+                                hold_payload.get("stage_id") or "STAGE_04_SHIP_VAULT_PASS2"
+                            ),
+                            "event_type": "hold",
+                            "payload": hold_payload,
+                        }
+                    )
         save_platform_state(self)
         eff_run_id = target_run_id or report.run_id
         synced = self._sync_pipeline_report(eff_run_id)

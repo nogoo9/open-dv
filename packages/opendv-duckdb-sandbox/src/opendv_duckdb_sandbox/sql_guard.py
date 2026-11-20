@@ -321,7 +321,14 @@ def _reject_string_literal_table_tokens(sql: str) -> None:
             prev_tt = tt
             continue
         if in_from_target_depth is not None:
-            if (tt in (TokenType.SELECT, TokenType.WITH, TokenType.VALUES) and depth > in_from_target_depth) or (tt in _FROM_CLAUSE_END_TOKENS and depth == in_from_target_depth):
+            is_subquery = (
+                tt in (TokenType.SELECT, TokenType.WITH, TokenType.VALUES)
+                and depth > in_from_target_depth
+            )
+            is_clause_end = (
+                tt in _FROM_CLAUSE_END_TOKENS and depth == in_from_target_depth
+            )
+            if is_subquery or is_clause_end:
                 in_from_target_depth = None
                 in_func_arg_depth = None
             elif tt == TokenType.STRING and in_func_arg_depth is None:
@@ -372,7 +379,8 @@ def validate_safe_sql(sql: str) -> None:
         if isinstance(node, exp.Table):
             if isinstance(node.this, (exp.Literal, exp.Paren)):
                 raise ValueError(
-                    "Forbidden SQL table target: string-literal or parenthesized table targets are not permitted"
+                    "Forbidden SQL table target: string-literal or parenthesized "
+                    "table targets are not permitted"
                 )
             for part_attr in ("this", "db", "catalog"):
                 part = node.args.get(part_attr)
@@ -380,7 +388,8 @@ def validate_safe_sql(sql: str) -> None:
                     raw_ident = str(part.this or "")
                     if _is_suspicious_file_identifier(raw_ident):
                         raise ValueError(
-                            f"Forbidden SQL table target: file/path identifier '{raw_ident}' is not permitted"
+                            f"Forbidden SQL table target: file/path identifier '{raw_ident}' "
+                            "is not permitted"
                         )
             if node.this is not None and not isinstance(
                 node.this, (exp.Identifier, exp.Anonymous, exp.Func)
@@ -388,7 +397,7 @@ def validate_safe_sql(sql: str) -> None:
                 raise ValueError(
                     f"Forbidden SQL table target in sandbox: {type(node.this).__name__}"
                 )
-        if isinstance(node, (exp.Func, exp.Anonymous)):
+        if isinstance(node, (exp.Func, exp.Anonymous)) and not isinstance(node, exp.Connector):
             func_name = _extract_func_name(node)
             if _is_forbidden_function_name(func_name):
                 raise ValueError(f"Forbidden SQL function in sandbox: {func_name}")

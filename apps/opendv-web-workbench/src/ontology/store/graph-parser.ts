@@ -17,6 +17,7 @@ import {
 import type {
 	ConceptAttribute,
 	ConceptNode,
+	EvidenceRef,
 	ExternalMapping,
 	RelationshipEdge,
 } from "./types";
@@ -34,6 +35,7 @@ export function isConceptMutatedFromBaseline(
 		(node.target_hub ?? null) !== (baseline.target_hub ?? null) ||
 		(node.parent_concept_uri ?? null) !==
 			(baseline.parent_concept_uri ?? null) ||
+		(node.grounding_origin ?? null) !== (baseline.grounding_origin ?? null) ||
 		(node.deprecated ?? null) !== (baseline.deprecated ?? null) ||
 		JSON.stringify(node.attributes || []) !==
 			JSON.stringify(baseline.attributes || []) ||
@@ -214,6 +216,11 @@ export function parseLoadedGraphPayload(
 				(c.parent_concept_uri as string | null | undefined) ?? null,
 			confidence: conf,
 			grounding_status: status,
+			grounding_origin:
+				(c.grounding_origin as string | null | undefined) ?? null,
+			...(Array.isArray(c.evidence_refs)
+				? { evidence_refs: c.evidence_refs as EvidenceRef[] }
+				: {}),
 			attributes: (c.attributes as ConceptAttribute[] | undefined) || [],
 			synonyms: (c.synonyms as string[] | undefined) || [],
 			external_mappings: mappings,

@@ -91,7 +91,7 @@ OntologyContractViolationError = ContractViolationError
 
 
 class UngroundedConceptError(OntologyGovernanceError):
-    """Raised when an evolved concept lacks reference/empirical grounding and waiver (ONT-EVO-002)."""
+    """Raised when evolved concept lacks reference/empirical grounding or waiver (ONT-EVO-002)."""
 
     error_code = "ONT_EVO_UNGROUNDED_CONCEPT"
     status_code = 422
@@ -313,19 +313,15 @@ def is_path_b_empirically_grounded(
 ) -> bool:
     """Evaluate Path B empirical grounding (ONT-EVO-004/005)."""
     origin, refs = _collect_concept_evidence_and_origin(concept_uri, concept, delta)
-    if origin is not None:
-        if origin not in PATH_B_GROUNDING_ORIGINS:
-            return False
+    if origin is not None and origin in PATH_B_GROUNDING_ORIGINS:
         return any(_is_verifiable_evidence_ref(ref, origin) for ref in refs)
+    if origin is not None and origin != "FIBO_GROUNDED":
+        return False
     for ref in refs:
         ev_type = str(getattr(ref, "evidence_type", "") or "").strip()
         if ev_type == "column_profile" and _is_verifiable_evidence_ref(ref, "STRUCTURED_SCHEMA"):
             return True
-        if ev_type == "document_span" and (
-            getattr(ref, "chunk_id", None)
-            or getattr(ref, "doc_sha256", None)
-            or getattr(ref, "char_start", None) is not None
-        ):
+        if ev_type == "document_span" and _is_verifiable_evidence_ref(ref, "DOCUMENT_OBSERVED"):
             return True
     return False
 

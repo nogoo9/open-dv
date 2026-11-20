@@ -279,7 +279,7 @@ class LocalExecutor(
             return self._execute_dv_schema(run_id, args)
         if action == "explorer":
             bundle = self.service.get_explorer_bundle(run_id, role=role_raw)
-            payload = bundle.model_dump(mode="json")
+            payload = bundle.model_dump(mode="json", by_alias=True)
             payload["mode"] = "local"
             return 0, payload
         if action == "artifact":
@@ -309,14 +309,20 @@ class LocalExecutor(
             if sql:
                 res = self.service.query_dv_schema(run_id, sql=str(sql), max_rows=limit)
             elif table:
-                res = self.service.get_dv_schema_table_rows(run_id, str(table), limit=limit, offset=offset)
+                res = self.service.get_dv_schema_table_rows(
+                    run_id, str(table), limit=limit, offset=offset
+                )
             else:
                 res = self.service.get_dv_schema(run_id, compare_run_id=compare_run)
             return 0, res.model_dump(mode="json") if hasattr(res, "model_dump") else res
         except OpenDVError as exc:
             return _err_from_opendv_error(exc, wizard_mode=True)
         except ValueError as exc:
-            return 40, {"status": "ERROR", "error_code": "SYNTAX_INVALID_ARGUMENT", "detail": str(exc)}
+            return 40, {
+                "status": "ERROR",
+                "error_code": "SYNTAX_INVALID_ARGUMENT",
+                "detail": str(exc),
+            }
 
     # 6. hold
     def _execute_hold(self, args: argparse.Namespace) -> tuple[int, Any]:
@@ -326,8 +332,9 @@ class LocalExecutor(
             return 2, {"status": "ERROR", "error": "--run-id is required for 'hold' subcommands"}
 
         if action == "LIST":
-            holds = self.service.list_holds(run_id)
-            return 0, {"mode": "local", "run_id": run_id, "active_holds": holds, "decisions": []}
+            payload = dict(self.service.list_run_decisions(run_id))
+            payload["mode"] = "local"
+            return 0, payload
 
         hold_id: str | None = getattr(args, "hold_id", None)
         event_id: str | None = getattr(args, "event_id", None)

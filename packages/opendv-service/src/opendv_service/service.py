@@ -276,6 +276,9 @@ class OpenDVService:
                 target_dialect=request.target_dialect,
                 provider_override=resolve_effective_provider(request, self.state),
                 steward_hold_policy=str(hold_pol) if hold_pol else None,
+                initial_contract_path=getattr(request, "initial_contract_path", None),
+                initial_contract_content=getattr(request, "initial_contract_content", None),
+                initial_contract=getattr(request, "initial_contract", None),
                 session_id=getattr(request, "session_id", None),
             )
         elif isinstance(request, PipelineRunRequest):

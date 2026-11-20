@@ -7,6 +7,7 @@
 import type { SourceFeedDTO } from "@opendv/protocol-ts";
 import type { PipelineTopologyRow } from "../store/store-types";
 import type { EvidenceChunk, SourceDocument } from "../store/types";
+import { PILL_TO_CANONICAL_STAGES } from "./logs-types";
 
 const STRUCTURED_EXT_RE =
 	/\.(parquet|csv|tsv|xlsx|xls|sqlite|sqlite3|db|duckdb|ddb|jsonl|ndjson|json)$/i;
@@ -23,9 +24,14 @@ const UNSTRUCTURED_MIMES = new Set([
 
 const STAGE_STATUS_RANK: Record<string, number> = {
 	FAILED: 5,
+	"REJECT-WITH-TRACE": 5,
 	HOLD: 4,
+	PAUSED_HOLD: 4,
 	RUNNING: 3,
 	COMPLETED: 2,
+	AUTO_REPAIRED: 2,
+	"AUTO-FIX": 2,
+	PASS: 2,
 	PENDING: 1,
 };
 
@@ -117,18 +123,27 @@ export function partitionPipelineSources(
 				: mime.includes("databricks")
 					? "databricks"
 					: undefined;
+		const dotIdx = fname.lastIndexOf(".");
+		const ext = dotIdx > 0 ? fname.slice(dotIdx + 1).toLowerCase() : "";
+		const rawStem = dotIdx > 0 ? fname.slice(0, dotIdx) : fname;
+		const logicalTableName = slugSystem(rawStem);
 		feeds.push({
 			feed_id: s.source_id || `feed-${idx + 1}`,
 			source_system: slugSystem(fname),
 			uri: s.source_sha256 ? `cas://${s.source_sha256}` : fname,
 			...(adapter ? { adapter } : {}),
+			options: {
+				table_name: logicalTableName,
+				source_name: fname,
+				...(ext ? { source_format: ext } : {}),
+			},
 		});
 	});
 
 	return { sources: feeds, unstructured_documents: docs };
 }
 
-function mapZoneBundle(raw: unknown): Record<string, string> {
+export function mapZoneBundle(raw: unknown): Record<string, string> {
 	if (!raw || typeof raw !== "object") return {};
 	const obj = raw as Record<string, unknown>;
 	const out: Record<string, string> = {};
@@ -250,6 +265,75 @@ export function extractBaselineContractFromReportOrArtifacts(
 		return JSON.stringify(bp.contract);
 	}
 	return null;
+}
+
+export type StagePillState =
+	| "PENDING"
+	| "RUNNING"
+	| "COMPLETED"
+	| "FAILED"
+	| "HOLD";
+
+export function normalizeStageOutcome(raw: unknown): StagePillState | null {
+	const s = String(raw ?? "")
+		.trim()
+		.toUpperCase();
+	if (!s) return null;
+	if (
+		s === "PASS" ||
+		s === "COMPLETED" ||
+		s === "AUTO-FIX" ||
+		s === "AUTO_REPAIRED"
+	) {
+		return "COMPLETED";
+	}
+	if (s === "PAUSED_HOLD" || s === "HOLD") return "HOLD";
+	if (
+		s === "FAIL" ||
+		s === "FAILED" ||
+		s === "ABORTED" ||
+		s === "REJECT-WITH-TRACE"
+	) {
+		return "FAILED";
+	}
+	if (s === "RUNNING") return "RUNNING";
+	if (s === "PENDING") return "PENDING";
+	return null;
+}
+
+export function reconcileStageStatuses(
+	current: Record<string, StagePillState>,
+	report: Record<string, unknown> | null,
+	terminalStatus?: unknown,
+): Record<string, StagePillState> {
+	const next: Record<string, StagePillState> = { ...current };
+	const reports = Array.isArray(report?.step_reports)
+		? (report.step_reports as Array<Record<string, unknown>>)
+		: [];
+	for (const sr of reports) {
+		if (!sr || typeof sr !== "object") continue;
+		const sid = typeof sr.stage_id === "string" ? sr.stage_id.trim() : "";
+		if (!sid) continue;
+		const mapped =
+			normalizeStageOutcome(sr.status) ?? normalizeStageOutcome(sr.verdict);
+		if (mapped) {
+			next[sid] = mapped;
+		}
+	}
+	for (const [pill, stages] of Object.entries(PILL_TO_CANONICAL_STAGES)) {
+		if (pill in next && stages.some((st) => st in next)) {
+			delete next[pill];
+		}
+	}
+	const term = normalizeStageOutcome(terminalStatus ?? report?.status);
+	if (term === "COMPLETED" || term === "FAILED") {
+		for (const [k, v] of Object.entries(next)) {
+			if (v === "RUNNING") {
+				next[k] = term;
+			}
+		}
+	}
+	return next;
 }
 
 export function aggregateStagePillStatus(

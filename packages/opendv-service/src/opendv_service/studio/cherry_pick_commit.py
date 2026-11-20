@@ -257,7 +257,7 @@ def cherry_pick_commit(
     )
     meta = session_mgr.get_session(session_id)
     if meta.head_version == "0.0.0" and base_ontology.ontology_version != "0.0.0":
-        # Seed base ontology version cleanly if session was created at genesis for caller-supplied base
+        # Seed base ontology version if session is at genesis for caller-supplied base
         from opendv_service.studio.atomic_commit import AtomicCommitService as _Svc  # noqa: F401
 
         vdir = (

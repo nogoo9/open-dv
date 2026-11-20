@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from opendv_core.constants import GLOBAL_BKCC, ZERO_KEY_UNKNOWN
 from opendv_core.hashing import compute_dv2_length_prefixed_sha256
 from opendv_core.models.canonical_ir import CanonicalIR, IRHub
 from opendv_duckdb_sandbox.compiler_4zone.bronze_link_tables import (
@@ -22,17 +23,53 @@ from opendv_duckdb_sandbox.compiler_4zone.hashing import (
     _validate_ident,
 )
 from opendv_duckdb_sandbox.compiler_4zone.schema_utils import (
+    _bitemporal_restatement_sql_literal,
     _effective_hub_bkcc_column_expr,
+    _effective_hub_bkcc_literal,
     _effective_hub_sm_bkcc_literal,
     _find_bitemporal_satellite,
     _satellite_all_data_columns,
-    _satellite_seed_sql_literal,
 )
 from opendv_duckdb_sandbox.compiler_4zone.staging_registry import (
     _table_lookup_keys,
     build_staging_bkcc_registry,
     resolve_staging_bkcc_literal,
 )
+
+
+def _compute_ref_fk_hash(
+    t_hub: IRHub,
+    chosen_row: list[str],
+    ref_bkcc_lit: str | None,
+) -> str:
+    """Compute the Algorithm A.5 parent Hub HK matching Zone 1 `stg_<link>` views."""
+    t_has_bkcc_col = any(bool(bk.is_bkcc) for bk in t_hub.business_keys)
+    eff_bkcc_lit = ref_bkcc_lit or _effective_hub_bkcc_literal(t_hub)
+    if eff_bkcc_lit is not None or not t_has_bkcc_col:
+        non_bkcc_vals = [
+            v for bk, v in zip(t_hub.business_keys, chosen_row, strict=True) if not bk.is_bkcc
+        ] or chosen_row
+        return compute_dv2_length_prefixed_sha256(
+            non_bkcc_vals,
+            is_business_key=True,
+            bkcc_prefix=eff_bkcc_lit or GLOBAL_BKCC,
+        )
+    return compute_dv2_length_prefixed_sha256(chosen_row, is_business_key=True)
+
+
+def _format_aliased_payload_literal(
+    col: Any,
+    phys_name: str,
+    src_row: dict[str, Any] | None,
+    row_idx: int,
+) -> str:
+    if src_row is not None:
+        if phys_name in src_row and src_row[phys_name] is not None:
+            target = col if phys_name == col.name else col.model_copy(update={"name": phys_name})
+            return _format_bronze_payload_sql_literal(target, src_row, row_idx)
+        if col.name in src_row and src_row[col.name] is not None:
+            return _format_bronze_payload_sql_literal(col, src_row, row_idx)
+    return _format_bronze_payload_sql_literal(col, src_row, row_idx)
 
 
 def _make_table_and_insert(table_name: str, col_defs: list[str], insert_rows: list[str]) -> str:
@@ -203,7 +240,9 @@ def compile_generic_bronze_tables_sql(
         tbl = _validate_ident(sat.name)
         rec_src = sat.source_mapping.rec_src_value
         has_applied = sat.applied_dts_column is not None
-        data_cols = _satellite_all_data_columns(sat)
+        soft_deprecated = set(getattr(sat.source_mapping, "soft_deprecated_columns", None) or ())
+        aliases = dict(getattr(sat.source_mapping, "column_aliases", None) or {})
+        data_cols = [c for c in _satellite_all_data_columns(sat) if c.name not in soft_deprecated]
         col_defs = []
         parent_val_rows: list[list[str]] = []
 
@@ -248,6 +287,7 @@ def compile_generic_bronze_tables_sql(
                 c_ident = _validate_ident(f"parent_fk__{ref.fk_column_name}")
                 col_defs.append(f"    {c_ident} VARCHAR,")
             ref_hub_rows: list[list[list[str]]] = []
+            ref_bkcc_lits: list[str | None] = []
             for ref in p_lnk.hub_references:
                 t_hub = hub_by_name[ref.target_hub]
                 sm0_dict = p_lnk.source_mappings[0] if p_lnk.source_mappings else {}
@@ -272,20 +312,30 @@ def compile_generic_bronze_tables_sql(
                     t_hub, hub_bk_rows[t_hub.name], ref_bkcc_lit
                 )
                 ref_hub_rows.append(t_cand_rows)
+                ref_bkcc_lits.append(ref_bkcc_lit)
+            is_sal_link = (
+                p_lnk.name.startswith("sal_") or p_lnk.link_type == "SAME_AS"
+            ) and len(p_lnk.hub_references) == 2
             n_rows = len(sat_source_rows) if sat_source_rows else 2
             for row_idx in range(n_rows):
                 fk_vals: list[str] = []
+                target_counts: dict[str, int] = {}
                 for ref_idx, ref in enumerate(p_lnk.hub_references):
                     t_hub = hub_by_name[ref.target_hub]
+                    occ = target_counts.get(t_hub.name, 0)
+                    target_counts[t_hub.name] = occ + 1
                     c_rows = ref_hub_rows[ref_idx]
-                    chosen_row = (
-                        c_rows[row_idx % len(c_rows)] if c_rows else [f"FALLBACK-{row_idx}"]
-                    )
-                    fk_hash = compute_dv2_length_prefixed_sha256(
-                        chosen_row,
-                        is_business_key=True,
-                    )
+                    if is_sal_link and not sat_source_rows and row_idx == 1 and ref_idx > 0:
+                        # Match bronze_link_tables row 2 (h_r2, ZERO_KEY_UNKNOWN) so Zone 2 SAL
+                        # inverse-pair filtering keeps row 2 in esat_sal_*.
+                        fk_hash = ZERO_KEY_UNKNOWN
+                    else:
+                        pick_idx = (row_idx + occ) % len(c_rows) if c_rows else 0
+                        chosen_row = c_rows[pick_idx] if c_rows else [f"FALLBACK-{row_idx}"]
+                        fk_hash = _compute_ref_fk_hash(t_hub, chosen_row, ref_bkcc_lits[ref_idx])
                     fk_vals.append(f"'{fk_hash}'")
+                if is_sal_link and len(fk_vals) == 2 and fk_vals[0] == fk_vals[1]:
+                    fk_vals[1] = f"'{ZERO_KEY_UNKNOWN}'"
                 parent_val_rows.append(fk_vals)
 
         col_defs.append("    load_dts TIMESTAMP,")
@@ -307,18 +357,17 @@ def compile_generic_bronze_tables_sql(
                 seen_sat_col_names.add(col_part)
                 clean_col_defs.append(def_line)
 
-        deduped_data_cols: list[Any] = []
+        deduped_data_cols: list[tuple[Any, str]] = []
         for col in data_cols:
-            c_name = _validate_ident(col.name)
-            if c_name not in seen_sat_col_names:
-                seen_sat_col_names.add(c_name)
-                deduped_data_cols.append(col)
+            phys_name = _validate_ident(aliases.get(col.name, col.name))
+            if phys_name not in seen_sat_col_names:
+                seen_sat_col_names.add(phys_name)
+                deduped_data_cols.append((col, phys_name))
 
-        for idx_c, col in enumerate(deduped_data_cols):
-            c_name = _validate_ident(col.name)
+        for idx_c, (col, phys_name) in enumerate(deduped_data_cols):
             c_type = _normalize_duckdb_type(col.data_type)
             comma = "," if (idx_c < len(deduped_data_cols) - 1 or add_steward_col) else ""
-            clean_col_defs.append(f"    {c_name} {c_type}{comma}")
+            clean_col_defs.append(f"    {phys_name} {c_type}{comma}")
 
         if add_steward_col and "steward_gate_status" not in seen_sat_col_names:
             seen_sat_col_names.add("steward_gate_status")
@@ -340,7 +389,8 @@ def compile_generic_bronze_tables_sql(
             )
             row_app_lit = f"TIMESTAMP '{row_app_dts}', " if has_applied else ""
             r_payload = [
-                _format_bronze_payload_sql_literal(c, src_row, idx_r + 1) for c in deduped_data_cols
+                _format_aliased_payload_literal(c, phys_name, src_row, idx_r + 1)
+                for c, phys_name in deduped_data_cols
             ]
             r_pay_sql = f", {', '.join(r_payload)}" if r_payload else ""
             steward_lit = ""
@@ -354,7 +404,8 @@ def compile_generic_bronze_tables_sql(
 
         if include_batch4_restatement_in_seed and sat.name == bitemp_sat_name and parent_val_rows:
             r3_payload = [
-                _satellite_seed_sql_literal(c, len(parent_val_rows) + 1) for c in deduped_data_cols
+                _bitemporal_restatement_sql_literal(sat, c, len(parent_val_rows) + 1)
+                for c, _phys in deduped_data_cols
             ]
             r3_pay_sql = f", {', '.join(r3_payload)}" if r3_payload else ""
             steward_lit_r3 = ", 'APPROVED'" if add_steward_col else ""

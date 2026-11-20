@@ -1259,8 +1259,9 @@ class TestFeature17WebStudioUiBoundaries:
         )
         assert bar_path.is_file()
         content = bar_path.read_text(encoding="utf-8")
-        assert 'aria-label="Breadcrumb"' in content
+        assert 'aria-label="Primary Workspace Views"' in content
         assert 'data-testid="breadcrumb-stage"' in content
+        assert "Back to Run Explorer" in content
 
 
 # ---------------------------------------------------------------------------

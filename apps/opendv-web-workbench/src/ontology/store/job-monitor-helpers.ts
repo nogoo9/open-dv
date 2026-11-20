@@ -69,8 +69,25 @@ export async function processJobPayloadUpdate(params: {
 		opts?.eventType || (typeof payload.event === "string" ? payload.event : "");
 	const rawStatus = String(payload.status || payload.state || "").toUpperCase();
 
+	const tokUsage =
+		payload.token_usage && typeof payload.token_usage === "object"
+			? (payload.token_usage as Record<string, unknown>)
+			: null;
+	const liveTokens = Number(
+		payload.total_tokens ?? tokUsage?.total_tokens ?? 0,
+	);
+	const liveCost = Number(
+		payload.cumulative_cost_usd ?? payload.cost_usd ?? tokUsage?.cost_usd ?? 0,
+	);
+	if (liveTokens > 0 || liveCost > 0) {
+		set((state) => ({
+			sessionCostTokens: Math.max(state.sessionCostTokens, liveTokens),
+			sessionCostUsd: Math.max(state.sessionCostUsd, liveCost),
+		}));
+	}
+
 	if (eventType === "budget_hold") {
-		set({
+		set((state) => ({
 			budgetHold: {
 				job_id: jobId,
 				reason: String(
@@ -78,10 +95,10 @@ export async function processJobPayloadUpdate(params: {
 						payload.reason ||
 						"TOKEN_BUDGET_EXCEEDED",
 				),
-				total_tokens: Number(payload.total_tokens ?? 0),
-				cost_usd: Number(payload.cost_usd ?? 0),
+				total_tokens: Math.max(liveTokens, state.sessionCostTokens),
+				cost_usd: Math.max(liveCost, state.sessionCostUsd),
 			},
-		});
+		}));
 	}
 
 	const isTerminalSuccess =

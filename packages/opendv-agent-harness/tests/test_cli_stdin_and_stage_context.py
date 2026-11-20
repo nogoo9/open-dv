@@ -15,6 +15,7 @@ Covers:
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -286,3 +287,34 @@ def test_preflight_uses_centralized_credentials_ref_and_windows_normcase_paths(
     )
     rep = validate_pipeline_inputs(spec, base_dir=ws, workspace_root=ws)
     assert rep.passed is True, f"Preflight rejected lowercase env:my_var-1: {rep.diagnostics}"
+
+
+@pytest.mark.asyncio
+async def test_execute_stage_task_logs_and_records_unexpected_errors_while_preserving_fallback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Unexpected errors in `execute_stage_task` are logged & recorded while returning None."""
+
+    class _FailingHarness:
+        async def run_task(self, spec: AgentTaskSpec[Any], **kwargs: Any) -> Any:
+            del spec, kwargs
+            raise RuntimeError("boom-stage-failure")
+
+    with caplog.at_level(logging.WARNING, logger="opendv_agent_harness.pipeline.stages_agentic"):
+        metrics, structured_out = await execute_stage_task(
+            0,
+            "STAGE_03_SHIP_VAULT_PASS1",
+            "ship-vault",
+            harness=_FailingHarness(),
+            run_id="run-err-log-01",
+            stage_output_policy="symbolic_completion",
+        )
+
+    assert structured_out is None
+    assert "stage_task_error" in metrics
+    assert "RuntimeError" in metrics["stage_task_error"]
+    assert "boom-stage-failure" in metrics["stage_task_error"]
+    assert any(
+        "STAGE_03_SHIP_VAULT_PASS1" in rec.message and "boom-stage-failure" in rec.message
+        for rec in caplog.records
+    )

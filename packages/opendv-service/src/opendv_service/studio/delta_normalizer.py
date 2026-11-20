@@ -104,7 +104,12 @@ def derive_genesis_target_version(operations: list[Any]) -> str:
     return "1.0.0" if has_cbc else "0.1.0"
 
 
-def _normalize_urn(raw_uri: str | None, fallback_name: str | None, default_prefix: str, valid_schemes: tuple[str, ...]) -> str | None:
+def _normalize_urn(
+    raw_uri: str | None,
+    fallback_name: str | None,
+    default_prefix: str,
+    valid_schemes: tuple[str, ...],
+) -> str | None:
     if not raw_uri and fallback_name:
         return f"{default_prefix}{fallback_name.lower().replace(' ', '_')}"
     if raw_uri and not any(raw_uri.startswith(s) for s in valid_schemes) and ":" not in raw_uri:
@@ -123,7 +128,10 @@ def normalize_delta_operation_wire(op: Any) -> Any:
     if isinstance(op_type, str):
         if op_type in ("AddConceptOp", "add_concept") and isinstance(op_dict.get("concept"), dict):
             c = dict(op_dict.pop("concept"))
-            norm = {"op_type": "add_concept", "op_id": op_dict.get("op_id", f"op-{uuid.uuid4().hex[:8]}")}
+            norm = {
+                "op_type": "add_concept",
+                "op_id": op_dict.get("op_id", f"op-{uuid.uuid4().hex[:8]}"),
+            }
             norm.update(c)
             norm.update(op_dict)
             norm["op_type"] = "add_concept"
@@ -137,12 +145,25 @@ def normalize_delta_operation_wire(op: Any) -> Any:
             op_type = "add_attribute"
         op_dict["op_type"] = op_type
 
-        ent_schemes = ("urn:ontology:entity:", "urn:ontology:provisional:", "urn:ontology:event:", "urn:opendv:")
-        rel_schemes = ("urn:ontology:relationship:", "urn:ontology:provisional:", "urn:ontology:event:", "urn:opendv:")
+        ent_schemes = (
+            "urn:ontology:entity:",
+            "urn:ontology:provisional:",
+            "urn:ontology:event:",
+            "urn:opendv:",
+        )
+        rel_schemes = (
+            "urn:ontology:relationship:",
+            "urn:ontology:provisional:",
+            "urn:ontology:event:",
+            "urn:opendv:",
+        )
 
         if op_type == "add_concept":
             raw_uri = _normalize_urn(
-                op_dict.get("concept_uri") or op_dict.get("concept_id") or op_dict.get("uri") or op_dict.get("id"),
+                op_dict.get("concept_uri")
+                or op_dict.get("concept_id")
+                or op_dict.get("uri")
+                or op_dict.get("id"),
                 op_dict.get("concept_name"),
                 "urn:ontology:entity:",
                 ent_schemes,
@@ -150,10 +171,17 @@ def normalize_delta_operation_wire(op: Any) -> Any:
             if raw_uri:
                 op_dict["concept_uri"] = raw_uri
             if not op_dict.get("concept_name"):
-                op_dict["concept_name"] = op_dict.get("label") or op_dict.get("name") or (raw_uri.split(":")[-1].replace("_", " ").title() if raw_uri else "")
+                op_dict["concept_name"] = (
+                    op_dict.get("label")
+                    or op_dict.get("name")
+                    or (raw_uri.split(":")[-1].replace("_", " ").title() if raw_uri else "")
+                )
         elif op_type == "add_relationship":
             raw_uri = _normalize_urn(
-                op_dict.get("relationship_uri") or op_dict.get("relationship_id") or op_dict.get("uri") or op_dict.get("id"),
+                op_dict.get("relationship_uri")
+                or op_dict.get("relationship_id")
+                or op_dict.get("uri")
+                or op_dict.get("id"),
                 op_dict.get("relationship_name"),
                 "urn:ontology:relationship:",
                 rel_schemes,
@@ -161,7 +189,11 @@ def normalize_delta_operation_wire(op: Any) -> Any:
             if raw_uri:
                 op_dict["relationship_uri"] = raw_uri
             if not op_dict.get("relationship_name"):
-                op_dict["relationship_name"] = op_dict.get("label") or op_dict.get("name") or (raw_uri.split(":")[-1].replace("_", " ").title() if raw_uri else "")
+                op_dict["relationship_name"] = (
+                    op_dict.get("label")
+                    or op_dict.get("name")
+                    or (raw_uri.split(":")[-1].replace("_", " ").title() if raw_uri else "")
+                )
         elif op_type == "add_attribute":
             raw_uri = _normalize_urn(
                 op_dict.get("concept_uri") or op_dict.get("concept_id") or op_dict.get("concept"),
@@ -173,17 +205,25 @@ def normalize_delta_operation_wire(op: Any) -> Any:
                 op_dict["concept_uri"] = raw_uri
             attr_spec = op_dict.get("attribute")
             if isinstance(attr_spec, dict):
-                op_dict.setdefault("attribute_name", attr_spec.get("attribute_name") or attr_spec.get("name") or "")
+                op_dict.setdefault(
+                    "attribute_name", attr_spec.get("attribute_name") or attr_spec.get("name") or ""
+                )
                 dt_val = attr_spec.get("data_type") or attr_spec.get("datatype")
                 if not op_dict.get("data_type") and dt_val:
                     op_dict["data_type"] = dt_val
                 if not op_dict.get("description"):
-                    op_dict["description"] = attr_spec.get("description") or attr_spec.get("definition")
+                    op_dict["description"] = attr_spec.get("description") or attr_spec.get(
+                        "definition"
+                    )
                 for k, v in attr_spec.items():
                     if k not in op_dict and k != "name":
                         op_dict[k] = v
             elif not op_dict.get("attribute_name"):
-                op_dict["attribute_name"] = (attr_spec if isinstance(attr_spec, str) else None) or op_dict.get("name") or "attribute"
+                op_dict["attribute_name"] = (
+                    (attr_spec if isinstance(attr_spec, str) else None)
+                    or op_dict.get("name")
+                    or "attribute"
+                )
 
         aliases = ["op", "action", "concept_id", "uri", "id", "label", "relationship_id", "concept"]
         if op_type != "add_reference_enumeration":
@@ -200,10 +240,20 @@ def normalize_external_mapping(m: dict[str, Any] | Any) -> Any:
     if not isinstance(m, dict):
         return m
     norm = dict(m)
-    scheme = norm.get("scheme") or norm.pop("source_system", None) or norm.pop("source_standard", None) or norm.pop("standard_name", None)
+    scheme = (
+        norm.get("scheme")
+        or norm.pop("source_system", None)
+        or norm.pop("source_standard", None)
+        or norm.pop("standard_name", None)
+    )
     if scheme:
         norm["scheme"] = str(scheme)
-    target = norm.get("target_uri") or norm.pop("standard_uri", None) or norm.pop("external_id", None) or norm.pop("external_term", None)
+    target = (
+        norm.get("target_uri")
+        or norm.pop("standard_uri", None)
+        or norm.pop("external_id", None)
+        or norm.pop("external_term", None)
+    )
     if target:
         norm["target_uri"] = str(target)
     conf = norm.get("confidence")
@@ -223,7 +273,9 @@ def normalize_delta_operation_typed(op: dict[str, Any] | Any) -> OntologyOperati
     if isinstance(op, BaseOntologyDeltaOp) or not isinstance(op, dict):
         return _OP_TYPE_ADAPTER.validate_python(op)
     op_copy = dict(op)
-    raw_type = op_copy.pop("op_type", None) or op_copy.pop("op", None) or op_copy.pop("operation", None)
+    raw_type = (
+        op_copy.pop("op_type", None) or op_copy.pop("op", None) or op_copy.pop("operation", None)
+    )
     if not raw_type:
         raise ValueError("Delta operation missing required 'op_type'")
     op_copy.pop("op", None)
@@ -235,16 +287,21 @@ def normalize_delta_operation_typed(op: dict[str, Any] | Any) -> OntologyOperati
     op_type = re.sub(r"(?<!^)(?=[A-Z])", "_", op_type).lower()
 
     if not op_copy.get("op_id"):
-        op_copy["op_id"] = f"op-{hashlib.sha256(json.dumps(op_copy, sort_keys=True).encode('utf-8')).hexdigest()[:12]}"
+        op_digest = hashlib.sha256(json.dumps(op_copy, sort_keys=True).encode("utf-8")).hexdigest()
+        op_copy["op_id"] = f"op-{op_digest[:12]}"
     if isinstance(op_copy.get("external_mappings"), list):
-        op_copy["external_mappings"] = [normalize_external_mapping(m) for m in op_copy["external_mappings"]]
+        op_copy["external_mappings"] = [
+            normalize_external_mapping(m) for m in op_copy["external_mappings"]
+        ]
 
     if op_type == "add_concept":
         op_copy["op_type"] = "add_concept"
         if isinstance(op_copy.get("concept"), dict):
             c_dict = dict(op_copy.pop("concept"))
             if isinstance(c_dict.get("external_mappings"), list):
-                c_dict["external_mappings"] = [normalize_external_mapping(m) for m in c_dict["external_mappings"]]
+                c_dict["external_mappings"] = [
+                    normalize_external_mapping(m) for m in c_dict["external_mappings"]
+                ]
             norm: dict[str, Any] = {"op_type": "add_concept", "op_id": op_copy["op_id"]}
             norm.update(c_dict)
             norm.update(op_copy)
@@ -268,36 +325,91 @@ def load_session_version_ontology(
     if ont_json.is_file():
         try:
             return GraphAOntology.model_validate_json(ont_json.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
-            raise StudioWorkflowError("CORRUPT_SESSION_RECORD", f"Corrupt ontology artifact for version 'v{ver}': {exc}", status_code=500, exit_code=1) from exc
+        except (
+            OSError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            ValidationError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise StudioWorkflowError(
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt ontology artifact for version 'v{ver}': {exc}",
+                status_code=500,
+                exit_code=1,
+            ) from exc
     ont_yaml = vdir / "ontology.yaml"
     if ont_yaml.is_file():
         try:
-            return GraphAOntology.model_validate(yaml.safe_load(ont_yaml.read_text(encoding="utf-8")))
-        except (OSError, UnicodeDecodeError, yaml.YAMLError, ValidationError, TypeError, ValueError) as exc:
-            raise StudioWorkflowError("CORRUPT_SESSION_RECORD", f"Corrupt ontology artifact for version 'v{ver}': {exc}", status_code=500, exit_code=1) from exc
+            return GraphAOntology.model_validate(
+                yaml.safe_load(ont_yaml.read_text(encoding="utf-8"))
+            )
+        except (
+            OSError,
+            UnicodeDecodeError,
+            yaml.YAMLError,
+            ValidationError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise StudioWorkflowError(
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt ontology artifact for version 'v{ver}': {exc}",
+                status_code=500,
+                exit_code=1,
+            ) from exc
     if ver == GENESIS_VERSION:
         return create_genesis_ontology(
             domain_namespace=sanitize_domain_namespace(meta.domain_namespace),
             enterprise_owner=meta.enterprise_owner or "Enterprise Architecture",
         )
-    raise StudioWorkflowError("CORRUPT_SESSION_STATE", f"Ontology artifact missing for version 'v{ver}' in session '{meta.session_id}'.", status_code=500, exit_code=1)
+    raise StudioWorkflowError(
+        "CORRUPT_SESSION_STATE",
+        f"Ontology artifact missing for version 'v{ver}' in session '{meta.session_id}'.",
+        status_code=500,
+        exit_code=1,
+    )
 
 
-def load_version_ontology_fail_closed(sdir: Path, meta: SessionMetadata, version_str: str) -> GraphAOntology:
+def load_version_ontology_fail_closed(
+    sdir: Path, meta: SessionMetadata, version_str: str
+) -> GraphAOntology:
     """Load version ontology failing closed (CORRUPT_SESSION_RECORD vs non-ancestor 409)."""
     clean_ver = str(version_str).strip().lstrip("v") or GENESIS_VERSION
     if clean_ver != GENESIS_VERSION:
         vdir = sdir / "versions" / normalize_version_tag(clean_ver)
         if not vdir.is_dir():
-            committed_tags = {normalize_version_tag(str(cv).strip().lstrip("v")) for cv in meta.committed_versions if str(cv).strip()}
-            if normalize_version_tag(clean_ver) in committed_tags or clean_ver == meta.head_version.lstrip("v"):
-                raise StudioWorkflowError("CORRUPT_SESSION_RECORD", f"Missing version directory 'v{clean_ver}' in session '{meta.session_id}'.", status_code=500, exit_code=1)
-            raise StudioWorkflowError("PROPOSAL_STALE_REBASE_REQUIRED", f"Proposal base_version 'v{clean_ver}' does not exist in session history.", status_code=409, exit_code=6)
+            committed_tags = {
+                normalize_version_tag(str(cv).strip().lstrip("v"))
+                for cv in meta.committed_versions
+                if str(cv).strip()
+            }
+            if normalize_version_tag(
+                clean_ver
+            ) in committed_tags or clean_ver == meta.head_version.lstrip("v"):
+                raise StudioWorkflowError(
+                    "CORRUPT_SESSION_RECORD",
+                    f"Missing version directory 'v{clean_ver}' in session '{meta.session_id}'.",
+                    status_code=500,
+                    exit_code=1,
+                )
+            raise StudioWorkflowError(
+                "PROPOSAL_STALE_REBASE_REQUIRED",
+                f"Proposal base_version 'v{clean_ver}' does not exist in session history.",
+                status_code=409,
+                exit_code=6,
+            )
     try:
         return load_session_version_ontology(sdir, meta, clean_ver)
     except (StudioWorkflowError, OSError, ValidationError, ValueError, yaml.YAMLError) as exc:
-        raise StudioWorkflowError("CORRUPT_SESSION_RECORD", f"Corrupt or missing ontology artifact for version 'v{clean_ver}' in session '{meta.session_id}': {exc}", status_code=500, exit_code=1) from exc
+        raise StudioWorkflowError(
+            "CORRUPT_SESSION_RECORD",
+            f"Corrupt or missing ontology artifact for version 'v{clean_ver}' "
+            f"in session '{meta.session_id}': {exc}",
+            status_code=500,
+            exit_code=1,
+        ) from exc
 
 
 def compute_expected_semver_for_ops(
@@ -344,10 +456,14 @@ def compute_submitted_request_delta_sha256(
     fallback_target_version: str,
     fallback_sha256: str,
 ) -> str:
-    """Compute canonical SHA-256 of caller-submitted pre-normalization delta when delta_id is set."""
+    """Compute canonical SHA-256 of pre-normalization delta when delta_id is set."""
     if not delta_id:
         return fallback_sha256
-    raw_parent = parent_sha256 if parent_sha256 is not None else (base_sha256 if base_sha256 is not None else fallback_parent_sha256)
+    raw_parent = (
+        parent_sha256
+        if parent_sha256 is not None
+        else (base_sha256 if base_sha256 is not None else fallback_parent_sha256)
+    )
     try:
         return OntologyDelta(
             delta_id=delta_id,

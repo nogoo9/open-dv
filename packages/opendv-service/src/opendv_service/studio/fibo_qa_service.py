@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import time
 import uuid
 from typing import Any
 
@@ -20,9 +21,16 @@ from opendv_agent_harness.protocol import VaultAgentHarness
 from opendv_contracts.dtos.ontology import EvidenceRef
 from opendv_contracts.errors import ErrorCode, OpenDVError
 from opendv_service.studio.agent_runner import StudioAgentRunner
-from opendv_service.studio.agent_runner_helpers import _run_coro_sync, build_safe_agent_prompt
+from opendv_service.studio.agent_runner_helpers import (
+    DEFAULT_AGENT_TIMEOUT_SECONDS,
+    _mask_pii_text,
+    _run_coro_sync,
+    build_safe_agent_prompt,
+    serialize_and_mask_telemetry,
+)
 from opendv_service.studio.job_runners_evidence import load_active_session_evidence
 from opendv_service.studio.session_manager import StudioSessionManager
+from opendv_service.studio.sse_journal import SSEJournalWriter
 from opendv_sources.fibo.loader import get_default_fibo_loader
 
 
@@ -64,6 +72,8 @@ def answer_fibo_qa(
 
     session_dir = session_mgr.get_session_dir(session_id)
     chunks, tables = load_active_session_evidence(session_dir)
+    chunks = [c for c in chunks if not (c.metadata or {}).get("do_not_send_to_agent")]
+    tables = [t for t in tables if not (t.metadata or {}).get("do_not_send_to_agent")]
     if request.source_ids:
         allowed = set(request.source_ids)
         chunks = [
@@ -86,15 +96,16 @@ def answer_fibo_qa(
         fibo_modules=[],
         steering_prompt=None,
     )
-    prompt = (
+    prompt = _mask_pii_text(
         f"Question: {request.question}\n"
         f"Concept URI focus: {request.concept_uri or 'none'}\n"
         f"FIBO candidate context: {json.dumps(fibo_hits)}\n"
         f"Session safe evidence:\n{evidence_context}"
     )
 
+    qa_job_id = f"qa-{uuid.uuid4().hex[:8]}"
     spec = AgentTaskSpec(
-        task_id=f"qa-{uuid.uuid4().hex[:8]}",
+        task_id=qa_job_id,
         run_id=f"qa-run-{uuid.uuid4().hex[:8]}",
         trace_id=uuid.uuid4().hex,
         session_id=session_id,
@@ -108,14 +119,61 @@ def answer_fibo_qa(
         prompt=prompt,
         output_schema=FiboQAResponse,
     )
-    res: HarnessRunResult[Any] = _run_coro_sync(active_harness.run_task(spec), timeout=20.0)
+    budget_cfg = getattr(getattr(active_harness, "config", None), "budget", None)
+    raw_timeout = getattr(budget_cfg, "timeout_seconds", None)
+    timeout_sec = float(
+        raw_timeout if raw_timeout is not None else DEFAULT_AGENT_TIMEOUT_SECONDS
+    )
+    t0 = time.monotonic()
+    res: HarnessRunResult[Any] = _run_coro_sync(
+        active_harness.run_task(spec), timeout=timeout_sec
+    )
+    duration_ms = int((time.monotonic() - t0) * 1000)
+
+    qa_response: FiboQAResponse | None = None
     if isinstance(res.structured_output, FiboQAResponse):
-        return res.structured_output
-    if isinstance(res.structured_output, dict):
-        return FiboQAResponse.model_validate(res.structured_output)
-    if res.text_output:
+        qa_response = res.structured_output
+    elif isinstance(res.structured_output, dict):
+        qa_response = FiboQAResponse.model_validate(res.structured_output)
+    elif res.text_output:
         with contextlib.suppress(Exception):
-            return FiboQAResponse.model_validate_json(res.text_output)
+            qa_response = FiboQAResponse.model_validate_json(res.text_output)
+
+    usage_obj = getattr(res, "usage", None)
+    token_usage = (
+        usage_obj.model_dump(mode="json")
+        if hasattr(usage_obj, "model_dump")
+        else (usage_obj if isinstance(usage_obj, dict) else {})
+    )
+    raw_resp = (
+        qa_response
+        if qa_response is not None
+        else (res.structured_output if res.structured_output is not None else res.text_output)
+    )
+    writer = SSEJournalWriter(session_dir=session_dir, job_id=qa_job_id)
+    writer.buffer_event(
+        "agent_telemetry",
+        {
+            "job_id": qa_job_id,
+            "wizard_step": 4,
+            "stage_id": PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED.value,
+            "persona": AgentPersona.DOMAIN_CLARIFIER.value,
+            "category": "agent",
+            "provider": getattr(active_harness, "provider_name", None)
+            or getattr(res, "provider", None),
+            "model_id": getattr(res, "model_used", None),
+            "duration_ms": duration_ms,
+            "token_usage": token_usage,
+            "masked_prompt": _mask_pii_text(prompt),
+            "structured_or_raw_response": serialize_and_mask_telemetry(raw_resp) or "",
+            "status": "PASS" if qa_response is not None else "ERROR",
+            "headline": f"FIBO Q&A: {_mask_pii_text(request.question)[:80]}",
+        },
+    )
+    writer.flush()
+
+    if qa_response is not None:
+        return qa_response
     raise OpenDVError(
         "FIBO Q&A harness did not produce structured FiboQAResponse output.",
         error_code=ErrorCode.AGENT_UNAVAILABLE,

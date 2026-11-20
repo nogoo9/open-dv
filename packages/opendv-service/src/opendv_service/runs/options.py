@@ -88,8 +88,13 @@ def resolve_run_creation_options(
     else:
         provider_override = None
 
+    raw_spec = getattr(req, "input_spec", None)
+    spec_dict = raw_spec if isinstance(raw_spec, dict) else {}
+
     has_initial_contract = False
-    initial_contract_path = getattr(req, "initial_contract_path", None)
+    initial_contract_path = getattr(req, "initial_contract_path", None) or spec_dict.get(
+        "initial_contract_path"
+    )
     lifecycle_stage = LifecycleStage.COLD_START_N1.value
 
     if initial_contract_path is not None:
@@ -117,8 +122,11 @@ def resolve_run_creation_options(
         has_initial_contract = True
         lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
     else:
-        inline_contract = getattr(req, "initial_contract", None) or getattr(
-            req, "initial_contract_content", None
+        inline_contract = (
+            getattr(req, "initial_contract", None)
+            or getattr(req, "initial_contract_content", None)
+            or spec_dict.get("initial_contract")
+            or spec_dict.get("initial_contract_content")
         )
         if inline_contract is not None:
             try:
@@ -127,6 +135,11 @@ def resolve_run_creation_options(
                 raise ValueError(f"Malformed initial_contract YAML: {exc}") from exc
             has_initial_contract = True
             lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
+        else:
+            bp_obj = getattr(req, "blueprint", None) or spec_dict.get("blueprint")
+            if isinstance(bp_obj, dict) and bp_obj.get("contract") is not None:
+                has_initial_contract = True
+                lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
 
     target_wave_id = getattr(req, "wave_id", None)
 

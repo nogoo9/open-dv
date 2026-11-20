@@ -113,8 +113,15 @@ def probe_providers_readiness_list(setup: HarnessSetupConfig) -> list[ProviderRe
         else:
             auth_mode = "cli_session" if execution_mode == "cli" else "api_key"
 
-        default_reasoning = resolve_provider_model(provider, "reasoning")
-        default_fast = resolve_provider_model(provider, "fast")
+        if provider in {"claude-cli", "claude-code"}:
+            cli_overrides = HarnessSetupConfig(provider=provider).model_overrides  # type: ignore[arg-type]
+            default_reasoning = resolve_provider_model(
+                provider, "reasoning", overrides=cli_overrides
+            )
+            default_fast = resolve_provider_model(provider, "fast", overrides=cli_overrides)
+        else:
+            default_reasoning = resolve_provider_model(provider, "reasoning")
+            default_fast = resolve_provider_model(provider, "fast")
 
         if execution_mode == "cli":
             status_message = (

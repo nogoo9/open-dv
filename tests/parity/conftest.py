@@ -30,6 +30,18 @@ def _find_free_port() -> int:
         return s.getsockname()[1]
 
 
+@pytest.fixture(autouse=True)
+def isolate_parity_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate Studio and platform state directories per test so parity runs never mutate repo `.opendv/`."""
+    studio_root = tmp_path / "studio_root"
+    studio_root.mkdir(parents=True, exist_ok=True)
+    state_dir = tmp_path / "platform_state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("OPENDV_STUDIO_ROOT", str(studio_root))
+    monkeypatch.setenv("OPENDV_STATE_DIR", str(state_dir))
+    monkeypatch.delenv("OPENDV_STORAGE_ROOT", raising=False)
+
+
 @pytest.fixture
 def platform_api_state(tmp_path: Path) -> PlatformStateContainer:
     """Create an isolated platform state container with repository workspace

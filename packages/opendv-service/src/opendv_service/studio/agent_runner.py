@@ -46,13 +46,14 @@ from opendv_service.studio.agent_runner_helpers import (
     _run_coro_sync,
     build_safe_agent_prompt,
     resolve_budget_hold,
+    serialize_and_mask_telemetry,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class StudioAgentRunner:
-    """Production 3-persona runner invoking VaultAgentHarness.run_task (fail-closed in agent mode)."""
+    """Production 3-persona runner invoking VaultAgentHarness (fail-closed in agent mode)."""
 
     def __init__(
         self,
@@ -76,7 +77,7 @@ class StudioAgentRunner:
         self._waiver_secret = waiver_secret
 
     def _resolve_runtime_harness(self) -> VaultAgentHarness:
-        """Resolve an active, ready VaultAgentHarness per run or fail closed (422 AGENT_NOT_CONFIGURED)."""
+        """Resolve active VaultAgentHarness per run or fail closed (422 AGENT_NOT_CONFIGURED)."""
         if self._harness is not None:
             return self._harness
 
@@ -87,7 +88,8 @@ class StudioAgentRunner:
             setup_obj = HarnessSetupConfig.model_validate(setup_dict)
             if not _has_provider_credentials(setup_obj, require_sdk=self._harness_factory is None):
                 raise OpenDVError(
-                    f"Configured provider '{setup_obj.provider}' is not ready (missing CLI binary, SDK, or credentials).",
+                    f"Configured provider '{setup_obj.provider}' is not ready "
+                    "(missing CLI binary, SDK, or credentials).",
                     error_code=ErrorCode.AGENT_NOT_CONFIGURED,
                 )
             return factory(setup_obj.to_harness_config())
@@ -137,7 +139,7 @@ class StudioAgentRunner:
         fibo_modules: Sequence[str],
         steering_prompt: str | None,
     ) -> str:
-        """Build 3-persona prompt excluding do_not_send_to_agent & capping samples at <= 5 PII-masked values/col."""
+        """Build 3-persona prompt excluding do_not_send_to_agent & capping PII-masked samples."""
         return build_safe_agent_prompt(
             base_ontology=base_ontology,
             evidence_chunks=evidence_chunks,
@@ -220,7 +222,10 @@ class StudioAgentRunner:
                 session_id=sdir.name,
                 stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2,
                 persona=AgentPersona.ONTOLOGY_ARCHITECT,
-                headline=f"Agent execution paused ({reason_marker}): tokens={total_tokens}, cost=${cost_usd:.4f}",
+                headline=(
+                    f"Agent execution paused ({reason_marker}): "
+                    f"tokens={total_tokens}, cost=${cost_usd:.4f}"
+                ),
                 escalation_reason=reason_marker,
                 rule_id="BUDGET-01",
                 options=[
@@ -258,7 +263,7 @@ class StudioAgentRunner:
         on_event: Callable[[HarnessStreamEvent], None] | None,
         writer: Any | None,
     ) -> OntologyProposal:
-        """Execute VaultAgentHarness.run_task(..., on_event=...) with budget/telemetry enforcement."""
+        """Execute VaultAgentHarness.run_task with budget and telemetry enforcement."""
         eff_job_id = job_id or f"job-{uuid.uuid4().hex[:8]}"
         eff_principal = principal or "system:unknown"
         prompt_text = self._build_safe_prompt(
@@ -314,6 +319,7 @@ class StudioAgentRunner:
 
         budget_cfg = getattr(harness.config, "budget", None)
         timeout_sec = float(getattr(budget_cfg, "timeout_seconds", self._timeout_seconds))
+        start_mono = time.monotonic()
 
         try:
             run_result: HarnessRunResult[Any] = _run_coro_sync(
@@ -337,25 +343,45 @@ class StudioAgentRunner:
         usage_obj = run_result.usage
         total_tok = max(cum_tokens, int(getattr(usage_obj, "total_tokens", 0) or 0))
         total_cost = max(cum_cost, float(getattr(usage_obj, "cost_usd", 0.0) or 0.0))
+        raw_resp = (
+            run_result.structured_output
+            if run_result.structured_output is not None
+            else run_result.text_output
+        )
 
         if writer is not None:
             writer.buffer_event(
                 "agent_telemetry",
                 {
                     "job_id": eff_job_id,
+                    "wizard_step": 4,
                     "stage_id": PipelineStageId.STAGE_04_SHIP_VAULT_PASS2.value,
                     "persona": AgentPersona.ONTOLOGY_ARCHITECT.value,
+                    "category": "agent",
                     "provider": harness.provider_name,
                     "model_id": run_result.model_used,
                     "token_usage": usage_obj.model_dump(mode="json"),
                     "cost_usd": total_cost,
                     "cumulative_cost_usd": total_cost,
                     "mode": mode,
+                    "masked_prompt": _mask_pii_text(prompt_text),
+                    "structured_or_raw_response": serialize_and_mask_telemetry(raw_resp) or "",
+                    "status": (
+                        "PASS"
+                        if run_result.stop_reason == HarnessStopReason.COMPLETED
+                        else run_result.stop_reason.value
+                    ),
                 },
             )
 
         if run_result.stop_reason in _BUDGET_STOP_REASONS:
-            marker = run_result.stop_reason.value.upper()
+            elapsed_sec = time.monotonic() - start_mono
+            marker = (
+                "TIMEOUT"
+                if run_result.stop_reason == HarnessStopReason.MAX_TURNS_EXCEEDED
+                and elapsed_sec >= timeout_sec * 0.9
+                else run_result.stop_reason.value.upper()
+            )
             self._open_budget_hold(
                 reason_marker=marker,
                 session_dir=session_dir,
@@ -370,8 +396,11 @@ class StudioAgentRunner:
             )
 
         if run_result.stop_reason != HarnessStopReason.COMPLETED:
+            if writer is not None:
+                writer.flush()
             raise OpenDVError(
-                f"Agent execution failed ({run_result.stop_reason.value}): {run_result.text_output[:200]}",
+                f"Agent execution failed ({run_result.stop_reason.value}): "
+                f"{run_result.text_output[:200]}",
                 error_code=ErrorCode.AGENT_UNAVAILABLE,
             )
 

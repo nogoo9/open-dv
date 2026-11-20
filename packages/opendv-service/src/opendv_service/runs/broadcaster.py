@@ -32,6 +32,82 @@ def format_sse_frame(
     return "\n".join(lines) + "\n\n"
 
 
+def build_hold_sse_payload(
+    state: Any,
+    run_id: str,
+    raw_evt: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Assemble rich `event: hold` payload from hold manager, report active_holds, and raw event."""
+    payload: dict[str, Any] = {"status": "PAUSED_HOLD", "run_id": run_id}
+    if isinstance(raw_evt, dict):
+        if isinstance(raw_evt.get("payload"), dict):
+            payload.update({k: v for k, v in raw_evt["payload"].items() if v is not None})
+        for k in (
+            "hold_id",
+            "stage_id",
+            "headline",
+            "reason",
+            "escalation_reason",
+            "rule_id",
+            "options",
+        ):
+            if raw_evt.get(k) is not None:
+                payload.setdefault(k, raw_evt[k])
+
+    first_hold: Any = None
+    hold_mgrs = getattr(state, "hold_managers", None) or {}
+    mgr = hold_mgrs.get(run_id)
+    if mgr is not None and hasattr(mgr, "list_pending_holds"):
+        pending = mgr.list_pending_holds(run_id=run_id)
+        if not pending:
+            pending = mgr.list_pending_holds()
+        if pending:
+            first_hold = pending[0]
+    if first_hold is None:
+        rep = (getattr(state, "pipeline_reports", None) or {}).get(run_id) or {}
+        active = rep.get("active_holds") or []
+        if active:
+            first_hold = active[0]
+
+    if first_hold is not None:
+        h_dict = (
+            first_hold.model_dump(mode="json")
+            if hasattr(first_hold, "model_dump")
+            else (dict(first_hold) if isinstance(first_hold, dict) else {})
+        )
+        hold_id = h_dict.get("hold_id")
+        stage_id = h_dict.get("stage_id")
+        rule_id = h_dict.get("rule_id")
+        esc_reason = h_dict.get("escalation_reason")
+        summary = h_dict.get("summary") or h_dict.get("architect_question") or h_dict.get("reason")
+        headline = h_dict.get("headline") or summary or esc_reason or rule_id
+        options = h_dict.get("options")
+        if hold_id:
+            payload["hold_id"] = hold_id
+        if stage_id:
+            payload["stage_id"] = stage_id
+        if rule_id:
+            payload["rule_id"] = rule_id
+        if esc_reason:
+            payload["escalation_reason"] = esc_reason
+        if summary or esc_reason:
+            payload["reason"] = str(summary or esc_reason)
+        if headline:
+            payload["headline"] = str(headline)
+        if isinstance(options, list) and options:
+            payload["options"] = options
+
+    payload.setdefault("hold_id", f"hold-{run_id}")
+    payload.setdefault("stage_id", "STAGE_04_SHIP_VAULT_PASS2")
+    payload.setdefault("reason", str(payload.get("escalation_reason") or "Steward Hold Required"))
+    payload.setdefault("headline", str(payload["reason"]))
+    if not isinstance(payload.get("options"), list):
+        payload["options"] = []
+    payload["status"] = "PAUSED_HOLD"
+    payload["run_id"] = run_id
+    return payload
+
+
 async def subscribe_run_sse(
     context: RunContext | None,
     state: StateStore,
@@ -155,27 +231,30 @@ async def subscribe_run_sse(
             had_terminal_in_replay = True
             yield format_sse_frame("run_complete", None, {"status": stat})
         elif ev_type == "hold":
-            had_terminal_in_replay = True
+            if is_hold_now:
+                had_terminal_in_replay = True
             yield format_sse_frame(
                 "hold",
                 ev_id or f"evt-{run_id}-hold",
-                {"status": "PAUSED_HOLD", "run_id": run_id},
+                build_hold_sse_payload(state, run_id, raw_evt),
             )
         else:
             redacted = redact_event_for_role(raw_evt, eff_role)
             yield format_sse_frame(ev_type, ev_id, redacted)
 
-    # If execution already ended (or paused at hold), emit terminal/hold frame if needed and terminate
+    # Emit terminal/hold frame if execution already ended or paused
     if is_done:
         if not had_terminal_in_replay:
             term_str = (
-                final_status.value if hasattr(final_status, "value") else str(final_status or "COMPLETED")
+                final_status.value
+                if hasattr(final_status, "value")
+                else str(final_status or "COMPLETED")
             )
             if term_str == "PAUSED_HOLD" and has_explicit_hold:
                 yield format_sse_frame(
                     "hold",
                     f"evt-{run_id}-hold",
-                    {"status": "PAUSED_HOLD", "run_id": run_id},
+                    build_hold_sse_payload(state, run_id),
                 )
             else:
                 if term_str not in {"ABORTED", "FAILED", "COMPLETED"}:
@@ -216,7 +295,7 @@ async def subscribe_run_sse(
                         yield format_sse_frame(
                             "hold",
                             ev_id or f"evt-{run_id}-hold",
-                            {"status": "PAUSED_HOLD", "run_id": run_id},
+                            build_hold_sse_payload(state, run_id, item),
                         )
                         break
                     redacted = redact_event_for_role(item, eff_role)
@@ -238,7 +317,7 @@ async def subscribe_run_sse(
                     yield format_sse_frame(
                         "hold",
                         ev_id or f"evt-{run_id}-hold",
-                        {"status": "PAUSED_HOLD", "run_id": run_id},
+                        build_hold_sse_payload(state, run_id, raw_evt),
                     )
                     return
                 if ev_type == "run_complete":
@@ -263,7 +342,7 @@ async def subscribe_run_sse(
                     yield format_sse_frame(
                         "hold",
                         f"evt-{run_id}-hold",
-                        {"status": "PAUSED_HOLD", "run_id": run_id},
+                        build_hold_sse_payload(state, run_id),
                     )
                     return
                 if latest_stat in {"COMPLETED", "FAILED", "ABORTED"}:

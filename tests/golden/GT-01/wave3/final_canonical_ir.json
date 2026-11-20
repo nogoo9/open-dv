@@ -690,11 +690,8 @@
           "algorithm": "SHA256",
           "input_columns": [
             "annual_spend_band",
-            "contact_email",
             "customer_row_seq",
-            "customer_tax_id",
-            "loyalty_tier_code",
-            "tax_ssn_tin"
+            "loyalty_tier_code"
           ],
           "normalization": "EXACT_TRIM"
         }
@@ -707,27 +704,12 @@
           "nullable": true
         },
         {
-          "name": "contact_email",
-          "data_type": "VARCHAR(255)",
-          "nullable": true
-        },
-        {
           "name": "customer_row_seq",
           "data_type": "INTEGER",
           "nullable": true
         },
         {
-          "name": "customer_tax_id",
-          "data_type": "VARCHAR(255)",
-          "nullable": true
-        },
-        {
           "name": "loyalty_tier_code",
-          "data_type": "VARCHAR(255)",
-          "nullable": true
-        },
-        {
-          "name": "tax_ssn_tin",
           "data_type": "VARCHAR(255)",
           "nullable": true
         }

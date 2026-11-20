@@ -6,6 +6,7 @@
 import { useRef, useSyncExternalStore } from "react";
 import { createStore } from "zustand/vanilla";
 import { hasActiveReactDispatcher } from "../../explorer/explorer-store";
+import { createEmptyZoneSqlByDialect } from "../wizard/step6-run-hydration";
 import { createAgentDiscoverySlice } from "./agent-discovery-slice";
 import { createExportPromoteSlice } from "./export-promote-slice";
 import { createDefaultDiffState, createGraphDiffSlice } from "./graph-diff";
@@ -50,6 +51,7 @@ export type {
 	PipelineTopologyRow,
 	SessionLogEntryDTO,
 	StudioStoreState,
+	ZoneSqlByDialect,
 } from "./store-types";
 export {
 	canonicalizeGraphADict,
@@ -250,6 +252,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					topologyRows: [],
 					stageStatuses: {},
 					zoneSqlByZone: {},
+					zoneSqlByDialect: createEmptyZoneSqlByDialect(),
+					gateScorecard: null,
+					sessionRuns: [],
 					activeRunId: null,
 					isRunningPipeline: false,
 					activeHold: null,

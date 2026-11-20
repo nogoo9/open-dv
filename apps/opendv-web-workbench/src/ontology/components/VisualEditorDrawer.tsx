@@ -326,7 +326,7 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 		const isNew = isCreateMode || !selectedConcept;
 		const targetUri = isNew
 			? conceptUri.trim() ||
-				`urn:opendv:concept:${
+				`urn:ontology:entity:${
 					conceptName
 						.trim()
 						.toLowerCase()
@@ -473,7 +473,7 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 							className="form-input"
 							data-testid="concept-uri-input"
 							aria-label="Concept URI"
-							placeholder="urn:opendv:concept:new_concept"
+							placeholder="urn:ontology:entity:new_concept"
 							value={conceptUri}
 							disabled={isConceptReadOnly}
 							onChange={(e) => setConceptUri(e.target.value)}

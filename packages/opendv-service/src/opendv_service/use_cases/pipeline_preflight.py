@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import re
 from collections.abc import Sequence
@@ -173,6 +174,58 @@ def _extract_doc_text(cand_p: Path, title: str, mime: str) -> str:
     return ""
 
 
+def _is_hex64(val: Any) -> bool:
+    return bool(isinstance(val, str) and re.fullmatch(r"[0-9a-fA-F]{64}", val.strip()))
+
+
+def _load_session_manifest_map(
+    session_id: str | None,
+    state: Any | None,
+) -> dict[str, dict[str, Any]]:
+    if not session_id:
+        return {}
+    ws_root = getattr(state, "workspace_root", None) or getattr(state, "repo_root", None)
+    by_key: dict[str, dict[str, Any]] = {}
+    for s_root in _candidate_studio_roots(state):
+        with contextlib.suppress(Exception):
+            mgr = StudioSessionManager(studio_root=s_root, workspace_root=ws_root)
+            mfile = mgr.get_session_dir(session_id) / "inputs" / "manifest.json"
+            if not mfile.is_file():
+                continue
+            mdata = json.loads(mfile.read_text(encoding="utf-8"))
+            for item in mdata.get("files") or []:
+                if not isinstance(item, dict) or item.get("tombstoned"):
+                    continue
+                sha = str(item.get("sha256") or "").strip().lower()
+                sid = str(item.get("source_id") or "").strip()
+                if sha:
+                    by_key[sha] = item
+                if sid:
+                    by_key[sid] = item
+            if by_key:
+                return by_key
+    return by_key
+
+
+def _sniff_cas_blob_format(cand_p: Path) -> str:
+    with contextlib.suppress(OSError), open(cand_p, "rb") as bf:
+        hd = bf.read(4096)
+        if hd.startswith(b"SQLite format 3\x00"):
+            return "sqlite"
+        if len(hd) >= 12 and hd[8:12] == b"DUCK":
+            return "duckdb"
+        if hd.startswith(b"PAR1"):
+            return "parquet"
+        txt = hd.decode("utf-8", errors="ignore").strip()
+        if txt.startswith(("{", "[")):
+            return "json"
+        if "\t" in txt:
+            return "tsv"
+        if "," in txt or "\n" in txt:
+            return "csv"
+    return ""
+
+
 def resolve_cas_sources_list(
     sources_list: Sequence[Any] | None,
     cas_store: Any | None,
@@ -183,6 +236,7 @@ def resolve_cas_sources_list(
     """Resolve cas:// URIs in source feed definitions to staged filesystem or sqlite paths."""
     if not sources_list:
         return []
+    manifest_map = _load_session_manifest_map(session_id, state)
     resolved: list[dict[str, Any]] = []
     for s in sources_list:
         s_dict = _to_dict(s)
@@ -190,18 +244,85 @@ def resolve_cas_sources_list(
         if c_hash is not None:
             cand_p = _find_cas_blob_path(c_hash, cas_store, session_id=session_id, state=state)
             if cand_p is not None:
-                is_sqlite = False
-                with contextlib.suppress(OSError), open(cand_p, "rb") as bf:
-                    if bf.read(16).startswith(b"SQLite format 3\x00"):
-                        is_sqlite = True
-                s_sys = s_dict.get("source_system") or "cas_store"
                 s_opts = dict(s_dict.get("options") or {})
+                m_entry = manifest_map.get(c_hash) or manifest_map.get(
+                    str(s_dict.get("feed_id") or "")
+                )
+                m_fname = str((m_entry or {}).get("filename") or "").strip()
+                m_mime = str((m_entry or {}).get("mime_type") or "").lower()
+                m_adp = str((m_entry or {}).get("connector_adapter") or "").lower()
+
+                sniffed = _sniff_cas_blob_format(cand_p)
+                raw_fmt = (
+                    s_dict.get("format")
+                    or s_opts.get("source_format")
+                    or s_opts.get("format")
+                    or (Path(m_fname).suffix.lower().lstrip(".") if m_fname else "")
+                    or sniffed
+                )
+                norm_fmt = "parquet" if raw_fmt == "pq" else str(raw_fmt or "").lower().strip(".")
+                is_sqlite = (
+                    sniffed == "sqlite"
+                    or s_dict.get("adapter") == "sqlite"
+                    or m_adp == "sqlite"
+                    or "sqlite" in m_mime
+                )
+                is_duckdb = (
+                    sniffed == "duckdb"
+                    or s_dict.get("adapter") == "duckdb"
+                    or m_adp == "duckdb"
+                    or "duckdb" in m_mime
+                    or norm_fmt in {"duckdb", "ddb"}
+                )
+
+                s_sys = s_dict.get("source_system") or "cas_store"
+                opt_tbl = str(s_opts.get("table_name") or "").strip()
+                opt_src = str(s_opts.get("source_name") or "").strip()
+                raw_tbl = str(s_dict.get("table_name") or "").strip()
+                raw_src = str(s_dict.get("source_name") or "").strip()
+                m_stem = Path(m_fname).stem if m_fname else ""
+                logical_tbl = next(
+                    (
+                        cand
+                        for cand in (
+                            raw_tbl,
+                            opt_tbl,
+                            m_stem,
+                            Path(opt_src).stem if opt_src else "",
+                            Path(raw_src).stem if raw_src else "",
+                            s_sys,
+                            str(s_dict.get("feed_id") or ""),
+                        )
+                        if cand and not _is_hex64(cand)
+                    ),
+                    "table",
+                )
+                logical_src = next(
+                    (
+                        cand
+                        for cand in (raw_src, opt_src, m_fname, logical_tbl)
+                        if cand and not _is_hex64(cand)
+                    ),
+                    logical_tbl,
+                )
+
                 s_opts["source_system"] = s_sys
+                s_opts.setdefault("table_name", logical_tbl)
+                s_opts.setdefault("source_name", logical_src)
+                if norm_fmt and not is_sqlite and not is_duckdb:
+                    s_opts.setdefault("source_format", norm_fmt)
+                    s_dict.setdefault("format", norm_fmt)
                 s_dict["options"] = s_opts
                 s_dict["source_system"] = s_sys
+                s_dict["table_name"] = logical_tbl
+                s_dict["source_name"] = logical_src
+
                 if is_sqlite:
                     s_dict["uri"] = f"sqlite:///{cand_p.as_posix()}"
                     s_dict["adapter"] = "sqlite"
+                elif is_duckdb:
+                    s_dict["uri"] = f"duckdb:///{cand_p.as_posix()}"
+                    s_dict["adapter"] = "duckdb"
                 else:
                     s_dict["uri"] = cand_p.as_posix()
                     s_dict.setdefault("adapter", "file")

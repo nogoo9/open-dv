@@ -36,10 +36,18 @@ from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox, validate_s
             "JOIN raw_vault.lnk_ab b ON a.hk = b.hk_a "
             "UNION ALL SELECT hk FROM raw_vault.hub_c"
         ),
+        (
+            "SELECT h.hk_position, s1.market_value "
+            "FROM raw_vault.hub_position h "
+            "JOIN business_vault.pit_position p ON h.hk_position = p.hk_position "
+            "JOIN raw_vault.sat_positions s1 "
+            "ON s1.hk_position = p.hk_position AND s1.load_dts = p.sat_positions_ldts "
+            "WHERE (s1.market_value > 0 OR s1.market_value IS NULL)"
+        ),
     ],
 )
 def test_validate_safe_sql_permits_read_only_select_union_cte_and_safe_funcs(safe_sql: str) -> None:
-    """Allowlist permits read-only SELECT, UNION, JOIN, CTE, and safe scalar/aggregate functions."""
+    """Allowlist permits SELECT, UNION, JOIN, CTE, AND/OR predicates, and safe functions."""
     validate_safe_sql(safe_sql)
 
 
@@ -47,6 +55,7 @@ def test_validate_safe_sql_permits_read_only_select_union_cte_and_safe_funcs(saf
     "unsafe_sql",
     [
         "SELECT * FROM read_text('/etc/passwd')",
+        "SELECT * FROM read_csv('test.csv')",
         "SELECT * FROM read_xlsx('book.xlsx')",
         "SELECT * FROM glob('/tmp/*')",
         "SELECT * FROM sniff_csv('data.csv')",
@@ -57,11 +66,13 @@ def test_validate_safe_sql_permits_read_only_select_union_cte_and_safe_funcs(saf
         "SELECT getenv('AWS_SECRET_ACCESS_KEY')",
         "SELECT * FROM sqlite_scan('app.db', 'users')",
         "SELECT * FROM postgres_scan('dbname=prod', 'public', 'users')",
+        "SELECT * FROM pragma_table_info('raw_vault.hub_position')",
         "SELECT * FROM 'file.csv'",
         "SELECT 1; SELECT 2",
         "DROP TABLE raw_vault.hub_customer",
         "INSERT INTO raw_vault.hub_customer VALUES ('a')",
         "UPDATE raw_vault.hub_customer SET rec_src = 'x'",
+        "PRAGMA show_tables",
         "PRAGMA enable_external_access=true",
         "COPY raw_vault.hub_customer TO 'out.parquet'",
     ],

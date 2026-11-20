@@ -2279,3 +2279,49 @@ def test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox(tmp_path
         assert report.passed
         assert report.batch_report.all_passed
         assert report.dynamic_check_report.all_passed
+
+
+def test_bug_c_quote_identifier_and_csv_spaced_headers(tmp_path: Path) -> None:
+    """Bug C TDD: _quote_identifier accepts safe CSV headers with spaces and dots
+    (when allow_qualified=False), rejects SQL injection payloads, and GraphBProfiler
+    profiles CSV tables with spaced headers like 'NCT Number'.
+    """
+    from opendv_duckdb_sandbox.graph_b_profiler import _quote_identifier
+
+    assert _quote_identifier("NCT Number") == '"NCT Number"'
+    assert _quote_identifier("Wt. (kg)", allow_qualified=False) == '"Wt. (kg)"'
+    assert _quote_identifier("München_Preis", allow_qualified=False) == '"München_Preis"'
+    assert _quote_identifier("€_Fee", allow_qualified=False) == '"€_Fee"'
+    assert _quote_identifier("order") == '"order"'
+    assert _quote_identifier("raw_vault.order") == '"raw_vault"."order"'
+
+    for bad in (
+        "order; DROP TABLE",
+        "col -- comment",
+        "a'b",
+        'a"b',
+        "a/*x*/",
+    ):
+        with pytest.raises(ValueError, match="Unsafe SQL identifier"):
+            _quote_identifier(bad)
+
+    csv_file = tmp_path / "clinical_trials.csv"
+    csv_file.write_text(
+        '"NCT Number","Study Title","Primary Outcome Measures","Wt. (kg)"\n'
+        '"NCT000001","Trial Alpha","Overall Survival",72.5\n'
+        '"NCT000002","Trial Beta","Progression Free Survival",68.0\n',
+        encoding="utf-8",
+    )
+
+    with GraphBProfiler() as profiler:
+        get_source_registry().get_tabular_adapter("file").register(
+            SourceSpec(adapter="file", uri=str(csv_file)),
+            profiler.conn,
+            "clinical_trials",
+        )
+        metrics = profiler.profile_table_columns("clinical_trials")
+        col_names = [m.column_name for m in metrics]
+        assert col_names == ["NCT Number", "Study Title", "Primary Outcome Measures", "Wt. (kg)"]
+        by_col = {m.column_name: m for m in metrics}
+        assert by_col["NCT Number"].distinct_count == 2
+        assert by_col["NCT Number"].uniqueness_ratio == 1.0

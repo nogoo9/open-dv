@@ -94,7 +94,7 @@ def test_evo_01_to_05_non_destructive_intra_source_drift_and_zone1_projections()
     bundle = compile_canonical_ir_to_4zone_sql(ir_model)
     assert "DROP COLUMN" not in bundle.zone_2_sql.upper()
     assert "CAST(NULL AS" in bundle.zone_1_sql.upper()
-    assert " AS country_iso2" in bundle.zone_1_sql
+    assert "country_iso_2 AS country_iso2" in bundle.zone_1_sql
 
 
 def test_d12_auto_bounds_deployed_contract_across_project_runs(tmp_path: Path) -> None:
@@ -144,3 +144,155 @@ def test_d12_auto_bounds_deployed_contract_across_project_runs(tmp_path: Path) -
         or bound_spec.initial_contract_path
         or bound_spec.initial_contract_content
     ), "D12 violated: second run did not auto-bind deployed_contract from latest certified run"
+
+
+def test_evo_03_wave3_column_aliases_pit_databricks_and_4batch_sandbox() -> None:
+    """Wave 3 evolution (`market_value` -> `mkt_val_usd`, +2 additive, -1 dropped) lowers aliases, PIT, and passes 4-batch DuckDB execution."""
+    from opendv_axi_verifier.codemods.alg_a9a_schema_drift import codemod_intra_source_schema_drift
+    from opendv_duckdb_sandbox.dialects.databricks_transpiler import transpile_bundle_to_databricks
+    from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
+
+    w0_contract: dict[str, Any] = {
+        "contract_version": "5.0",
+        "domain_namespace": "custody_positions",
+        "lifecycle_stage": "COLD_START_N1",
+        "column_triage_ledger": [
+            {
+                "bronze_table": "positions",
+                "column_name": "position_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_position",
+                "source_sql_type": "VARCHAR(64)",
+            },
+            {
+                "bronze_table": "positions",
+                "column_name": "market_value",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_positions",
+                "source_sql_type": "NUMERIC(14,2)",
+            },
+            {
+                "bronze_table": "positions",
+                "column_name": "quantity",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_positions",
+                "source_sql_type": "NUMERIC(18,4)",
+            },
+            {
+                "bronze_table": "positions",
+                "column_name": "legacy_desk_memo",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_positions",
+                "source_sql_type": "VARCHAR(255)",
+            },
+        ],
+        "hubs": [
+            {
+                "name": "hub_position",
+                "ontology_concept_uri": "urn:ontology:entity:position",
+                "business_key_sources": [
+                    {
+                        "bronze_table": "positions",
+                        "key_columns": ["position_id"],
+                        "record_source_code": "POS_CORE",
+                        "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                        "require_src_qualifier": False,
+                        "bkcc_prefix": "GLOBAL",
+                    }
+                ],
+            }
+        ],
+        "links": [],
+        "satellites": [
+            {
+                "name": "sat_positions",
+                "satellite_type": "STANDARD_SATELLITE",
+                "parent_entity": "hub_position",
+                "source_bronze_table": "positions",
+                "security_classification": "INTERNAL",
+                "volatility_tier": "STANDARD",
+                "payload_columns": ["market_value", "quantity", "legacy_desk_memo"],
+            }
+        ],
+        "reference_tables": [],
+        "unmapped_escalations": [],
+    }
+
+    cand_contract = copy.deepcopy(w0_contract)
+    cand_contract["satellites"][0]["payload_columns"] = [
+        "mkt_val_usd",
+        "quantity",
+        "asset_class",
+        "desk_code",
+    ]
+    cand_contract["satellites"][0]["column_types"] = {
+        "mkt_val_usd": "DECIMAL(18,2)",
+        "quantity": "NUMERIC(18,4)",
+        "asset_class": "VARCHAR(64)",
+        "desk_code": "VARCHAR(32)",
+    }
+    cand_contract["satellites"][0]["value_jaccard"] = {("market_value", "mkt_val_usd"): 0.95}
+
+    evolved = codemod_intra_source_schema_drift(
+        deployed_contract=w0_contract,
+        candidate_contract=cand_contract,
+        schema_epoch_tag="v2",
+    )
+
+    assert verify_additive_evolution_invariants(w0_contract, evolved) == []
+    base_sat = next(s for s in evolved["satellites"] if s["name"] == "sat_positions")
+    assert base_sat["column_aliases"] == {"market_value": "mkt_val_usd"}
+    assert base_sat["soft_deprecated_columns"] == ["legacy_desk_memo"]
+    assert set(base_sat["payload_columns"]) == {"market_value", "quantity", "legacy_desk_memo"}
+
+    comp_sat = next(s for s in evolved["satellites"] if s["name"] == "sat_positions_ext_v2")
+    assert set(comp_sat["payload_columns"]) == {"asset_class", "desk_code"}
+
+    validated = validate_contract_v5(evolved)
+    assert validated.satellites[0].column_aliases == {"market_value": "mkt_val_usd"}
+
+    ir_model = lower_contract_to_canonical_ir(validated)
+    ir_base_sat = next(s for s in ir_model.satellites if s.name == "sat_positions")
+    assert ir_base_sat.source_mapping.column_aliases == {"market_value": "mkt_val_usd"}
+    assert ir_base_sat.source_mapping.soft_deprecated_columns == ["legacy_desk_memo"]
+    assert "market_value" in ir_base_sat.hash_diff_column.hash_expression.input_columns
+    assert any(p.name == "pit_position" for p in (ir_model.pit_tables or []))
+
+    bronze_rows = {
+        "positions": [
+            {
+                "position_id": "POS-001",
+                "mkt_val_usd": 125000.50,
+                "quantity": 100.0,
+                "asset_class": "EQUITY",
+                "desk_code": "DESK_NY",
+            },
+            {
+                "position_id": "POS-002",
+                "mkt_val_usd": 250000.75,
+                "quantity": 200.0,
+                "asset_class": "FIXED_INCOME",
+                "desk_code": "DESK_LDN",
+            },
+        ]
+    }
+    bundle = compile_canonical_ir_to_4zone_sql(ir_model, bronze_tables=bronze_rows)
+    assert "mkt_val_usd AS market_value" in bundle.zone_1_sql
+    assert "CAST(NULL AS VARCHAR) AS legacy_desk_memo" in bundle.zone_1_sql
+    assert "DROP COLUMN" not in bundle.zone_2_sql.upper()
+
+    db_bundle = transpile_bundle_to_databricks(bundle)
+    assert "mkt_val_usd AS market_value" in db_bundle.zone_1_sql
+    assert "AS legacy_desk_memo" in db_bundle.zone_1_sql
+
+    with DuckDbShadowSandbox() as sandbox:
+        report = sandbox.run_full_verification(
+            ir_model,
+            bronze_tables=bronze_rows,
+            emit_telemetry=False,
+        )
+        assert report.passed is True
+        assert report.batch_report.all_passed is True
+        assert report.dynamic_check_report.all_passed is True
+        pit_cnt = sandbox.conn.execute("SELECT COUNT(*) FROM business_vault.pit_position").fetchone()
+        assert pit_cnt is not None and pit_cnt[0] > 0

@@ -4,6 +4,7 @@
  */
 
 import { GROUNDING_MIN_CONFIDENCE } from "../constants";
+import { hasVerifiableEmpiricalEvidence } from "./evidence-grounding";
 import {
 	type CommitValidationError,
 	normalizeEdgeEndpoints,
@@ -17,6 +18,8 @@ import {
 } from "./scorecard";
 import type { StudioStoreState } from "./store-types";
 import type { ConceptNode, RelationshipEdge } from "./types";
+
+export { hasVerifiableEmpiricalEvidence };
 
 function hasCandidateFiboPathAMapping(node: ConceptNode): boolean {
 	const mappings = node.external_mappings || [];
@@ -112,7 +115,8 @@ export function validateCommitGroundingAndDag(params: {
 					hasPreservedCommittedUnscoredFiboPathAMapping(
 						n.external_mappings,
 						committedNodeMap.get(n.concept_uri),
-					));
+					)) ||
+				hasVerifiableEmpiricalEvidence(n);
 			if (isGrounded) return false;
 			if (effectiveGrandfatheredSet.has(n.concept_uri)) return false;
 			if (effectiveWaivedSet.has(n.concept_uri)) return false;

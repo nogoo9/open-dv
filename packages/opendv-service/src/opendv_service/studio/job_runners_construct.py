@@ -274,13 +274,23 @@ def run_construct_session(
             ext_mappings = getattr(op, "external_mappings", None)
             if ext_mappings:
                 for m in ext_mappings:
+                    matched_uri = (
+                        m.get("target_uri") or m.get("uri") or ""
+                        if isinstance(m, dict)
+                        else getattr(m, "target_uri", "")
+                    )
+                    score = (
+                        m.get("confidence", 0.0)
+                        if isinstance(m, dict)
+                        else getattr(m, "confidence", 0.0)
+                    )
                     writer.buffer_event(
                         "fibo_grounding",
                         {
                             "job_id": job_id,
                             "concept_uri": getattr(op, "concept_uri", ""),
-                            "matched_fibo_uri": m.target_uri,
-                            "score": m.confidence,
+                            "matched_fibo_uri": matched_uri,
+                            "score": score,
                         },
                     )
         writer.flush()

@@ -17,7 +17,13 @@ from typing import Any
 from opendv_agent_harness.pipeline.contract_synthesizer import (
     _synthesize_cumulative_contract,
 )
-from opendv_agent_harness.pipeline.mode_detector import infer_table_action
+from opendv_agent_harness.pipeline.evolution_matching import (
+    filter_satellite_candidate_columns,
+    harmonize_cross_source_types,
+    infer_deployed_table_action,
+    match_deployed_table_cross_source,
+    resolve_feed_value_jaccard,
+)
 from opendv_agent_harness.pipeline.ontology_evolution import (
     _bks,
     _make_entry,
@@ -29,6 +35,7 @@ from opendv_agent_harness.pipeline.spec import (
 )
 from opendv_axi_verifier.codemods.alg_a9a_schema_drift import (
     codemod_intra_source_schema_drift,
+    reconstruct_baseline_metadata_from_contract,
 )
 from opendv_core.config import get_core_modeling_config
 from opendv_core.models.contract_v5 import NoMistakeDataVault2ContractV5
@@ -50,6 +57,7 @@ def evolve_contract_single_run(
     hold_manager: Any | None = None,
     steward_hold_policy: str = "pause",
     run_id: str = "run_default",
+    profile_summaries: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Evolve existing deployed contract across incremental and drifted tables.
 
@@ -89,12 +97,27 @@ def evolve_contract_single_run(
         else:
             continue
 
-        action = infer_table_action(
+        match = match_deployed_table_cross_source(dep_dict, ss, tname, cols)
+        val_jmap: dict[tuple[str, str], float] | None = None
+        if match is not None:
+            dep_cols, _, key_cols = reconstruct_baseline_metadata_from_contract(
+                dep_dict, match["bronze_table"]
+            )
+            val_jmap = resolve_feed_value_jaccard(
+                feed,
+                match,
+                dep_cols - key_cols,
+                cols,
+                profile_summaries=profile_summaries,
+            )
+
+        action = infer_deployed_table_action(
             source_system=ss,
             table_name=tname,
             incoming_columns=cols,
             incoming_types=types,
             contract=dep_dict,
+            value_jaccard=val_jmap,
         )
 
         if action.action == "INTRA_SOURCE_DRIFT":
@@ -111,6 +134,7 @@ def evolve_contract_single_run(
             deployed_contract=dep_dict,
             domain_namespace=dep_dict.get("domain_namespace", "default"),
             is_cold_start=False,
+            profile_summaries=profile_summaries,
         )
     else:
         evolved = copy.deepcopy(dep_dict)
@@ -120,35 +144,60 @@ def evolve_contract_single_run(
         # Build candidate satellite payload for codemod
         for feed in drifted_feeds:
             if isinstance(feed, Stage01FeedDiscoveryItem):
+                ss = feed.source_system
                 tname = feed.table_name
                 descs = feed.column_descriptors
             else:
+                ss = str(feed.get("source_system") or "")
                 tname = str(feed.get("table_name", ""))
                 descs = feed.get("column_descriptors") or []
 
             t_base = tname.split(".")[-1]
-            cand_cols = [cd.get("name") for cd in descs]
+            cand_cols = [cd.get("name") for cd in descs if cd.get("name")]
             cand_types = {
                 cd.get("name"): cd.get("physical_type") for cd in descs if cd.get("name")
             }
 
-            # Find matching deployed satellite
+            # Find matching deployed satellite (across source_system evolution if applicable)
+            match = match_deployed_table_cross_source(dep_dict, ss, tname, cand_cols)
             candidate_names = {
                 f"sat_{t_base}",
                 *(f"sat_{e}_core" for e in core_cfg.core_hub_entities),
             }
+            if match:
+                candidate_names.add(match["matched_entity"])
             matched_sat = next(
                 (
                     s
                     for s in evolved.get("satellites", [])
-                    if s.get("source_bronze_table") == tname
+                    if (match and s.get("name") == match["matched_entity"])
+                    or s.get("source_bronze_table") == tname
+                    or (match and s.get("source_bronze_table") == match["bronze_table"])
                     or s.get("name") in candidate_names
                 ),
                 None,
             )
             if matched_sat:
-                matched_sat["column_types"] = cand_types
-                matched_sat["payload_columns"] = cand_cols
+                bt = str(matched_sat.get("source_bronze_table") or tname)
+                dep_cols, old_types, key_cols = reconstruct_baseline_metadata_from_contract(
+                    dep_dict, bt
+                )
+                sat_cand_cols = filter_satellite_candidate_columns(
+                    dep_dict, bt, str(matched_sat.get("name") or ""), cand_cols, key_cols
+                )
+                val_jmap = resolve_feed_value_jaccard(
+                    feed,
+                    match or {"bronze_table": bt, "source_system": ""},
+                    dep_cols - key_cols,
+                    cand_cols,
+                    profile_summaries=profile_summaries,
+                )
+                matched_sat["column_types"] = harmonize_cross_source_types(
+                    old_types, cand_types, val_jmap
+                )
+                matched_sat["payload_columns"] = sat_cand_cols
+                if val_jmap:
+                    matched_sat["value_jaccard"] = val_jmap
 
         evolved = codemod_intra_source_schema_drift(
             deployed_contract=dep_dict,

@@ -15,7 +15,7 @@ from opendv_agent_harness.adapters.antigravity_adapter import (
     ProviderConfigurationError,
     _strip_markdown_json_fences,
 )
-from opendv_agent_harness.models import AgentTaskSpec, HarnessStreamEvent
+from opendv_agent_harness.models import AgentTaskSpec, HarnessEventKind, HarnessStreamEvent
 
 _NON_RESULT_STREAM_TYPES: frozenset[str] = frozenset(
     {
@@ -34,6 +34,7 @@ _NON_RESULT_STREAM_TYPES: frozenset[str] = frozenset(
         "content_block_stop",
         "system",
         "init",
+        "step_update",
         "stream_event",
     }
 )
@@ -41,6 +42,8 @@ _NON_RESULT_STREAM_TYPES: frozenset[str] = frozenset(
 
 def is_non_result_stream_event(obj: dict[str, Any]) -> bool:
     """Return True if ``obj`` is an intermediate NDJSON stream event, not a terminal result."""
+    if str(obj.get("event") or "").lower() in {"init", "step_update"}:
+        return True
     target = (
         obj["event"]
         if str(obj.get("type") or "").lower() == "stream_event"
@@ -49,6 +52,64 @@ def is_non_result_stream_event(obj: dict[str, Any]) -> bool:
     )
     ev_type = str(target.get("type") or "").lower()
     return ev_type in _NON_RESULT_STREAM_TYPES
+
+
+def parse_ndjson_step_events(raw_line: str) -> list[tuple[HarnessEventKind, dict[str, Any]]]:
+    """Extract tool call/result and step usage events from ``agy`` ``step_update`` NDJSON lines."""
+    candidate = raw_line.strip()
+    if not (candidate.startswith("{") and candidate.endswith("}")):
+        return []
+    try:
+        obj = json.loads(candidate)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(obj, dict) or obj.get("event") != "step_update":
+        return []
+    su = obj.get("step_update")
+    if not isinstance(su, dict):
+        return []
+
+    events: list[tuple[HarnessEventKind, dict[str, Any]]] = []
+    step_type = str(su.get("step_type") or "").lower()
+    state = str(su.get("state") or "").upper()
+    if step_type == "tool":
+        t_info = su.get("tool_info") if isinstance(su.get("tool_info"), dict) else {}
+        tool_name = str(su.get("tool_name") or t_info.get("name") or "tool")
+        call_id = f"step-{su.get('step_index', 0)}"
+        if state == "ACTIVE":
+            params = t_info.get("parameters")
+            events.append(
+                (
+                    HarnessEventKind.TOOL_CALL_START,
+                    {
+                        "tool_name": tool_name,
+                        "tool_call_id": call_id,
+                        "tool_args": params if isinstance(params, dict) else None,
+                    },
+                )
+            )
+        elif state == "DONE":
+            events.append(
+                (
+                    HarnessEventKind.TOOL_CALL_RESULT,
+                    {
+                        "tool_name": tool_name,
+                        "tool_call_id": call_id,
+                        "tool_result": {
+                            "output": str(t_info.get("output") or "")[:500],
+                            "duration_seconds": su.get("duration_seconds"),
+                        },
+                    },
+                )
+            )
+    if isinstance(su.get("usage"), dict):
+        events.append(
+            (
+                HarnessEventKind.OBSERVABILITY_EVENT,
+                {"observability_event": {"event_type": "STEP_USAGE", "usage": su["usage"]}},
+            )
+        )
+    return events
 
 
 def parse_ndjson_stream_line(
@@ -72,6 +133,26 @@ def parse_ndjson_stream_line(
 
     if obj.get("event") == "result" and isinstance(obj.get("result"), dict):
         return ([], [], dict(obj["result"]), False)
+
+    if obj.get("event") == "step_update" and isinstance(obj.get("step_update"), dict):
+        su = obj["step_update"]
+        su_thoughts: list[str] = []
+        su_texts: list[str] = []
+        su_fine = False
+        t_chunk = (
+            su.get("thought_delta")
+            or su.get("thinking_delta")
+            or su.get("thinking")
+            or su.get("thought")
+        )
+        if isinstance(t_chunk, str) and t_chunk:
+            su_thoughts.append(t_chunk)
+            su_fine = True
+        c_chunk = su.get("text_delta") or su.get("delta_text") or su.get("text")
+        if isinstance(c_chunk, str) and c_chunk:
+            su_texts.append(c_chunk)
+            su_fine = True
+        return (su_thoughts, su_texts, None, su_fine)
 
     target: dict[str, Any] = (
         obj["event"]
@@ -263,7 +344,7 @@ def build_cli_prompt(
     subagent_models: dict[str, str],
     include_inline_schema: bool,
 ) -> str:
-    """Build full non-interactive stdin prompt preserving all inline context intact."""
+    """Build full non-interactive stdin prompt with schema placed before evidence payload."""
     parts: list[str] = [
         spec.system_instructions.strip(),
         (
@@ -271,7 +352,6 @@ def build_cli_prompt(
             "data are provided inline below. Do NOT invoke filesystem, shell, or search "
             "tools. Respond immediately in a single turn with only the required JSON object."
         ),
-        spec.prompt.strip(),
     ]
     if subagent_models:
         sub_lines = [
@@ -288,6 +368,7 @@ def build_cli_prompt(
             "Return ONLY a valid JSON object conforming to this JSON Schema "
             f"(no markdown fences or prose):\n{schema_json}"
         )
+    parts.append(spec.prompt.strip())
     parts.append(
         "IMPORTANT: Do NOT call any tools, read_file, run_command, or search tools. "
         "Produce your structured JSON response immediately in Turn 1."
@@ -414,9 +495,7 @@ async def stream_cli_subprocess_lines(
                 stderr_bytes = await proc.stderr.read() if proc.stderr is not None else b""
                 returncode = await proc.wait()
         except TimeoutError as exc:
-            raise ProviderConfigurationError(
-                f"{cli_label} timed out after {timeout_seconds}s."
-            ) from exc
+            raise TimeoutError(f"{cli_label} timed out after {timeout_seconds}s.") from exc
     finally:
         if proc.returncode is None:
             with contextlib.suppress(ProcessLookupError):
@@ -433,6 +512,8 @@ def validate_cli_structured_output(
     *,
     raw_structured: Any,
     raw_response_text: str,
+    cli_label: str = "CLI",
+    denied_actions: Any = None,
 ) -> Any:
     """Validate structured JSON output against ``spec.output_schema`` when present."""
     if spec.output_schema is None:
@@ -449,7 +530,11 @@ def validate_cli_structured_output(
         return spec.output_schema.model_validate_json(
             _strip_markdown_json_fences(raw_response_text)
         )
-    return None
+    denied_note = f" (denied_actions={denied_actions})" if denied_actions else ""
+    raise ProviderConfigurationError(
+        f"{cli_label} returned an empty response when structured output "
+        f"({spec.output_schema.__name__}) was required{denied_note}."
+    )
 
 
 def make_cli_turn_meta(
@@ -506,6 +591,7 @@ __all__ = [
     "invoke_cli_subprocess_sync",
     "is_non_result_stream_event",
     "make_cli_turn_meta",
+    "parse_ndjson_step_events",
     "parse_ndjson_stream_line",
     "stream_cli_subprocess_lines",
     "validate_cli_structured_output",

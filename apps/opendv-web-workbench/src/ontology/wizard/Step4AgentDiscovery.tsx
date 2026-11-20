@@ -36,6 +36,7 @@ export interface Step4AgentDiscoveryProps {
 	breakingCandidates?: WizardBreakingCandidate[] | undefined;
 	clarifications?: ClarificationQuestion[] | undefined;
 	activeSessionJobId?: string | null | undefined;
+	isRunningPipeline?: boolean | undefined;
 	budgetHold?: BudgetHoldInfo | null | undefined;
 	askFiboAnswer?: string | null | undefined;
 	askFiboCitations?: Array<Record<string, unknown>> | undefined;
@@ -81,6 +82,7 @@ export const Step4AgentDiscovery: React.FC<Step4AgentDiscoveryProps> = ({
 	breakingCandidates = [],
 	clarifications = [],
 	activeSessionJobId,
+	isRunningPipeline = false,
 	budgetHold,
 	askFiboAnswer,
 	askFiboCitations = [],
@@ -357,10 +359,10 @@ export const Step4AgentDiscovery: React.FC<Step4AgentDiscoveryProps> = ({
 					type="button"
 					className="claude-btn-primary"
 					data-testid="btn-run-agent-discovery"
-					disabled={Boolean(activeSessionJobId)}
+					disabled={Boolean(activeSessionJobId || isRunningPipeline)}
 					onClick={() => onRunDiscovery?.(steering)}
 				>
-					{activeSessionJobId
+					{activeSessionJobId || isRunningPipeline
 						? "Run in progress — view live logs"
 						: "Run Agent Discovery"}
 				</button>
@@ -628,7 +630,7 @@ export const Step4AgentDiscovery: React.FC<Step4AgentDiscoveryProps> = ({
 						citations={askFiboCitations}
 						suggestedActions={askFiboActions}
 						disabledReason={
-							activeSessionJobId
+							activeSessionJobId || isRunningPipeline
 								? "Run in progress — Ask FIBO pauses while session job is active."
 								: null
 						}

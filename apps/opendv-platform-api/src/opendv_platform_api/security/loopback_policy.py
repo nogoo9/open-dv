@@ -25,10 +25,12 @@ def normalize_studio_role(raw_role: str, *, allow_legacy_aliases: bool = True) -
     """Normalize explicit studio or 5-tier RBAC role string into 4-tier studio role."""
     role = raw_role.lower().strip()
     if role == "admin" or (
-        allow_legacy_aliases and role in ("data_steward", "restricted_pii_custodian")
+        allow_legacy_aliases
+        and role
+        in ("data_steward", "restricted_pii_custodian", "privileged_custodian", "pii_steward")
     ):
         return "admin"
-    if role == "editor":
+    if role == "editor" or (allow_legacy_aliases and role == "confidential_analyst"):
         return "editor"
     if role == "automated" or (allow_legacy_aliases and role == "internal_modeler"):
         return "automated"

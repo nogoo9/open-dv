@@ -158,3 +158,188 @@ def test_platform_state_container_threading_lock_and_disk_persistence_rehydratio
     rehydrated = PlatformStateContainer(workspace_root=tmp_path, storage_root=storage)
     assert len(rehydrated.runs) == 60
     assert "run-t0-s0" in rehydrated.runs
+
+
+def test_pipeline_run_and_studio_job_cross_conflict_returns_409_session_job_active(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-RUN-01 / D27: Concurrent POST /pipelines/runs or Studio job on active session returns 409 SESSION_JOB_ACTIVE."""
+    import opendv_platform_api.job_supervisor as js_mod
+    from opendv_platform_api import studio_deps
+    from opendv_platform_api.routers import ontology_studio as studio_router
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _blocking_parse(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        entered.set()
+        release.wait(timeout=5.0)
+        return {"parsed_sources": 1, "chunks_count": 1, "tables_count": 0}
+
+    supervisor = studio_deps.get_job_supervisor()
+    monkeypatch.setattr(supervisor, "_jobs", {})
+    monkeypatch.setattr(js_mod, "run_parse_session_sources", _blocking_parse)
+    if hasattr(studio_router, "run_parse_session_sources"):
+        monkeypatch.setattr(studio_router, "run_parse_session_sources", _blocking_parse)
+
+    client = _client(tmp_path)
+    sid = "pipe-conc-01"
+    assert (
+        client.post(
+            "/api/v1/ontology/studio/sessions",
+            json={"session_id": sid, "domain_namespace": "custody_ops"},
+        ).status_code
+        == 201
+    )
+    assert (
+        client.post(
+            f"/api/v1/ontology/studio/sessions/{sid}/sources/text",
+            json={"text": "Settlement trade note."},
+        ).status_code
+        == 201
+    )
+
+    try:
+        # 1. While Studio parse job is active on sid, POST /pipelines/runs for sid -> 409 SESSION_JOB_ACTIVE
+        r1 = client.post(f"/api/v1/ontology/studio/sessions/{sid}/parse", json={"ocr_mode": "off"})
+        assert r1.status_code == 202, r1.text
+        assert entered.wait(timeout=3.0)
+
+        r_pipe = client.post(
+            "/api/v1/pipelines/runs",
+            json={"session_id": sid, "target_dialect": "duckdb", "sources": []},
+        )
+        assert r_pipe.status_code == 409, r_pipe.text
+        assert r_pipe.json().get("error_code") == "SESSION_JOB_ACTIVE", r_pipe.json()
+    finally:
+        release.set()
+        from opendv_service.studio.session_manager import StudioSessionManager
+
+        smgr = StudioSessionManager(studio_root=tmp_path / "opendv_studio")
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if supervisor.count_active_jobs(smgr, sid) == 0:
+                break
+            time.sleep(0.05)
+
+    # 2. While a pipeline run is RUNNING on sid, second POST /pipelines/runs AND Studio /fibo-qa -> 409 SESSION_JOB_ACTIVE
+    app = client.app
+    pstate = app.state.platform_state
+    active_run_id = "run-active-guard-1"
+    pstate.runs[active_run_id] = ProjectRunDTO(
+        run_id=active_run_id,
+        project_id="default-project",
+        status=RunStatus.RUNNING,
+        started_at_utc="2026-11-20T00:00:00Z",
+        current_stage_id="STAGE_01_SCOUT_SOURCE",
+        events_sse_url=f"/api/v1/runs/{active_run_id}/events",
+        gates_url=f"/api/v1/runs/{active_run_id}/gates",
+        sandbox_url=f"/api/v1/runs/{active_run_id}/sandbox",
+        decisions_url=f"/api/v1/runs/{active_run_id}/decisions",
+        gate_scorecard=GateScorecardSummary(),
+        session_id=sid,
+    )
+    pstate.run_session_ids[active_run_id] = sid
+
+    r_pipe2 = client.post(
+        "/api/v1/pipelines/runs",
+        json={"session_id": sid, "target_dialect": "duckdb", "sources": []},
+    )
+    assert r_pipe2.status_code == 409, r_pipe2.text
+    assert r_pipe2.json().get("error_code") == "SESSION_JOB_ACTIVE", r_pipe2.json()
+
+    r_studio2 = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/fibo-qa",
+        json={"question": "What concepts exist?"},
+    )
+    assert r_studio2.status_code == 409, r_studio2.text
+    assert r_studio2.json().get("error_code") == "SESSION_JOB_ACTIVE", r_studio2.json()
+
+
+def test_post_runs_enforces_d27_session_job_active_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Task 2 TDD (D27): POST /api/v1/runs with PipelineInputDTO(session_id=...) returns 409 SESSION_JOB_ACTIVE."""
+    import opendv_platform_api.job_supervisor as js_mod
+    from opendv_platform_api import studio_deps
+    from opendv_platform_api.routers import ontology_studio as studio_router
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _blocking_parse(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        entered.set()
+        release.wait(timeout=5.0)
+        return {"parsed_sources": 1, "chunks_count": 1, "tables_count": 0}
+
+    supervisor = studio_deps.get_job_supervisor()
+    monkeypatch.setattr(supervisor, "_jobs", {})
+    monkeypatch.setattr(js_mod, "run_parse_session_sources", _blocking_parse)
+    if hasattr(studio_router, "run_parse_session_sources"):
+        monkeypatch.setattr(studio_router, "run_parse_session_sources", _blocking_parse)
+
+    client = _client(tmp_path)
+    sid = "runs-conc-01"
+    assert (
+        client.post(
+            "/api/v1/ontology/studio/sessions",
+            json={"session_id": sid, "domain_namespace": "custody_ops"},
+        ).status_code
+        == 201
+    )
+    assert (
+        client.post(
+            f"/api/v1/ontology/studio/sessions/{sid}/sources/text",
+            json={"text": "Settlement trade note."},
+        ).status_code
+        == 201
+    )
+
+    try:
+        # 1. Active Studio parse job on sid blocks POST /api/v1/runs for sid with 409 SESSION_JOB_ACTIVE
+        r1 = client.post(f"/api/v1/ontology/studio/sessions/{sid}/parse", json={"ocr_mode": "off"})
+        assert r1.status_code == 202, r1.text
+        assert entered.wait(timeout=3.0)
+
+        r_runs = client.post(
+            "/api/v1/runs",
+            json={"session_id": sid, "target_dialect": "duckdb", "sources": []},
+        )
+        assert r_runs.status_code == 409, r_runs.text
+        assert r_runs.json().get("error_code") == "SESSION_JOB_ACTIVE", r_runs.json()
+    finally:
+        release.set()
+        from opendv_service.studio.session_manager import StudioSessionManager
+
+        smgr = StudioSessionManager(studio_root=tmp_path / "opendv_studio")
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if supervisor.count_active_jobs(smgr, sid) == 0:
+                break
+            time.sleep(0.05)
+
+    # 2. Active pipeline run on sid blocks POST /api/v1/runs for sid with 409 SESSION_JOB_ACTIVE
+    pstate = client.app.state.platform_state
+    active_run_id = "run-active-runs-guard-1"
+    pstate.runs[active_run_id] = ProjectRunDTO(
+        run_id=active_run_id,
+        project_id="default-project",
+        status=RunStatus.RUNNING,
+        started_at_utc="2026-11-20T00:00:00Z",
+        current_stage_id="STAGE_01_SCOUT_SOURCE",
+        events_sse_url=f"/api/v1/runs/{active_run_id}/events",
+        gates_url=f"/api/v1/runs/{active_run_id}/gates",
+        sandbox_url=f"/api/v1/runs/{active_run_id}/sandbox",
+        decisions_url=f"/api/v1/runs/{active_run_id}/decisions",
+        gate_scorecard=GateScorecardSummary(),
+        session_id=sid,
+    )
+    pstate.run_session_ids[active_run_id] = sid
+
+    r_runs2 = client.post(
+        "/api/v1/runs",
+        json={"session_id": sid, "target_dialect": "duckdb", "sources": []},
+    )
+    assert r_runs2.status_code == 409, r_runs2.text
+    assert r_runs2.json().get("error_code") == "SESSION_JOB_ACTIVE", r_runs2.json()
+

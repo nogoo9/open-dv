@@ -125,14 +125,27 @@ _STUDIO_DISPATCH = {
 }
 
 
-def run_ontology_studio_command(args: argparse.Namespace, *, executor: LocalExecutor | None = None) -> tuple[int, Any]:
+def run_ontology_studio_command(
+    args: argparse.Namespace, *, executor: LocalExecutor | None = None
+) -> tuple[int, Any]:
     """Top-level entrypoint for `opendv ontology studio <cmd>` in-process execution."""
     action = getattr(args, "studio_action", None)
     if not action:
-        return _err(2, "SYNTAX_INVALID_ARGUMENT", "Missing studio action (e.g. init, create, delete, list, status, ...)")
+        return _err(
+            2,
+            "SYNTAX_INVALID_ARGUMENT",
+            "Missing studio action (e.g. init, create, delete, list, status, ...)",
+        )
     action_norm = (action or "").replace("-", "_")
-    sub_action = getattr(args, f"studio_{action_norm}_action", None) or getattr(args, f"studio_{action}_action", None)
-    handler = _STUDIO_DISPATCH.get((action, sub_action)) or _STUDIO_DISPATCH.get((action_norm, sub_action)) if sub_action else (_STUDIO_DISPATCH.get(action) or _STUDIO_DISPATCH.get(action_norm))
+    sub_action = getattr(args, f"studio_{action_norm}_action", None) or getattr(
+        args, f"studio_{action}_action", None
+    )
+    handler = (
+        _STUDIO_DISPATCH.get((action, sub_action))
+        or _STUDIO_DISPATCH.get((action_norm, sub_action))
+        if sub_action
+        else (_STUDIO_DISPATCH.get(action) or _STUDIO_DISPATCH.get(action_norm))
+    )
     if not handler:
         return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Unknown studio subcommand '{action}'")
     return handler(args, executor=executor)

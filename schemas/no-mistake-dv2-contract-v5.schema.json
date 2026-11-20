@@ -87,7 +87,7 @@
           },
           "ontology_concept_uri": {
             "type": "string",
-            "pattern": "^urn:ontology:entity:[a-z0-9_]+$"
+            "pattern": "^urn:(ontology:entity|opendv:concept):[a-z0-9_]+$"
           },
           "business_key_sources": {
             "type": "array",
@@ -171,7 +171,7 @@
           },
           "ontology_concept_uri": {
             "type": "string",
-            "pattern": "^urn:ontology:(event|relationship):[a-z0-9_]+$"
+            "pattern": "^urn:(ontology|opendv):(event|relationship):[a-z0-9_]+$"
           },
           "source_bronze_table": {
             "type": "string"
@@ -289,6 +289,12 @@
               "type": "string"
             }
           },
+          "column_aliases": {
+            "type": ["object", "null"],
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "payload_columns": {
             "type": "array",
             "items": {
@@ -317,7 +323,7 @@
           },
           "ontology_concept_uri": {
             "type": "string",
-            "pattern": "^urn:ontology:enum:[a-z0-9_]+$"
+            "pattern": "^urn:(ontology|opendv):enum:[a-z0-9_]+$"
           },
           "source_bronze_table": {
             "type": "string"

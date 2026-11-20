@@ -282,3 +282,69 @@ def test_budget_hold_raise_budget_and_resume_or_abort(tmp_path: Path) -> None:
     assert resumed["action"] == "raise_budget_and_resume"
     assert resumed["updated_budget"]["max_output_tokens"] == 4096
     assert "APPROVED" in str(resumed["hold_status"])
+
+
+def test_wait_for_timeout_on_real_base_harness_opens_timeout_steward_hold(tmp_path: Path) -> None:
+    """Real BaseVaultAgentHarness exceeding budget.timeout_seconds opens TIMEOUT StewardHold (not CANCELLED)."""
+    import asyncio
+    from collections.abc import AsyncIterator
+
+    from opendv_agent_harness.models import ToolExecutionContext
+    from opendv_agent_harness.protocol import BaseVaultAgentHarness
+
+    class _SlowStreamingHarness(BaseVaultAgentHarness):
+        @property
+        def provider_name(self) -> str:
+            return "agy"
+
+        def resolve_model(self, tier: ModelTier, persona: Any = None) -> str:
+            del tier, persona
+            return "gemini-4-argon-high"
+
+        async def _stream_provider_task(
+            self, spec: AgentTaskSpec[Any], ctx: ToolExecutionContext, model_id: str
+        ) -> AsyncIterator[HarnessStreamEvent]:
+            del model_id
+            yield self._make_event(spec, ctx, HarnessEventKind.SESSION_START)
+            await asyncio.sleep(5.0)
+            yield self._make_event(spec, ctx, HarnessEventKind.TURN_COMPLETE, tool_result={})
+
+    mgr = StudioSessionManager(studio_root=tmp_path / "studio", workspace_root=tmp_path / "ws")
+    meta = mgr.create_session(session_id="bud-real-timeout", domain_namespace="custody_ops")
+    sdir = mgr.get_session_dir(meta.session_id)
+    writer = SSEJournalWriter(session_dir=sdir, job_id="job-real-timeout")
+
+    cfg = HarnessConfig(
+        provider="agy",
+        workspace_dir=tmp_path,
+        state_dir=tmp_path / "s",
+        app_data_dir=tmp_path / "a",
+        save_dir=tmp_path / "sv",
+        budget=HarnessBudget(timeout_seconds=1.05),
+    )
+    runner = StudioAgentRunner(harness=_SlowStreamingHarness(cfg))
+
+    with pytest.raises(OpenDVError) as exc_info:
+        runner(
+            base_ontology=create_genesis_ontology("custody_ops"),
+            evidence_chunks=[EvidenceChunk(chunk_id="c1", document_id="d1", text="Settlement rule.")],
+            session_dir=sdir,
+            job_id="job-real-timeout",
+            writer=writer,
+            mode="agent",
+        )
+
+    assert "TIMEOUT" in str(exc_info.value).upper()
+    assert "CANCELLED" not in str(exc_info.value).upper()
+
+    writer.flush()
+    events = list(replay_sse_events(writer.journal_file))
+    assert any(
+        e.event == "budget_hold" and isinstance(e.data, dict) and e.data.get("reason") == "TIMEOUT"
+        for e in events
+    )
+    hold_mgr = StewardHoldManager(state_dir=sdir / "holds")
+    pending = hold_mgr.list_pending_holds()
+    assert len(pending) == 1
+    assert pending[0].escalation_reason == "TIMEOUT"
+

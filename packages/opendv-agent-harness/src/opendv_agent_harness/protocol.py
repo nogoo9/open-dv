@@ -246,6 +246,9 @@ class BaseVaultAgentHarness(abc.ABC):
             stop_reason = HarnessStopReason.MAX_TOOL_CALLS_EXCEEDED
             await self.cancel_active_turn(spec.task_id)
         except asyncio.CancelledError:
+            task = asyncio.current_task()
+            if task is not None and task.cancelling() > 0:
+                raise
             stop_reason = HarnessStopReason.CANCELLED
         except TimeoutError:
             stop_reason = HarnessStopReason.MAX_TURNS_EXCEEDED

@@ -210,7 +210,7 @@ class SSEJournalWriter:
         self._init_cursor_from_file()
 
     def _init_cursor_from_file(self) -> None:
-        """Initialize next monotonic event ID via O(1) tail scan of active segment (no .gz reads)."""
+        """Initialize next monotonic event ID via O(1) tail scan of active segment."""
         max_id = 0
         if self.journal_file.is_file():
             with contextlib.suppress(OSError):
@@ -224,7 +224,9 @@ class SSEJournalWriter:
                         line = raw_line.decode("utf-8", errors="ignore").strip()
                         if not line:
                             continue
-                        with contextlib.suppress(json.JSONDecodeError, KeyError, ValueError, TypeError):
+                        with contextlib.suppress(
+                            json.JSONDecodeError, KeyError, ValueError, TypeError
+                        ):
                             rec = json.loads(line)
                             eid = int(rec.get("id", 0))
                             if eid > max_id:

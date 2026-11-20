@@ -104,15 +104,15 @@
     },
     "schemas/dv2-canonical-ir.schema.json": {
       "description": "Data Vault 2.0 Canonical Intermediate Representation schema",
-      "sha256": "2db7f5d46889d5abc67951350d9d0ae66cf587da41a138d8d727016469feae79"
+      "sha256": "84570291a1de1874f96452419c5764d9a78778e4ead292255b2a45f86f439d8f"
     },
     "schemas/no-mistake-dv2-contract-v5.schema.json": {
       "description": "No-Mistake Data Vault 2.0 Contract v5.0 schema",
-      "sha256": "774a4660ff34cbda604a274bbd89d751c509943e5357e97b181e8ad8d3ed734e"
+      "sha256": "e54de17960762855e478e2f1642ce4e7b3bd08d9d15e8a5d3abaa78544574c89"
     },
     "schemas/openapi-v1.json": {
       "description": "OpenDV Platform API OpenAPI v1 specification",
-      "sha256": "a1977e6663c2da0b39ab076f65502cb90b242996df056987529474a79d298781"
+      "sha256": "c91fa112c42cb6905ba665143b3ae7e21e162447a1274f77d8160227eb7a5ab4"
     },
     "schemas/v1/cli-spec.json": {
       "description": "v1 CLI specification schema",
@@ -136,7 +136,7 @@
     },
     "schemas/v1/openapi.json": {
       "description": "v1 OpenAPI specification",
-      "sha256": "a1977e6663c2da0b39ab076f65502cb90b242996df056987529474a79d298781"
+      "sha256": "c91fa112c42cb6905ba665143b3ae7e21e162447a1274f77d8160227eb7a5ab4"
     },
     "schemas/v1/steward-hold-option.schema.json": {
       "description": "v1 Steward Hold Option schema",

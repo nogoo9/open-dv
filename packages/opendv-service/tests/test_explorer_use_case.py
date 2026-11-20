@@ -217,3 +217,200 @@ def test_list_runs_filtering(tmp_path: Path) -> None:
     stage2_runs = list_runs(store, stage_id="STAGE_02_SCOUT_UNSTRUCTURED")
     assert any(r.run_id == run2.run_id for r in stage2_runs)
     assert all(r.current_stage_id == "STAGE_02_SCOUT_UNSTRUCTURED" for r in stage2_runs)
+
+
+def test_list_runs_populates_session_id_and_orders_newest_first(tmp_path: Path) -> None:
+    """Bug 2b: list_runs enriches session_id from run_session_ids and sorts newest first."""
+    store, run1_id = _create_sample_store(tmp_path)
+    run2 = store.create_run(
+        CreateRunRequest(project_id="test-explorer-proj", harness_provider="antigravity")
+    )
+    store.runs[run1_id] = store.runs[run1_id].model_copy(
+        update={
+            "started_at_utc": "2026-11-19T18:00:00Z",
+            "completed_at_utc": "2026-11-19T18:05:00Z",
+        }
+    )
+    store.runs[run2.run_id] = run2.model_copy(
+        update={
+            "status": RunStatus.COMPLETED,
+            "started_at_utc": "2026-11-19T19:00:00Z",
+            "completed_at_utc": "2026-11-19T19:05:00Z",
+        }
+    )
+    store.run_session_ids[run2.run_id] = "s-session-alpha"
+
+    runs = list_runs(store)
+    assert runs[0].run_id == run2.run_id
+    assert runs[0].session_id == "s-session-alpha"
+    assert runs[1].run_id == run1_id
+    assert runs[1].session_id is None
+
+
+def test_resolve_cas_sources_list_preserves_table_name_and_format_from_manifest(
+    tmp_path: Path,
+) -> None:
+    """Bug 2a: resolve_cas_sources_list preserves table_name and format from manifest/options."""
+    import hashlib
+    import json
+    import sqlite3
+
+    from opendv_service.studio.session_manager import StudioSessionManager
+    from opendv_service.use_cases.pipeline_preflight import resolve_cas_sources_list
+
+    ws = tmp_path / "ws"
+    studio_root = ws / ".opendv" / "ontology_studio"
+    ws.mkdir(parents=True, exist_ok=True)
+    mgr = StudioSessionManager(studio_root=studio_root, workspace_root=ws)
+    meta = mgr.create_session(session_id="s-cas-names", domain_namespace="wealth_mgmt")
+    sdir = mgr.get_session_dir(meta.session_id)
+    cas = mgr.get_cas(meta.session_id)
+
+    csv_bytes = b"account_id,custodian\nA1,BNY\n"
+    csv_sha = hashlib.sha256(csv_bytes).hexdigest().lower()
+    cas.put(csv_bytes)
+
+    db_file = tmp_path / "treasury.sqlite"
+    with sqlite3.connect(db_file) as sconn:
+        sconn.execute("CREATE TABLE positions (pos_id TEXT PRIMARY KEY)")
+        sconn.execute("INSERT INTO positions VALUES ('P1')")
+        sconn.commit()
+    db_bytes = db_file.read_bytes()
+    db_sha = hashlib.sha256(db_bytes).hexdigest().lower()
+    cas.put(db_bytes)
+
+    manifest_path = sdir / "inputs" / "manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "files": [
+                    {
+                        "source_id": f"src-{csv_sha[:16]}",
+                        "filename": "ds02_w2_custody.csv",
+                        "sha256": csv_sha,
+                        "mime_type": "text/csv",
+                    },
+                    {
+                        "source_id": f"src-{db_sha[:16]}",
+                        "filename": "ds01_sec_treasury",
+                        "sha256": db_sha,
+                        "mime_type": "application/x-sqlite",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    store = StateStore(storage_root=ws / ".opendv" / "state", workspace_root=ws)
+    resolved = resolve_cas_sources_list(
+        [
+            {
+                "feed_id": f"src-{csv_sha[:16]}",
+                "source_system": "ds02_w2_custody_csv",
+                "uri": f"cas://{csv_sha}",
+            },
+            {
+                "feed_id": f"src-{db_sha[:16]}",
+                "source_system": "ds01_sec_treasury",
+                "uri": f"cas://{db_sha}",
+                "adapter": "sqlite",
+            },
+        ],
+        store.cas_store,
+        session_id=meta.session_id,
+        state=store,
+    )
+    assert resolved[0]["table_name"] == "ds02_w2_custody"
+    assert resolved[0]["format"] == "csv"
+    assert resolved[0]["adapter"] == "file"
+    assert resolved[1]["uri"].startswith("sqlite:///")
+    assert resolved[1]["adapter"] == "sqlite"
+
+
+def test_list_run_artifacts_returns_real_artifacts_without_dummy_stubs(tmp_path: Path) -> None:
+    """BUG-3: list_run_artifacts returns real contract/IR/SQL without dummy stubs."""
+    import json
+
+    import yaml
+
+    from opendv_service.use_cases.explorer import list_run_artifacts
+
+    store = StateStore(storage_root=tmp_path / "storage", workspace_root=tmp_path)
+    proj = store.create_project(
+        CreateProjectRequest(project_id="proj-real-arts", display_name="Real Arts")
+    )
+    run_dir = tmp_path / "storage" / "pipeline_runs" / "run_0001"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    contract_obj = {
+        "contract_version": "5.0",
+        "domain_namespace": "fixed_income_vault",
+        "lifecycle_stage": "COLD_START_N1",
+        "column_triage_ledger": [
+            {
+                "bronze_table": "bonds.trades",
+                "column_name": "trade_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_bond_trade",
+            }
+        ],
+        "hubs": [],
+        "links": [],
+        "satellites": [],
+        "reference_tables": [],
+        "unmapped_escalations": [],
+    }
+    ir_obj = {
+        "ir_version": "1.0.0",
+        "model_name": "fixed_income_vault",
+        "hubs": [{"name": "hub_bond_trade", "hk_column": {"name": "hk_bond_trade"}}],
+        "links": [],
+        "satellites": [],
+    }
+    sql_str = "CREATE TABLE raw_vault.hub_bond_trade (hk_bond_trade CHAR(64));"
+    fc_yaml = yaml.safe_dump(contract_obj, sort_keys=False)
+    ir_json = json.dumps(ir_obj, indent=2)
+    (run_dir / "final_contract.yaml").write_text(fc_yaml, encoding="utf-8")
+    (run_dir / "final_canonical_ir.json").write_text(ir_json, encoding="utf-8")
+    (run_dir / "final_four_zone.sql").write_text(sql_str, encoding="utf-8")
+
+    run_id = "run-real-arts-1"
+    created = store.create_run(
+        CreateRunRequest(project_id=proj.project_id, harness_provider="antigravity")
+    )
+    store.runs.pop(created.run_id, None)
+    store.runs[run_id] = created.model_copy(
+        update={"run_id": run_id, "status": RunStatus.COMPLETED}
+    )
+    store.pipeline_reports[run_id] = {
+        "run_id": run_id,
+        "project_id": proj.project_id,
+        "contract": contract_obj,
+        "contract_content": fc_yaml,
+        "four_zone_sql": {"duckdb": {"all_zones": sql_str}},
+        "final_artifacts": {
+            "final_contract": {"file_path": str(run_dir / "final_contract.yaml")}
+        },
+    }
+
+    arts = {a.artifact_id: a for a in list_run_artifacts(store, run_id, role=RbacRole.DATA_STEWARD)}
+    assert "fixed_income_vault" in arts["final_contract"].content
+    assert "global_commerce_vault" not in arts["final_contract"].content
+    assert "hub_bond_trade" in arts["final_ir"].content
+    assert "hub_party" not in arts["final_ir"].content
+    assert "hub_bond_trade" in arts["final_sql"].content
+    assert "hub_customer" not in arts["final_sql"].content
+
+    # Even for a bare run with no pipeline artifacts, no dummy stubs appear
+    bare_run = store.create_run(
+        CreateRunRequest(project_id=proj.project_id, harness_provider="antigravity")
+    )
+    bare_arts = {
+        a.artifact_id: a
+        for a in list_run_artifacts(store, bare_run.run_id, role=RbacRole.DATA_STEWARD)
+    }
+    assert "global_commerce_vault" not in bare_arts["final_contract"].content
+    assert "hub_party" not in bare_arts["final_ir"].content
+    assert "hub_customer" not in bare_arts["final_sql"].content
+

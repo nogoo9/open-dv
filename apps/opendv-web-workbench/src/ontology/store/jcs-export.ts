@@ -105,6 +105,12 @@ export function canonicalizeGraphADict(
 				c.target_hub = n.target_hub;
 			}
 			if (
+				typeof n.grounding_origin === "string" &&
+				n.grounding_origin.length > 0
+			) {
+				c.grounding_origin = n.grounding_origin;
+			}
+			if (
 				n.governance_constraints !== null &&
 				n.governance_constraints !== undefined
 			) {

@@ -47,19 +47,37 @@ def validate_parse_preflight_workflow(
             try:
                 mdata = json.loads(mfile.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
-                raise StudioWorkflowError("CORRUPT_SESSION_RECORD", f"Corrupt manifest.json in session '{session_id}': {exc}", status_code=500, exit_code=1) from exc
+                raise StudioWorkflowError(
+                    "CORRUPT_SESSION_RECORD",
+                    f"Corrupt manifest.json in session '{session_id}': {exc}",
+                    status_code=500,
+                    exit_code=1,
+                ) from exc
             if isinstance(mdata, dict) and isinstance(mdata.get("files"), list):
                 active_ids = {
                     str(f.get("source_id"))
                     for f in mdata["files"]
-                    if isinstance(f, dict) and f.get("source_id") and not f.get("tombstoned", False) and not f.get("deleted", False)
+                    if isinstance(f, dict)
+                    and f.get("source_id")
+                    and not f.get("tombstoned", False)
+                    and not f.get("deleted", False)
                 }
         for req_sid in source_ids:
             if req_sid not in active_ids:
-                raise StudioWorkflowError("SOURCE_NOT_FOUND", f"Source '{req_sid}' not found or tombstoned in session '{session_id}'.", status_code=404, exit_code=3)
+                raise StudioWorkflowError(
+                    "SOURCE_NOT_FOUND",
+                    f"Source '{req_sid}' not found or tombstoned in session '{session_id}'.",
+                    status_code=404,
+                    exit_code=3,
+                )
 
     if raw_ocr == "force" and not TesseractOCRRouter(ocr_mode="force").is_available():
-        raise StudioWorkflowError("OCR_UNAVAILABLE", "Tesseract OCR engine is unavailable on this host for ocr_mode='force'.", status_code=501, exit_code=1)
+        raise StudioWorkflowError(
+            "OCR_UNAVAILABLE",
+            "Tesseract OCR engine is unavailable on this host for ocr_mode='force'.",
+            status_code=501,
+            exit_code=1,
+        )
     return raw_ocr
 
 
@@ -82,38 +100,94 @@ def validate_construct_request_workflow(
     else:
         raw_mode = mode_req.strip().lower()
         if raw_mode not in ("auto", "agent", "deterministic", "challenger"):
-            raise StudioWorkflowError("SYNTAX_INVALID_ARGUMENT", f"Invalid construction mode '{mode_req}'. Must be 'auto', 'agent', or 'deterministic'.", status_code=400, exit_code=2)
+            raise StudioWorkflowError(
+                "SYNTAX_INVALID_ARGUMENT",
+                f"Invalid construction mode '{mode_req}'. "
+                "Must be 'auto', 'agent', or 'deterministic'.",
+                status_code=400,
+                exit_code=2,
+            )
 
     clean_if_match = parse_strong_etag_or_error(if_match) if if_match is not None else None
-    clean_body_sha = parse_strong_etag_or_error(base_sha256_req, header_name="base_sha256") if base_sha256_req else None
+    clean_body_sha = (
+        parse_strong_etag_or_error(base_sha256_req, header_name="base_sha256")
+        if base_sha256_req
+        else None
+    )
 
     if auto_commit:
         if is_agent_identity:
-            raise StudioWorkflowError("AGENT_PROPOSAL_ACCEPT_FORBIDDEN", "Automated agent identities are forbidden from auto-commit construction.", status_code=403, exit_code=7)
+            raise StudioWorkflowError(
+                "AGENT_PROPOSAL_ACCEPT_FORBIDDEN",
+                "Automated agent identities are forbidden from auto-commit construction.",
+                status_code=403,
+                exit_code=7,
+            )
         if mode_req is not None and raw_mode != "deterministic":
-            raise StudioWorkflowError("SYNTAX_INVALID_ARGUMENT", "Auto-commit construction is only permitted in deterministic mode; non-deterministic modes require human proposal review.", status_code=400, exit_code=2)
+            raise StudioWorkflowError(
+                "SYNTAX_INVALID_ARGUMENT",
+                "Auto-commit construction is only permitted in deterministic mode; "
+                "non-deterministic modes require human proposal review.",
+                status_code=400,
+                exit_code=2,
+            )
         if not (clean_if_match or clean_body_sha):
-            raise StudioWorkflowError("MISSING_AUTO_COMMIT_PRECONDITION", "Auto-commit construction requires an 'If-Match' header or 'base_sha256' anchoring session head SHA-256.", status_code=400, exit_code=2)
+            raise StudioWorkflowError(
+                "MISSING_AUTO_COMMIT_PRECONDITION",
+                "Auto-commit construction requires an 'If-Match' header or 'base_sha256' "
+                "anchoring session head SHA-256.",
+                status_code=400,
+                exit_code=2,
+            )
         clean_mode = "deterministic"
     else:
         clean_mode = "deterministic" if raw_mode == "challenger" else raw_mode
 
     base_version = base_version_req or meta.head_version
-    base_sha256 = clean_body_sha or (meta.head_sha256 if base_version.lstrip("v") == meta.head_version.lstrip("v") else None)
+    base_sha256 = clean_body_sha or (
+        meta.head_sha256
+        if base_version.lstrip("v") == meta.head_version.lstrip("v")
+        else None
+    )
 
     if clean_if_match and clean_body_sha and clean_if_match != clean_body_sha:
-        raise StudioWorkflowError("PRECONDITION_BASE_SHA_MISMATCH", f"If-Match header ('{clean_if_match}') does not match body base_sha256 ('{clean_body_sha}').", status_code=412, exit_code=5)
+        raise StudioWorkflowError(
+            "PRECONDITION_BASE_SHA_MISMATCH",
+            f"If-Match header ('{clean_if_match}') does not match "
+            f"body base_sha256 ('{clean_body_sha}').",
+            status_code=412,
+            exit_code=5,
+        )
     if clean_if_match is not None and clean_if_match != meta.head_sha256:
-        raise StudioWorkflowError("ONT_EVO_CONCURRENT_MODIFICATION", f"If-Match ('{clean_if_match}') does not match session head SHA-256 ('{meta.head_sha256}').", status_code=412, exit_code=5)
+        raise StudioWorkflowError(
+            "ONT_EVO_CONCURRENT_MODIFICATION",
+            f"If-Match ('{clean_if_match}') does not match "
+            f"session head SHA-256 ('{meta.head_sha256}').",
+            status_code=412,
+            exit_code=5,
+        )
     if auto_commit and clean_body_sha is not None and clean_body_sha != meta.head_sha256:
-        raise StudioWorkflowError("ONT_EVO_CONCURRENT_MODIFICATION", f"base_sha256 ('{clean_body_sha}') does not match session head SHA-256 ('{meta.head_sha256}').", status_code=412, exit_code=5)
+        raise StudioWorkflowError(
+            "ONT_EVO_CONCURRENT_MODIFICATION",
+            f"base_sha256 ('{clean_body_sha}') does not match "
+            f"session head SHA-256 ('{meta.head_sha256}').",
+            status_code=412,
+            exit_code=5,
+        )
 
     if clean_mode == "agent" or (
         clean_mode == "auto" and not auto_commit and agent_runner is not None
     ):
         if agent_runner is None:
-            raise StudioWorkflowError("AGENT_NOT_CONFIGURED", "Real LLM agent harness is not configured.", status_code=422, exit_code=10)
-        ensure_fn = getattr(agent_runner, "ensure_agent_configured", None) or getattr(agent_runner, "assert_configured", None)
+            raise StudioWorkflowError(
+                "AGENT_NOT_CONFIGURED",
+                "Real LLM agent harness is not configured.",
+                status_code=422,
+                exit_code=10,
+            )
+        ensure_fn = getattr(agent_runner, "ensure_agent_configured", None) or getattr(
+            agent_runner, "assert_configured", None
+        )
         if callable(ensure_fn):
             try:
                 ensure_fn()
@@ -128,7 +202,12 @@ def validate_construct_request_workflow(
                 except OpenDVError as exc:
                     raise raise_from_opendv_error(exc) from exc
                 if h is None or (callable(avail_fn) and not avail_fn(h)):
-                    raise StudioWorkflowError("AGENT_NOT_CONFIGURED", "No usable LLM agent harness or provider credentials are configured.", status_code=422, exit_code=10)
+                    raise StudioWorkflowError(
+                        "AGENT_NOT_CONFIGURED",
+                        "No usable LLM agent harness or provider credentials are configured.",
+                        status_code=422,
+                        exit_code=10,
+                    )
 
     return clean_mode, base_version, base_sha256, clean_if_match
 
@@ -148,7 +227,9 @@ def attach_connector_workflow(
         validate_connector_payload(clean_payload)
         from opendv_service.studio import connector_ingestion as ci
 
-        fn = getattr(ci, "attach_connector_source", None) or getattr(ci, "ingest_connector_source", None)
+        fn = getattr(ci, "attach_connector_source", None) or getattr(
+            ci, "ingest_connector_source", None
+        )
         if callable(fn):
             res = fn(
                 session_mgr=session_mgr,
@@ -163,14 +244,23 @@ def attach_connector_workflow(
         raise raise_from_opendv_error(exc) from exc
     except ImportError:
         pass
-    raise StudioWorkflowError("INTERNAL_ERROR", "Connector ingestion service unavailable.", status_code=500, exit_code=1)
+    raise StudioWorkflowError(
+        "INTERNAL_ERROR",
+        "Connector ingestion service unavailable.",
+        status_code=500,
+        exit_code=1,
+    )
 
 
-def get_evidence_tables_workflow(session_mgr: StudioSessionManager, session_id: str) -> dict[str, Any]:
+def get_evidence_tables_workflow(
+    session_mgr: StudioSessionManager, session_id: str
+) -> dict[str, Any]:
     try:
         from opendv_service.studio import connector_ingestion as ci
 
-        fn = getattr(ci, "get_session_evidence_tables", None) or getattr(ci, "list_evidence_tables", None)
+        fn = getattr(ci, "get_session_evidence_tables", None) or getattr(
+            ci, "list_evidence_tables", None
+        )
         if callable(fn):
             res = fn(session_mgr, session_id)
             return res if isinstance(res, dict) else {"session_id": session_id, "tables": res}
@@ -184,14 +274,22 @@ def get_evidence_tables_workflow(session_mgr: StudioSessionManager, session_id: 
     return {"session_id": session_id, "tables": tables}
 
 
-def get_evidence_chunks_workflow(session_mgr: StudioSessionManager, session_id: str) -> dict[str, Any]:
+def get_evidence_chunks_workflow(
+    session_mgr: StudioSessionManager, session_id: str
+) -> dict[str, Any]:
     try:
         from opendv_service.studio import connector_ingestion as ci
 
-        fn = getattr(ci, "get_session_evidence_chunks", None) or getattr(ci, "list_evidence_chunks", None)
+        fn = getattr(ci, "get_session_evidence_chunks", None) or getattr(
+            ci, "list_evidence_chunks", None
+        )
         if callable(fn):
             res = fn(session_mgr, session_id)
-            return res if isinstance(res, dict) else {"session_id": session_id, "chunks": res, "observed_term_counts": {}}
+            return (
+                res
+                if isinstance(res, dict)
+                else {"session_id": session_id, "chunks": res, "observed_term_counts": {}}
+            )
     except OpenDVError as exc:
         raise raise_from_opendv_error(exc) from exc
     except ImportError:
@@ -202,14 +300,20 @@ def get_evidence_chunks_workflow(session_mgr: StudioSessionManager, session_id: 
     return {"session_id": session_id, "chunks": chunks, "observed_term_counts": {}}
 
 
-def resolve_citations_workflow(session_mgr: StudioSessionManager, session_id: str, citations: list[dict[str, Any]]) -> dict[str, Any]:
+def resolve_citations_workflow(
+    session_mgr: StudioSessionManager, session_id: str, citations: list[dict[str, Any]]
+) -> dict[str, Any]:
     from opendv_service.studio.citation_resolver import resolve_session_citations
 
     try:
         resolved = resolve_session_citations(session_mgr, session_id, citations)
     except OpenDVError as exc:
         raise raise_from_opendv_error(exc) from exc
-    return resolved if isinstance(resolved, dict) else {"session_id": session_id, "resolved": resolved}
+    return (
+        resolved
+        if isinstance(resolved, dict)
+        else {"session_id": session_id, "resolved": resolved}
+    )
 
 
 def lookup_fibo_workflow(query: str, limit: int = 25) -> dict[str, Any]:
@@ -255,8 +359,14 @@ def ask_fibo_qa_workflow(
         for jfile in jdir.glob("job-*.json"):
             with contextlib.suppress(OSError, json.JSONDecodeError):
                 jdata = json.loads(jfile.read_text(encoding="utf-8"))
-                if str(jdata.get("status", "")).lower() not in {"completed", "failed", "cancelled", "canceled", ""}:
-                    raise StudioWorkflowError("SESSION_JOB_ACTIVE", f"Session '{session_id}' already has an active running job.", status_code=409, exit_code=6)
+                st = str(jdata.get("status", "")).lower()
+                if st not in {"completed", "failed", "cancelled", "canceled", ""}:
+                    raise StudioWorkflowError(
+                        "SESSION_JOB_ACTIVE",
+                        f"Session '{session_id}' already has an active running job.",
+                        status_code=409,
+                        exit_code=6,
+                    )
 
     harness = None
     if agent_runner is not None:
@@ -264,16 +374,25 @@ def ask_fibo_qa_workflow(
         avail_fn = getattr(agent_runner, "_is_harness_executable_available", None)
         candidate = resolve_fn() if callable(resolve_fn) else agent_runner
         if candidate is None or (callable(avail_fn) and not avail_fn(candidate)):
-            raise StudioWorkflowError("AGENT_NOT_CONFIGURED", "No usable LLM agent harness or provider credentials are configured.", status_code=422, exit_code=10)
+            raise StudioWorkflowError(
+                "AGENT_NOT_CONFIGURED",
+                "No usable LLM agent harness or provider credentials are configured.",
+                status_code=422,
+                exit_code=10,
+            )
         harness = candidate
     req = FiboQARequest(question=question, source_ids=source_ids, concept_uri=concept_uri)
     try:
-        res = answer_fibo_qa(session_mgr=session_mgr, session_id=session_id, request=req, harness=harness)
+        res = answer_fibo_qa(
+            session_mgr=session_mgr, session_id=session_id, request=req, harness=harness
+        )
     except OpenDVError as exc:
         raise raise_from_opendv_error(exc) from exc
     except Exception as exc:
         if "ConfigurationError" in type(exc).__name__ or "not found" in str(exc).lower():
-            raise StudioWorkflowError("AGENT_NOT_CONFIGURED", str(exc), status_code=422, exit_code=10) from exc
+            raise StudioWorkflowError(
+                "AGENT_NOT_CONFIGURED", str(exc), status_code=422, exit_code=10
+            ) from exc
         raise
     return res.model_dump(mode="json") if hasattr(res, "model_dump") else dict(res)
 
@@ -350,7 +469,12 @@ def resolve_latest_terminal_status(
         return "COMPLETED"
     _, latest = max(
         records,
-        key=lambda item: (_parse_iso_utc(item[0][0]), _parse_iso_utc(item[0][1]), item[0][2], item[0][3]),
+        key=lambda item: (
+            _parse_iso_utc(item[0][0]),
+            _parse_iso_utc(item[0][1]),
+            item[0][2],
+            item[0][3],
+        ),
     )
     if latest in {"FAILED", "REJECT-WITH-TRACE"}:
         return "FAILED"
@@ -359,7 +483,9 @@ def resolve_latest_terminal_status(
     return "COMPLETED"
 
 
-def _disk_session_work_status(session_mgr: StudioSessionManager, session_id: str) -> tuple[bool, str]:
+def _disk_session_work_status(
+    session_mgr: StudioSessionManager, session_id: str
+) -> tuple[bool, str]:
     records = collect_disk_job_records(session_mgr, session_id)
     active = any(s in {"QUEUED", "RUNNING"} for _, s in records)
     return active, resolve_latest_terminal_status(records)
@@ -442,7 +568,7 @@ async def stream_logs_workflow(
             yield (
                 f"id: {seen_seq + 1}\n"
                 f"event: stream_end\n"
-                f'data: {json.dumps({"status": term_status, "session_id": session_id})}\n\n'
+                f"data: {json.dumps({'status': term_status, 'session_id': session_id})}\n\n"
             )
             break
 

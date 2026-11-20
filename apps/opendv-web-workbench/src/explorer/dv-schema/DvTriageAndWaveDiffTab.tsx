@@ -6,7 +6,7 @@
 import { useMemo } from "react";
 import { CLAUDE_TOKENS, EXPLORER_FONTS } from "../design-tokens";
 import { safeUseState } from "../modals/safeHooks";
-import { formatTriageCsv } from "./dv-schema-utils";
+import { formatTriageCsv, normalizeTriageRow } from "./dv-schema-utils";
 import type { DvSchemaProjectionDTO } from "./types";
 
 export interface DvTriageAndWaveDiffTabProps {
@@ -21,10 +21,11 @@ export function DvTriageAndWaveDiffTab({
 	compareRunId,
 }: DvTriageAndWaveDiffTabProps) {
 	const [filterText, setFilterText] = safeUseState("");
-	const ledger = projection.column_triage_ledger ?? [];
+	const rawLedger = projection.column_triage_ledger ?? [];
+	const ledger = useMemo(() => rawLedger.map(normalizeTriageRow), [rawLedger]);
 	const totalCount = ledger.length;
 	const mappedCount = ledger.filter(
-		(row) => String(row.target_entity ?? "").trim().length > 0,
+		(row) => row.target_entity.trim().length > 0,
 	).length;
 	const pct =
 		totalCount > 0 ? Math.round((mappedCount / totalCount) * 100) : 100;
@@ -54,7 +55,7 @@ export function DvTriageAndWaveDiffTab({
 	);
 
 	const handleExportCsv = () => {
-		const csv = formatTriageCsv(ledger);
+		const csv = formatTriageCsv(rawLedger);
 		if (typeof Blob === "undefined" || typeof URL === "undefined") return;
 		const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
 		const href = URL.createObjectURL(blob);
@@ -283,7 +284,7 @@ export function DvTriageAndWaveDiffTab({
 								) : (
 									filteredRows.map((row, idx) => (
 										<tr
-											key={`${String(row.source_table)}-${String(row.source_column)}-${idx}`}
+											key={`${row.source_table}-${row.source_column}-${idx}`}
 											style={{
 												borderBottom: `1px solid ${CLAUDE_TOKENS.colors.hairlineSoft}`,
 											}}
@@ -294,7 +295,7 @@ export function DvTriageAndWaveDiffTab({
 													fontFamily: EXPLORER_FONTS.mono,
 												}}
 											>
-												{String(row.wave ?? "W1")}
+												{row.wave}
 											</td>
 											<td
 												style={{
@@ -302,8 +303,7 @@ export function DvTriageAndWaveDiffTab({
 													fontFamily: EXPLORER_FONTS.mono,
 												}}
 											>
-												{String(row.source_table ?? "")}.
-												{String(row.source_column ?? "")}
+												{row.source_table}.{row.source_column}
 											</td>
 											<td style={{ padding: "6px 8px" }}>
 												<span
@@ -315,7 +315,7 @@ export function DvTriageAndWaveDiffTab({
 														fontWeight: 500,
 													}}
 												>
-													{String(row.triage_role ?? "")}
+													{row.triage_role}
 												</span>
 											</td>
 											<td
@@ -326,7 +326,7 @@ export function DvTriageAndWaveDiffTab({
 													color: CLAUDE_TOKENS.colors.muted,
 												}}
 											>
-												{String(row.graph_a_uri ?? "")}
+												{row.graph_a_uri}
 											</td>
 											<td
 												style={{
@@ -335,7 +335,7 @@ export function DvTriageAndWaveDiffTab({
 													fontSize: "10px",
 												}}
 											>
-												{String(row.staging_expr ?? "")}
+												{row.staging_expr}
 											</td>
 											<td
 												style={{
@@ -344,7 +344,7 @@ export function DvTriageAndWaveDiffTab({
 													fontWeight: 600,
 												}}
 											>
-												{String(row.target_entity ?? "")}
+												{row.target_entity}
 											</td>
 										</tr>
 									))

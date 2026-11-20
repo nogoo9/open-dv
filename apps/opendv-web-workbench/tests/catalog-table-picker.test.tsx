@@ -243,6 +243,9 @@ describe("CatalogTablePickerModal (WS5.3)", () => {
 			expect(
 				formatForeignKeyRef({ target_table: "issuers", target_column: "cik" }),
 			).toBe("issuers.cik");
+			expect(formatForeignKeyRef({ table: "issuers", column: "cik" })).toBe(
+				"issuers.cik",
+			);
 			expect(
 				formatForeignKeyRef({
 					target_table: "issuers",

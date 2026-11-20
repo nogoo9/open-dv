@@ -234,7 +234,7 @@ class TestStudioAgentRunnerAndTextIngestionEmpirical:
     """Empirical verification of StudioAgentRunner fallback latency SLA and Text CAS ingestion."""
 
     def test_deterministic_fallback_sla_under_2_5_seconds(self) -> None:
-        """Verify StudioAgentRunner deterministic fallback completes well within <2.5s SLA."""
+        """Verify StudioAgentRunner explicit deterministic mode completes well within <2.5s SLA."""
         runner = StudioAgentRunner(harness=None)
 
         start = time.monotonic()
@@ -242,14 +242,14 @@ class TestStudioAgentRunnerAndTextIngestionEmpirical:
             base_ontology=get_core_spine_pack(),
             evidence_chunks=[],
             tables=[],
-            mode="agent",  # Requested agent mode, but harness is None -> falls back to deterministic
+            mode="deterministic",
         )
         duration = time.monotonic() - start
 
-        assert duration < 2.5, f"Deterministic fallback exceeded 2.5s SLA: {duration:.3f}s"
-        assert duration < 0.5, f"Expected pure-Python fallback to finish in <0.5s, took {duration:.3f}s"
+        assert duration < 2.5, f"Deterministic mode exceeded 2.5s SLA: {duration:.3f}s"
+        assert duration < 0.5, f"Expected pure-Python deterministic mode to finish in <0.5s, took {duration:.3f}s"
         assert proposal is not None
-        assert any("engine_mode:deterministic_fallback" in d for d in proposal.diagnostics)
+        assert any("engine_mode:deterministic" in d for d in proposal.diagnostics)
 
     def test_text_ingestion_sha256_computation_and_cas_storage(self, tmp_path: Path) -> None:
         """Verify text CAS ingestion computes exact SHA-256 and stores byte-for-byte CAS blob."""

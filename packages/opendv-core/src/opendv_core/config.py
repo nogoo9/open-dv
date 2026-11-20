@@ -89,6 +89,23 @@ class CoreModelingConfig(BaseModel):
         le=1.0,
         description="Minimum value sample Jaccard overlap to confirm column rename.",
     )
+    structural_rename_similarity_threshold: float = Field(
+        default=0.70,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum combined type-compatible token/abbreviation similarity to classify "
+            "a column rename when value Jaccard samples match distribution or are absent."
+        ),
+    )
+    max_jaccard_profile_values_per_col: int = Field(
+        default=500,
+        ge=1,
+        description=(
+            "Maximum distinct non-PII sample values retained per column for cross-wave "
+            "Jaccard value profiling."
+        ),
+    )
     companion_satellite_volatility_tier: str = Field(
         default="ADDITIVE_DRIFT_COMPANION",
         description="Volatility tier assigned to additive drift companion satellites.",
@@ -204,6 +221,30 @@ class CoreModelingConfig(BaseModel):
     default_antigravity_fast_model: str = Field(
         default="gemini-3.8-flash-high",
         description="Default Antigravity/Gemini fast model ID for utility personas.",
+    )
+
+    # Agent prompt evidence budgeting thresholds
+    max_agent_prompt_chars: int = Field(
+        default=32_000,
+        ge=2_000,
+        description="Maximum total characters for build_safe_agent_prompt evidence payload.",
+    )
+    max_agent_prompt_chunks: int = Field(
+        default=48,
+        ge=1,
+        description="Maximum number of document evidence chunks packed into an agent prompt.",
+    )
+    max_agent_prompt_chunk_chars: int = Field(
+        default=850,
+        ge=100,
+        description="Maximum excerpt length in characters per chunk in an agent prompt.",
+    )
+    small_inline_note_max_chars: int = Field(
+        default=2_000,
+        ge=100,
+        description=(
+            "Total source char limit below which non-PDF inline notes are always preserved."
+        ),
     )
 
     # Algorithm A.5 hashing and Data Vault 2.0 sentinel defaults

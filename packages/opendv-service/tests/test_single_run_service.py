@@ -413,3 +413,27 @@ def test_single_run_pipeline_execution_seam(tmp_path: Path) -> None:
     assert result["run_id"] == "run-single-run-001"
     assert result["status"] == "COMPLETED"
     assert result.get("status") == "COMPLETED"
+
+
+def test_validate_pipeline_omitted_provider_preserves_platform_config(tmp_path: Path) -> None:
+    """PipelineInputDTO without harness_provider must not overwrite platform_config."""
+    import json as _json
+
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    cfg = {
+        "harness": {
+            "provider": "agy",
+            "auth": {"auth_mode": "cli_session", "mode": "cli_session"},
+        }
+    }
+    (state_dir / "platform_config.json").write_text(_json.dumps(cfg), encoding="utf-8")
+    store = StateStore(state_dir=state_dir)
+    ont = create_genesis_ontology("retail", "Enterprise Arch")
+    input_dto = PipelineInputDTO(
+        ontology_source=ont.model_dump(mode="json"),
+        sources=[SourceFeedDTO(feed_id="f1", source_system="crm", uri="sqlite:///crm.db")],
+    )
+    plan = validate_pipeline(input_dto, state=store)
+    assert plan["passed"] is True, f"Unexpected failure: {plan.get('diagnostics')}"
+    assert not [d for d in plan.get("diagnostics", []) if d.get("code") == "HARNESS_AUTH_MISSING"]

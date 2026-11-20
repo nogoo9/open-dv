@@ -148,7 +148,11 @@ export function DvSchemaExplorerView({
 			wave_diff: null,
 		};
 
-	const entities = useMemo(() => buildDvEntities(projection), [projection]);
+	const resolvedDuckSql = zoneSqlDuckDb ?? reportArtifacts.zoneSqlDuckDb;
+	const entities = useMemo(
+		() => buildDvEntities(projection, resolvedDuckSql),
+		[projection, resolvedDuckSql],
+	);
 	const availableTables = useMemo(
 		() => entities.map((e) => `${e.schemaName}.${e.name}`),
 		[entities],

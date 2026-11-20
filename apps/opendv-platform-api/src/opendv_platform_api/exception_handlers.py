@@ -260,7 +260,9 @@ def register_exception_handlers(application: FastAPI) -> None:
         mapping = ERROR_MAP.get(exc.error_code) or ERROR_MAP[ErrorCode.INTERNAL_ERROR]
         status_code = getattr(exc, "http_status", None) or mapping.http_status
         code_val = (
-            exc.error_code.value if exc.error_code == ErrorCode.AGENT_NOT_CONFIGURED else None
+            exc.error_code.value
+            if exc.error_code in {ErrorCode.AGENT_NOT_CONFIGURED, ErrorCode.SESSION_JOB_ACTIVE}
+            else None
         )
         return build_problem_details_response(
             status_code=status_code,

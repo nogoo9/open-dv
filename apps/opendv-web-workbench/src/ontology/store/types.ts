@@ -3,6 +3,8 @@
  * (apps/opendv-web-workbench/src/ontology/store/types.ts)
  */
 
+import type { ForeignKeyHintLike } from "../../explorer/builder/CatalogTablePickerModal";
+
 export interface SessionCommit {
 	commit_id: string;
 	parent_sha256?: string | undefined;
@@ -101,7 +103,7 @@ export interface EvidenceColumnProfile {
 	sql_type: string;
 	is_primary_key: boolean;
 	surrogate_hint: boolean;
-	foreign_key: string | null;
+	foreign_key: string | ForeignKeyHintLike | null;
 	null_rate: number;
 	shannon_entropy: number;
 }
@@ -186,6 +188,23 @@ export interface ClarificationAnswer {
 	answered_at?: string | undefined;
 }
 
+export interface EvidenceRef {
+	evidence_type: string;
+	reference_uri?: string | null | undefined;
+	snippet?: string | null | undefined;
+	confidence?: number | null | undefined;
+	doc_sha256?: string | null | undefined;
+	char_start?: number | null | undefined;
+	char_end?: number | null | undefined;
+	bronze_table?: string | null | undefined;
+	column_name?: string | null | undefined;
+	source_label?: string | null | undefined;
+	chunk_id?: string | null | undefined;
+	page_number?: number | null | undefined;
+	table_id?: string | null | undefined;
+	fibo_uri?: string | null | undefined;
+}
+
 export interface ConceptAttribute {
 	attribute_name: string;
 	data_type: string;
@@ -195,6 +214,7 @@ export interface ConceptAttribute {
 	deprecated?: boolean | null | undefined;
 	metadata?: Record<string, unknown> | null | undefined;
 	source_hints?: string[] | null | undefined;
+	evidence_refs?: EvidenceRef[] | null | undefined;
 }
 
 export interface ExternalMapping {
@@ -221,6 +241,8 @@ export interface ConceptNode {
 	parent_concept_uri?: string | null | undefined;
 	confidence?: number | undefined;
 	grounding_status: "GROUNDED" | "LOW_CONFIDENCE" | "UNGROUNDED";
+	grounding_origin?: string | null | undefined;
+	evidence_refs?: EvidenceRef[] | null | undefined;
 	attributes: ConceptAttribute[];
 	synonyms: string[];
 	external_mappings: ExternalMapping[];
@@ -247,6 +269,7 @@ export interface RelationshipEdge {
 	deprecated?: boolean | null | undefined;
 	metadata?: Record<string, unknown> | null | undefined;
 	source_hints?: string[] | null | undefined;
+	evidence_refs?: EvidenceRef[] | null | undefined;
 	yagni_cost_guard_policy?: Record<string, unknown> | null | undefined;
 }
 

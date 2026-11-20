@@ -18,6 +18,28 @@ from opendv_core.models.canonical_ir import (
 from opendv_core.models.contract_v5 import ContractHubSpec
 from opendv_core.models.graph_b import GraphBProfile
 
+_SAFE_SQL_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _sanitize_sql_ident(name: str, used: set[str] | None = None) -> str:
+    """Normalize any raw column/table identifier into a SQL-safe `^[A-Za-z_][A-Za-z0-9_]*$`."""
+    raw = str(name or "").strip()
+    if _SAFE_SQL_IDENT_RE.match(raw):
+        cand = raw
+    else:
+        cand = re.sub(r"[^A-Za-z0-9_]+", "_", raw).strip("_").lower()
+        if not cand or not (cand[0].isalpha() or cand[0] == "_"):
+            cand = f"col_{cand}" if cand else "col_unknown"
+    if used is None:
+        return cand
+    base = cand
+    idx = 2
+    while cand.lower() in used:
+        cand = f"{base}_{idx}"
+        idx += 1
+    used.add(cand.lower())
+    return cand
+
 
 def _sanitize_model_name(domain_namespace: str) -> str:
     """Normalize a domain namespace into a schema-valid `^[a-z][a-z0-9_]*$` model name."""
@@ -38,8 +60,8 @@ def _staging_table_name(bronze_table: str) -> str:
     if len(parts) >= 2:
         src_prefix = parts[0].lower().removeprefix("bronze_")
         if not leaf.startswith(src_prefix):
-            return f"stg_{src_prefix}_{leaf}"
-    return f"stg_{leaf}"
+            return _sanitize_sql_ident(f"stg_{src_prefix}_{leaf}")
+    return _sanitize_sql_ident(f"stg_{leaf}")
 
 
 def _infer_sql_data_type(column_name: str, profile_type_map: dict[str, str] | None = None) -> str:
@@ -184,13 +206,16 @@ def _lower_hub(
 
     primary_key_cols = contract_hub.business_key_sources[0].key_columns
     first_src = contract_hub.business_key_sources[0]
-    hub_bkcc_col_expr = next(
+    raw_hub_bkcc_col_expr = next(
         (
             src.bkcc_column_expr.strip()
             for src in contract_hub.business_key_sources
             if src.bkcc_column_expr and src.bkcc_column_expr.strip()
         ),
         None,
+    )
+    hub_bkcc_col_expr = (
+        _sanitize_sql_ident(raw_hub_bkcc_col_expr) if raw_hub_bkcc_col_expr else None
     )
     hub_bkcc_literal = (
         first_src.bkcc_prefix.strip()
@@ -202,7 +227,11 @@ def _lower_hub(
         )
         else None
     )
-    excluded_hub_bkcc = {"bkcc", *([hub_bkcc_col_expr] if hub_bkcc_col_expr else [])}
+    excluded_hub_bkcc = {
+        "bkcc",
+        *([raw_hub_bkcc_col_expr] if raw_hub_bkcc_col_expr else []),
+        *([hub_bkcc_col_expr] if hub_bkcc_col_expr else []),
+    }
     filtered_primary_key_cols = list(
         dict.fromkeys(c for c in primary_key_cols if c.strip() not in excluded_hub_bkcc)
     ) or list(dict.fromkeys(primary_key_cols))
@@ -216,16 +245,20 @@ def _lower_hub(
         )
     ]
     seen_bks = {"bkcc"}
+    raw_bk_to_clean: dict[str, str] = {}
     for key_col in filtered_primary_key_cols:
-        if key_col not in seen_bks:
-            seen_bks.add(key_col)
-            business_keys.append(
-                IRBusinessKeyColumn(
-                    name=key_col,
-                    data_type=_infer_sql_data_type(key_col, profile_types),
-                    nullable=False,
-                )
+        clean_key = _sanitize_sql_ident(key_col, seen_bks)
+        raw_bk_to_clean[key_col] = clean_key
+        inferred_dt = _infer_sql_data_type(key_col, profile_types)
+        if inferred_dt == "VARCHAR(255)" and clean_key != key_col:
+            inferred_dt = _infer_sql_data_type(clean_key, profile_types)
+        business_keys.append(
+            IRBusinessKeyColumn(
+                name=clean_key,
+                data_type=inferred_dt,
+                nullable=False,
             )
+        )
 
     source_mappings: list[IRHubSourceMapping] = []
     bronze_to_rec_src: dict[str, str] = {}
@@ -234,11 +267,12 @@ def _lower_hub(
 
     for src in contract_hub.business_key_sources:
         bronze_to_rec_src.setdefault(src.bronze_table, src.record_source_code)
-        src_bkcc_col = (
+        raw_src_bkcc_col = (
             src.bkcc_column_expr.strip()
             if src.bkcc_column_expr and src.bkcc_column_expr.strip()
             else None
         )
+        src_bkcc_col = _sanitize_sql_ident(raw_src_bkcc_col) if raw_src_bkcc_col else None
         bkcc_lit = (
             _resolve_source_bkcc_literal(src, verified_global=verified_global)
             if not src_bkcc_col
@@ -256,10 +290,14 @@ def _lower_hub(
         stg_name = _staging_table_name(src.bronze_table)
         bk_prefix_col = src_bkcc_col or "bkcc"
         non_bkcc_key_cols = [
-            c for c in src.key_columns if c.strip() not in {bk_prefix_col, "bkcc"}
-        ] or list(src.key_columns)
+            raw_bk_to_clean.get(c, _sanitize_sql_ident(c))
+            for c in src.key_columns
+            if c.strip() not in {raw_src_bkcc_col or "", bk_prefix_col, "bkcc"}
+        ] or [raw_bk_to_clean.get(c, _sanitize_sql_ident(c)) for c in src.key_columns]
         bk_src_cols = [bk_prefix_col, *non_bkcc_key_cols]
-        col_bkcc_map = {col: bkcc_lit for col in src.key_columns}
+        col_bkcc_map = {
+            raw_bk_to_clean.get(col, _sanitize_sql_ident(col)): bkcc_lit for col in src.key_columns
+        }
 
         for tbl_alias in (
             src.bronze_table.lower(),
@@ -322,5 +360,6 @@ __all__ = [
     "_resolve_link_ref_bkcc_literal",
     "_resolve_source_bkcc_literal",
     "_sanitize_model_name",
+    "_sanitize_sql_ident",
     "_staging_table_name",
 ]

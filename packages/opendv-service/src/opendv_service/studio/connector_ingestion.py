@@ -152,7 +152,11 @@ def _profile_local_source_tables(
     tname_hint = (
         src_name
         if raw_req_uri.startswith("cas://") and src_name
-        else (local_path.name if raw_req_uri.startswith("cas://") else (raw_req_uri or local_path.name))
+        else (
+            local_path.name
+            if raw_req_uri.startswith("cas://")
+            else (raw_req_uri or local_path.name)
+        )
     )
     default_tname = Path(strip_file_uri(tname_hint)).stem or local_path.stem
 
@@ -164,14 +168,17 @@ def _profile_local_source_tables(
                 sconn = sqlite3.connect(f"file:{local_path}?mode=ro", uri=True)
                 try:
                     t_rows = sconn.execute(
-                        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+                        "SELECT name FROM sqlite_master "
+                        "WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
                     ).fetchall()
                     for (tname,) in t_rows:
                         qt = f'"{tname.replace(chr(34), chr(34) * 2)}"'
                         tinfo = sconn.execute(f"PRAGMA table_info({qt})").fetchall()
                         pk_cols = {str(r[1]) for r in tinfo if int(r[5] or 0) > 0}
                         fk_list = sconn.execute(f"PRAGMA foreign_key_list({qt})").fetchall()
-                        fk_map = {str(r[3]): {"table": str(r[2]), "column": str(r[4])} for r in fk_list}
+                        fk_map = {
+                            str(r[3]): {"table": str(r[2]), "column": str(r[4])} for r in fk_list
+                        }
                         headers = [str(r[1]) for r in tinfo]
                         data_rows = sconn.execute(f"SELECT * FROM {qt} LIMIT 5000").fetchall()
                         load_duckdb_table_from_rows(mem_conn, tname, headers, data_rows)
@@ -196,8 +203,21 @@ def _profile_local_source_tables(
                     ).fetchall()
                     for (tname,) in t_rows:
                         qt = f'"{tname.replace(chr(34), chr(34) * 2)}"'
-                        cols = [str(r[0]) for r in dconn.execute(f"DESCRIBE {qt}").fetchall()]
-                        data_rows = dconn.execute(f"SELECT * FROM {qt} LIMIT 5000").fetchall()
+                        desc_rows = dconn.execute(f"DESCRIBE {qt}").fetchall()
+                        cols = [str(r[0]) for r in desc_rows]
+                        sel = (
+                            ", ".join(
+                                (
+                                    f'CAST("{str(r[0]).replace(chr(34), chr(34) * 2)}" AS VARCHAR)'
+                                    if "WITH TIME ZONE" in str(r[1]).upper()
+                                    or "TIMESTAMPTZ" in str(r[1]).upper()
+                                    else f'"{str(r[0]).replace(chr(34), chr(34) * 2)}"'
+                                )
+                                for r in desc_rows
+                            )
+                            or "*"
+                        )
+                        data_rows = dconn.execute(f"SELECT {sel} FROM {qt} LIMIT 5000").fetchall()
                         load_duckdb_table_from_rows(mem_conn, tname, cols, data_rows)
                         parsed_tables.append(
                             build_table_entry(
@@ -248,7 +268,8 @@ def _profile_local_source_tables(
                 )
             else:
                 raise OpenDVError(
-                    f"Unsupported connector format '{ext or adapter}'. Supported: {SUPPORTED_CONNECTOR_FORMATS}",
+                    f"Unsupported connector format '{ext or adapter}'. "
+                    f"Supported: {SUPPORTED_CONNECTOR_FORMATS}",
                     error_code=ErrorCode.UNSUPPORTED_FORMAT,
                 )
         except (sqlite3.DatabaseError, duckdb.Error, SourceLoadError) as exc:
@@ -297,7 +318,9 @@ def _attach_databricks_connector(
         workspace_root=getattr(session_mgr, "workspace_root", None),
         allowed_hosts=eff_allowed_hosts,
     )
-    canonical_bytes = json.dumps(inspect_resp.model_dump(mode="json"), sort_keys=True).encode("utf-8")
+    canonical_bytes = json.dumps(inspect_resp.model_dump(mode="json"), sort_keys=True).encode(
+        "utf-8"
+    )
     source_sha256 = hashlib.sha256(canonical_bytes).hexdigest().lower()
     session_mgr.get_cas(session_id).put(canonical_bytes)
     source_id = f"src-{source_sha256[:16]}"

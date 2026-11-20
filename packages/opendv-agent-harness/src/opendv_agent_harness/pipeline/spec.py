@@ -128,11 +128,33 @@ class PipelineSourceFeedInput(BaseModel):
         self.adapter = self.adapter or "file"
         self.data_path = self.data_path or self.uri
         self.file_path = self.file_path or self.uri
-        self.source_name = (
-            self.source_name or self.table_name or (Path(self.uri).stem if self.uri else "source")
+        opt_table = str(self.options.get("table_name") or "").strip() if self.options else ""
+        opt_src = str(self.options.get("source_name") or "").strip() if self.options else ""
+        opt_src_stem = Path(opt_src).stem if opt_src else ""
+        uri_stem = Path(self.uri).stem if self.uri else ""
+        if (
+            uri_stem
+            and len(uri_stem) == 64
+            and all(c in "0123456789abcdefABCDEF" for c in uri_stem)
+        ):
+            uri_stem = ""
+        if self.uri and self.uri.startswith("cas://"):
+            uri_stem = ""
+        fallback_name = (
+            opt_table
+            or opt_src_stem
+            or uri_stem
+            or self.source_system
+            or self.feed_id
+            or "source"
         )
-        self.table_name = self.table_name or self.source_name
+        self.source_name = self.source_name or self.table_name or fallback_name
+        self.table_name = self.table_name or opt_table or self.source_name
         self.source_system = self.source_system or self.table_name or "default_source"
+        if not self.format and self.options:
+            opt_fmt = self.options.get("source_format") or self.options.get("format")
+            if opt_fmt:
+                self.format = str(opt_fmt).lower().strip().lstrip(".")
         if self.source is None and self.uri:
             ns, ts = None, None
             with contextlib.suppress(ImportError, ValueError, TypeError):

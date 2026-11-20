@@ -42,6 +42,26 @@ from opendv_agent_harness.routing import (
 from opendv_contracts.fallbacks import FallbackKey
 
 _MAX_CLI_FLAG_CHARS = 7500
+_AGY_ONLY_CLAUDE_MODEL_MAP: dict[str, str] = {
+    "claude-opus-5-5-high": "claude-opus-4-6",
+    "claude-sonnet-5-5-medium": "claude-sonnet-4-6",
+}
+
+
+def _unwrap_windows_npm_shim(bin_path: str) -> str:
+    """On Windows, bypass npm's claude.cmd shim to avoid cmd.exe 8KB/escaping bugs."""
+    if os.name == "nt" and bin_path.lower().endswith((".cmd", ".bat")):
+        exe = (
+            Path(bin_path).parent
+            / "node_modules"
+            / "@anthropic-ai"
+            / "claude-code"
+            / "bin"
+            / "claude.exe"
+        )
+        if exe.is_file():
+            return str(exe)
+    return bin_path
 
 
 def _extract_json_from_stdout(raw_stdout: str) -> dict[str, Any]:
@@ -91,14 +111,17 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
             if isinstance(candidate, str) and candidate.strip():
                 has_explicit = True
                 cand_str = candidate.strip()
-                if Path(cand_str).is_file() or shutil.which(cand_str):
-                    return cand_str
+                if Path(cand_str).is_file():
+                    return _unwrap_windows_npm_shim(cand_str)
+                which_cand = shutil.which(cand_str)
+                if which_cand:
+                    return _unwrap_windows_npm_shim(which_cand)
         if has_explicit:
             return None
         for bin_name in ("claude", "claude.exe", "claude.cmd"):
             found = shutil.which(bin_name)
             if found:
-                return found
+                return _unwrap_windows_npm_shim(found)
         return None
 
     def _resolve_subagent_models(self, spec: AgentTaskSpec[Any]) -> dict[str, str]:
@@ -211,17 +234,31 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
         inline_schema = schema_json_str is not None and len(schema_json_str) > _MAX_CLI_FLAG_CHARS
         prompt_text = self._build_cli_prompt(spec, include_inline_schema=inline_schema)
 
+        cli_model_id = _AGY_ONLY_CLAUDE_MODEL_MAP.get(model_id, model_id)
+        effort = (
+            str(
+                self._config.extra_provider_options.get("claude_effort")
+                or self._config.env.get("OPENDV_CLAUDE_EFFORT")
+                or os.environ.get("OPENDV_CLAUDE_EFFORT")
+                or "low"
+            )
+            .strip()
+            .lower()
+        )
         cmd: list[str] = [
             claude_bin,
             "-p",
             "--model",
-            model_id,
+            cli_model_id,
             "--output-format",
             "stream-json",
+            "--verbose",
             "--disable-slash-commands",
             "--tools",
             "",
         ]
+        if effort:
+            cmd.extend(["--effort", effort])
         if sys_prompt and len(sys_prompt) <= _MAX_CLI_FLAG_CHARS:
             cmd.extend(["--system-prompt", sys_prompt])
         if agents_json is not None and len(agents_json) <= _MAX_CLI_FLAG_CHARS:
@@ -270,13 +307,16 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
                 claude_bin,
                 "-p",
                 "--model",
-                model_id,
+                cli_model_id,
                 "--output-format",
                 "stream-json",
+                "--verbose",
                 "--disable-slash-commands",
                 "--tools",
                 "",
             ]
+            if effort:
+                fallback_cmd.extend(["--effort", effort])
             if sys_prompt and len(sys_prompt) <= _MAX_CLI_FLAG_CHARS:
                 fallback_cmd.extend(["--system-prompt", sys_prompt])
             if agents_json is not None and len(agents_json) <= _MAX_CLI_FLAG_CHARS:
@@ -356,6 +396,8 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
             spec,
             raw_structured=raw_structured,
             raw_response_text=raw_response_text,
+            cli_label="Claude Code CLI ('claude')",
+            denied_actions=payload.get("denied_actions"),
         )
         turn_meta = make_cli_turn_meta(
             spec,

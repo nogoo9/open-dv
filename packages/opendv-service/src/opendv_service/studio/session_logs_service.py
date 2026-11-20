@@ -12,7 +12,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
-from opendv_service.studio.agent_runner_helpers import _mask_pii_text
+from opendv_service.studio.agent_runner_helpers import (
+    _mask_pii_text,
+    serialize_and_mask_telemetry,
+)
 from opendv_service.studio.session_manager import StudioSessionManager
 
 _MIN_UTC: Final[datetime] = datetime.min.replace(tzinfo=UTC)
@@ -125,10 +128,10 @@ def _normalize_journal_record(rec: dict[str, Any], default_job_id: str) -> dict[
         "model_id": data.get("model_id"),
         "duration_ms": data.get("duration_ms"),
         "token_usage": data.get("token_usage"),
-        "masked_prompt": _mask_pii_text(str(data["masked_prompt"]))
-        if data.get("masked_prompt")
-        else None,
-        "structured_or_raw_response": data.get("structured_or_raw_response"),
+        "masked_prompt": serialize_and_mask_telemetry(data.get("masked_prompt")),
+        "structured_or_raw_response": serialize_and_mask_telemetry(
+            data.get("structured_or_raw_response")
+        ),
         "tool_calls": data.get("tool_calls") or [],
         "toon_diagnostics": data.get("toon_diagnostics") or [],
         "status": data.get("status"),
@@ -150,11 +153,49 @@ def _extract_ledger_metrics(rec: dict[str, Any]) -> dict[str, Any]:
     return {**l2_metrics, **top_metrics}
 
 
+def _first_present(*candidates: Any) -> Any:
+    for cand in candidates:
+        if cand is not None and cand != "":
+            return cand
+    return None
+
+
 def _normalize_ledger_record(rec: dict[str, Any], idx: int) -> dict[str, Any]:
     layer1 = (
         rec.get("layer1_story_banner") if isinstance(rec.get("layer1_story_banner"), dict) else {}
     )
+    layer2 = (
+        rec.get("layer2_visual_payload")
+        if isinstance(rec.get("layer2_visual_payload"), dict)
+        else {}
+    )
+    payload = rec.get("payload") if isinstance(rec.get("payload"), dict) else {}
     metrics = _extract_ledger_metrics(rec)
+    raw_prompt = _first_present(
+        metrics.get("masked_prompt"),
+        metrics.get("prompt"),
+        layer2.get("masked_prompt"),
+        layer2.get("prompt"),
+        payload.get("masked_prompt"),
+        payload.get("prompt"),
+        rec.get("masked_prompt"),
+        rec.get("prompt"),
+    )
+    raw_response = _first_present(
+        metrics.get("structured_or_raw_response"),
+        metrics.get("response"),
+        layer2.get("structured_or_raw_response"),
+        layer2.get("response"),
+        payload.get("structured_or_raw_response"),
+        payload.get("response"),
+        rec.get("structured_or_raw_response"),
+        rec.get("response"),
+    )
+    token_usage = rec.get("token_usage") or layer2.get("token_usage")
+    if token_usage is None and isinstance(metrics.get("token_usage"), dict):
+        token_usage = metrics.get("token_usage")
+    if token_usage is None and isinstance(metrics.get("usage"), dict):
+        token_usage = metrics.get("usage")
     return {
         "timestamp": str(rec.get("timestamp_utc") or rec.get("timestamp") or ""),
         "raw_id": idx,
@@ -166,12 +207,16 @@ def _normalize_ledger_record(rec: dict[str, Any], idx: int) -> dict[str, Any]:
         "source_id": metrics.get("source_id"),
         "job_id": rec.get("run_id"),
         "category": "execution",
-        "provider": metrics.get("provider"),
-        "model_id": metrics.get("model_id"),
-        "duration_ms": rec.get("duration_ms"),
-        "token_usage": rec.get("token_usage"),
-        "masked_prompt": None,
-        "structured_or_raw_response": None,
+        "provider": metrics.get("provider") or rec.get("provider"),
+        "model_id": metrics.get("model_id") or metrics.get("model"),
+        "duration_ms": (
+            rec.get("duration_ms")
+            if rec.get("duration_ms") is not None
+            else metrics.get("duration_ms")
+        ),
+        "token_usage": token_usage,
+        "masked_prompt": serialize_and_mask_telemetry(raw_prompt),
+        "structured_or_raw_response": serialize_and_mask_telemetry(raw_response),
         "tool_calls": [],
         "toon_diagnostics": [],
         "status": rec.get("status"),

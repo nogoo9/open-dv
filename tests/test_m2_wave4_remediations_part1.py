@@ -376,3 +376,28 @@ def test_rest_connector_rejects_client_allowed_hosts_bypass(
             },
             allowed_hosts=["adb-demo.azuredatabricks.net"],
         )
+
+
+def test_attach_connector_csv_with_utc_timestamp_succeeds_without_pytz(
+    tmp_path: Path,
+) -> None:
+    """CSV/DuckDB sources with TIMESTAMPTZ columns must serialize sample rows without pytz."""
+    ws_root = tmp_path / "ws"
+    ws_root.mkdir(parents=True, exist_ok=True)
+    csv_file = ws_root / "ds06_unmapped_feed.csv"
+    csv_file.write_text(
+        "telemetry_event_id,facility_telemetry,recorded_at_utc\n"
+        "evt-1,zone_a,2026-01-01T00:00:00Z\n",
+        encoding="utf-8",
+    )
+    mgr = StudioSessionManager(studio_root=tmp_path / "studio", workspace_root=ws_root)
+    mgr.create_session("s-tz-csv", domain_namespace="ops")
+    res = attach_connector_source(
+        session_mgr=mgr,
+        session_id="s-tz-csv",
+        request_payload={"adapter": "file", "uri": str(csv_file), "source_format": "csv"},
+    )
+    assert res["table_count"] == 1
+    assert len(res["tables"]) == 1
+    assert res["tables"][0].endswith("ds06_unmapped_feed")
+

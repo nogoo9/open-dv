@@ -24,9 +24,12 @@ from opendv_agent_harness.pipeline.discovery_unstructured import execute_stage_0
 from opendv_agent_harness.pipeline.drift_projection import (
     emit_runner_stream_event,
     materialize_intermediate_contract_artifact,
-    project_stage_drift_findings,
     record_runner_fallback,
     resolve_runner_harness,
+)
+from opendv_agent_harness.pipeline.evolution_matching import (
+    merge_and_format_drift_findings,
+    prepare_wave_drift_context,
 )
 from opendv_agent_harness.pipeline.mode_detector import (
     execute_stage_00_orchestration,
@@ -162,6 +165,7 @@ class AgenticVaultPipeline:
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         in_bp, ontology, deployed_contract = self.resolve_initial_state()
+        self._has_initial_contract = deployed_contract is not None
         self.ontology = ontology
         if self._loaded_graph_a:
             self.graph_a_sha256 = self._loaded_graph_a.sha256
@@ -236,9 +240,7 @@ class AgenticVaultPipeline:
                     wave_steps=wave_steps, step_reports=step_reports, artifacts=artifacts,
                     rec_errors=rec_errors,
                 )
-                projected_drift = project_stage_drift_findings(
-                    curr_contract, getattr(s1_out, "discovered_feeds", [])
-                )
+                projected_drift = prepare_wave_drift_context(curr_contract, s1_out, conn)
                 if paused_reason:
                     return build_paused_pipeline_report(
                         self,
@@ -308,6 +310,20 @@ class AgenticVaultPipeline:
                             stage_id="STAGE_04_SHIP_VAULT_PASS2", wave_reports=wave_reports,
                         )
                     if self.harness_setup.steward_hold_policy == "pause":
+                        hm = getattr(self, "hold_manager", None)
+                        if hm is not None and not hm.list_pending_holds():
+                            hm.record_hold(
+                                run_id=self.run_id,
+                                task_id=f"task-w{w_idx}-key-drift",
+                                session_id=getattr(self.input_spec, "session_id", None)
+                                or f"sess-w{w_idx}-kd",
+                                stage_id="STAGE_04_SHIP_VAULT_PASS2",
+                                persona="ship-vault",
+                                headline=f"Wave {w_idx} key drift requires steward confirmation.",
+                                escalation_reason="KEY_DRIFT",
+                                rule_id="DV-EVO-003",
+                                options=[],
+                            )
                         return build_paused_pipeline_report(
                             self, t0, preflight, step_reports, artifacts, "KEY_DRIFT"
                         )
@@ -354,6 +370,7 @@ class AgenticVaultPipeline:
                         getattr(doc, "candidates", []) or getattr(doc, "extracted_candidates", [])
                     )
                 )
+                drift_findings = merge_and_format_drift_findings(drift_findings, projected_drift)
                 out_blueprint, curr_contract, diff_summary = execute_stage_07_compilation(
                     runner=self, w_idx=w_idx, w_type=w_type, wave=wave, in_bp=in_bp,
                     curr_contract=curr_contract, verified_contract=verified_contract,

@@ -8,12 +8,25 @@ import { PILL_TO_CANONICAL_STAGES } from "./logs-types";
 
 export type WizardStepNumber = 1 | 2 | 3 | 4 | 5 | 6;
 
+export const WIZARD_STEP_LABELS: Array<{
+	step: WizardStepNumber;
+	label: string;
+}> = [
+	{ step: 1, label: "1. Scope & Baseline" },
+	{ step: 2, label: "2. Sources & Notes" },
+	{ step: 3, label: "3. Preview Evidence" },
+	{ step: 4, label: "4. Agent Discovery" },
+	{ step: 5, label: "5. Diff, Graph & Export" },
+	{ step: 6, label: "6. DV 2.0 Build & Run" },
+];
+
 export interface WizardCandidateAttribute {
 	attribute_id: string;
 	name: string;
 	data_type: string;
 	checked: boolean;
 	is_optional?: boolean | undefined;
+	evidence_refs?: Array<Record<string, unknown>> | undefined;
 }
 
 export interface WizardCandidateLink {
@@ -27,6 +40,9 @@ export interface WizardConceptCandidate {
 	candidate_id: string;
 	concept_uri: string;
 	concept_name: string;
+	definition?: string | undefined;
+	description?: string | undefined;
+	target_hub?: string | undefined;
 	grounding_origin?: string | undefined;
 	bucket?: "structured" | "unstructured" | string | undefined;
 	mention_count?: number | undefined;
@@ -38,6 +54,7 @@ export interface WizardConceptCandidate {
 				score: number;
 		  }
 		| undefined;
+	external_mappings?: Array<Record<string, unknown>> | undefined;
 	attributes: WizardCandidateAttribute[];
 	dependent_links: WizardCandidateLink[];
 	evidence_refs?: Array<Record<string, unknown>> | undefined;
@@ -49,6 +66,8 @@ export interface WizardBreakingCandidate {
 	label: string;
 	impact: "MAJOR" | "MINOR" | string;
 	checked: boolean;
+	concept_uri?: string | undefined;
+	attribute_name?: string | undefined;
 }
 
 export interface WizardDiffSummary {

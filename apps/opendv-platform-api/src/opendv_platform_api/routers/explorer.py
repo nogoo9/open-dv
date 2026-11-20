@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query
 
 from opendv_contracts import ExplorerBundleDTO, RbacRole
 from opendv_platform_api.deps import get_opendv_service, get_rbac_role
+from opendv_platform_api.studio_deps import ViewerDep
 from opendv_service import OpenDVService
 
 router = APIRouter(tags=["explorer"])
@@ -24,6 +25,7 @@ router = APIRouter(tags=["explorer"])
 async def get_explorer_bundle(
     run_id: str,
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
+    _principal: ViewerDep,
     role: Annotated[RbacRole, Depends(get_rbac_role)],
     wave_id: Annotated[
         str | None,

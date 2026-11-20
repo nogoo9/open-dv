@@ -25,6 +25,13 @@ def get_project(state: StateStore, project_id: str) -> ProjectResponse:
     return state.projects[project_id]
 
 
+def _enrich_run_session_id(state: StateStore, run: ProjectRunDTO) -> ProjectRunDTO:
+    if run.session_id:
+        return run
+    sid = getattr(state, "run_session_ids", {}).get(run.run_id)
+    return run.model_copy(update={"session_id": sid}) if sid else run
+
+
 def list_runs(
     state: StateStore,
     project_id: str | None = None,
@@ -32,7 +39,7 @@ def list_runs(
     stage_id: str | None = None,
 ) -> list[ProjectRunDTO]:
     """List execution runs, optionally filtered by project_id, status, and stage_id."""
-    runs = list(state.runs.values())
+    runs = [_enrich_run_session_id(state, r) for r in state.runs.values()]
     if project_id is not None:
         runs = [r for r in runs if r.project_id == project_id]
     if status is not None:
@@ -40,6 +47,7 @@ def list_runs(
         runs = [r for r in runs if r.status == status_val or r.status.value == status_val]
     if stage_id is not None:
         runs = [r for r in runs if r.current_stage_id == stage_id]
+    runs.sort(key=lambda r: (r.completed_at_utc or r.started_at_utc or ""), reverse=True)
     return runs
 
 
@@ -47,7 +55,7 @@ def get_run(state: StateStore, run_id: str) -> ProjectRunDTO:
     """Retrieve the descriptor and gate scorecard for an execution run."""
     if run_id not in state.runs:
         raise NotFoundError(f"Run '{run_id}' not found.")
-    return state.runs[run_id]
+    return _enrich_run_session_id(state, state.runs[run_id])
 
 
 def create_run(state: StateStore, request: CreateRunRequest) -> ProjectRunDTO:

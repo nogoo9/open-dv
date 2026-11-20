@@ -4,6 +4,7 @@
  */
 
 import { GROUNDING_MIN_CONFIDENCE } from "../constants";
+import { hasVerifiableEmpiricalEvidence } from "./evidence-grounding";
 import { isConceptMutatedFromBaseline } from "./graph-parser";
 import type {
 	ConceptNode,
@@ -220,20 +221,24 @@ export function computeQualityScorecard(
 
 	function isConceptGrounded(n: ConceptNode): boolean {
 		const mappings = n.external_mappings || [];
-		if (mappings.length === 0) return false;
 		if (
+			mappings.length > 0 &&
 			deriveGroundingStatus(mappings, n.confidence).grounding_status ===
-			"GROUNDED"
+				"GROUNDED"
 		) {
 			return true;
 		}
-		return (
+		if (
+			mappings.length > 0 &&
 			n.grounding_status === "GROUNDED" &&
 			hasPreservedCommittedUnscoredFiboPathAMapping(
 				mappings,
 				committedMap.get(n.concept_uri),
 			)
-		);
+		) {
+			return true;
+		}
+		return hasVerifiableEmpiricalEvidence(n);
 	}
 
 	const groundedNodes = nodes.filter((n) => isConceptGrounded(n)).length;

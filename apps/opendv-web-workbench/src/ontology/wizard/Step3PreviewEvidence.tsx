@@ -4,6 +4,7 @@
  */
 
 import type React from "react";
+import { formatForeignKeyRef } from "../../explorer/builder/CatalogTablePickerModal";
 import { CLAUDE_TOKENS, EXPLORER_FONTS } from "../../explorer/design-tokens";
 import { safeUseState } from "../../explorer/modals/safeHooks";
 import type { EvidenceChunk, EvidenceTableProfile } from "../store/types";
@@ -176,67 +177,70 @@ export const Step3PreviewEvidence: React.FC<Step3PreviewEvidenceProps> = ({
 												</tr>
 											</thead>
 											<tbody>
-												{tbl.columns.map((col) => (
-													<tr
-														key={col.column_name}
-														style={{
-															borderBottom: `1px solid ${CLAUDE_TOKENS.colors.hairline}`,
-														}}
-													>
-														<td
+												{tbl.columns.map((col) => {
+													const fkRef = formatForeignKeyRef(col.foreign_key);
+													return (
+														<tr
+															key={col.column_name}
 															style={{
-																padding: "6px 8px",
-																fontFamily: EXPLORER_FONTS.mono,
+																borderBottom: `1px solid ${CLAUDE_TOKENS.colors.hairline}`,
 															}}
 														>
-															{col.column_name}
-														</td>
-														<td
-															style={{
-																padding: "6px 8px",
-																fontFamily: EXPLORER_FONTS.mono,
-															}}
-														>
-															{col.sql_type}
-														</td>
-														<td
-															style={{
-																padding: "6px 8px",
-																display: "flex",
-																gap: "4px",
-																flexWrap: "wrap",
-															}}
-														>
-															{col.is_primary_key && (
-																<span className="claude-pill">PK</span>
-															)}
-															{col.foreign_key && (
-																<span className="claude-pill">
-																	FK → {col.foreign_key}
-																</span>
-															)}
-															{col.surrogate_hint && (
-																<span className="claude-pill">surrogate</span>
-															)}
-														</td>
-														<td
-															style={{
-																padding: "6px 8px",
-																fontFamily: EXPLORER_FONTS.mono,
-															}}
-														>
-															{(col.null_rate * 100).toFixed(1)}%
-														</td>
-														<td
-															style={{
-																padding: "6px 8px",
-																fontFamily: EXPLORER_FONTS.mono,
-															}}
-														>
-															{col.shannon_entropy.toFixed(2)}
-														</td>
-													</tr>
-												))}
+															<td
+																style={{
+																	padding: "6px 8px",
+																	fontFamily: EXPLORER_FONTS.mono,
+																}}
+															>
+																{col.column_name}
+															</td>
+															<td
+																style={{
+																	padding: "6px 8px",
+																	fontFamily: EXPLORER_FONTS.mono,
+																}}
+															>
+																{col.sql_type}
+															</td>
+															<td
+																style={{
+																	padding: "6px 8px",
+																	display: "flex",
+																	gap: "4px",
+																	flexWrap: "wrap",
+																}}
+															>
+																{col.is_primary_key && (
+																	<span className="claude-pill">PK</span>
+																)}
+																{fkRef && (
+																	<span className="claude-pill">
+																		FK → {fkRef}
+																	</span>
+																)}
+																{col.surrogate_hint && (
+																	<span className="claude-pill">surrogate</span>
+																)}
+															</td>
+															<td
+																style={{
+																	padding: "6px 8px",
+																	fontFamily: EXPLORER_FONTS.mono,
+																}}
+															>
+																{(Number(col.null_rate ?? 0) * 100).toFixed(1)}%
+															</td>
+															<td
+																style={{
+																	padding: "6px 8px",
+																	fontFamily: EXPLORER_FONTS.mono,
+																}}
+															>
+																{Number(col.shannon_entropy ?? 0).toFixed(2)}
+															</td>
+														</tr>
+													);
+												})}
 											</tbody>
 										</table>
 									</div>
@@ -248,7 +252,18 @@ export const Step3PreviewEvidence: React.FC<Step3PreviewEvidenceProps> = ({
 										>
 											<strong>FIBO Gap Hints:</strong>{" "}
 											{tbl.fibo_gap_hints
-												.map((h) => `${h.column_name}: ${h.hint}`)
+												.map((h) => {
+													const col = String(h.column_name ?? "");
+													const msg = h.recommendation ?? h.hint;
+													const text =
+														msg == null
+															? ""
+															: typeof msg === "string"
+																? msg
+																: JSON.stringify(msg);
+													return text ? `${col}: ${text}` : col;
+												})
+												.filter(Boolean)
 												.join(" · ")}
 										</div>
 									)}

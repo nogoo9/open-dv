@@ -22,6 +22,26 @@ export interface DvContractIrTabProps {
 	zoneSqlDatabricks?: ZoneSqlMap | undefined;
 	finalContractYaml?: string | undefined;
 	finalCanonicalIrJson?: string | undefined;
+	initialDialect?: "duckdb" | "databricks" | undefined;
+	initialZone?: "Z0" | "Z1" | "Z2" | "Z3" | "Z4" | undefined;
+	initialArtifactTab?: "contract" | "ir" | undefined;
+}
+
+function buildReconstructedIrJson(projection: DvSchemaProjectionDTO): string {
+	return JSON.stringify(
+		{
+			ir_version: "1.0.0",
+			model_name: projection.model_name || "default_vault",
+			run_id: projection.run_id,
+			hubs: projection.hubs ?? [],
+			links: projection.links ?? [],
+			satellites: projection.satellites ?? [],
+			reference_tables: projection.reference_tables ?? [],
+			pit_tables: projection.pit_tables ?? [],
+		},
+		null,
+		2,
+	);
 }
 
 function downloadTextFile(filename: string, content: string, mime: string) {
@@ -55,13 +75,18 @@ export function DvContractIrTab({
 	zoneSqlDatabricks,
 	finalContractYaml,
 	finalCanonicalIrJson,
+	initialDialect = "duckdb",
+	initialZone = "Z4",
+	initialArtifactTab = "contract",
 }: DvContractIrTabProps) {
-	const [dialect, setDialect] = safeUseState<"duckdb" | "databricks">("duckdb");
+	const [dialect, setDialect] = safeUseState<"duckdb" | "databricks">(
+		initialDialect,
+	);
 	const [activeZone, setActiveZone] = safeUseState<
 		"Z0" | "Z1" | "Z2" | "Z3" | "Z4"
-	>("Z4");
+	>(initialZone);
 	const [artifactTab, setArtifactTab] = safeUseState<"contract" | "ir">(
-		"contract",
+		initialArtifactTab,
 	);
 
 	const duckZones = resolveDialectZones(zoneSqlDuckDb, projection, "duckdb");
@@ -72,10 +97,17 @@ export function DvContractIrTab({
 	);
 
 	const activeSqlMap = dialect === "duckdb" ? duckZones : deltaZones;
+	const availableZones = ZONES.filter((z) => Boolean(activeSqlMap[z]?.trim()));
+	const dialectLabel = dialect === "duckdb" ? "DuckDB" : "Databricks Delta";
+	const rawZoneSql = activeSqlMap[activeZone];
+	const activeZoneSql =
+		rawZoneSql && rawZoneSql.trim().length > 0
+			? rawZoneSql
+			: `-- ${dialectLabel} does not emit a separate ${activeZone} section for this run.\n-- Available zones for ${dialectLabel}: ${availableZones.join(", ") || "None"}\n-- Switch to DuckDB to inspect ${activeZone} SQL or select Z0, Z2, or Z4.`;
 	const contractText =
 		finalContractYaml ??
 		`# final_contract.yaml (${projection.model_name})\nmodel_name: ${projection.model_name}\nrun_id: ${projection.run_id}\nhubs_count: ${(projection.hubs ?? []).length}`;
-	const irText = finalCanonicalIrJson ?? JSON.stringify(projection, null, 2);
+	const irText = finalCanonicalIrJson ?? buildReconstructedIrJson(projection);
 
 	return (
 		<div
@@ -168,28 +200,37 @@ export function DvContractIrTab({
 				</div>
 
 				<div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-					{ZONES.map((z) => (
-						<button
-							key={z}
-							type="button"
-							onClick={() => setActiveZone(z)}
-							style={{
-								padding: "4px 10px",
-								borderRadius: "9999px",
-								fontSize: "11px",
-								fontFamily: EXPLORER_FONTS.mono,
-								cursor: "pointer",
-								border: `1px solid ${CLAUDE_TOKENS.colors.body}`,
-								background:
-									activeZone === z
-										? CLAUDE_TOKENS.colors.primary
-										: CLAUDE_TOKENS.colors.surfaceDarkElevated,
-								color: CLAUDE_TOKENS.colors.onDark,
-							}}
-						>
-							{z}
-						</button>
-					))}
+					{ZONES.map((z) => {
+						const hasZoneSql = Boolean(activeSqlMap[z]?.trim());
+						return (
+							<button
+								key={z}
+								type="button"
+								title={
+									hasZoneSql
+										? `${dialectLabel} ${z}`
+										: `${dialectLabel} omits ${z} (click for note)`
+								}
+								onClick={() => setActiveZone(z)}
+								style={{
+									padding: "4px 10px",
+									borderRadius: "9999px",
+									fontSize: "11px",
+									fontFamily: EXPLORER_FONTS.mono,
+									cursor: "pointer",
+									opacity: hasZoneSql || activeZone === z ? 1 : 0.6,
+									border: `1px solid ${CLAUDE_TOKENS.colors.body}`,
+									background:
+										activeZone === z
+											? CLAUDE_TOKENS.colors.primary
+											: CLAUDE_TOKENS.colors.surfaceDarkElevated,
+									color: CLAUDE_TOKENS.colors.onDark,
+								}}
+							>
+								{z}
+							</button>
+						);
+					})}
 				</div>
 
 				<pre
@@ -207,7 +248,7 @@ export function DvContractIrTab({
 						overflow: "auto",
 					}}
 				>
-					{activeSqlMap[activeZone]}
+					{activeZoneSql}
 				</pre>
 			</div>
 

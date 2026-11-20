@@ -4189,5 +4189,402 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				.commitChanges("Remove secondary mapping", mockDeltaFetch);
 			expect(postedDelta?.target_version).toBe("1.0.2");
 		});
+
+		it("treats Path B concepts (STRUCTURED_SCHEMA, DOCUMENT_OBSERVED, and FIBO_GROUNDED empirical fallback) as grounded in scorecard & commitChanges while failing closed without verifiable empirical anchors (F2)", async () => {
+			const baseSession: StudioSessionSummary = {
+				session_id: "s-pathb-f2",
+				domain_namespace: "wealth_mgmt",
+				enterprise_owner: "Owner",
+				status: "ACTIVE",
+				active_version: "1.0.0",
+				head_sha256: "a".repeat(64),
+				created_at: "2026-11-19",
+				updated_at: "2026-11-19",
+			};
+
+			const pathBNodes: ConceptNode[] = [
+				{
+					id: "urn:ontology:entity:daily_positions",
+					concept_uri: "urn:ontology:entity:daily_positions",
+					concept_name: "DailyPositions",
+					elm_archetype: "CORE_BUSINESS_CONCEPT",
+					definition: "Daily positions table concept",
+					grounding_status: "UNGROUNDED",
+					grounding_origin: "STRUCTURED_SCHEMA",
+					evidence_refs: [
+						{
+							evidence_type: "column_profile",
+							bronze_table: "daily_positions",
+							column_name: "position_id",
+						},
+					],
+					attributes: [
+						{
+							attribute_name: "position_id",
+							data_type: "string",
+							is_optional: false,
+						},
+					],
+					synonyms: [],
+					external_mappings: [],
+				} as ConceptNode,
+				{
+					id: "urn:ontology:entity:settlement_cutoff",
+					concept_uri: "urn:ontology:entity:settlement_cutoff",
+					concept_name: "SettlementCutoff",
+					elm_archetype: "CORE_BUSINESS_CONCEPT",
+					definition: "Settlement cutoff policy rule",
+					grounding_status: "UNGROUNDED",
+					grounding_origin: "DOCUMENT_OBSERVED",
+					evidence_refs: [
+						{
+							evidence_type: "document_span",
+							chunk_id: "chk-cut-1",
+							doc_sha256: "c".repeat(64),
+							char_start: 15,
+						},
+					],
+					attributes: [],
+					synonyms: [],
+					external_mappings: [],
+				} as ConceptNode,
+				{
+					id: "urn:ontology:entity:fibo_low_conf_asset",
+					concept_uri: "urn:ontology:entity:fibo_low_conf_asset",
+					concept_name: "FiboLowConfAsset",
+					elm_archetype: "CORE_BUSINESS_CONCEPT",
+					definition: "FIBO broadMatch low-score fallback with empirical ref",
+					grounding_status: "UNGROUNDED",
+					grounding_origin: "FIBO_GROUNDED",
+					evidence_refs: [
+						{
+							evidence_type: "column_profile",
+							bronze_table: "assets",
+							column_name: "asset_code",
+						},
+					],
+					attributes: [],
+					synonyms: [],
+					external_mappings: [
+						{
+							scheme: "fibo",
+							target_uri: "https://spec.edmcouncil.org/fibo/Asset",
+							predicate: "skos:broadMatch",
+							confidence: 0.42,
+						},
+					],
+				} as ConceptNode,
+			];
+
+			const sc = computeQualityScorecard(pathBNodes, []);
+			expect(sc.grounding_score).toBe(1.0);
+			expect(sc.checks.find((c) => c.rule_id === "ONT-EVO-002")?.status).toBe(
+				"PASS",
+			);
+
+			const store = createStudioStore({ initialSession: baseSession });
+			for (const n of pathBNodes) {
+				store.getState().addConcept(n);
+			}
+			let postedBody: Record<string, unknown> | null = null;
+			const mockCommitFetch: typeof fetch = (async (url, init) => {
+				if (String(url).includes("/export")) {
+					return new Response(
+						JSON.stringify(
+							canonicalizeGraphADict(pathBNodes, [], {
+								...baseSession,
+								active_version: "1.1.0",
+							}),
+						),
+						{ status: 200 },
+					);
+				}
+				postedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+				return new Response(
+					JSON.stringify({
+						target_version: "1.1.0",
+						target_sha256: "b".repeat(64),
+					}),
+					{ status: 200 },
+				);
+			}) as typeof fetch;
+
+			const ok = await store
+				.getState()
+				.commitChanges("Commit Path B concepts", mockCommitFetch);
+			expect(ok).toBe(true);
+			expect(postedBody).not.toBeNull();
+
+			// Negative controls: fail closed when empirical evidence_refs are empty or lack anchors
+			const invalidCases: ConceptNode[] = [
+				{
+					id: "urn:ontology:entity:bad_fibo_no_ev",
+					concept_uri: "urn:ontology:entity:bad_fibo_no_ev",
+					concept_name: "BadFiboNoEv",
+					elm_archetype: "CORE_BUSINESS_CONCEPT",
+					definition: "Low-score broadMatch without evidence_refs",
+					grounding_status: "UNGROUNDED",
+					grounding_origin: "FIBO_GROUNDED",
+					evidence_refs: [],
+					attributes: [],
+					synonyms: [],
+					external_mappings: [
+						{
+							scheme: "fibo",
+							target_uri: "https://spec.edmcouncil.org/fibo/Asset",
+							predicate: "skos:broadMatch",
+							confidence: 0.45,
+						},
+					],
+				} as ConceptNode,
+				{
+					id: "urn:ontology:entity:bad_struct_unanchored",
+					concept_uri: "urn:ontology:entity:bad_struct_unanchored",
+					concept_name: "BadStructUnanchored",
+					elm_archetype: "CORE_BUSINESS_CONCEPT",
+					definition:
+						"column_profile without bronze_table/column_name/table_id/uri/snippet",
+					grounding_status: "UNGROUNDED",
+					grounding_origin: "STRUCTURED_SCHEMA",
+					evidence_refs: [{ evidence_type: "column_profile" }],
+					attributes: [],
+					synonyms: [],
+					external_mappings: [],
+				} as ConceptNode,
+				{
+					id: "urn:ontology:entity:bad_doc_unanchored",
+					concept_uri: "urn:ontology:entity:bad_doc_unanchored",
+					concept_name: "BadDocUnanchored",
+					elm_archetype: "CORE_BUSINESS_CONCEPT",
+					definition:
+						"document_span without chunk_id/doc_sha256/char_start/label/uri/snippet",
+					grounding_status: "UNGROUNDED",
+					grounding_origin: "DOCUMENT_OBSERVED",
+					evidence_refs: [{ evidence_type: "document_span" }],
+					attributes: [],
+					synonyms: [],
+					external_mappings: [],
+				} as ConceptNode,
+			];
+
+			for (const badNode of invalidCases) {
+				const badSc = computeQualityScorecard([badNode], []);
+				expect(
+					badSc.checks.find((c) => c.rule_id === "ONT-EVO-002")?.status,
+				).toBe("FAIL");
+
+				const badStore = createStudioStore({ initialSession: baseSession });
+				badStore.getState().addConcept(badNode);
+				let networkInvoked = false;
+				const spyFetch: typeof fetch = (async () => {
+					networkInvoked = true;
+					return new Response("{}", { status: 200 });
+				}) as typeof fetch;
+				const res = await badStore
+					.getState()
+					.commitChanges("Should block", spyFetch);
+				expect(res).toBe(false);
+				expect(networkInvoked).toBe(false);
+				expect(
+					badStore
+						.getState()
+						.toasts.some((t) => t.code === "ONT_EVO_002_FAILED"),
+				).toBe(true);
+			}
+		});
+
+		it("emits grounding_origin and contract-valid evidence_refs in add_concept, add_attribute, and add_relationship delta operations with zero unknown EvidenceRef fields (F3)", async () => {
+			const baseSession: StudioSessionSummary = {
+				session_id: "s-pathb-f3",
+				domain_namespace: "wealth_mgmt",
+				enterprise_owner: "Owner",
+				status: "ACTIVE",
+				active_version: "1.0.0",
+				head_sha256: "a".repeat(64),
+				created_at: "2026-11-19",
+				updated_at: "2026-11-19",
+			};
+			const allowedEvidenceKeys = new Set([
+				"evidence_type",
+				"reference_uri",
+				"snippet",
+				"confidence",
+				"doc_sha256",
+				"char_start",
+				"char_end",
+				"bronze_table",
+				"column_name",
+				"source_label",
+				"chunk_id",
+				"page_number",
+				"table_id",
+				"fibo_uri",
+			]);
+
+			const store = createStudioStore({ initialSession: baseSession });
+			store.getState().addConcept({
+				id: "urn:ontology:entity:issuer_filing",
+				concept_uri: "urn:ontology:entity:issuer_filing",
+				concept_name: "IssuerFiling",
+				elm_archetype: "CORE_BUSINESS_CONCEPT",
+				definition: "SEC filing entity",
+				grounding_status: "UNGROUNDED",
+				grounding_origin: "FIBO_GROUNDED",
+				evidence_refs: [
+					{
+						evidence_type: "column_profile",
+						bronze_table: "filings",
+						column_name: "cik",
+						confidence: 0.94,
+						// Extra unknown UI keys must not leak onto wire EvidenceRef (extra="forbid")
+						table_name: "filings",
+						ui_only_flag: true,
+					} as Record<string, unknown>,
+				],
+				attributes: [
+					{
+						attribute_name: "cik",
+						data_type: "string",
+						is_optional: false,
+						evidence_refs: [
+							{
+								evidence_type: "column_profile",
+								bronze_table: "filings",
+								column_name: "cik",
+								unknown_attr_meta: "strip_me",
+							} as Record<string, unknown>,
+						],
+					},
+				],
+				synonyms: [],
+				external_mappings: [
+					{
+						scheme: "fibo",
+						target_uri: "https://spec.edmcouncil.org/fibo/Document",
+						predicate: "skos:broadMatch",
+						confidence: 0.52,
+					},
+				],
+			} as ConceptNode);
+			store.getState().addConcept({
+				id: "urn:ontology:entity:issuer",
+				concept_uri: "urn:ontology:entity:issuer",
+				concept_name: "Issuer",
+				elm_archetype: "PARTY",
+				definition: "Issuer entity",
+				grounding_status: "GROUNDED",
+				attributes: [],
+				synonyms: [],
+				external_mappings: [
+					{
+						scheme: "fibo",
+						target_uri: "https://spec.edmcouncil.org/fibo/Issuer",
+						predicate: "skos:exactMatch",
+						confidence: 0.91,
+					},
+				],
+			});
+			store.getState().addRelationship({
+				id: "urn:ontology:relationship:filed_by",
+				relationship_uri: "urn:ontology:relationship:filed_by",
+				relationship_name: "filed_by",
+				target_link: "lnk_filed_by",
+				source_concept_uri: "urn:ontology:entity:issuer_filing",
+				target_concept_uri: "urn:ontology:entity:issuer",
+				evidence_refs: [
+					{
+						evidence_type: "document_span",
+						chunk_id: "chk-rel-1",
+						doc_sha256: "d".repeat(64),
+						char_start: 20,
+						extra_rel_field: "drop_me",
+					} as Record<string, unknown>,
+				],
+			} as RelationshipEdge);
+
+			let postedPayload: Record<string, unknown> | null = null;
+			const mockFetch: typeof fetch = (async (url, init) => {
+				if (String(url).includes("/export")) {
+					return new Response(
+						JSON.stringify(
+							canonicalizeGraphADict(
+								store.getState().nodes,
+								store.getState().edges,
+								{ ...baseSession, active_version: "1.1.0" },
+							),
+						),
+						{ status: 200 },
+					);
+				}
+				postedPayload = JSON.parse(String(init?.body)) as Record<
+					string,
+					unknown
+				>;
+				return new Response(
+					JSON.stringify({
+						target_version: "1.1.0",
+						target_sha256: "e".repeat(64),
+					}),
+					{ status: 200 },
+				);
+			}) as typeof fetch;
+
+			const ok = await store
+				.getState()
+				.commitChanges("Emit evidence refs on delta ops", mockFetch);
+			expect(ok).toBe(true);
+			expect(postedPayload).not.toBeNull();
+			const ops = (postedPayload?.operations ?? []) as Array<
+				Record<string, unknown>
+			>;
+			const addConceptOp = ops.find(
+				(op) =>
+					op.op_type === "add_concept" &&
+					op.concept_uri === "urn:ontology:entity:issuer_filing",
+			);
+			expect(addConceptOp?.grounding_origin).toBe("FIBO_GROUNDED");
+			expect(addConceptOp?.evidence_refs).toEqual([
+				{
+					evidence_type: "column_profile",
+					bronze_table: "filings",
+					column_name: "cik",
+					confidence: 0.94,
+				},
+			]);
+
+			const addAttrOp = ops.find(
+				(op) => op.op_type === "add_attribute" && op.attribute_name === "cik",
+			);
+			expect(addAttrOp?.evidence_refs).toEqual([
+				{
+					evidence_type: "column_profile",
+					bronze_table: "filings",
+					column_name: "cik",
+				},
+			]);
+
+			const addRelOp = ops.find(
+				(op) =>
+					op.op_type === "add_relationship" &&
+					op.relationship_uri === "urn:ontology:relationship:filed_by",
+			);
+			expect(addRelOp?.evidence_refs).toEqual([
+				{
+					evidence_type: "document_span",
+					chunk_id: "chk-rel-1",
+					doc_sha256: "d".repeat(64),
+					char_start: 20,
+				},
+			]);
+
+			for (const op of ops) {
+				const refs = (op.evidence_refs ?? []) as Array<Record<string, unknown>>;
+				for (const r of refs) {
+					for (const k of Object.keys(r)) {
+						expect(allowedEvidenceKeys.has(k)).toBe(true);
+					}
+				}
+			}
+		});
 	});
 });

@@ -138,7 +138,12 @@ def build_and_sign_commit_waivers(
                 continue
 
             env_base = str(envelope.get("base_sha256") or "").strip().lower()
-            if not env_base or env_base == "0" * 64 or not expected_base_sha or not hmac.compare_digest(env_base, expected_base_sha):
+            if (
+                not env_base
+                or env_base == "0" * 64
+                or not expected_base_sha
+                or not hmac.compare_digest(env_base, expected_base_sha)
+            ):
                 continue
 
             raw_env_prop = envelope.get("proposal_id")
@@ -155,12 +160,16 @@ def build_and_sign_commit_waivers(
                 continue
 
             raw_env_delta_sha = envelope.get("proposal_delta_sha256")
-            env_delta_sha = str(raw_env_delta_sha).strip().lower() if raw_env_delta_sha is not None else ""
+            env_delta_sha = (
+                str(raw_env_delta_sha).strip().lower() if raw_env_delta_sha is not None else ""
+            )
             if env_delta_sha:
                 if env_delta_sha == "0" * 64:
                     continue
                 matches_commit = hmac.compare_digest(env_delta_sha, expected_delta_sha)
-                matches_sub = bool(clean_submitted_sha) and hmac.compare_digest(env_delta_sha, clean_submitted_sha)
+                matches_sub = bool(clean_submitted_sha) and hmac.compare_digest(
+                    env_delta_sha, clean_submitted_sha
+                )
                 if not (matches_commit or matches_sub):
                     continue
 
@@ -224,7 +233,9 @@ def build_and_sign_commit_waivers(
                     exit_code=4,
                 ) from exc
             inline_sig = sec_mgr.sign_waiver(draft_inline.signing_payload().encode("utf-8"))
-            signed_waivers.append(draft_inline.model_copy(update={"signature_or_token": inline_sig}))
+            signed_waivers.append(
+                draft_inline.model_copy(update={"signature_or_token": inline_sig})
+            )
 
     return signed_waivers
 
@@ -246,11 +257,21 @@ def submit_session_waiver_workflow(
 
     auth_role_val = payload_dict.get("authorized_role")
     if auth_role_val is not None and str(auth_role_val).strip() != "admin":
-        raise StudioWorkflowError("INVALID_GROUNDING_WAIVER", "Waiver authorized_role must be 'admin'.", status_code=422, exit_code=4)
+        raise StudioWorkflowError(
+            "INVALID_GROUNDING_WAIVER",
+            "Waiver authorized_role must be 'admin'.",
+            status_code=422,
+            exit_code=4,
+        )
 
     rationale = str(payload_dict.get("rationale") or "").strip()
     if len(rationale) < 10:
-        raise StudioWorkflowError("INVALID_GROUNDING_WAIVER", "Waiver rationale must be at least 10 characters.", status_code=422, exit_code=4)
+        raise StudioWorkflowError(
+            "INVALID_GROUNDING_WAIVER",
+            "Waiver rationale must be at least 10 characters.",
+            status_code=422,
+            exit_code=4,
+        )
 
     raw_uris = (
         payload_dict.get("target_concept_uris")
@@ -260,7 +281,12 @@ def submit_session_waiver_workflow(
     )
     target_uris = sorted({str(u).strip() for u in raw_uris if str(u).strip()})
     if not target_uris:
-        raise StudioWorkflowError("INVALID_GROUNDING_WAIVER", "Waiver must specify at least one target concept URI.", status_code=422, exit_code=4)
+        raise StudioWorkflowError(
+            "INVALID_GROUNDING_WAIVER",
+            "Waiver must specify at least one target concept URI.",
+            status_code=422,
+            exit_code=4,
+        )
 
     prop_id = payload_dict.get("proposal_id")
     loaded_proposal_raw: dict[str, Any] | None = None
@@ -271,26 +297,48 @@ def submit_session_waiver_workflow(
             try:
                 raw_p = json.loads(prop_file.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
-                raise StudioWorkflowError("CORRUPT_SESSION_RECORD", f"Corrupt proposal record '{prop_id}': {exc}", status_code=500, exit_code=1) from exc
+                raise StudioWorkflowError(
+                    "CORRUPT_SESSION_RECORD",
+                    f"Corrupt proposal record '{prop_id}': {exc}",
+                    status_code=500,
+                    exit_code=1,
+                ) from exc
             if not isinstance(raw_p, dict):
-                raise StudioWorkflowError("CORRUPT_SESSION_RECORD", f"Corrupt proposal record '{prop_id}': expected JSON object.", status_code=500, exit_code=1)
+                raise StudioWorkflowError(
+                    "CORRUPT_SESSION_RECORD",
+                    f"Corrupt proposal record '{prop_id}': expected JSON object.",
+                    status_code=500,
+                    exit_code=1,
+                )
             loaded_proposal_raw = raw_p
-            loaded_proposal_norm = normalize_proposal_record(raw_p, session_id=meta.session_id, fallback_proposal_id=prop_id)
+            loaded_proposal_norm = normalize_proposal_record(
+                raw_p, session_id=meta.session_id, fallback_proposal_id=prop_id
+            )
 
     raw_req_base = str(payload_dict.get("base_sha256") or "").strip()
     if not raw_req_base:
-        eff_base_sha = str(loaded_proposal_norm["base_sha256"]) if (loaded_proposal_norm and loaded_proposal_norm.get("base_sha256")) else meta.head_sha256
+        eff_base_sha = (
+            str(loaded_proposal_norm["base_sha256"])
+            if (loaded_proposal_norm and loaded_proposal_norm.get("base_sha256"))
+            else meta.head_sha256
+        )
     else:
         clean_req_base = parse_strong_etag_or_error(raw_req_base, header_name="base_sha256")
         if clean_req_base == "0" * 64:
-            raise StudioWorkflowError("INVALID_GROUNDING_WAIVER", "Wildcard zero base_sha256 is forbidden for steward waivers.", status_code=422, exit_code=4)
+            raise StudioWorkflowError(
+                "INVALID_GROUNDING_WAIVER",
+                "Wildcard zero base_sha256 is forbidden for steward waivers.",
+                status_code=422,
+                exit_code=4,
+            )
         allowed_bases = {meta.head_sha256}
         if loaded_proposal_norm and loaded_proposal_norm.get("base_sha256"):
             allowed_bases.add(str(loaded_proposal_norm["base_sha256"]))
         if clean_req_base not in allowed_bases:
             raise StudioWorkflowError(
                 "ONT_EVO_CONCURRENT_MODIFICATION",
-                f"Waiver base_sha256 ('{clean_req_base}') does not match session head SHA-256 ('{meta.head_sha256}').",
+                f"Waiver base_sha256 ('{clean_req_base}') does not match "
+                f"session head SHA-256 ('{meta.head_sha256}').",
                 status_code=412,
                 exit_code=5,
             )
@@ -299,7 +347,12 @@ def submit_session_waiver_workflow(
     raw_req_delta_sha = str(payload_dict.get("proposal_delta_sha256") or "").strip().lower()
     if raw_req_delta_sha:
         if raw_req_delta_sha == "0" * 64 or not re.fullmatch(r"[0-9a-f]{64}", raw_req_delta_sha):
-            raise StudioWorkflowError("INVALID_GROUNDING_WAIVER", "Waiver proposal_delta_sha256 must be a valid non-zero 64-character hex digest.", status_code=422, exit_code=4)
+            raise StudioWorkflowError(
+                "INVALID_GROUNDING_WAIVER",
+                "Waiver proposal_delta_sha256 must be a valid non-zero 64-character hex digest.",
+                status_code=422,
+                exit_code=4,
+            )
         envelope_delta_sha = raw_req_delta_sha
     elif prop_id and loaded_proposal_raw is not None:
         envelope_delta_sha = compute_stored_proposal_delta_sha256(
@@ -332,7 +385,12 @@ def submit_session_waiver_workflow(
     try:
         draft_record = StewardWaiverRecord(**record_kwargs)
     except (ValidationError, ValueError) as exc:
-        raise StudioWorkflowError("INVALID_GROUNDING_WAIVER", f"Invalid steward waiver record: {exc}", status_code=422, exit_code=4) from exc
+        raise StudioWorkflowError(
+            "INVALID_GROUNDING_WAIVER",
+            f"Invalid steward waiver record: {exc}",
+            status_code=422,
+            exit_code=4,
+        ) from exc
 
     sec_mgr = session_mgr.security_manager
     waiver_sig = sec_mgr.sign_waiver(draft_record.signing_payload().encode("utf-8"))
@@ -348,7 +406,9 @@ def submit_session_waiver_workflow(
         "authorized_by": principal_id,
         "authorized_role": "admin",
         "created_at": signed_record.created_at.isoformat(),
-        "expires_at": signed_record.expires_at.isoformat() if signed_record.expires_at is not None else None,
+        "expires_at": signed_record.expires_at.isoformat()
+        if signed_record.expires_at is not None
+        else None,
     }
     envelope_sig = sec_mgr.sign_waiver(dumps_jcs_bytes(envelope))
 
@@ -364,17 +424,40 @@ def submit_session_waiver_workflow(
                     for item in loaded_w["waivers"]:
                         if not isinstance(item, dict):
                             continue
-                        if isinstance(item.get("envelope"), dict) and isinstance(item.get("hmac_signature"), str):
+                        if isinstance(item.get("envelope"), dict) and isinstance(
+                            item.get("hmac_signature"), str
+                        ):
                             rec = item.get("record")
                             if not isinstance(rec, dict):
-                                rec = {k: v for k, v in item.items() if k not in ("envelope", "hmac_signature")}
-                            existing_waivers.append({"envelope": item["envelope"], "hmac_signature": item["hmac_signature"], "record": rec})
+                                rec = {
+                                    k: v
+                                    for k, v in item.items()
+                                    if k not in ("envelope", "hmac_signature")
+                                }
+                            existing_waivers.append(
+                                {
+                                    "envelope": item["envelope"],
+                                    "hmac_signature": item["hmac_signature"],
+                                    "record": rec,
+                                }
+                            )
                         else:
                             existing_waivers.append(item)
             except (OSError, json.JSONDecodeError) as exc:
-                raise StudioWorkflowError("CORRUPT_SESSION_RECORD", f"Corrupt waivers.json in session '{meta.session_id}': {exc}", status_code=500, exit_code=1) from exc
+                raise StudioWorkflowError(
+                    "CORRUPT_SESSION_RECORD",
+                    f"Corrupt waivers.json in session '{meta.session_id}': {exc}",
+                    status_code=500,
+                    exit_code=1,
+                ) from exc
 
-        existing_waivers.append({"envelope": envelope, "hmac_signature": envelope_sig, "record": signed_record.model_dump(mode="json")})
+        existing_waivers.append(
+            {
+                "envelope": envelope,
+                "hmac_signature": envelope_sig,
+                "record": signed_record.model_dump(mode="json"),
+            }
+        )
         tmp_w = sdir / f".waivers.{uuid.uuid4().hex[:8]}.tmp"
         tmp_w.write_text(json.dumps(existing_waivers, indent=2), encoding="utf-8")
         replace_with_retry(tmp_w, waivers_file)

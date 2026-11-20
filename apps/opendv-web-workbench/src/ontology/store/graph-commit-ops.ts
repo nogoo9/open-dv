@@ -3,6 +3,7 @@
  * (apps/opendv-web-workbench/src/ontology/store/graph-commit-ops.ts)
  */
 
+import { sanitizeEvidenceRefs } from "./evidence-grounding";
 import { normalizeEdgeEndpoints } from "./graph-commit-validation";
 import {
 	cloneEdgeClean,
@@ -110,6 +111,7 @@ export function buildDeltaOperationsAndVersion(params: {
 		if (!committed) {
 			hasMinorOp = true;
 			hasAddConceptOp = true;
+			const conceptRefs = sanitizeEvidenceRefs(node.evidence_refs);
 			operations.push({
 				op_id: nextOpId(),
 				op_type: "add_concept",
@@ -120,6 +122,10 @@ export function buildDeltaOperationsAndVersion(params: {
 				...(node.description ? { description: node.description } : {}),
 				target_hub: node.target_hub ?? undefined,
 				parent_concept_uri: node.parent_concept_uri ?? undefined,
+				...(node.grounding_origin
+					? { grounding_origin: node.grounding_origin }
+					: {}),
+				...(conceptRefs ? { evidence_refs: conceptRefs } : {}),
 				attributes: [],
 				synonyms:
 					node.synonyms && node.synonyms.length > 0 ? node.synonyms : undefined,
@@ -127,6 +133,7 @@ export function buildDeltaOperationsAndVersion(params: {
 			});
 			for (const attr of node.attributes || []) {
 				hasMinorOp = true;
+				const attrRefs = sanitizeEvidenceRefs(attr.evidence_refs);
 				operations.push({
 					op_id: nextOpId(),
 					op_type: "add_attribute",
@@ -135,6 +142,7 @@ export function buildDeltaOperationsAndVersion(params: {
 					data_type: attr.data_type || "string",
 					description: attr.description || undefined,
 					is_optional: attr.is_optional ?? undefined,
+					...(attrRefs ? { evidence_refs: attrRefs } : {}),
 					example_values:
 						attr.example_values && attr.example_values.length > 0
 							? attr.example_values
@@ -217,6 +225,7 @@ export function buildDeltaOperationsAndVersion(params: {
 			if (!committedAttrs.has(attr.attribute_name)) {
 				if (attr.is_optional === false) hasMajorOp = true;
 				else hasMinorOp = true;
+				const attrRefs = sanitizeEvidenceRefs(attr.evidence_refs);
 				operations.push({
 					op_id: nextOpId(),
 					op_type: "add_attribute",
@@ -225,6 +234,7 @@ export function buildDeltaOperationsAndVersion(params: {
 					data_type: attr.data_type || "string",
 					description: attr.description || undefined,
 					is_optional: attr.is_optional ?? undefined,
+					...(attrRefs ? { evidence_refs: attrRefs } : {}),
 					example_values:
 						attr.example_values && attr.example_values.length > 0
 							? attr.example_values
@@ -313,6 +323,7 @@ export function buildDeltaOperationsAndVersion(params: {
 		const committed = committedEdgeMap.get(edge.relationship_uri);
 		if (!committed || modifiedEdgeUris.has(edge.relationship_uri)) {
 			hasMinorOp = true;
+			const relRefs = sanitizeEvidenceRefs(edge.evidence_refs);
 			operations.push({
 				op_id: nextOpId(),
 				op_type: "add_relationship",
@@ -325,6 +336,7 @@ export function buildDeltaOperationsAndVersion(params: {
 					: {}),
 				cardinality: edge.cardinality ?? undefined,
 				description: edge.description ?? undefined,
+				...(relRefs ? { evidence_refs: relRefs } : {}),
 			});
 		}
 	}

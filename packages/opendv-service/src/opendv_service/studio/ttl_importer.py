@@ -175,7 +175,7 @@ def _parse_turtle_ontology(content: str, domain_namespace: str | None) -> GraphA
                 )
             )
 
-        # External mappings: prefer lossless DV2.hasMappingDetail nodes, fallback to SKOS/OWL triples
+        # External mappings: prefer DV2.hasMappingDetail nodes, fallback to SKOS/OWL triples
         mappings: list[ExternalMapping] = []
         detail_nodes = sorted(g.objects(c_sub, DV2.hasMappingDetail), key=_order_key)
         if detail_nodes:
@@ -289,7 +289,9 @@ def _parse_turtle_ontology(content: str, domain_namespace: str | None) -> GraphA
     for e_sub in enum_subjects:
         e_uri = str(e_sub)
         ref_tbl_lit = g.value(e_sub, DV2.targetReferenceTable)
-        ref_tbl = str(ref_tbl_lit).strip() if ref_tbl_lit is not None else f"ref_{_local_slug(e_uri)}"
+        ref_tbl = (
+            str(ref_tbl_lit).strip() if ref_tbl_lit is not None else f"ref_{_local_slug(e_uri)}"
+        )
         e_name_lit = g.value(e_sub, RDFS.label)
         e_desc_lit = g.value(e_sub, RDFS.comment)
         code_details = sorted(g.objects(e_sub, DV2.hasCodeDetail), key=_order_key)

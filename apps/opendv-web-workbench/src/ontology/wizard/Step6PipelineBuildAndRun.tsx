@@ -11,9 +11,12 @@ import type {
 	PipelineBaselineOption,
 	PipelineHoldSummary,
 	PipelineTopologyRow,
+	ZoneSqlByDialect,
 } from "../store/store-types";
 import type { BudgetHoldInfo } from "../store/types";
 import { BudgetHoldCard } from "./BudgetHoldCard";
+import { Step6GateBadges } from "./Step6GateBadges";
+import { Step6SqlPreviewCard } from "./Step6SqlPreviewCard";
 import { aggregateStagePillStatus } from "./wizard-step6-adapter";
 import { PIPELINE_STAGE_PILLS } from "./wizard-types";
 
@@ -29,6 +32,9 @@ export interface Step6PipelineBuildAndRunProps {
 	topologyRows?: PipelineTopologyRow[] | undefined;
 	stageStatuses?: Record<string, string> | undefined;
 	zoneSqlByZone?: Record<string, string> | undefined;
+	zoneSqlByDialect?: ZoneSqlByDialect | undefined;
+	gateScorecard?: Record<string, unknown> | null | undefined;
+	sessionRuns?: Array<Record<string, unknown>> | undefined;
 	activeRunId?: string | null | undefined;
 	activeSessionJobId?: string | null | undefined;
 	isRunningPipeline?: boolean | undefined;
@@ -37,6 +43,7 @@ export interface Step6PipelineBuildAndRunProps {
 	driftColumns?: string[] | undefined;
 	onToggleDialect?: ((dialect: "duckdb" | "databricks") => void) | undefined;
 	onSelectBaseline?: ((runId: string) => void) | undefined;
+	onSelectViewedRun?: ((runId: string) => Promise<void> | void) | undefined;
 	onUploadBaselineContract?:
 		| ((yamlContent: string, fileName: string) => void)
 		| undefined;
@@ -66,14 +73,6 @@ export interface Step6PipelineBuildAndRunProps {
 		| undefined;
 }
 
-const ZONE_LABELS: Record<string, string> = {
-	Z0: "Z0 · Control & Landing",
-	Z1: "Z1 · Staging",
-	Z2: "Z2 · Raw Vault",
-	Z3: "Z3 · Business Vault",
-	Z4: "Z4 · information_mart",
-};
-
 export const Step6PipelineBuildAndRun: React.FC<
 	Step6PipelineBuildAndRunProps
 > = ({
@@ -92,6 +91,9 @@ export const Step6PipelineBuildAndRun: React.FC<
 	topologyRows = [],
 	stageStatuses = {},
 	zoneSqlByZone = {},
+	zoneSqlByDialect,
+	gateScorecard,
+	sessionRuns = [],
 	activeRunId,
 	activeSessionJobId,
 	isRunningPipeline = false,
@@ -100,6 +102,7 @@ export const Step6PipelineBuildAndRun: React.FC<
 	driftColumns = [],
 	onToggleDialect,
 	onSelectBaseline,
+	onSelectViewedRun,
 	onUploadBaselineContract,
 	onStartPipelineRun,
 	onCancelJob,
@@ -111,14 +114,9 @@ export const Step6PipelineBuildAndRun: React.FC<
 	onExploreDvSchema,
 	onOpenLogs,
 }) => {
-	const [activeZone, setActiveZone] = safeUseState<string>("Z0");
 	const [uploadedContractName, setUploadedContractName] = safeUseState<
 		string | null
 	>(null);
-	const zoneKeys = Object.keys(zoneSqlByZone);
-	const currentZone = zoneSqlByZone[activeZone]
-		? activeZone
-		: (zoneKeys[0] ?? "Z0");
 	const isJobLocked = Boolean(activeSessionJobId || isRunningPipeline);
 
 	const handleBaselineFileUpload = async (
@@ -379,21 +377,54 @@ export const Step6PipelineBuildAndRun: React.FC<
 						display: "flex",
 						justifyContent: "space-between",
 						alignItems: "center",
+						flexWrap: "wrap",
+						gap: "8px",
 					}}
 				>
 					<strong style={{ fontSize: "13px" }}>
 						Live Pipeline Execution Console{" "}
 						{activeRunId ? `· ${activeRunId}` : ""}
 					</strong>
-					<span
-						style={{
-							fontSize: "11.5px",
-							color: CLAUDE_TOKENS.colors.onDarkSoft,
-						}}
-					>
-						Click any stage pill to filter Session Logs
-					</span>
+					<div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+						{sessionRuns.length > 1 && onSelectViewedRun && (
+							<select
+								aria-label="Select session run to inspect"
+								data-testid="select-step6-viewed-run"
+								value={activeRunId ?? ""}
+								disabled={isJobLocked}
+								onChange={(e) => void onSelectViewedRun(e.target.value)}
+								style={{
+									backgroundColor: CLAUDE_TOKENS.colors.surfaceDarkElevated,
+									color: CLAUDE_TOKENS.colors.onDark,
+									border: "1px solid #33312c",
+									borderRadius: "6px",
+									padding: "3px 8px",
+									fontFamily: EXPLORER_FONTS.mono,
+									fontSize: "11px",
+								}}
+							>
+								{sessionRuns.map((r) => {
+									const rid = String(r.run_id ?? "");
+									const rst = String(r.status ?? "");
+									return (
+										<option key={rid} value={rid}>
+											{rid} ({rst})
+										</option>
+									);
+								})}
+							</select>
+						)}
+						<span
+							style={{
+								fontSize: "11.5px",
+								color: CLAUDE_TOKENS.colors.onDarkSoft,
+							}}
+						>
+							Click any stage pill to filter Session Logs
+						</span>
+					</div>
 				</div>
+				<Step6GateBadges gateScorecard={gateScorecard} />
 				<div
 					className="claude-responsive-grid"
 					style={{
@@ -453,7 +484,14 @@ export const Step6PipelineBuildAndRun: React.FC<
 					<h2 className="claude-h2" style={{ margin: "0 0 8px" }}>
 						Derived Data Vault 2.0 Topology ({topologyRows.length})
 					</h2>
-					<div style={{ overflowX: "auto", minWidth: 0 }}>
+					<div
+						style={{
+							overflowX: "auto",
+							maxHeight: "190px",
+							overflowY: "auto",
+							minWidth: 0,
+						}}
+					>
 						<table
 							style={{
 								width: "100%",
@@ -508,61 +546,13 @@ export const Step6PipelineBuildAndRun: React.FC<
 				</div>
 			)}
 
-			<div
-				className="claude-card"
-				style={{
-					padding: "14px 16px",
-					display: "flex",
-					flexDirection: "column",
-					gap: "10px",
-				}}
-			>
-				<div
-					style={{
-						display: "flex",
-						justifyContent: "space-between",
-						alignItems: "center",
-						flexWrap: "wrap",
-						gap: "8px",
-					}}
-				>
-					<h2 className="claude-h2" style={{ margin: 0 }}>
-						5-Zone Generated SQL (Z0..Z4 · information_mart)
-					</h2>
-					<div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-						{(["Z0", "Z1", "Z2", "Z3", "Z4"] as const).map((z) => (
-							<button
-								key={z}
-								type="button"
-								className={
-									currentZone === z
-										? "claude-btn-primary"
-										: "claude-btn-secondary"
-								}
-								style={{ fontSize: "11.5px", padding: "4px 9px" }}
-								onClick={() => setActiveZone(z)}
-							>
-								{ZONE_LABELS[z]}
-							</button>
-						))}
-					</div>
-				</div>
-				<pre
-					style={{
-						margin: 0,
-						padding: "12px",
-						borderRadius: "8px",
-						background: "#f5f0e8",
-						color: CLAUDE_TOKENS.colors.ink,
-						fontFamily: EXPLORER_FONTS.mono,
-						fontSize: "12px",
-						overflowX: "auto",
-					}}
-				>
-					{zoneSqlByZone[currentZone] ||
-						"CREATE SCHEMA IF NOT EXISTS information_mart;"}
-				</pre>
-			</div>
+			<Step6SqlPreviewCard
+				activeRunId={activeRunId}
+				selectedDialects={selectedDialects}
+				zoneSqlByZone={zoneSqlByZone}
+				zoneSqlByDialect={zoneSqlByDialect}
+				isRunningPipeline={isRunningPipeline}
+			/>
 
 			{activeHold && (
 				<StewardHoldModal
@@ -592,12 +582,19 @@ export const Step6PipelineBuildAndRun: React.FC<
 					type="button"
 					className="claude-btn-primary"
 					data-testid="btn-explore-dv-schema"
-					onClick={() =>
+					onClick={() => {
+						const compareId = selectedBaselineRunId?.trim();
+						const hasValidCompare =
+							Boolean(compareId) &&
+							!compareId.startsWith("__") &&
+							compareId !== "cold_start" &&
+							compareId !== activeRunId;
 						onExploreDvSchema?.({
 							...(activeRunId ? { runId: activeRunId } : {}),
+							...(hasValidCompare ? { compareRunId: compareId } : {}),
 							...(sessionId ? { sessionId } : {}),
-						})
-					}
+						});
+					}}
 				>
 					Explore Generated DV 2.0 Schema &amp; Lineage ➔
 				</button>

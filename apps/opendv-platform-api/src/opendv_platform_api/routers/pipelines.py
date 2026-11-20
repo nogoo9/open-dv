@@ -18,6 +18,7 @@ from opendv_contracts.dtos.pipeline import (
     PipelineValidateRequest,
 )
 from opendv_platform_api.deps import get_opendv_service, get_rbac_role
+from opendv_platform_api.studio_deps import enforce_no_active_session_run
 from opendv_service import OpenDVService
 from opendv_service.use_cases.pipeline import (
     SingleRunExecutionResultDTO,
@@ -123,6 +124,13 @@ async def run_pipeline(
                     "inline content or CAS references, not raw server filesystem paths."
                 ),
             )
+
+    eff_sid = getattr(req, "session_id", None) or (
+        req.input_spec.get("session_id")
+        if isinstance(getattr(req, "input_spec", None), dict)
+        else None
+    )
+    enforce_no_active_session_run(service, eff_sid)
 
     if sync:
         from opendv_service.use_cases.pipeline import execute_pipeline_run_sync

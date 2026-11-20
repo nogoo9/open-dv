@@ -73,12 +73,14 @@ def get_explorer_bundle(
     elif run_dto.status == RunStatus.FAILED:
         stages[-1] = stages[-1].model_copy(update={"tag": "REJECT-WITH-TRACE"})
 
-    # Build 24 canonical artifacts
+    # Build 24 canonical artifacts from persisted run state & disk artifacts
     artifacts = build_bundle_artifacts(
         run_id=run_id,
         project_id=project_id,
         is_hold=is_hold,
         events_summary=events_summary,
+        state=state,
+        report_dict=report_dict,
     )
 
     # Register each artifact in CAS and populate lowercase sha256

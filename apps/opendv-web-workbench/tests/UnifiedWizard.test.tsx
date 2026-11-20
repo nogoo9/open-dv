@@ -450,6 +450,79 @@ describe("M4: Unified 6-Step Ontology & Data Vault 2.0 Pipeline Wizard", () => {
 			expect(html).toContain("settlement cutoff");
 			expect(html).toContain("1");
 		});
+
+		it("renders structured object col.foreign_key ({ table, column }) and fibo_gap_hints.recommendation without React object-child crash", () => {
+			const html = renderToStaticMarkup(
+				createElement(Step3PreviewEvidence, {
+					sessionId: "ses-ds01-edgar",
+					activeSubTab: "structured",
+					tables: [
+						{
+							table_id: "tbl-filings",
+							table_name: "filings",
+							headers: ["filing_id", "cik", "form_type"],
+							sample_rows: [["F-1", "0000320193", "10-K"]],
+							columns: [
+								{
+									column_name: "filing_id",
+									sql_type: "INTEGER",
+									is_primary_key: true,
+									surrogate_hint: true,
+									foreign_key: null,
+									null_rate: 0.0,
+									shannon_entropy: 3.1,
+								},
+								{
+									column_name: "cik",
+									sql_type: "TEXT",
+									is_primary_key: false,
+									surrogate_hint: false,
+									foreign_key: {
+										table: "issuers",
+										column: "cik",
+									},
+									null_rate: 0.0,
+									shannon_entropy: 2.4,
+								},
+								{
+									column_name: "form_type",
+									sql_type: "TEXT",
+									is_primary_key: false,
+									surrogate_hint: false,
+									foreign_key: "ref_forms.code",
+									null_rate: 0.0,
+									shannon_entropy: 1.2,
+								},
+							],
+							fibo_gap_hints: [
+								{
+									table_name: "filings",
+									column_name: "cik",
+									best_fibo_score: 0.42,
+									recommendation:
+										"Use Path B STRUCTURED_SCHEMA grounding if domain concept.",
+								},
+								{
+									column_name: "form_type",
+									hint: "Map filing form taxonomy",
+								},
+							],
+						},
+					],
+					chunks: [],
+					observedTermCounts: {},
+				}),
+			);
+
+			expect(html).toContain("FK → issuers.cik");
+			expect(html).toContain("FK → ref_forms.code");
+			expect(html).not.toContain("[object Object]");
+			expect(html).toContain(
+				"cik: Use Path B STRUCTURED_SCHEMA grounding if domain concept.",
+			);
+			expect(html).toContain("form_type: Map filing form taxonomy");
+			expect(html).not.toContain("undefined");
+		});
 	});
 
 	describe("4. Step 4: 422 Coral Gate (4a), Single-Pass + Cascading Cherry-Pick + Ask FIBO (4b), & Citation Drawer (4c)", () => {
@@ -1523,6 +1596,76 @@ describe("M4: Unified 6-Step Ontology & Data Vault 2.0 Pipeline Wizard", () => {
 			studioStore.getState().reset();
 		});
 
+		it("Bug 2a & 2b: partitionPipelineSources preserves logical table_name/source_format for CAS blobs and loadPipelineBaselines prefers active session latest certified run", async () => {
+			const csvSrc = {
+				source_id: "src-ba994be4a0ee4e6b",
+				source_sha256: "ba994be4a0ee4e6b092ffc9d2e05a7e6925489b73e5f97901a2212b9382ae6b3",
+				file_name: "ds02_w2_custody.csv",
+				size_bytes: 3071,
+				mime_type: "application/x-csv",
+				do_not_send_to_agent: false,
+			};
+			const partitioned = partitionPipelineSources([csvSrc], []);
+			expect(partitioned.sources).toHaveLength(1);
+			expect(partitioned.sources[0]?.uri).toBe(
+				"cas://ba994be4a0ee4e6b092ffc9d2e05a7e6925489b73e5f97901a2212b9382ae6b3",
+			);
+			expect(partitioned.sources[0]?.options).toMatchObject({
+				table_name: "ds02_w2_custody",
+				source_name: "ds02_w2_custody.csv",
+				source_format: "csv",
+			});
+
+			studioStore.getState().reset();
+			studioStore.setState({
+				activeSession: {
+					...baseSession,
+					session_id: "s-115ebe9242732b7f",
+				},
+			});
+			const mockRunsFetch = (async () =>
+				new Response(
+					JSON.stringify([
+						{
+							run_id: "run-global-commerce-sample-001",
+							status: "COMPLETED",
+							completed_at_utc: "2026-11-19T19:55:01Z",
+							session_id: null,
+						},
+						{
+							run_id: "run-other-session-newer",
+							status: "COMPLETED",
+							completed_at_utc: "2026-11-19T19:50:00Z",
+							session_id: "s-other-session",
+						},
+						{
+							run_id: "run-w1-older",
+							status: "COMPLETED",
+							completed_at_utc: "2026-11-19T18:00:00Z",
+							session_id: "s-115ebe9242732b7f",
+						},
+						{
+							run_id: "run-9a9fac4b576e",
+							status: "COMPLETED",
+							completed_at_utc: "2026-11-19T19:07:32Z",
+							session_id: "s-115ebe9242732b7f",
+						},
+					]),
+					{ status: 200 },
+				)) as unknown as typeof fetch;
+
+			await studioStore.getState().loadPipelineBaselines(mockRunsFetch);
+			expect(studioStore.getState().selectedBaselineRunId).toBe(
+				"run-9a9fac4b576e",
+			);
+			expect(studioStore.getState().baselineOptions[1]).toMatchObject({
+				run_id: "run-9a9fac4b576e",
+				label: "run-9a9fac4b576e (Latest Certified)",
+				is_latest_certified: true,
+			});
+			studioStore.getState().reset();
+		});
+
 		it("materializes un-promoted Step 4 candidates in applyAskFiboActionToStore and batches promotions in syncStep4DecisionsToStore", async () => {
 			studioStore.getState().reset();
 			studioStore.setState({
@@ -1820,6 +1963,791 @@ describe("M4: Unified 6-Step Ontology & Data Vault 2.0 Pipeline Wizard", () => {
 				expect(committedUrls.some((u) => u.includes("/export-blueprint"))).toBe(
 					true,
 				);
+			} finally {
+				(globalThis as Record<string, unknown>).EventSource = origEs;
+				studioStore.getState().reset();
+			}
+		});
+	});
+
+	describe("10. M6 Path B Grounding Preservation (F1)", () => {
+		it("syncStep4DecisionsToStore and findOrMaterializeConcept preserve grounding_origin and contract-valid evidence_refs on new and existing ConceptNodes", async () => {
+			studioStore.getState().reset();
+			const existingUri = "urn:ontology:entity:existing_position";
+			studioStore.setState({
+				activeSession: {
+					session_id: "ses-m6-f1",
+					domain_namespace: "wealth_mgmt",
+					enterprise_owner: "Enterprise",
+					status: "ACTIVE",
+					active_version: "1.0.0",
+					head_sha256: SAMPLE_SHA,
+					created_at: "2026-11-19T00:00:00Z",
+					updated_at: "2026-11-19T00:00:00Z",
+					wizard_schema_version: 2,
+				},
+				nodes: [
+					{
+						id: existingUri,
+						concept_uri: existingUri,
+						concept_name: "ExistingPosition",
+						elm_archetype: "CORE_BUSINESS_CONCEPT",
+						definition: "Existing concept",
+						grounding_status: "UNGROUNDED",
+						attributes: [],
+						synonyms: [],
+						external_mappings: [],
+					},
+				],
+				proposals: [
+					{
+						proposal_id: "prop-m6-f1",
+						status: "PENDING",
+						base_version: "1.0.0",
+						operations: [
+							{
+								op_id: "op-f1-struct",
+								op_type: "add_concept",
+								concept_uri: "urn:ontology:entity:position_holding",
+								concept_name: "PositionHolding",
+								grounding_origin: "STRUCTURED_SCHEMA",
+								attributes: [],
+								evidence_refs: [
+									{
+										evidence_type: "column_profile",
+										bronze_table: "daily_positions",
+										column_name: "position_id",
+										table_id: "tbl-pos",
+									},
+								],
+							},
+							{
+								op_id: "op-f1-doc",
+								op_type: "add_concept",
+								concept_uri: "urn:ontology:entity:cutoff_policy",
+								concept_name: "CutoffPolicy",
+								grounding_origin: "DOCUMENT_OBSERVED",
+								attributes: [],
+								evidence_refs: [
+									{
+										evidence_type: "document_span",
+										chunk_id: "chk-cut-1",
+										doc_sha256: SAMPLE_SHA,
+										char_start: 10,
+										char_end: 45,
+										snippet: "Settlement cutoff 16:00 EST",
+									},
+								],
+							},
+							{
+								op_id: "op-f1-fibo",
+								op_type: "add_concept",
+								concept_uri: "urn:ontology:entity:fibo_fallback_asset",
+								concept_name: "FiboFallbackAsset",
+								grounding_origin: "FIBO_GROUNDED",
+								attributes: [],
+								external_mappings: [
+									{
+										scheme: "fibo",
+										target_uri: "https://spec.edmcouncil.org/fibo/Asset",
+										predicate: "skos:broadMatch",
+										confidence: 0.42,
+									},
+								],
+								evidence_refs: [
+									{
+										evidence_type: "column_profile",
+										bronze_table: "assets",
+										column_name: "asset_id",
+									},
+								],
+							},
+							{
+								op_id: "op-f1-existing",
+								op_type: "add_concept",
+								concept_uri: existingUri,
+								concept_name: "ExistingPosition",
+								grounding_origin: "FIBO_GROUNDED",
+								attributes: ["holding_qty"],
+								external_mappings: [
+									{
+										scheme: "fibo",
+										target_uri: "https://spec.edmcouncil.org/fibo/Position",
+										predicate: "skos:broadMatch",
+										confidence: 0.51,
+									},
+								],
+								evidence_refs: [
+									{
+										evidence_type: "column_profile",
+										bronze_table: "daily_positions",
+										column_name: "holding_qty",
+									},
+								],
+							},
+						],
+					},
+				],
+			});
+
+			const { concepts, breakingCandidates } = deriveStep4State(
+				studioStore.getState().proposals,
+				[],
+			);
+			await syncStep4DecisionsToStore(
+				studioStore.getState(),
+				concepts,
+				breakingCandidates,
+			);
+
+			const structNode = studioStore
+				.getState()
+				.nodes.find(
+					(n) => n.concept_uri === "urn:ontology:entity:position_holding",
+				) as unknown as Record<string, unknown>;
+			expect(structNode.grounding_origin).toBe("STRUCTURED_SCHEMA");
+			expect(structNode.evidence_refs).toEqual([
+				{
+					evidence_type: "column_profile",
+					bronze_table: "daily_positions",
+					column_name: "position_id",
+					table_id: "tbl-pos",
+				},
+			]);
+
+			const docNode = studioStore
+				.getState()
+				.nodes.find(
+					(n) => n.concept_uri === "urn:ontology:entity:cutoff_policy",
+				) as unknown as Record<string, unknown>;
+			expect(docNode.grounding_origin).toBe("DOCUMENT_OBSERVED");
+			expect(docNode.evidence_refs).toEqual([
+				{
+					evidence_type: "document_span",
+					chunk_id: "chk-cut-1",
+					doc_sha256: SAMPLE_SHA,
+					char_start: 10,
+					char_end: 45,
+					snippet: "Settlement cutoff 16:00 EST",
+				},
+			]);
+
+			const fiboNode = studioStore
+				.getState()
+				.nodes.find(
+					(n) => n.concept_uri === "urn:ontology:entity:fibo_fallback_asset",
+				) as unknown as Record<string, unknown>;
+			expect(fiboNode.grounding_origin).toBe("FIBO_GROUNDED");
+			expect(fiboNode.evidence_refs).toEqual([
+				{
+					evidence_type: "column_profile",
+					bronze_table: "assets",
+					column_name: "asset_id",
+				},
+			]);
+
+			const existingNode = studioStore
+				.getState()
+				.nodes.find((n) => n.concept_uri === existingUri) as unknown as Record<
+				string,
+				unknown
+			>;
+			expect(existingNode.grounding_origin).toBe("FIBO_GROUNDED");
+			expect(existingNode.evidence_refs).toEqual([
+				{
+					evidence_type: "column_profile",
+					bronze_table: "daily_positions",
+					column_name: "holding_qty",
+				},
+			]);
+			expect(
+				(existingNode.external_mappings as Array<Record<string, unknown>>)[0]
+					?.target_uri,
+			).toBe("https://spec.edmcouncil.org/fibo/Position");
+
+			// Exercise findOrMaterializeConcept path via applyAskFiboActionToStore on un-materialized proposal concept
+			studioStore.getState().reset();
+			studioStore.setState({
+				activeSession: {
+					session_id: "ses-m6-f1b",
+					domain_namespace: "wealth_mgmt",
+					enterprise_owner: "Enterprise",
+					status: "ACTIVE",
+					active_version: "1.0.0",
+					head_sha256: SAMPLE_SHA,
+					created_at: "2026-11-19T00:00:00Z",
+					updated_at: "2026-11-19T00:00:00Z",
+					wizard_schema_version: 2,
+				},
+				proposals: [
+					{
+						proposal_id: "prop-m6-f1b",
+						status: "PENDING",
+						base_version: "1.0.0",
+						operations: [
+							{
+								op_id: "op-f1b-1",
+								op_type: "add_concept",
+								concept_uri: "urn:ontology:entity:trade_execution",
+								concept_name: "TradeExecution",
+								grounding_origin: "FIBO_GROUNDED",
+								attributes: [],
+								evidence_refs: [
+									{
+										evidence_type: "document_span",
+										chunk_id: "chk-exec-1",
+										doc_sha256: SAMPLE_SHA,
+										char_start: 5,
+									},
+								],
+							},
+						],
+					},
+				],
+			});
+
+			applyAskFiboActionToStore(studioStore.getState(), {
+				action_id: "act-f1b-attr",
+				label: "Add trade_id attribute",
+				op_type: "add_attribute",
+				payload: {
+					concept_uri: "urn:ontology:entity:trade_execution",
+					concept_name: "TradeExecution",
+					attribute_name: "trade_id",
+					data_type: "string",
+				},
+			});
+
+			const matNode = studioStore
+				.getState()
+				.nodes.find(
+					(n) => n.concept_uri === "urn:ontology:entity:trade_execution",
+				) as unknown as Record<string, unknown>;
+			expect(matNode).toBeDefined();
+			expect(matNode.grounding_origin).toBe("FIBO_GROUNDED");
+			expect(matNode.evidence_refs).toEqual([
+				{
+					evidence_type: "document_span",
+					chunk_id: "chk-exec-1",
+					doc_sha256: SAMPLE_SHA,
+					char_start: 5,
+				},
+			]);
+			studioStore.getState().reset();
+		});
+	});
+
+	describe("11. M6 Step 6 Stage Pill Transition & Run Complete Reconciliation", () => {
+		const step6Session = {
+			session_id: "ses-m6-pill00",
+			domain_namespace: "wealth_mgmt",
+			enterprise_owner: "Enterprise",
+			status: "COMMITTED",
+			active_version: "1.0.0",
+			head_sha256: SAMPLE_SHA,
+			created_at: "2026-11-19T00:00:00Z",
+			updated_at: "2026-11-19T00:00:00Z",
+			wizard_schema_version: 2,
+		};
+
+		function getPillText(html: string, pill: string): string {
+			const re = new RegExp(
+				`data-testid="console-stage-pill-${pill}"[^>]*>([\\s\\S]*?)</button>`,
+			);
+			const m = html.match(re);
+			return (
+				m?.[1]
+					?.replace(/<[^>]+>/g, " ")
+					.replace(/\s+/g, " ")
+					.trim() ?? ""
+			);
+		}
+
+		it("transitions console-stage-pill-00..06 from RUNNING through STAGE_COMPLETED to COMPLETED on live SSE run and run_complete", async () => {
+			studioStore.getState().reset();
+			studioStore.setState({
+				activeSession: step6Session,
+				sources: [
+					{
+						source_id: "src-pos",
+						source_sha256: SAMPLE_SHA,
+						file_name: "positions.sqlite",
+						size_bytes: 1024,
+						mime_type: "application/x-sqlite3",
+						do_not_send_to_agent: false,
+					},
+				],
+			});
+
+			const listeners = new Map<
+				string,
+				Array<(ev: unknown) => Promise<void> | void>
+			>();
+			const origEs = (globalThis as Record<string, unknown>).EventSource;
+			class MockEs {
+				readonly url: string;
+				constructor(url: string) {
+					this.url = url;
+				}
+				addEventListener(
+					type: string,
+					cb: (ev: unknown) => Promise<void> | void,
+				) {
+					const arr = listeners.get(type) ?? [];
+					arr.push(cb);
+					listeners.set(type, arr);
+				}
+				close() {}
+			}
+			(globalThis as Record<string, unknown>).EventSource = MockEs;
+
+			const emitSse = async (
+				type: string,
+				payload: Record<string, unknown>,
+			) => {
+				for (const cb of listeners.get(type) ?? []) {
+					await cb({ data: JSON.stringify(payload) });
+				}
+			};
+
+			const stepReports = [
+				{ stage_id: "STAGE_00_ORCHESTRATION", status: "PASS", verdict: "PASS" },
+				{ stage_id: "STAGE_01_SCOUT_SOURCE", status: "PASS", verdict: "PASS" },
+				{
+					stage_id: "STAGE_02_SCOUT_UNSTRUCTURED",
+					status: "PASS",
+					verdict: "PASS",
+				},
+				{
+					stage_id: "STAGE_03_SHIP_VAULT_PASS1",
+					status: "PASS",
+					verdict: "PASS",
+				},
+				{
+					stage_id: "STAGE_04_SHIP_VAULT_PASS2",
+					status: "PASS",
+					verdict: "PASS",
+				},
+				{
+					stage_id: "STAGE_05_AXI_DV_STATIC_GATES",
+					status: "AUTO_REPAIRED",
+					verdict: "PASS",
+				},
+				{
+					stage_id: "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+					status: "PASS",
+					verdict: "PASS",
+				},
+				{
+					stage_id: "STAGE_07_DETERMINISTIC_COMPILER",
+					status: "PASS",
+					verdict: "PASS",
+				},
+			];
+
+			try {
+				const mockFetch = (async (input: RequestInfo | URL) => {
+					const url = String(input);
+					if (url.includes("/export-blueprint")) {
+						return new Response(
+							JSON.stringify({ blueprint: { domain: "wealth_mgmt" } }),
+							{ status: 200 },
+						);
+					}
+					if (url.endsWith("/api/v1/pipelines/runs")) {
+						return new Response(
+							JSON.stringify({ run_id: "run-pill-00-test" }),
+							{
+								status: 202,
+							},
+						);
+					}
+					if (url.includes("/api/v1/runs/run-pill-00-test/report")) {
+						return new Response(
+							JSON.stringify({
+								status: "COMPLETED",
+								step_reports: stepReports,
+								four_zone_sql: {
+									duckdb: {
+										zone_0_staging: "CREATE SCHEMA IF NOT EXISTS staging;",
+									},
+								},
+								blueprint: {
+									contract: {
+										hubs: [
+											{
+												name: "hub_position",
+												source_mappings: ["positions.id"],
+											},
+										],
+									},
+								},
+							}),
+							{ status: 200 },
+						);
+					}
+					return new Response("{}", { status: 200 });
+				}) as unknown as typeof fetch;
+
+				const runId = await studioStore
+					.getState()
+					.startDvPipelineRun(undefined, mockFetch);
+				expect(runId).toBe("run-pill-00-test");
+
+				// Immediately after start: pill 00 is RUNNING, others PENDING
+				let html = renderToStaticMarkup(
+					createElement(Step6PipelineBuildAndRun, {
+						sessionId: step6Session.session_id,
+						stageStatuses: studioStore.getState().stageStatuses,
+						isRunningPipeline: studioStore.getState().isRunningPipeline,
+					}),
+				);
+				expect(getPillText(html, "00")).toContain("00 · RUNNING");
+				expect(getPillText(html, "01")).toContain("01 · PENDING");
+
+				// STAGE_00 completes -> pill 00 must immediately become COMPLETED (never stuck on RUNNING)
+				await emitSse("STAGE_STARTED", { stage_id: "STAGE_00_ORCHESTRATION" });
+				await emitSse("STAGE_COMPLETED", {
+					stage_id: "STAGE_00_ORCHESTRATION",
+					status: "PASS",
+				});
+				html = renderToStaticMarkup(
+					createElement(Step6PipelineBuildAndRun, {
+						sessionId: step6Session.session_id,
+						stageStatuses: studioStore.getState().stageStatuses,
+						isRunningPipeline: studioStore.getState().isRunningPipeline,
+					}),
+				);
+				expect(getPillText(html, "00")).toContain("00 · COMPLETED");
+				expect(getPillText(html, "00")).not.toContain("RUNNING");
+
+				// Remaining stages (03 has PASS1+PASS2, 06 executes before 05)
+				await emitSse("STAGE_STARTED", { stage_id: "STAGE_01_SCOUT_SOURCE" });
+				await emitSse("STAGE_COMPLETED", {
+					stage_id: "STAGE_01_SCOUT_SOURCE",
+					status: "PASS",
+				});
+				await emitSse("STAGE_STARTED", {
+					stage_id: "STAGE_02_SCOUT_UNSTRUCTURED",
+				});
+				await emitSse("STAGE_COMPLETED", {
+					stage_id: "STAGE_02_SCOUT_UNSTRUCTURED",
+					status: "PASS",
+				});
+				await emitSse("STAGE_STARTED", {
+					stage_id: "STAGE_03_SHIP_VAULT_PASS1",
+				});
+				await emitSse("STAGE_COMPLETED", {
+					stage_id: "STAGE_03_SHIP_VAULT_PASS1",
+					status: "PASS",
+				});
+				await emitSse("STAGE_STARTED", {
+					stage_id: "STAGE_04_SHIP_VAULT_PASS2",
+				});
+				html = renderToStaticMarkup(
+					createElement(Step6PipelineBuildAndRun, {
+						sessionId: step6Session.session_id,
+						stageStatuses: studioStore.getState().stageStatuses,
+					}),
+				);
+				expect(getPillText(html, "03")).toContain("03 · RUNNING");
+				await emitSse("STAGE_COMPLETED", {
+					stage_id: "STAGE_04_SHIP_VAULT_PASS2",
+					status: "PASS",
+				});
+				await emitSse("STAGE_STARTED", {
+					stage_id: "STAGE_05_AXI_DV_STATIC_GATES",
+				});
+				await emitSse("STAGE_COMPLETED", {
+					stage_id: "STAGE_05_AXI_DV_STATIC_GATES",
+					status: "PASS",
+				});
+				await emitSse("STAGE_STARTED", {
+					stage_id: "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+				});
+				await emitSse("STAGE_COMPLETED", {
+					stage_id: "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+					status: "PASS",
+				});
+				await emitSse("STAGE_STARTED", {
+					stage_id: "STAGE_07_DETERMINISTIC_COMPILER",
+				});
+				await emitSse("STAGE_COMPLETED", {
+					stage_id: "STAGE_07_DETERMINISTIC_COMPILER",
+					status: "PASS",
+				});
+
+				await emitSse("run_complete", { status: "COMPLETED" });
+
+				html = renderToStaticMarkup(
+					createElement(Step6PipelineBuildAndRun, {
+						sessionId: step6Session.session_id,
+						stageStatuses: studioStore.getState().stageStatuses,
+						isRunningPipeline: studioStore.getState().isRunningPipeline,
+					}),
+				);
+				for (const pill of ["00", "01", "02", "03", "04", "05", "06"]) {
+					expect(getPillText(html, pill)).toContain(`${pill} · COMPLETED`);
+					expect(getPillText(html, pill)).not.toContain("RUNNING");
+				}
+				expect(studioStore.getState().isRunningPipeline).toBe(false);
+			} finally {
+				(globalThis as Record<string, unknown>).EventSource = origEs;
+				studioStore.getState().reset();
+			}
+		});
+
+		it("reconciles pills from /report step_reports on run_complete and handles FAILED, PAUSED_HOLD, and abort without leaving RUNNING pills", async () => {
+			studioStore.getState().reset();
+			studioStore.setState({ activeSession: step6Session, sources: [] });
+
+			const listeners = new Map<
+				string,
+				Array<(ev: unknown) => Promise<void> | void>
+			>();
+			const origEs = (globalThis as Record<string, unknown>).EventSource;
+			class MockEs {
+				addEventListener(
+					type: string,
+					cb: (ev: unknown) => Promise<void> | void,
+				) {
+					const arr = listeners.get(type) ?? [];
+					arr.push(cb);
+					listeners.set(type, arr);
+				}
+				close() {}
+			}
+			(globalThis as Record<string, unknown>).EventSource = MockEs;
+
+			try {
+				// Case 1: Missed SSE stage events hydrated via /report step_reports (including AUTO_REPAIRED) on run_complete
+				const hydrateFetch = (async (input: RequestInfo | URL) => {
+					const url = String(input);
+					if (url.includes("/export-blueprint")) {
+						return new Response(
+							JSON.stringify({ blueprint: { domain: "wealth_mgmt" } }),
+							{ status: 200 },
+						);
+					}
+					if (url.endsWith("/api/v1/pipelines/runs")) {
+						return new Response(JSON.stringify({ run_id: "run-hydrate-1" }), {
+							status: 202,
+						});
+					}
+					if (url.includes("/api/v1/runs/run-hydrate-1/report")) {
+						return new Response(
+							JSON.stringify({
+								status: "COMPLETED",
+								step_reports: [
+									{
+										stage_id: "STAGE_00_ORCHESTRATION",
+										status: "PASS",
+										verdict: "PASS",
+									},
+									{
+										stage_id: "STAGE_01_SCOUT_SOURCE",
+										status: "PASS",
+										verdict: "PASS",
+									},
+									{
+										stage_id: "STAGE_02_SCOUT_UNSTRUCTURED",
+										status: "PASS",
+										verdict: "PASS",
+									},
+									{
+										stage_id: "STAGE_03_SHIP_VAULT_PASS1",
+										status: "PASS",
+										verdict: "PASS",
+									},
+									{
+										stage_id: "STAGE_04_SHIP_VAULT_PASS2",
+										status: "PASS",
+										verdict: "PASS",
+									},
+									{
+										stage_id: "STAGE_05_AXI_DV_STATIC_GATES",
+										status: "AUTO_REPAIRED",
+										verdict: "PASS",
+									},
+									{
+										stage_id: "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+										status: "PASS",
+										verdict: "PASS",
+									},
+									{
+										stage_id: "STAGE_07_DETERMINISTIC_COMPILER",
+										status: "PASS",
+										verdict: "PASS",
+									},
+								],
+							}),
+							{ status: 200 },
+						);
+					}
+					return new Response("{}", { status: 200 });
+				}) as unknown as typeof fetch;
+
+				await studioStore
+					.getState()
+					.startDvPipelineRun(undefined, hydrateFetch);
+				for (const cb of listeners.get("run_complete") ?? []) {
+					await cb({ data: JSON.stringify({ status: "COMPLETED" }) });
+				}
+				const hydratedHtml = renderToStaticMarkup(
+					createElement(Step6PipelineBuildAndRun, {
+						sessionId: step6Session.session_id,
+						stageStatuses: studioStore.getState().stageStatuses,
+					}),
+				);
+				for (const pill of ["00", "01", "02", "03", "04", "05", "06"]) {
+					expect(getPillText(hydratedHtml, pill)).toContain(
+						`${pill} · COMPLETED`,
+					);
+				}
+
+				// Case 2: PAUSED_HOLD transitions target pill to HOLD and clears RUNNING
+				listeners.clear();
+				studioStore.getState().reset();
+				studioStore.setState({ activeSession: step6Session, sources: [] });
+				const holdFetch = (async (input: RequestInfo | URL) => {
+					const url = String(input);
+					if (url.includes("/export-blueprint")) {
+						return new Response(
+							JSON.stringify({ blueprint: { domain: "wealth_mgmt" } }),
+							{ status: 200 },
+						);
+					}
+					if (url.endsWith("/api/v1/pipelines/runs")) {
+						return new Response(JSON.stringify({ run_id: "run-hold-1" }), {
+							status: 202,
+						});
+					}
+					if (url.includes("/decisions")) {
+						return new Response(
+							JSON.stringify({
+								active_holds: [
+									{
+										hold_id: "hold-1",
+										stage_id: "STAGE_02_SCOUT_UNSTRUCTURED",
+										headline: "Drift hold",
+										status: "PENDING",
+									},
+								],
+							}),
+							{ status: 200 },
+						);
+					}
+					return new Response("{}", { status: 200 });
+				}) as unknown as typeof fetch;
+
+				await studioStore.getState().startDvPipelineRun(undefined, holdFetch);
+				for (const cb of listeners.get("STAGE_COMPLETED") ?? []) {
+					await cb({
+						data: JSON.stringify({ stage_id: "STAGE_00_ORCHESTRATION" }),
+					});
+				}
+				for (const cb of listeners.get("STAGE_STARTED") ?? []) {
+					await cb({
+						data: JSON.stringify({ stage_id: "STAGE_02_SCOUT_UNSTRUCTURED" }),
+					});
+				}
+				for (const cb of listeners.get("hold") ?? []) {
+					await cb({
+						data: JSON.stringify({
+							status: "PAUSED_HOLD",
+							run_id: "run-hold-1",
+						}),
+					});
+				}
+				const holdHtml = renderToStaticMarkup(
+					createElement(Step6PipelineBuildAndRun, {
+						sessionId: step6Session.session_id,
+						stageStatuses: studioStore.getState().stageStatuses,
+					}),
+				);
+				expect(getPillText(holdHtml, "00")).toContain("00 · COMPLETED");
+				expect(getPillText(holdHtml, "02")).toContain("02 · HOLD");
+
+				// Case 3: POST /pipelines/runs failure sets pill 00 to FAILED
+				studioStore.getState().reset();
+				studioStore.setState({ activeSession: step6Session, sources: [] });
+				const failFetch = (async (input: RequestInfo | URL) => {
+					const url = String(input);
+					if (url.includes("/export-blueprint")) {
+						return new Response(
+							JSON.stringify({ blueprint: { domain: "wealth_mgmt" } }),
+							{ status: 200 },
+						);
+					}
+					return new Response(
+						JSON.stringify({
+							code: "AGENT_NOT_CONFIGURED",
+							detail: "Missing key",
+						}),
+						{ status: 422 },
+					);
+				}) as unknown as typeof fetch;
+				await studioStore.getState().startDvPipelineRun(undefined, failFetch);
+				const failHtml = renderToStaticMarkup(
+					createElement(Step6PipelineBuildAndRun, {
+						sessionId: step6Session.session_id,
+						stageStatuses: studioStore.getState().stageStatuses,
+					}),
+				);
+				expect(getPillText(failHtml, "00")).toContain("00 · FAILED");
+				expect(getPillText(failHtml, "00")).not.toContain("RUNNING");
+
+				// Case 4: STAGE_FAILED + abortPipelineRun never leave pills stuck on RUNNING
+				listeners.clear();
+				studioStore.getState().reset();
+				studioStore.setState({ activeSession: step6Session, sources: [] });
+				const abortFetch = (async (input: RequestInfo | URL) => {
+					const url = String(input);
+					if (url.includes("/export-blueprint")) {
+						return new Response(
+							JSON.stringify({ blueprint: { domain: "wealth_mgmt" } }),
+							{ status: 200 },
+						);
+					}
+					if (url.endsWith("/api/v1/pipelines/runs")) {
+						return new Response(JSON.stringify({ run_id: "run-abort-1" }), {
+							status: 202,
+						});
+					}
+					return new Response(JSON.stringify({ status: "ABORTED" }), {
+						status: 200,
+					});
+				}) as unknown as typeof fetch;
+
+				await studioStore.getState().startDvPipelineRun(undefined, abortFetch);
+				for (const cb of listeners.get("STAGE_COMPLETED") ?? []) {
+					await cb({
+						data: JSON.stringify({ stage_id: "STAGE_00_ORCHESTRATION" }),
+					});
+				}
+				for (const cb of listeners.get("STAGE_FAILED") ?? []) {
+					await cb({
+						data: JSON.stringify({ stage_id: "STAGE_05_AXI_DV_STATIC_GATES" }),
+					});
+				}
+				for (const cb of listeners.get("STAGE_STARTED") ?? []) {
+					await cb({
+						data: JSON.stringify({
+							stage_id: "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+						}),
+					});
+				}
+				await studioStore.getState().abortPipelineRun(abortFetch);
+				const abortHtml = renderToStaticMarkup(
+					createElement(Step6PipelineBuildAndRun, {
+						sessionId: step6Session.session_id,
+						stageStatuses: studioStore.getState().stageStatuses,
+					}),
+				);
+				expect(getPillText(abortHtml, "00")).toContain("00 · COMPLETED");
+				expect(getPillText(abortHtml, "04")).toContain("04 · FAILED");
+				expect(getPillText(abortHtml, "06")).toContain("06 · FAILED");
+				expect(getPillText(abortHtml, "06")).not.toContain("RUNNING");
 			} finally {
 				(globalThis as Record<string, unknown>).EventSource = origEs;
 				studioStore.getState().reset();

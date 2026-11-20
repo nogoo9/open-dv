@@ -17,6 +17,7 @@ from opendv_agent_harness import (
     HarnessSetupConfig,
     PipelineInputSpec,
     PipelineStepReport,
+    StewardHoldManager,
     build_observability_event_dict,
 )
 from opendv_agent_harness.pipeline.spec import AgenticPipelineReport
@@ -75,14 +76,137 @@ def _compute_scorecard_from_report(report: AgenticPipelineReport) -> GateScoreca
             gate_4_yagni_cost_guard=g4,
             gate_5_duckdb_sandbox=g5,
         )
+    is_paused = report.status == "PAUSED_HOLD"
     return GateScorecardSummary(
         gate_0_profile_drift="PASS",
-        gate_1_contract_grain="AUTO_REPAIRED",
+        gate_1_contract_grain="ASK-USER" if is_paused else "AUTO_REPAIRED",
         gate_2_sqlglot_ast="PASS",
         gate_3_networkx_dag="PASS",
         gate_4_yagni_cost_guard="PASS",
-        gate_5_duckdb_sandbox="PASS",
+        gate_5_duckdb_sandbox="REJECT-WITH-TRACE" if is_paused else "PASS",
     )
+
+
+def sync_report_holds_to_manager(
+    state: BaseStateContainer,
+    report: AgenticPipelineReport,
+    events_list: list[dict[str, Any]],
+    *,
+    target_run_id: str | None = None,
+) -> list[str]:
+    """Mirror active & resolved holds from ``report`` into ``state.hold_managers``."""
+    import shutil
+
+    shutil.rmtree(state.state_dir / report.run_id / "holds", ignore_errors=True)
+    hold_mgr = StewardHoldManager(state_dir=state.state_dir / report.run_id)
+    last_ev_id = (
+        str(events_list[-1].get("event_id") or "evt-0")
+        if events_list and isinstance(events_list[-1], dict)
+        else "evt-0"
+    )
+
+    def _rec_h(h: dict[str, Any], headline_def: str) -> tuple[str, Any]:
+        hid = str(h.get("hold_id") or h.get("decision_id") or f"hold-{report.run_id}")
+        rec = hold_mgr.record_hold(
+            run_id=report.run_id,
+            task_id=str(h.get("task_id") or f"task-{report.run_id}"),
+            session_id=str(h.get("session_id") or f"sess-{report.run_id}"),
+            stage_id=str(h.get("stage_id") or "STAGE_02_SCOUT_UNSTRUCTURED"),
+            persona=str(h.get("persona") or "vault-first-mate"),
+            decision_id=str(h.get("decision_id") or hid),
+            hold_id=hid,
+            event_id=str(h.get("event_id") or last_ev_id),
+            headline=str(h.get("headline") or headline_def),
+            escalation_reason=str(h.get("escalation_reason") or "TIER_U3_AMBIGUOUS_ENTITY"),
+            rule_id=str(h.get("rule_id") or "ALG-A9B"),
+            options=list(h.get("options") or []),
+        )
+        return hid, rec
+
+    active_hold_ids: list[str] = [
+        _rec_h(h, "Steward hold pending resolution.")[0] for h in report.active_holds
+    ]
+    if report.status == "PAUSED_HOLD" and not active_hold_ids:
+        last_st = report.step_reports[-1] if report.step_reports else None
+        fallback_hid, _ = _rec_h(
+            {
+                "stage_id": last_st.stage_id if last_st else "STAGE_02_SCOUT_UNSTRUCTURED",
+                "persona": last_st.persona if last_st else "vault-first-mate",
+                "headline": (last_st.summary if last_st else None)
+                or "Steward hold pending resolution.",
+            },
+            "Steward hold pending resolution.",
+        )
+        active_hold_ids.append(fallback_hid)
+    for h in report.resolved_holds:
+        _, r = _rec_h(h, "Steward hold resolved.")
+        hold_mgr.resolve_hold(
+            r.decision_id,
+            action="REJECT" if str(h.get("status")) == "REJECTED" else "APPROVE",
+            selected_option_id=h.get("selected_option_id"),
+            resolution_notes=h.get("resolution_notes"),
+        )
+    state.hold_managers[report.run_id] = hold_mgr
+    state.run_decisions[report.run_id] = []
+    state.run_sandbox_history[report.run_id] = []
+    if target_run_id and target_run_id != report.run_id:
+        state.hold_managers[target_run_id] = hold_mgr
+        state.run_decisions.setdefault(target_run_id, [])
+        state.run_sandbox_history.setdefault(target_run_id, [])
+    return active_hold_ids
+
+
+def _sync_resumed_holds(
+    state: BaseStateContainer,
+    run_id: str,
+    report: AgenticPipelineReport,
+) -> list[str]:
+    hold_mgr = state.hold_managers.get(run_id)
+    if hold_mgr is None:
+        hold_mgr = StewardHoldManager(state_dir=state.state_dir / run_id)
+        state.hold_managers[run_id] = hold_mgr
+
+    def _record_dict(h: dict[str, Any], default_headline: str) -> str:
+        hid = str(h.get("hold_id") or h.get("decision_id") or f"hold-{run_id}")
+        with contextlib.suppress(KeyError):
+            existing = hold_mgr.get_hold(hid)
+            if existing.status == "PENDING":
+                return existing.hold_id
+        rec = hold_mgr.record_hold(
+            run_id=run_id,
+            task_id=str(h.get("task_id") or f"task-{run_id}"),
+            session_id=str(h.get("session_id") or f"sess-{run_id}"),
+            stage_id=str(h.get("stage_id") or "STAGE_05_AXI_DV_STATIC_GATES"),
+            persona=str(h.get("persona") or "axi-dv"),
+            decision_id=str(h.get("decision_id") or hid),
+            hold_id=hid,
+            event_id=str(h.get("event_id") or "evt-resume-hold"),
+            headline=str(h.get("headline") or default_headline),
+            escalation_reason=str(h.get("escalation_reason") or "UNMAPPED_ONTOLOGY_CONCEPT"),
+            rule_id=str(h.get("rule_id") or "DV-G4-001"),
+            options=list(h.get("options") or []),
+        )
+        return rec.hold_id
+
+    for h in report.active_holds:
+        if isinstance(h, dict):
+            _record_dict(h, "Steward hold pending resolution.")
+
+    pending_ids = [rec.hold_id for rec in hold_mgr.list_pending_holds(run_id=run_id)]
+    if report.status == "PAUSED_HOLD" and not pending_ids:
+        last_step = report.step_reports[-1] if report.step_reports else None
+        pending_ids.append(
+            _record_dict(
+                {
+                    "stage_id": last_step.stage_id if last_step else "STAGE_05_AXI_DV_STATIC_GATES",
+                    "persona": last_step.persona if last_step else "axi-dv",
+                    "headline": (last_step.summary if last_step else None)
+                    or "Steward hold pending resolution.",
+                },
+                "Steward hold pending resolution.",
+            )
+        )
+    return pending_ids
 
 
 def _register_terminal_artifacts(
@@ -180,6 +304,7 @@ def _execute_resume_worker(
         setup_dict["steward_hold_policy"] = "auto_approve_top_candidate"
         extra_opts = dict(setup_dict.get("extra_provider_options") or {})
         extra_opts["state_dir"] = str(state.state_dir)
+        extra_opts["resumed_from_hold"] = True
         setup_dict["extra_provider_options"] = extra_opts
 
         spec_obj = PipelineInputSpec.model_validate(spec_dict)
@@ -233,6 +358,7 @@ def _execute_resume_worker(
         final_contract_ref = (report.final_artifacts or {}).get("final_contract")
         final_ir_ref = (report.final_artifacts or {}).get("final_canonical_ir")
         with state._state_lock:
+            active_hold_ids = _sync_resumed_holds(state, run_id, report)
             run_dto = state.runs[run_id]
             proj = state.projects.get(run_dto.project_id)
             if proj is not None:
@@ -256,13 +382,20 @@ def _execute_resume_worker(
                 if report.step_reports
                 else "STAGE_07_DETERMINISTIC_COMPILER"
             )
+            run_status = RunStatus(report.status)
             updated_run = run_dto.model_copy(
                 update={
-                    "status": RunStatus(report.status),
-                    "completed_at_utc": report.completed_at
-                    or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "status": run_status,
+                    "completed_at_utc": (
+                        None
+                        if run_status == RunStatus.PAUSED_HOLD
+                        else (
+                            report.completed_at
+                            or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+                        )
+                    ),
                     "current_stage_id": last_stage,
-                    "active_hold_ids": [],
+                    "active_hold_ids": active_hold_ids,
                     "event_count": len(state.run_events.get(run_id, [])),
                     "gate_scorecard": scorecard,
                 }

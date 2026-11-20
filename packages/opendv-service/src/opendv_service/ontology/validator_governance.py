@@ -202,7 +202,11 @@ class GovernanceValidator:
             elif isinstance(op, UpdateConceptUrnOp):
                 base_c = base_concepts.get(op.old_concept_uri)
                 if _is_concept_deployed(
-                    base_c, op.old_concept_uri, deployed_concepts, deployed_entities, deployed_tables
+                    base_c,
+                    op.old_concept_uri,
+                    deployed_concepts,
+                    deployed_entities,
+                    deployed_tables,
                 ):
                     raise ContractViolationError(
                         f"ONT_EVO_CONTRACT_VIOLATION: Cannot rename deployed concept "
@@ -215,7 +219,8 @@ class GovernanceValidator:
                     op.relationship_name and op.relationship_name in deployed_entities
                 ):
                     raise ContractViolationError(
-                        f"ONT_EVO_CONTRACT_VIOLATION: Cannot remove deployed relationship '{rel_id}'."
+                        "ONT_EVO_CONTRACT_VIOLATION: Cannot remove deployed "
+                        f"relationship '{rel_id}'."
                     )
                 for r in _resolve_base_relationships(
                     base, op.relationship_uri, op.relationship_name
@@ -248,7 +253,11 @@ class GovernanceValidator:
                 if not op.is_optional and op.concept_uri in base_concepts:
                     base_c = base_concepts[op.concept_uri]
                     if _is_concept_deployed(
-                        base_c, op.concept_uri, deployed_concepts, deployed_entities, deployed_tables
+                        base_c,
+                        op.concept_uri,
+                        deployed_concepts,
+                        deployed_entities,
+                        deployed_tables,
                     ):
                         raise ContractViolationError(
                             f"ONT_EVO_CONTRACT_VIOLATION: Cannot add mandatory attribute "
@@ -286,7 +295,11 @@ class GovernanceValidator:
                     existing_parent is not None
                     and existing_parent != op.parent_concept_uri
                     and _is_concept_deployed(
-                        base_c, op.concept_uri, deployed_concepts, deployed_entities, deployed_tables
+                        base_c,
+                        op.concept_uri,
+                        deployed_concepts,
+                        deployed_entities,
+                        deployed_tables,
                     )
                 ):
                     raise ContractViolationError(
@@ -302,7 +315,11 @@ class GovernanceValidator:
                     existing_arch is not None
                     and existing_arch != op.elm_archetype
                     and _is_concept_deployed(
-                        base_c, op.concept_uri, deployed_concepts, deployed_entities, deployed_tables
+                        base_c,
+                        op.concept_uri,
+                        deployed_concepts,
+                        deployed_entities,
+                        deployed_tables,
                     )
                 ):
                     raise ContractViolationError(
@@ -399,7 +416,7 @@ class GovernanceValidator:
                 continue
             c = target_concepts[concept_uri]
 
-            # Path A: Verified FIBO Reference Grounding (skos:exactMatch / skos:closeMatch >= 0.6500)
+            # Path A: Verified FIBO Reference Grounding (skos:exactMatch/closeMatch >= 0.6500)
             is_grounded = False
             fibo_candidates = [
                 m

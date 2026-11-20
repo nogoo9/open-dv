@@ -54,6 +54,11 @@ export interface PipelineHoldSummary {
 	status: string;
 }
 
+export interface ZoneSqlByDialect {
+	duckdb: Record<string, string>;
+	databricks: Record<string, string>;
+}
+
 export interface SessionLogEntryDTO {
 	seq: number;
 	raw_id?: number | undefined;
@@ -168,6 +173,9 @@ export interface StudioStoreState {
 		"PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "HOLD"
 	>;
 	zoneSqlByZone: Record<string, string>;
+	zoneSqlByDialect: ZoneSqlByDialect;
+	gateScorecard: Record<string, unknown> | null;
+	sessionRuns: Array<Record<string, unknown>>;
 	activeRunId: string | null;
 	isRunningPipeline: boolean;
 	activeHold: PipelineHoldSummary | null;
@@ -439,6 +447,11 @@ export interface StudioStoreState {
 		customContractContent?: string | null,
 	) => void;
 	loadPipelineBaselines: (fetchImpl?: typeof fetch) => Promise<void>;
+	hydrateSessionLatestRun: (
+		fetchImpl?: typeof fetch,
+		targetSessionId?: string,
+	) => Promise<void>;
+	selectViewedRun: (runId: string, fetchImpl?: typeof fetch) => Promise<void>;
 	startDvPipelineRun: (
 		opts?: { sourceUris?: string[] },
 		fetchImpl?: typeof fetch,

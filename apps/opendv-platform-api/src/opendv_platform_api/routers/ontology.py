@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from opendv_contracts import (
     OntologyDecisionRequest,
@@ -21,6 +21,7 @@ from opendv_contracts import (
     OntologyValidationResult,
 )
 from opendv_platform_api.deps import get_opendv_service, get_rbac_role
+from opendv_platform_api.studio_deps import ViewerDep
 from opendv_service import OpenDVService
 from opendv_service.rbac import RbacRole
 
@@ -58,9 +59,15 @@ async def diff_ontology(
 async def record_ontology_decision(
     req: OntologyDecisionRequest,
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
+    _principal: ViewerDep,
     role: Annotated[RbacRole, Depends(get_rbac_role)],
 ) -> OntologyDecisionResponse:
     """Record steward decision on an ontology proposal and apply delta if accepted."""
+    if role == RbacRole.PUBLIC:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Public role cannot record ontology steward decisions.",
+        )
     return service.decide_ontology(req)
 
 

@@ -52,7 +52,12 @@ def discover_workspace_ontology_file(ws_path: Path, domain_namespace: str) -> Pa
     if ws_path.is_file():
         return ws_path
     if not ws_path.is_dir():
-        raise StudioWorkflowError("INVALID_WORKSPACE_PATH", "Specified workspace seed path is invalid or inaccessible.", status_code=400, exit_code=2)
+        raise StudioWorkflowError(
+            "INVALID_WORKSPACE_PATH",
+            "Specified workspace seed path is invalid or inaccessible.",
+            status_code=400,
+            exit_code=2,
+        )
     candidates = [
         ws_path / f"{domain_namespace}_graph_a_ontology.yaml",
         ws_path / "graph_a_ontology.yaml",
@@ -66,7 +71,12 @@ def discover_workspace_ontology_file(ws_path: Path, domain_namespace: str) -> Pa
     globbed = sorted(ws_path.glob("*_graph_a_ontology.yaml"))
     if globbed:
         return globbed[0]
-    raise StudioWorkflowError("FILE_NOT_FOUND", f"No Graph A ontology contract found in workspace seed path '{ws_path.name}'.", status_code=404, exit_code=3)
+    raise StudioWorkflowError(
+        "FILE_NOT_FOUND",
+        f"No Graph A ontology contract found in workspace seed path '{ws_path.name}'.",
+        status_code=404,
+        exit_code=3,
+    )
 
 
 def list_sessions_workflow(
@@ -168,20 +178,37 @@ def create_session_workflow(
     is_remote: bool,
 ) -> dict[str, Any]:
     if not _DOMAIN_NAMESPACE_PATTERN.match(domain_namespace):
-        raise StudioWorkflowError("SYNTAX_INVALID_ARGUMENT", f"Invalid domain_namespace '{domain_namespace}'. Must match ^[a-z][a-z0-9_]{{0,63}}$", status_code=400, exit_code=2)
+        raise StudioWorkflowError(
+            "SYNTAX_INVALID_ARGUMENT",
+            f"Invalid domain_namespace '{domain_namespace}'. Must match ^[a-z][a-z0-9_]{{0,63}}$",
+            status_code=400,
+            exit_code=2,
+        )
 
     initial_ontology: GraphAOntology | None = None
     if from_workspace:
         if is_remote:
-            raise StudioWorkflowError("REMOTE_SERVER_PATH_FORBIDDEN", "Server-local 'from_workspace' paths are forbidden in remote_platform mode.", status_code=400, exit_code=7)
+            raise StudioWorkflowError(
+                "REMOTE_SERVER_PATH_FORBIDDEN",
+                "Server-local 'from_workspace' paths are forbidden in remote_platform mode.",
+                status_code=400,
+                exit_code=7,
+            )
         raw_p = Path(from_workspace)
         cand_p = raw_p if raw_p.is_absolute() else (allowed_roots[0] / raw_p)
         try:
-            validated_ws = validate_workspace_containment(cand_p, allowed_roots=allowed_roots, is_remote_request=False)
+            validated_ws = validate_workspace_containment(
+                cand_p, allowed_roots=allowed_roots, is_remote_request=False
+            )
         except OpenDVError as exc:
             raise raise_from_opendv_error(exc) from exc
         if not validated_ws.exists():
-            raise StudioWorkflowError("INVALID_WORKSPACE_PATH", "Specified workspace seed path does not exist within allowed workspace roots.", status_code=400, exit_code=2)
+            raise StudioWorkflowError(
+                "INVALID_WORKSPACE_PATH",
+                "Specified workspace seed path does not exist within allowed workspace roots.",
+                status_code=400,
+                exit_code=2,
+            )
         ont_file = discover_workspace_ontology_file(validated_ws, domain_namespace)
         try:
             text = ont_file.read_text(encoding="utf-8")
@@ -191,7 +218,12 @@ def create_session_workflow(
                 else GraphAOntology.model_validate(yaml.safe_load(text))
             )
         except (ValidationError, ValueError, TypeError, yaml.YAMLError, OSError) as exc:
-            raise StudioWorkflowError("INVALID_WORKSPACE_ONTOLOGY", f"Workspace ontology contract '{ont_file.name}' failed validation: {exc}", status_code=422, exit_code=4) from exc
+            raise StudioWorkflowError(
+                "INVALID_WORKSPACE_ONTOLOGY",
+                f"Workspace ontology contract '{ont_file.name}' failed validation: {exc}",
+                status_code=422,
+                exit_code=4,
+            ) from exc
 
     try:
         meta = session_mgr.create_session(
@@ -201,11 +233,17 @@ def create_session_workflow(
             enterprise_owner=enterprise_owner,
         )
     except SessionAlreadyExistsError as exc:
-        raise StudioWorkflowError("SESSION_ALREADY_EXISTS", str(exc), status_code=409, exit_code=6) from exc
+        raise StudioWorkflowError(
+            "SESSION_ALREADY_EXISTS", str(exc), status_code=409, exit_code=6
+        ) from exc
     except InvalidSessionIdentifierError as exc:
-        raise StudioWorkflowError("INVALID_SESSION_IDENTIFIER", str(exc), status_code=400, exit_code=2) from exc
+        raise StudioWorkflowError(
+            "INVALID_SESSION_IDENTIFIER", str(exc), status_code=400, exit_code=2
+        ) from exc
     except InvalidOntologyPayloadError as exc:
-        raise StudioWorkflowError("INVALID_WORKSPACE_ONTOLOGY", str(exc), status_code=422, exit_code=4) from exc
+        raise StudioWorkflowError(
+            "INVALID_WORKSPACE_ONTOLOGY", str(exc), status_code=422, exit_code=4
+        ) from exc
 
     sdir = session_mgr.get_session_dir(meta.session_id)
     meta = _stamp_wizard_v2_if_needed(sdir, meta)
@@ -226,19 +264,32 @@ def import_ontology_session_workflow(
     from opendv_service.studio.ttl_importer import parse_ontology_import_payload
 
     if not _DOMAIN_NAMESPACE_PATTERN.match(domain_namespace):
-        raise StudioWorkflowError("SYNTAX_INVALID_ARGUMENT", f"Invalid domain_namespace '{domain_namespace}'.", status_code=400, exit_code=2)
+        raise StudioWorkflowError(
+            "SYNTAX_INVALID_ARGUMENT",
+            f"Invalid domain_namespace '{domain_namespace}'.",
+            status_code=400,
+            exit_code=2,
+        )
     try:
-        ont = parse_ontology_import_payload(content, import_format=import_format, domain_namespace=domain_namespace)
+        ont = parse_ontology_import_payload(
+            content, import_format=import_format, domain_namespace=domain_namespace
+        )
     except OpenDVError as exc:
         raise raise_from_opendv_error(exc) from exc
     except (ValueError, ValidationError, yaml.YAMLError) as exc:
-        raise StudioWorkflowError("INVALID_WORKSPACE_ONTOLOGY", f"Ontology import parse failed: {exc}", status_code=422, exit_code=4) from exc
+        raise StudioWorkflowError(
+            "INVALID_WORKSPACE_ONTOLOGY",
+            f"Ontology import parse failed: {exc}",
+            status_code=422,
+            exit_code=4,
+        ) from exc
 
     actual_sha = compute_ontology_sha256(ont)
     if expected_sha256 and expected_sha256.strip().lower() != actual_sha.lower():
         raise StudioWorkflowError(
             "PRECONDITION_BASE_SHA_MISMATCH",
-            f"Imported ontology JCS SHA-256 '{actual_sha}' does not match expected '{expected_sha256}'.",
+            f"Imported ontology JCS SHA-256 '{actual_sha}' does not match "
+            f"expected '{expected_sha256}'.",
             status_code=412,
             exit_code=5,
         )
@@ -251,18 +302,26 @@ def import_ontology_session_workflow(
             enterprise_owner=enterprise_owner,
         )
     except SessionAlreadyExistsError as exc:
-        raise StudioWorkflowError("SESSION_ALREADY_EXISTS", str(exc), status_code=409, exit_code=6) from exc
+        raise StudioWorkflowError(
+            "SESSION_ALREADY_EXISTS", str(exc), status_code=409, exit_code=6
+        ) from exc
     except InvalidSessionIdentifierError as exc:
-        raise StudioWorkflowError("INVALID_SESSION_IDENTIFIER", str(exc), status_code=400, exit_code=2) from exc
+        raise StudioWorkflowError(
+            "INVALID_SESSION_IDENTIFIER", str(exc), status_code=400, exit_code=2
+        ) from exc
     except InvalidOntologyPayloadError as exc:
-        raise StudioWorkflowError("INVALID_WORKSPACE_ONTOLOGY", str(exc), status_code=422, exit_code=4) from exc
+        raise StudioWorkflowError(
+            "INVALID_WORKSPACE_ONTOLOGY", str(exc), status_code=422, exit_code=4
+        ) from exc
 
     sdir = session_mgr.get_session_dir(meta.session_id)
     meta = _stamp_wizard_v2_if_needed(sdir, meta)
     return build_session_summary_payload(sdir, meta)
 
 
-def get_session_detail_workflow(session_mgr: StudioSessionManager, meta: SessionMetadata) -> dict[str, Any]:
+def get_session_detail_workflow(
+    session_mgr: StudioSessionManager, meta: SessionMetadata
+) -> dict[str, Any]:
     """Assemble full StudioSessionDetailDTO payload for a session."""
     from opendv_service.studio.atomic_commit import _load_grandfathered_concept_uris
 
@@ -273,8 +332,12 @@ def get_session_detail_workflow(session_mgr: StudioSessionManager, meta: Session
         with contextlib.suppress(Exception):
             mdata = json.loads(manifest_file.read_text(encoding="utf-8"))
             sources_count = sum(1 for f in mdata.get("files", []) if not f.get("tombstoned", False))
-    proposals_count = len(list((sdir / "proposals").glob("*.json"))) if (sdir / "proposals").is_dir() else 0
-    versions_count = len(list((sdir / "versions").glob("v*"))) if (sdir / "versions").is_dir() else 0
+    proposals_count = (
+        len(list((sdir / "proposals").glob("*.json"))) if (sdir / "proposals").is_dir() else 0
+    )
+    versions_count = (
+        len(list((sdir / "versions").glob("v*"))) if (sdir / "versions").is_dir() else 0
+    )
     return {
         "session_id": meta.session_id,
         "domain_namespace": meta.domain_namespace,
@@ -298,7 +361,7 @@ def get_session_manifest_workflow(
     *,
     is_automated: bool,
 ) -> dict[str, Any]:
-    """Read session inputs/manifest.json with confidential description redaction for automated actors."""
+    """Read session inputs/manifest.json with confidential redaction for automated actors."""
     mfile = session_mgr.get_session_dir(session_id) / "inputs" / "manifest.json"
     files: list[dict[str, Any]] = []
     if mfile.is_file():

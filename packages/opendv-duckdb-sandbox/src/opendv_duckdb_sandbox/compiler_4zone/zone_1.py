@@ -27,6 +27,77 @@ from opendv_duckdb_sandbox.compiler_4zone.zone_1_helpers import (
 )
 
 
+def _compile_satellite_parent_hk_expr(
+    ir_obj: CanonicalIR,
+    sat: IRSatellite,
+    *,
+    hub_by_name: dict[str, IRHub] | None = None,
+    link_by_name: dict[str, IRLink] | None = None,
+    bkcc_registry: Any = None,
+) -> tuple[list[str], str]:
+    """Return `(bronze_parent_cols, parent_hk_sql_expr)` for a Satellite's staging view."""
+    hubs = hub_by_name if hub_by_name is not None else {h.name: h for h in ir_obj.hubs}
+    links = link_by_name if link_by_name is not None else {lnk.name: lnk for lnk in ir_obj.links}
+    reg = bkcc_registry if bkcc_registry is not None else build_staging_bkcc_registry(ir_obj)
+
+    if sat.parent_entity in hubs:
+        p_hub = hubs[sat.parent_entity]
+        p_cols = [f"parent_bk__{_validate_ident(bk.name)}" for bk in p_hub.business_keys]
+        non_bkcc_p_cols = [
+            f"parent_bk__{_validate_ident(bk.name)}"
+            for bk in p_hub.business_keys
+            if not bk.is_bkcc
+        ] or p_cols
+        p_bkcc_col_expr = _effective_hub_bkcc_column_expr(p_hub)
+        p_bkcc_lit = _effective_hub_bkcc_literal(p_hub)
+        p_has_bkcc_col = any(bool(bk.is_bkcc) for bk in p_hub.business_keys)
+        if p_bkcc_col_expr:
+            p_bkcc_cand = (
+                f"parent_bk__{_validate_ident(p_bkcc_col_expr)}"
+                if f"parent_bk__{_validate_ident(p_bkcc_col_expr)}" in p_cols
+                else "parent_bk__bkcc"
+            )
+            return p_cols, build_algorithm_a5_sha256_sql(
+                non_bkcc_p_cols,
+                is_business_key=True,
+                bkcc_column_expr=p_bkcc_cand,
+                key_columns=non_bkcc_p_cols,
+            )
+        sat_bkcc_lit = resolve_staging_bkcc_literal(
+            ir_obj,
+            sat.source_mapping.staging_table,
+            "*",
+            p_hub.name,
+            registry=reg,
+        )
+        eff_sat_bkcc_lit = sat_bkcc_lit or p_bkcc_lit
+        if eff_sat_bkcc_lit is None and p_has_bkcc_col:
+            return p_cols, build_algorithm_a5_sha256_sql(
+                p_cols,
+                is_business_key=True,
+                key_columns=non_bkcc_p_cols,
+            )
+        return p_cols, build_algorithm_a5_sha256_sql(
+            non_bkcc_p_cols,
+            bkcc_literal=eff_sat_bkcc_lit or GLOBAL_BKCC,
+            is_business_key=True,
+            key_columns=non_bkcc_p_cols,
+        )
+
+    p_lnk = links[sat.parent_entity]
+    p_cols = [
+        f"parent_fk__{_validate_ident(ref.fk_column_name)}" for ref in p_lnk.hub_references
+    ]
+    all_p_err_pred = " AND ".join(f"{c} = REPEAT('f', 64)" for c in p_cols)
+    all_p_unk_pred = " AND ".join(f"{c} = REPEAT('0', 64)" for c in p_cols)
+    return p_cols, build_algorithm_a5_sha256_sql(
+        p_cols,
+        is_business_key=True,
+        error_predicate=all_p_err_pred,
+        unknown_predicate=all_p_unk_pred,
+    )
+
+
 def _compile_satellite_zone_1_view(
     ir_obj: CanonicalIR,
     sat: IRSatellite,
@@ -45,65 +116,13 @@ def _compile_satellite_zone_1_view(
     parent_hk = _validate_ident(sat.parent_hk_column.name)
     has_applied = sat.applied_dts_column is not None
     data_cols = _satellite_all_data_columns(sat)
-
-    if sat.parent_entity in hub_by_name:
-        p_hub = hub_by_name[sat.parent_entity]
-        p_cols = [f"parent_bk__{_validate_ident(bk.name)}" for bk in p_hub.business_keys]
-        non_bkcc_p_cols = [
-            f"parent_bk__{_validate_ident(bk.name)}"
-            for bk in p_hub.business_keys
-            if not bk.is_bkcc
-        ] or p_cols
-        p_bkcc_col_expr = _effective_hub_bkcc_column_expr(p_hub)
-        p_bkcc_lit = _effective_hub_bkcc_literal(p_hub)
-        p_has_bkcc_col = any(bool(bk.is_bkcc) for bk in p_hub.business_keys)
-        if p_bkcc_col_expr:
-            p_bkcc_cand = (
-                f"parent_bk__{_validate_ident(p_bkcc_col_expr)}"
-                if f"parent_bk__{_validate_ident(p_bkcc_col_expr)}" in p_cols
-                else "parent_bk__bkcc"
-            )
-            parent_hk_expr = build_algorithm_a5_sha256_sql(
-                non_bkcc_p_cols,
-                is_business_key=True,
-                bkcc_column_expr=p_bkcc_cand,
-                key_columns=non_bkcc_p_cols,
-            )
-        else:
-            sat_bkcc_lit = resolve_staging_bkcc_literal(
-                ir_obj,
-                sat.source_mapping.staging_table,
-                "*",
-                p_hub.name,
-                registry=bkcc_registry,
-            )
-            eff_sat_bkcc_lit = sat_bkcc_lit or p_bkcc_lit
-            if eff_sat_bkcc_lit is None and p_has_bkcc_col:
-                parent_hk_expr = build_algorithm_a5_sha256_sql(
-                    p_cols,
-                    is_business_key=True,
-                    key_columns=non_bkcc_p_cols,
-                )
-            else:
-                parent_hk_expr = build_algorithm_a5_sha256_sql(
-                    non_bkcc_p_cols,
-                    bkcc_literal=eff_sat_bkcc_lit or GLOBAL_BKCC,
-                    is_business_key=True,
-                    key_columns=non_bkcc_p_cols,
-                )
-    else:
-        p_lnk = link_by_name[sat.parent_entity]
-        p_cols = [
-            f"parent_fk__{_validate_ident(ref.fk_column_name)}" for ref in p_lnk.hub_references
-        ]
-        all_p_err_pred = " AND ".join(f"{c} = REPEAT('f', 64)" for c in p_cols)
-        all_p_unk_pred = " AND ".join(f"{c} = REPEAT('0', 64)" for c in p_cols)
-        parent_hk_expr = build_algorithm_a5_sha256_sql(
-            p_cols,
-            is_business_key=True,
-            error_predicate=all_p_err_pred,
-            unknown_predicate=all_p_unk_pred,
-        )
+    _, parent_hk_expr = _compile_satellite_parent_hk_expr(
+        ir_obj,
+        sat,
+        hub_by_name=hub_by_name,
+        link_by_name=link_by_name,
+        bkcc_registry=bkcc_registry,
+    )
 
     soft_deprecated = set(getattr(sat.source_mapping, "soft_deprecated_columns", None) or ())
     aliases = dict(getattr(sat.source_mapping, "column_aliases", None) or {})
@@ -232,4 +251,4 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
     return "\n\n".join(parts)
 
 
-__all__ = ["_compile_generic_zone_1_staging_views"]
+__all__ = ["_compile_generic_zone_1_staging_views", "_compile_satellite_parent_hk_expr"]

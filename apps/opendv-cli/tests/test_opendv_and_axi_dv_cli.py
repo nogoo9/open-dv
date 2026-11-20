@@ -508,7 +508,9 @@ def test_opendv_pipeline_cli_incremental_initial_contract_flag(
     try:
         set_pipeline_runner_override(shim_runner)
         wave0_spec = "examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml"
-        wave1_spec = "examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml"
+        wave1_spec = (
+            "examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml"
+        )
         sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
 
         # 1. Run Wave 0 Cold Start
@@ -791,3 +793,70 @@ def test_verbose_flag_with_default_verify(capsys: pytest.CaptureFixture[str]) ->
     out_long = json.loads(capsys.readouterr().out)
     assert out_long["mode"] == "local"
     assert out_long["overall_passed"] is True
+
+
+def test_pipeline_validate_without_provider_respects_persisted_platform_config(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Omitting --provider in `pipeline validate` honors persisted platform_config.json."""
+    import sqlite3
+
+    ws_root = tmp_path / "ws"
+    state_dir = ws_root / ".opendv" / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    db_path = ws_root / "crm.sqlite"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE customers (customer_id INTEGER PRIMARY KEY, email TEXT)")
+    conn.execute("INSERT INTO customers VALUES (1, 'a@example.com')")
+    conn.commit()
+    conn.close()
+
+    cfg = {
+        "harness": {
+            "provider": "agy",
+            "auth": {"auth_mode": "cli_session", "mode": "cli_session"},
+        }
+    }
+    (state_dir / "platform_config.json").write_text(json.dumps(cfg), encoding="utf-8")
+
+    env_keys = ("OPENDV_WORKSPACE_ROOT", "OPENDV_STATE_DIR", "OPENDV_STORAGE_ROOT")
+    saved_env = {k: os.environ.get(k) for k in env_keys}
+    os.environ["OPENDV_WORKSPACE_ROOT"] = str(ws_root)
+    os.environ["OPENDV_STATE_DIR"] = str(state_dir)
+    os.environ["OPENDV_STORAGE_ROOT"] = str(state_dir)
+
+    ont_path = (
+        REPO_ROOT
+        / "examples"
+        / "pipeline_samples"
+        / "global_commerce_vault"
+        / "ontology"
+        / "commerce_graph_a_ontology.yaml"
+    )
+    try:
+        rc = app_main(
+            [
+                "pipeline",
+                "validate",
+                "--source",
+                f"sqlite:///{db_path.as_posix()}",
+                "--ontology",
+                str(ont_path),
+                "--dialect",
+                "duckdb",
+                "--json",
+            ]
+        )
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 0, f"Expected exit 0, got {rc}: {out}"
+        assert out["passed"] is True
+        assert not [
+            d for d in out.get("diagnostics", []) if d.get("code") == "HARNESS_AUTH_MISSING"
+        ]
+    finally:
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v

@@ -3,6 +3,7 @@
  * (apps/opendv-web-workbench/src/ontology/store/session-slice.ts)
  */
 
+import { createEmptyZoneSqlByDialect } from "../wizard/step6-run-hydration";
 import { createDefaultDiffState } from "./graph-diff";
 import type { JobMonitorController } from "./job-monitor";
 import { createDefaultQualityScorecard } from "./scorecard";
@@ -222,6 +223,16 @@ export function createSessionSlice(
 				...(sessionId !== prevSessionId
 					? {
 							proposalDrafts: {},
+							activeRunId: null,
+							isRunningPipeline: false,
+							stageStatuses: {},
+							topologyRows: [],
+							zoneSqlByZone: {},
+							zoneSqlByDialect: createEmptyZoneSqlByDialect(),
+							gateScorecard: null,
+							sessionRuns: [],
+							activeHold: null,
+							driftColumns: [],
 							layout: {
 								...get().layout,
 								rightDrawerTab: "concept",
@@ -346,6 +357,7 @@ export function createSessionSlice(
 							get().loadProposals(fetchImpl, sessionId),
 							get().loadEvidenceTables(fetchImpl, sessionId),
 							get().loadEvidenceChunks(fetchImpl, sessionId),
+							get().hydrateSessionLatestRun(fetchImpl, sessionId),
 						]);
 					} else {
 						set({ isLoadingSessions: false });

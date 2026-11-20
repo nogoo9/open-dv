@@ -52,9 +52,12 @@ _VOLATILE_FIELDS = frozenset(
 
 
 @pytest.fixture(autouse=True)
-def studio_parity_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure OPENDV_TOKEN and OPENDV_STUDIO_TOKEN are set for authenticated parity testing."""
+def studio_parity_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure OPENDV_TOKEN, OPENDV_STUDIO_TOKEN, and isolated OPENDV_STUDIO_ROOT are set."""
+    studio_root = tmp_path / "studio_root"
+    studio_root.mkdir(parents=True, exist_ok=True)
     token = "parity-test-token-012345"
+    monkeypatch.setenv("OPENDV_STUDIO_ROOT", str(studio_root))
     monkeypatch.setenv("OPENDV_TOKEN", token)
     monkeypatch.setenv("OPENDV_STUDIO_TOKEN", token)
 

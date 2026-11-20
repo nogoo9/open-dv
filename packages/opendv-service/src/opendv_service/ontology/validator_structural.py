@@ -158,7 +158,10 @@ class StructuralValidator:
                         f"'{r.relationship_uri}' exceeds the 55-character base slug budget.",
                         error_code=ErrorCode.INVALID_PHYSICAL_TABLE_NAME,
                     )
-                if r.target_link in link_to_rel and link_to_rel[r.target_link] != r.relationship_uri:
+                if (
+                    r.target_link in link_to_rel
+                    and link_to_rel[r.target_link] != r.relationship_uri
+                ):
                     raise ContractViolationError(
                         f"PHYSICAL_TABLE_NAME_COLLISION: Link table '{r.target_link}' is already "
                         f"bound to relationship '{link_to_rel[r.target_link]}'; cannot bind "

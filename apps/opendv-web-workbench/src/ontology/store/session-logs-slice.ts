@@ -106,6 +106,31 @@ export function createSessionLogsSlice(
 						(harness.budget as Record<string, unknown> | undefined) ?? {};
 					const currentMax = Number(budget.max_cost_usd ?? 2);
 					const nextMax = Number((currentMax + extraCostUsd).toFixed(2));
+					const reasonUp = String(hold?.reason ?? "").toUpperCase();
+					const curOut = Number(budget.max_output_tokens ?? 32000);
+					const curIn = Number(budget.max_input_tokens ?? 200000);
+					const curTimeout = Number(budget.timeout_seconds ?? 300);
+					const nextBudget: Record<string, unknown> = {
+						...budget,
+						max_cost_usd: nextMax,
+						...(reasonUp.includes("TOKEN") || curOut < 64000
+							? {
+									max_output_tokens: Math.min(
+										200000,
+										Math.max(64000, curOut * 2),
+									),
+									...(curIn < 200000 ? { max_input_tokens: 200000 } : {}),
+								}
+							: {}),
+						...(reasonUp.includes("TIMEOUT")
+							? {
+									timeout_seconds: Math.min(
+										3600,
+										Math.max(600, curTimeout * 2),
+									),
+								}
+							: {}),
+					};
 					const putRes = await studioFetch(
 						fetchImpl,
 						"/api/v1/platform/config",
@@ -113,10 +138,9 @@ export function createSessionLogsSlice(
 							method: "PUT",
 							headers: { "Content-Type": "application/json" },
 							body: JSON.stringify({
-								...cfg,
 								harness: {
 									...harness,
-									budget: { ...budget, max_cost_usd: nextMax },
+									budget: nextBudget,
 								},
 							}),
 						},

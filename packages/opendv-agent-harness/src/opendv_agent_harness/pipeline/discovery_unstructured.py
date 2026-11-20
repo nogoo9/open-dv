@@ -12,6 +12,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from opendv_agent_harness.pipeline.ontology_coverage_helpers import (
+    _GENERIC_TABLE_WORDS,
+    _singularize_slug,
+    _slugify,
+    _strip_dataset_wave_prefix,
+)
 from opendv_agent_harness.pipeline.spec import (
     PipelineStepReport,
     PipelineUnstructuredCandidateInput,
@@ -25,11 +31,6 @@ from opendv_agent_harness.pipeline.stages_agentic import (
 )
 from opendv_contracts.errors import ErrorCode, InputValidationError
 from opendv_core.models.graph_a import GraphAOntology
-
-
-def _slugify(name: str) -> str:
-    cleaned = re.sub(r"[^a-z0-9_]+", "_", name.lower()).strip("_")
-    return cleaned or "entity"
 
 
 def _resolve_hub_and_uri(
@@ -47,24 +48,31 @@ def _resolve_hub_and_uri(
         else (ontology.get("canonical_business_concepts", []) if isinstance(ontology, dict) else [])
     )
 
+    h_clean = _slugify(hint_lower.removeprefix("hub_"))
+    h_stripped = _strip_dataset_wave_prefix(h_clean)
+    h_sing = _singularize_slug(h_clean)
+    h_stripped_sing = _singularize_slug(h_stripped)
+    clean_cands = {h_clean, h_sing, h_stripped, h_stripped_sing}
     for cbc in cbcs:
         c_name = cbc.concept_name if hasattr(cbc, "concept_name") else cbc.get("concept_name", "")
         c_uri = cbc.concept_uri if hasattr(cbc, "concept_uri") else cbc.get("concept_uri", "")
         tgt_hub = cbc.target_hub if hasattr(cbc, "target_hub") else cbc.get("target_hub")
-        last = c_uri.rsplit(":", 1)[-1].lower() if c_uri else ""
-        h_clean = hint_lower.removeprefix("hub_")
+        last = _slugify(c_uri.rsplit(":", 1)[-1]) if c_uri else ""
+        last_sing = _singularize_slug(last) if last else ""
+        c_slug = _slugify(str(c_name).removeprefix("CBC_").removeprefix("cbc_"))
         if (
             str(c_name).upper() == hint_upper
             or str(c_uri).lower() == hint_lower
             or (tgt_hub and str(tgt_hub).lower() == hint_lower)
-            or (last and (last == h_clean or last == h_clean.rstrip("s")))
+            or (c_slug and (c_slug in clean_cands or _singularize_slug(c_slug) in clean_cands))
+            or (last and (last in clean_cands or last_sing in clean_cands))
         ):
-            hub_name = tgt_hub or f"hub_{_slugify(last)}"
+            hub_name = tgt_hub or f"hub_{last or c_slug}"
             return hub_name, c_uri
 
     # Synonym matching (e.g. trades -> Transaction)
     h_low = hint_lower.removeprefix("hub_")
-    h_stem = h_low.rstrip("s")
+    syn_cands = clean_cands | {h_low}
     for cbc in cbcs:
         c_name = cbc.concept_name if hasattr(cbc, "concept_name") else cbc.get("concept_name", "")
         c_uri = cbc.concept_uri if hasattr(cbc, "concept_uri") else cbc.get("concept_uri", "")
@@ -73,13 +81,15 @@ def _resolve_hub_and_uri(
             str(s).lower().strip()
             for s in ((cbc.synonyms if hasattr(cbc, "synonyms") else cbc.get("synonyms")) or [])
         ]
-        if h_low in syns or (h_stem and h_stem in syns):
+        if any(cand in syns for cand in syn_cands):
             c_slug = _slugify(str(c_name).removeprefix("CBC_"))
             hub_name = tgt_hub or f"hub_{c_slug}"
             return hub_name, c_uri
 
-    # Whole-word overlap or phrase match on concept URI or name
-    hint_words = set(hint_lower.split("_")) | {w.rstrip("s") for w in hint_lower.split("_")}
+    # Whole-word overlap or phrase match on concept URI or name, ranked by overlap specificity
+    raw_words = set(h_stripped.split("_")) | set(h_stripped_sing.split("_"))
+    hint_words = {w for w in raw_words if w and w not in _GENERIC_TABLE_WORDS} or raw_words
+    best_match: tuple[int, str, str] | None = None
     for cbc in cbcs:
         c_name = cbc.concept_name if hasattr(cbc, "concept_name") else cbc.get("concept_name", "")
         c_uri = cbc.concept_uri if hasattr(cbc, "concept_uri") else cbc.get("concept_uri", "")
@@ -90,20 +100,25 @@ def _resolve_hub_and_uri(
         c_words = (
             set(c_slug.split("_"))
             | set(c_name_slug.split("_"))
-            | {w.rstrip("s") for w in c_slug.split("_")}
+            | {_singularize_slug(w) for w in c_slug.split("_")}
         )
         if tgt_hub:
             c_words |= set(tgt_hub.removeprefix("hub_").lower().split("_"))
 
-        if (
-            (last and last in hint_lower)
-            or (c_slug and c_slug in hint_lower)
-            or (c_name_slug and c_name_slug in hint_lower)
+        overlap = len(hint_words & c_words)
+        substr_hit = (
+            (last and (last in hint_lower or last in h_stripped_sing))
+            or (c_slug and (c_slug in hint_lower or c_slug in h_stripped_sing))
+            or (c_name_slug and (c_name_slug in hint_lower or c_name_slug in h_stripped_sing))
             or (tgt_hub and tgt_hub.removeprefix("hub_").lower() in hint_lower)
-            or bool(hint_words & c_words)
-        ):
+        )
+        if overlap or substr_hit:
+            score = overlap * 10 + (5 if substr_hit else 0) - len(c_words)
             hub_name = tgt_hub or f"hub_{c_slug}"
-            return hub_name, c_uri
+            if best_match is None or score > best_match[0]:
+                best_match = (score, hub_name, c_uri)
+    if best_match is not None:
+        return best_match[1], best_match[2]
 
     raise InputValidationError(
         f"Unmapped ontology concept '{concept_or_hub_hint}': "

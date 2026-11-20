@@ -23,6 +23,7 @@ from opendv_agent_harness.pipeline.spec import (
     PipelineStepReport,
     PipelineWaveReport,
 )
+from opendv_agent_harness.pipeline.stage_outputs import sanitize_contract_dict
 from opendv_agent_harness.pipeline.validation_postflight import build_rejected_pipeline_report
 from opendv_axi_verifier.alg_a8_orchestrator import (
     AxiDvPipelineResult,
@@ -32,26 +33,7 @@ from opendv_core.models.graph_a import GraphAOntology
 
 
 def _clean_contract_dict(cnt: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not cnt:
-        return cnt
-    out: dict[str, Any] = {}
-    for k, v in cnt.items():
-        if v is None:
-            continue
-        if isinstance(v, list):
-            cleaned_list: list[Any] = []
-            for elem in v:
-                if isinstance(elem, dict):
-                    clean_elem = {ik: iv for ik, iv in elem.items() if iv is not None}
-                    if k == "links" and "degenerate_columns" not in clean_elem:
-                        clean_elem["degenerate_columns"] = []
-                    cleaned_list.append(clean_elem)
-                else:
-                    cleaned_list.append(elem)
-            out[k] = cleaned_list
-        else:
-            out[k] = v
-    return out
+    return sanitize_contract_dict(cnt)
 
 
 def _normalize_studio_placeholder_grain(ont_dict: dict[str, Any]) -> dict[str, Any]:
@@ -234,10 +216,17 @@ def execute_stage_05_static_gates(
 
     if not is_verified:
         if axi_res.status == "ASK_USER":
-            g1_violations = [
+            all_viols = list(getattr(getattr(axi_res, "toon_trace", None), "violations", []))
+            ask_viols = [
                 v
-                for v in getattr(getattr(axi_res, "toon_trace", None), "violations", [])
-                if getattr(v, "gate", None) == "G1" or "DV-G4-001" in getattr(v, "rule", "")
+                for v in all_viols
+                if str(getattr(v, "action", "")).upper() in {"ASK-USER", "ASK_USER"}
+            ]
+            g1_violations = ask_viols or [
+                v
+                for v in all_viols
+                if str(getattr(v, "action", "")).upper() != "AUTO-FIX"
+                and (getattr(v, "gate", None) == "G1" or "DV-G4-001" in getattr(v, "rule", ""))
             ]
             diag_msg = (
                 f"{g1_violations[0].rule}: {g1_violations[0].target} ({g1_violations[0].fix})"
@@ -248,25 +237,105 @@ def execute_stage_05_static_gates(
                     else "Unmapped entity detected in Gate 1 (DV-G4-001)"
                 )
             )
+            hold_policy = getattr(runner.harness_setup, "steward_hold_policy", "pause")
+            rule_id = g1_violations[0].rule if g1_violations else "DV-G4-001"
             cov_art_id = f"art-w{w_idx}-stage01-ontology-coverage"
             hold_options = [
                 {
-                    "option_id": "REJECT_WITH_GAP_REPORT",
+                    "option_id": "AUTO_APPROVE_TOP_CANDIDATE"
+                    if hold_policy == "auto_approve_top_candidate"
+                    else "REJECT_WITH_GAP_REPORT",
                     "coverage_artifact_id": cov_art_id,
                     "diagnostic": diag_msg,
                 }
             ]
-            runner.hold_manager.record_hold(
-                run_id=runner.run_id,
-                task_id=f"task-w{w_idx}-g1-ontology-hold",
-                session_id=f"sess-w{w_idx}-g1",
-                stage_id=s05_id,
-                persona=s05_persona,
-                headline=f"Wave {w_idx} Gate 1 ontology gap hold: {diag_msg}",
-                escalation_reason="UNMAPPED_ONTOLOGY_CONCEPT",
-                rule_id="DV-G4-001",
-                options=hold_options,
-            )
+            hold_mgr = getattr(runner, "hold_manager", None)
+            if hold_policy == "auto_approve_top_candidate":
+                if hold_mgr is not None:
+                    hold_rec = hold_mgr.record_hold(
+                        run_id=runner.run_id,
+                        task_id=f"task-w{w_idx}-g1-ontology-hold",
+                        session_id=f"sess-w{w_idx}-g1",
+                        stage_id=s05_id,
+                        persona=s05_persona,
+                        headline=f"Wave {w_idx} Gate 1 static gate hold: {diag_msg}",
+                        escalation_reason="UNMAPPED_ONTOLOGY_CONCEPT",
+                        rule_id=rule_id,
+                        options=hold_options,
+                    )
+                    hold_mgr.resolve_hold(
+                        hold_rec.decision_id,
+                        action="APPROVE",
+                        selected_option_id="AUTO_APPROVE_TOP_CANDIDATE",
+                        resolution_notes=(
+                            f"Auto-approved Stage 05 hold per steward_hold_policy: {diag_msg}"
+                        ),
+                    )
+                step_05 = PipelineStepReport(
+                    stage_index=5,
+                    stage_id=s05_id,
+                    stage_name=s05_id,
+                    persona=s05_persona,
+                    model_tier="symbolic",
+                    model_used=s05_model,
+                    status="AUTO_REPAIRED" if axi_res.applied_codemods else "PASS",
+                    verdict="PASS",
+                    duration_ms=30.0,
+                    summary=f"AXI-DV static gates verified (auto-approved hold: {diag_msg}).",
+                    wave_index=w_idx,
+                )
+                wave_steps.append(step_05)
+                step_reports.append(step_05)
+                runner._notify_stage_complete(w_idx, step_05)
+                return verified_contract, None
+
+            if hold_policy == "reject_on_hold":
+                step_05 = PipelineStepReport(
+                    stage_index=5,
+                    stage_id=s05_id,
+                    stage_name=s05_id,
+                    persona=s05_persona,
+                    model_tier="symbolic",
+                    model_used=s05_model,
+                    status="REJECT-WITH-TRACE",
+                    verdict="FAIL",
+                    duration_ms=30.0,
+                    summary=f"AXI-DV static gate rejected on hold: {diag_msg}",
+                    wave_index=w_idx,
+                )
+                wave_steps.append(step_05)
+                step_reports.append(step_05)
+                runner._notify_stage_complete(w_idx, step_05)
+                rej_report = build_rejected_pipeline_report(
+                    runner=runner,
+                    t0=t0,
+                    preflight=preflight,
+                    step_reports=step_reports,
+                    artifacts=artifacts,
+                    stage_id=s05_id,
+                    wave_reports=wave_reports,
+                    diagnostics=[
+                        {
+                            "code": "STATIC_GATES_HOLD_REJECTED",
+                            "severity": "ERROR",
+                            "message": diag_msg,
+                        }
+                    ],
+                )
+                return contract_dict, rej_report
+
+            if hold_mgr is not None:
+                hold_mgr.record_hold(
+                    run_id=runner.run_id,
+                    task_id=f"task-w{w_idx}-g1-ontology-hold",
+                    session_id=f"sess-w{w_idx}-g1",
+                    stage_id=s05_id,
+                    persona=s05_persona,
+                    headline=f"Wave {w_idx} Gate 1 ontology gap hold: {diag_msg}",
+                    escalation_reason="UNMAPPED_ONTOLOGY_CONCEPT",
+                    rule_id=rule_id,
+                    options=hold_options,
+                )
             step_05 = PipelineStepReport(
                 stage_index=5,
                 stage_id=s05_id,

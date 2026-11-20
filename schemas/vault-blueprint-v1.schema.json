@@ -718,7 +718,7 @@
           "type": "string"
         },
         "ontology_concept_uri": {
-          "pattern": "^urn:ontology:entity:[a-z0-9_]+$",
+          "pattern": "^urn:(ontology:entity|opendv:concept):[a-z0-9_]+$",
           "title": "Ontology Concept Uri",
           "type": "string"
         },
@@ -782,7 +782,7 @@
           "$ref": "#/$defs/ContractLinkTypeLiteral"
         },
         "ontology_concept_uri": {
-          "pattern": "^urn:ontology:(event|relationship):[a-z0-9_]+$",
+          "pattern": "^urn:(ontology|opendv):(event|relationship):[a-z0-9_]+$",
           "title": "Ontology Concept Uri",
           "type": "string"
         },
@@ -868,7 +868,7 @@
           "type": "string"
         },
         "ontology_concept_uri": {
-          "pattern": "^urn:ontology:enum:[a-z0-9_]+$",
+          "pattern": "^urn:(ontology|opendv):enum:[a-z0-9_]+$",
           "title": "Ontology Concept Uri",
           "type": "string"
         },
@@ -990,6 +990,21 @@
           ],
           "default": null,
           "title": "Soft Deprecated Columns"
+        },
+        "column_aliases": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column Aliases"
         },
         "payload_columns": {
           "items": {

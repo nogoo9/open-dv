@@ -9138,6 +9138,18 @@
             "title": "Sandbox Url",
             "type": "string"
           },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional Ontology Studio session ID linked to this run",
+            "title": "Session Id"
+          },
           "started_at_utc": {
             "description": "ISO 8601 UTC start timestamp",
             "title": "Started At Utc",

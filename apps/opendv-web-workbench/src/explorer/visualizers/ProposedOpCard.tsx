@@ -7,9 +7,7 @@ import type { ProposedOp } from "./OntologyProposalVisualizer";
 
 export function ProposedOpCard({ op }: { op: ProposedOp }) {
 	const opConf =
-		typeof op.confidence === "number"
-			? Math.round(op.confidence * 100)
-			: null;
+		typeof op.confidence === "number" ? Math.round(op.confidence * 100) : null;
 
 	return (
 		<div
@@ -97,7 +95,17 @@ export function ProposedOpCard({ op }: { op: ProposedOp }) {
 					)}
 					{(op.attributes ?? []).length > 0 && (
 						<div>
-							<strong>Attributes:</strong> {op.attributes?.join(", ")}
+							<strong>Attributes:</strong>{" "}
+							{op.attributes
+								?.map((a) =>
+									typeof a === "string"
+										? a
+										: ((a as { attribute_name?: string; name?: string })
+												?.attribute_name ??
+											(a as { name?: string })?.name ??
+											String(a)),
+								)
+								.join(", ")}
 						</div>
 					)}
 				</div>
@@ -170,7 +178,8 @@ export function ProposedOpCard({ op }: { op: ProposedOp }) {
 					)}
 					{(op.additional_attributes ?? []).length > 0 && (
 						<div>
-							<strong>Added Attributes:</strong> {op.additional_attributes?.join(", ")}
+							<strong>Added Attributes:</strong>{" "}
+							{op.additional_attributes?.join(", ")}
 						</div>
 					)}
 				</div>

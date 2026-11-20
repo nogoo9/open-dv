@@ -43,7 +43,7 @@ def resolve_session_citations(
     session_id: str,
     citations: Sequence[EvidenceRef | dict[str, Any]],
 ) -> dict[str, Any]:
-    """Resolve `document_span`, `column_profile`, and `standard_reference` citations in one batch."""
+    """Resolve `document_span`, `column_profile`, and `standard_reference` citations."""
     session_dir = session_mgr.get_session_dir(session_id)
     cas = session_mgr.get_cas(session_id)
     chunks, _ = load_active_session_evidence(session_dir)

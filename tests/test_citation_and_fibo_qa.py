@@ -246,3 +246,96 @@ def test_fibo_qa_service_and_endpoint_returns_cited_answer_and_suggested_actions
     )
     assert resp.status_code == 422, resp.text
     assert resp.json().get("error_code") == "AGENT_NOT_CONFIGURED"
+
+
+def test_fibo_qa_respects_harness_budget_timeout_and_default_ge_120(
+    tmp_path: Path, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fix 1 TDD: answer_fibo_qa passes active_harness.config.budget.timeout_seconds (not hardcoded 20.0) and default >= 120.0."""
+    from opendv_agent_harness.models import HarnessBudget
+    from opendv_service.studio import fibo_qa_service
+    from opendv_service.studio.agent_runner_helpers import DEFAULT_AGENT_TIMEOUT_SECONDS
+    from opendv_service.studio.fibo_qa_service import FiboQARequest, FiboQAResponse, answer_fibo_qa
+
+    assert DEFAULT_AGENT_TIMEOUT_SECONDS >= 120.0
+    assert DEFAULT_AGENT_TIMEOUT_SECONDS == 300.0
+
+    class _TimeoutSpyHarness:
+        def __init__(self, timeout_val: float) -> None:
+            self._cfg = HarnessConfig(
+                provider="claude",
+                workspace_dir=tmp_path,
+                state_dir=tmp_path / "s",
+                app_data_dir=tmp_path / "a",
+                save_dir=tmp_path / "sv",
+                budget=HarnessBudget(timeout_seconds=timeout_val),
+            )
+
+        @property
+        def provider_name(self) -> str:
+            return "claude"
+
+        @property
+        def config(self) -> HarnessConfig:
+            return self._cfg
+
+        def resolve_model(self, tier: ModelTier, persona: Any = None) -> str:
+            return "claude-sonnet-4-5"
+
+        async def cancel_active_turn(self, task_id: str) -> None:
+            return None
+
+        async def stream_task(self, spec: AgentTaskSpec[Any]) -> Any:
+            if False:
+                yield  # pragma: no cover
+
+        async def run_task(self, spec: AgentTaskSpec[Any], *, on_event: Any = None) -> HarnessRunResult[Any]:
+            qa_resp = FiboQAResponse(answer="Cited answer", citations=[], suggested_actions=[])
+            return HarnessRunResult(
+                task_id=spec.task_id,
+                run_id=spec.run_id,
+                session_id="qa-timeout-01",
+                trace_id=spec.trace_id,
+                span_id="0123456789abcdef",
+                provider="claude",
+                model_used="claude-sonnet-4-5",
+                stop_reason=HarnessStopReason.COMPLETED,
+                text_output=qa_resp.model_dump_json(),
+                usage=HarnessUsageMetrics(input_tokens=10, output_tokens=10, total_tokens=20, cost_usd=0.001),
+                structured_output=qa_resp,
+            )
+
+    mgr = StudioSessionManager(studio_root=isolated_env, workspace_root=tmp_path / "workspace")
+    mgr.create_session(session_id="qa-timeout-01", domain_namespace="custody_ops")
+
+    observed_timeouts: list[float | None] = []
+    orig_run_coro_sync = fibo_qa_service._run_coro_sync
+
+    def _spy_run_coro_sync(coro: Any, timeout: float | None = None) -> Any:
+        observed_timeouts.append(timeout)
+        return orig_run_coro_sync(coro, timeout=timeout)
+
+    monkeypatch.setattr(fibo_qa_service, "_run_coro_sync", _spy_run_coro_sync)
+
+    answer_fibo_qa(
+        session_mgr=mgr,
+        session_id="qa-timeout-01",
+        request=FiboQARequest(question="What is Settlement SLA?"),
+        harness=_TimeoutSpyHarness(45.0),
+    )
+    assert observed_timeouts[-1] == pytest.approx(45.0)
+
+    answer_fibo_qa(
+        session_mgr=mgr,
+        session_id="qa-timeout-01",
+        request=FiboQARequest(question="What is Settlement SLA?"),
+        harness=_TimeoutSpyHarness(300.0),
+    )
+    assert observed_timeouts[-1] == pytest.approx(300.0)
+
+    monkeypatch.delenv("OPENDV_STUDIO_AGENT_TIMEOUT", raising=False)
+    client = _client(tmp_path)
+    runner = client.app.state.studio_agent_runner
+    assert runner._timeout_seconds >= 120.0
+    assert runner._timeout_seconds == pytest.approx(300.0)
+

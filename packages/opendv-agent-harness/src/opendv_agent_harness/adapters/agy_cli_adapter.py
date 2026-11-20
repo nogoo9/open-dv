@@ -20,6 +20,7 @@ from opendv_agent_harness.adapters.cli_subprocess_base import (
     build_cli_prompt,
     extract_json_from_stdout,
     make_cli_turn_meta,
+    parse_ndjson_step_events,
     stream_cli_subprocess_lines,
     validate_cli_structured_output,
 )
@@ -152,6 +153,8 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
             for c_chunk in text_deltas:
                 streamed_text_chunks.append(c_chunk)
                 yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=c_chunk)
+            for step_kind, step_kwargs in parse_ndjson_step_events(raw_line):
+                yield make_event(step_kind, **step_kwargs)
             if result_obj is not None:
                 last_result_payload = dict(result_obj)
         run_state["last_result_payload"] = last_result_payload
@@ -192,8 +195,11 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
 
         streamed_text_chunks: list[str] = []
         schema_file_path: Path | None = None
+        use_json_schema_flag = bool(
+            self._config.extra_provider_options.get("agy_use_json_schema_flag", False)
+        )
         try:
-            if spec.output_schema is not None:
+            if use_json_schema_flag and spec.output_schema is not None:
                 self._config.state_dir.mkdir(parents=True, exist_ok=True)
                 with tempfile.NamedTemporaryFile(
                     mode="w",
@@ -206,7 +212,10 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
                     json.dump(spec.output_schema.model_json_schema(), tmp_f)
                     schema_file_path = Path(tmp_f.name)
 
-            prompt_text = self._build_cli_prompt(spec, include_inline_schema=False)
+            prompt_text = self._build_cli_prompt(
+                spec,
+                include_inline_schema=(schema_file_path is None and spec.output_schema is not None),
+            )
             cmd: list[str] = [
                 agy_bin,
                 "--input-format",
@@ -328,10 +337,21 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
             if obs_ev.get("status") == "ASK-USER":
                 yield make_event(HarnessEventKind.STEWARD_HOLD, obs_event=obs_ev)
 
+        if (
+            not raw_response_text.strip()
+            and raw_structured is None
+            and payload.get("denied_actions")
+        ):
+            raise ProviderConfigurationError(
+                "Antigravity CLI ('agy') returned an empty response with "
+                f"denied_actions={payload.get('denied_actions')}."
+            )
         validated = validate_cli_structured_output(
             spec,
             raw_structured=raw_structured,
             raw_response_text=raw_response_text,
+            cli_label="Antigravity CLI ('agy')",
+            denied_actions=payload.get("denied_actions"),
         )
         turn_meta = make_cli_turn_meta(
             spec,
