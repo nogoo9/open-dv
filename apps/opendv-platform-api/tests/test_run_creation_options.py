@@ -128,7 +128,10 @@ def test_create_run_with_path_traversal_rejected(test_env: tuple[TestClient, Pat
     assert "Path Containment Violation" in body.get("title", "")
 
 
-def test_pipeline_run_with_creation_options(test_env: tuple[TestClient, Path]) -> None:
+def test_pipeline_run_with_creation_options(
+    deterministic_pipeline_runner: None,
+    test_env: tuple[TestClient, Path],
+) -> None:
     """Verify POST /api/v1/pipelines/runs propagates initial_contract."""
     client, workspace_root = test_env
     input_spec = workspace_root / "pipeline_input.yaml"

@@ -12,7 +12,6 @@ import json
 import os
 import shutil
 from collections.abc import AsyncIterator
-from pathlib import Path
 from typing import Any
 
 from opendv_agent_harness.adapters.antigravity_adapter import ProviderConfigurationError
@@ -51,16 +50,16 @@ _AGY_ONLY_CLAUDE_MODEL_MAP: dict[str, str] = {
 def _unwrap_windows_npm_shim(bin_path: str) -> str:
     """On Windows, bypass npm's claude.cmd shim to avoid cmd.exe 8KB/escaping bugs."""
     if os.name == "nt" and bin_path.lower().endswith((".cmd", ".bat")):
-        exe = (
-            Path(bin_path).parent
-            / "node_modules"
-            / "@anthropic-ai"
-            / "claude-code"
-            / "bin"
-            / "claude.exe"
+        exe = os.path.join(
+            os.path.dirname(bin_path),
+            "node_modules",
+            "@anthropic-ai",
+            "claude-code",
+            "bin",
+            "claude.exe",
         )
-        if exe.is_file():
-            return str(exe)
+        if os.path.isfile(exe):
+            return exe
     return bin_path
 
 
@@ -111,7 +110,7 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
             if isinstance(candidate, str) and candidate.strip():
                 has_explicit = True
                 cand_str = candidate.strip()
-                if Path(cand_str).is_file():
+                if os.path.isfile(cand_str):
                     return _unwrap_windows_npm_shim(cand_str)
                 which_cand = shutil.which(cand_str)
                 if which_cand:

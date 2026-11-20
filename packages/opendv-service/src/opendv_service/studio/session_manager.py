@@ -1099,19 +1099,19 @@ class StudioSessionManager:
     def delete_session(self, session_id: str, force: bool = False) -> None:
         """Delete an existing studio session directory under L5 lifecycle + session locks."""
         session_dir = self.get_session_dir(session_id)
-        lifecycle_lock_path = session_dir.parent / f".lifecycle_{session_id}.lock"
+        lifecycle_lock_path = session_dir.parent / f".lifecycle_{session_dir.name}.lock"
 
         with studio_lock(
             lifecycle_lock_path,
             level=L5_SESSION,
-            session_id=session_id,
+            session_id=session_dir.name,
             remove_on_release=False,
         ):
             if not session_dir.exists() or session_dir.is_symlink():
                 raise SessionNotFoundError(f"Session '{session_id}' not found")
 
             lock_path = session_dir / ".session.lock"
-            with reentrant_session_lock(lock_path, session_id=session_id):
+            with reentrant_session_lock(lock_path, session_id=session_dir.name):
                 session_json = session_dir / "session.json"
                 if session_json.is_file():
                     try:
@@ -1135,7 +1135,7 @@ class StudioSessionManager:
                 with contextlib.suppress(OSError):
                     write_session_fence_marker(session_dir)
 
-            tombstone = self.studio_root / f".trash-{session_id}-{uuid.uuid4().hex[:8]}"
+            tombstone = self.studio_root / f".trash-{session_dir.name}-{uuid.uuid4().hex[:8]}"
             try:
                 replace_with_retry(session_dir, tombstone)
                 shutil.rmtree(tombstone)
@@ -1189,11 +1189,20 @@ class StudioSessionManager:
         scratch_dir = self.studio_root / ".scratch"
         scratch_dir.mkdir(parents=True, exist_ok=True)
         set_owner_only_permissions(scratch_dir)
-        staging_dir = scratch_dir / f".staging_clone_{new_sid}_{secrets.token_hex(6)}"
+        scratch_real = os.path.realpath(scratch_dir)
+        scratch_pfx = scratch_real if scratch_real.endswith(os.sep) else scratch_real + os.sep
+        staging_real = os.path.realpath(
+            os.path.join(scratch_real, f".staging_clone_{new_dir.name}_{secrets.token_hex(6)}")
+        )
+        if not staging_real.startswith(scratch_pfx):
+            raise InvalidSessionIdentifierError(
+                f"Clone staging path for '{new_dir.name}' escapes studio scratch root"
+            )
+        staging_dir = Path(staging_real)
 
         try:
             try:
-                with reentrant_session_lock(sdir / ".session.lock", session_id=source_session_id):
+                with reentrant_session_lock(sdir / ".session.lock", session_id=sdir.name):
                     if not (sdir / "session.json").is_file():
                         raise SessionNotFoundError(f"Session '{source_session_id}' not found")
 
@@ -1356,9 +1365,9 @@ class StudioSessionManager:
             set_owner_only_permissions(staging_dir)
 
             with studio_lock(
-                new_dir.parent / f".lifecycle_{new_sid}.lock",
+                new_dir.parent / f".lifecycle_{new_dir.name}.lock",
                 level=L5_SESSION,
-                session_id=new_sid,
+                session_id=new_dir.name,
                 remove_on_release=False,
             ):
                 if new_dir.exists():
@@ -1480,7 +1489,7 @@ class StudioSessionManager:
             filename = f"note_{source_sha256[:8]}.{ext}"
 
         lock_path = session_dir / ".session.lock"
-        with reentrant_session_lock(lock_path, session_id=session_id):
+        with reentrant_session_lock(lock_path, session_id=session_dir.name):
             session_meta = self.get_session(session_id)
             reconcile_or_verify_audit_ledger(
                 session_dir, session_meta, self.security_manager, mutate=True

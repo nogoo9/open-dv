@@ -471,4 +471,249 @@ def test_build_safe_agent_prompt_budgets_350_plus_chunks_and_preserves_inline_no
     assert len(cli_prompt.encode("utf-8")) <= 95_000
 
 
+def test_ensure_pipeline_agent_ready_strict_and_symbolic_completion_policies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D28: ensure_pipeline_agent_ready fails closed on strict, honors governance_policy & platform config."""
+    from opendv_contracts.dtos.pipeline import PipelineInputDTO
+    from opendv_contracts.dtos.sources import SourceFeedDTO
+    from opendv_service.use_cases.pipeline_preflight import ensure_pipeline_agent_ready
+
+    for k in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENDV_AGENT_PROVIDER"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("PATH", "")
+
+    state = PlatformStateContainer(workspace_root=tmp_path, storage_root=tmp_path / "state")
+    dto = PipelineInputDTO(
+        sources=[SourceFeedDTO(feed_id="f1", source_system="crm", uri="sqlite:///crm.db")]
+    )
+
+    # 1. Default strict policy fails closed with 422 AGENT_NOT_CONFIGURED
+    with pytest.raises(OpenDVError) as exc_info:
+        ensure_pipeline_agent_ready(state, dto)
+    assert exc_info.value.error_code == ErrorCode.AGENT_NOT_CONFIGURED
+    assert exc_info.value.http_status == 422
+
+    # 2. Request governance_policy={"stage_output_policy": "symbolic_completion"} succeeds
+    dto_sym = PipelineInputDTO(
+        sources=[SourceFeedDTO(feed_id="f1", source_system="crm", uri="sqlite:///crm.db")],
+        governance_policy={"stage_output_policy": "symbolic_completion"},
+    )
+    ensure_pipeline_agent_ready(state, dto_sym)
+
+    # 3. Persisted platform config stage_output_policy="symbolic_completion" succeeds
+    state.update_platform_config({"harness": {"stage_output_policy": "symbolic_completion"}})
+    ensure_pipeline_agent_ready(state, dto)
+
+
+def test_ensure_pipeline_agent_ready_honors_spec_path_content_and_harness_config_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D28 preflight reads governance_policy/stage_output_policy from input_spec_path, input_spec_content, and harness_config_path."""
+    from opendv_contracts.dtos.pipeline import PipelineRunRequest
+    from opendv_service.use_cases.pipeline_preflight import ensure_pipeline_agent_ready
+
+    for k in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENDV_AGENT_PROVIDER", "OPENAI_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("PATH", "")
+
+    ws_root = tmp_path / "ws"
+    ws_root.mkdir(parents=True, exist_ok=True)
+    state = PlatformStateContainer(workspace_root=ws_root, storage_root=tmp_path / "state")
+
+    spec_sym_file = ws_root / "spec_sym.json"
+    spec_sym_file.write_text(
+        json.dumps(
+            {
+                "sources": [],
+                "governance_policy": {"stage_output_policy": "symbolic_completion"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec_strict_file = ws_root / "spec_strict.json"
+    spec_strict_file.write_text(json.dumps({"sources": []}), encoding="utf-8")
+
+    hc_sym_file = ws_root / "harness_sym.yaml"
+    hc_sym_file.write_text("provider: agy\nstage_output_policy: symbolic_completion\n", encoding="utf-8")
+
+    # Symbolic via input_spec_path
+    ensure_pipeline_agent_ready(state, PipelineRunRequest(input_spec_path=str(spec_sym_file)))
+
+    # Symbolic via input_spec_content
+    ensure_pipeline_agent_ready(
+        state,
+        PipelineRunRequest(
+            input_spec_content=json.dumps(
+                {
+                    "sources": [],
+                    "governance_policy": {"stage_output_policy": "symbolic_completion"},
+                }
+            )
+        ),
+    )
+
+    # Symbolic via harness_config_path
+    ensure_pipeline_agent_ready(
+        state,
+        PipelineRunRequest(input_spec={"sources": []}, harness_config_path=str(hc_sym_file)),
+    )
+
+    # Strict via input_spec_path (default omits stage_output_policy) still fails closed
+    with pytest.raises(OpenDVError) as exc_info:
+        ensure_pipeline_agent_ready(state, PipelineRunRequest(input_spec_path=str(spec_strict_file)))
+    assert exc_info.value.error_code == ErrorCode.AGENT_NOT_CONFIGURED
+    assert exc_info.value.http_status == 422
+
+
+def test_cli_opendv_pipeline_run_honors_symbolic_completion_and_fails_closed_on_strict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """CLI `opendv pipeline run -i <spec.json> --json` allows symbolic_completion and fails closed on strict."""
+    from opendv_cli import app_main
+
+    for k in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENDV_AGENT_PROVIDER", "OPENAI_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("PATH", "")
+
+    ws_root = tmp_path / "ws"
+    ws_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("OPENDV_WORKSPACE_ROOT", str(ws_root))
+    monkeypatch.setenv("OPENDV_STUDIO_ROOT", str(tmp_path / "studio"))
+
+    csv_file = ws_root / "customers.csv"
+    csv_file.write_text("customer_id,email\nC001,alice@example.org\n", encoding="utf-8")
+    ont_file = ws_root / "graph_a.json"
+    ont_file.write_text(
+        create_genesis_ontology("custody_ops").model_dump_json(indent=2), encoding="utf-8"
+    )
+
+    base_spec = {
+        "domain_namespace": "custody_ops",
+        "graph_a_ontology_path": str(ont_file),
+        "sources": [
+            {
+                "feed_id": "crm_customers",
+                "source_system": "crm",
+                "table_name": "customers",
+                "data_path": str(csv_file),
+                "source": {"adapter": "file", "uri": str(csv_file)},
+            }
+        ],
+    }
+    spec_strict = ws_root / "pipe_strict.json"
+    spec_strict.write_text(json.dumps(base_spec), encoding="utf-8")
+
+    spec_sym = ws_root / "pipe_sym.json"
+    spec_sym.write_text(
+        json.dumps(
+            {
+                **base_spec,
+                "governance_policy": {"stage_output_policy": "symbolic_completion"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc_strict = app_main(["pipeline", "run", "-i", str(spec_strict), "--json"])
+    out_strict = capsys.readouterr().out
+    assert rc_strict == 4
+    assert "AGENT_NOT_CONFIGURED" in out_strict
+
+    rc_sym = app_main(
+        [
+            "pipeline",
+            "run",
+            "-i",
+            str(spec_sym),
+            "--output-dir",
+            str(tmp_path / "out_sym"),
+            "--json",
+        ]
+    )
+    out_sym = capsys.readouterr().out
+    assert rc_sym == 0, out_sym
+    assert "AGENT_NOT_CONFIGURED" not in out_sym
+
+
+def test_ensure_pipeline_agent_ready_handles_binary_spec_and_path_priority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Preflight fails closed on non-UTF-8 binary input_spec_path and honors path > inline priority."""
+    from opendv_contracts.dtos.pipeline import PipelineRunRequest
+    from opendv_service.use_cases.pipeline_preflight import ensure_pipeline_agent_ready
+
+    for k in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENDV_AGENT_PROVIDER", "OPENAI_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("PATH", "")
+
+    ws_root = tmp_path / "ws"
+    ws_root.mkdir(parents=True, exist_ok=True)
+    state = PlatformStateContainer(workspace_root=ws_root, storage_root=tmp_path / "state")
+
+    # 1. Non-UTF-8 binary file fails closed cleanly with AGENT_NOT_CONFIGURED (no raw UnicodeDecodeError)
+    bin_spec = ws_root / "binary_spec.json"
+    bin_spec.write_bytes(b"\xff\xfe\x00\x01\x80\x81")
+    with pytest.raises(OpenDVError) as exc_bin:
+        ensure_pipeline_agent_ready(state, PipelineRunRequest(input_spec_path=str(bin_spec)))
+    assert exc_bin.value.error_code == ErrorCode.AGENT_NOT_CONFIGURED
+    assert exc_bin.value.http_status == 422
+
+    # 2. input_spec_path takes priority over inline input_spec (matching state/pipeline.py)
+    strict_spec = ws_root / "strict_spec.json"
+    strict_spec.write_text(json.dumps({"sources": []}), encoding="utf-8")
+    with pytest.raises(OpenDVError) as exc_prio:
+        ensure_pipeline_agent_ready(
+            state,
+            PipelineRunRequest(
+                input_spec_path=str(strict_spec),
+                input_spec={
+                    "sources": [],
+                    "governance_policy": {"stage_output_policy": "symbolic_completion"},
+                },
+            ),
+        )
+    assert exc_prio.value.error_code == ErrorCode.AGENT_NOT_CONFIGURED
+
+    sym_spec = ws_root / "sym_spec.json"
+    sym_spec.write_text(
+        json.dumps(
+            {
+                "sources": [],
+                "governance_policy": {"stage_output_policy": "symbolic_completion"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    ensure_pipeline_agent_ready(
+        state,
+        PipelineRunRequest(
+            input_spec_path=str(sym_spec),
+            input_spec={
+                "sources": [],
+                "governance_policy": {"stage_output_policy": "strict"},
+            },
+        ),
+    )
+
+    # 3. harness_config_path takes priority over inline harness_config (matching state/pipeline.py)
+    hc_strict = ws_root / "hc_strict.yaml"
+    hc_strict.write_text("provider: agy\nstage_output_policy: strict\n", encoding="utf-8")
+    with pytest.raises(OpenDVError) as exc_hc:
+        ensure_pipeline_agent_ready(
+            state,
+            PipelineRunRequest(
+                input_spec={"sources": []},
+                harness_config_path=str(hc_strict),
+                harness_config={"provider": "agy", "stage_output_policy": "symbolic_completion"},
+            ),
+        )
+    assert exc_hc.value.error_code == ErrorCode.AGENT_NOT_CONFIGURED
+
+
+
+
+
 

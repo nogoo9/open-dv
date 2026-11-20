@@ -25,6 +25,7 @@ from opendv_contracts.dtos.clarification import ClarificationAnswerItem
 from opendv_contracts.errors import OpenDVError
 from opendv_contracts.jcs import dumps_jcs
 from opendv_service.construction.clarification_harness import EMPTY_ANSWERS_SHA256
+from opendv_service.studio.agent_runner import StudioAgentRunner
 from opendv_service.studio.atomic_commit import (
     ConcurrentModificationError,
     InvalidPreconditionHeaderError,
@@ -445,6 +446,8 @@ def handle_fibo_qa(
     if not question or not str(question).strip():
         return _err(40, "SYNTAX_INVALID_ARGUMENT", "Missing required --question flag.")
     src_id = getattr(args, "source_id", None)
+    state = getattr(getattr(executor, "service", None), "state", None)
+    runner = StudioAgentRunner(state_container=state) if state is not None else None
     try:
         return 0, ask_fibo_qa_workflow(
             session_mgr=session_mgr,
@@ -452,6 +455,7 @@ def handle_fibo_qa(
             question=str(question),
             source_ids=[str(src_id)] if src_id else None,
             concept_uri=getattr(args, "concept_uri", None),
+            agent_runner=runner,
         )
     except StudioWorkflowError as exc:
         return _err_from_workflow_error(exc, wizard_mode=True)

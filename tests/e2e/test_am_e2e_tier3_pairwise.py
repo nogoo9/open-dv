@@ -434,7 +434,7 @@ def test_tier3_pairwise_matrix(
     # Step 3: Trigger Document Parse
     parse_code, _, _ = _invoke_cli(
         surface,
-        ["ontology", "studio", "parse", "-s", session_id, "--json"],
+        ["ontology", "studio", "parse", "-s", session_id, "--wait", "--json"],
         ws_dir,
         role=role,
         server_url=shared_live_server,

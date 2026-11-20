@@ -134,14 +134,22 @@ async def get_ontology_studio_subroute(subpath: str) -> HTMLResponse:
 @router.get("/assets/{asset_path:path}", include_in_schema=False)
 async def get_static_asset(asset_path: str) -> Response:
     """Serve compiled Vite static assets with strict path-traversal containment."""
-    if not asset_path or "\x00" in asset_path or ".." in Path(asset_path).parts:
+    if (
+        not asset_path
+        or "\x00" in asset_path
+        or asset_path.startswith(("/", "\\"))
+        or ".." in Path(asset_path).parts
+    ):
         raise NotFoundError(f"Static asset not found: {asset_path}")
 
     static_dir = resolve_static_dir()
-    assets_dir = (static_dir / "assets").resolve()
-    cand = (assets_dir / asset_path).resolve()
-
-    if not cand.is_relative_to(assets_dir) or not cand.is_file():
+    assets_real = os.path.realpath(static_dir / "assets")
+    assets_pfx = assets_real if assets_real.endswith(os.sep) else assets_real + os.sep
+    cand_real = os.path.realpath(os.path.join(assets_real, asset_path))
+    if not cand_real.startswith(assets_pfx):
+        raise NotFoundError(f"Static asset not found: {asset_path}")
+    cand = Path(cand_real)
+    if not cand.is_file():
         raise NotFoundError(f"Static asset not found: {asset_path}")
 
     suffix = cand.suffix.lower()

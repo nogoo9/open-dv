@@ -147,8 +147,24 @@ def test_combinatorial_ingestion_formats(
 def test_combinatorial_engine_modes(
     studio_client: TestClient,
     auth_headers: dict[str, str],
+    tmp_path: Path,
 ) -> None:
     """Combinatorial 2: Engine Modes Matrix (Deterministic vs Agent vs Auto)."""
+    from opendv_agent_harness.models import HarnessConfig
+    from opendv_service.studio.agent_runner import StudioAgentRunner
+    from opendv_testkit import DeterministicHarnessAdapter
+
+    studio_client.app.state.studio_agent_runner = StudioAgentRunner(  # type: ignore[attr-defined]
+        harness=DeterministicHarnessAdapter(
+            HarnessConfig(
+                provider="antigravity",
+                workspace_dir=tmp_path / "hw",
+                state_dir=tmp_path / "hs",
+                app_data_dir=tmp_path / "ha",
+                save_dir=tmp_path / "hsv",
+            )
+        )
+    )
     modes = ["deterministic", "agent", "auto"]
 
     for idx, mode in enumerate(modes):

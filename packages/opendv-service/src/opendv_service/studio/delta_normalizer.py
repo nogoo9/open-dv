@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import os
 import re
 import uuid
 from pathlib import Path
@@ -27,7 +28,7 @@ from opendv_service.studio.session_manager import (
 
 _OP_TYPE_ADAPTER: TypeAdapter[OntologyOperation] = TypeAdapter(OntologyOperation)
 _VERSION_PATTERN: re.Pattern[str] = re.compile(
-    r"^(?:v)?[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9_.-]+)?$"
+    r"\A(?:v)?[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9_.-]+)?\Z"
 )
 
 
@@ -313,6 +314,30 @@ def normalize_delta_operation_typed(op: dict[str, Any] | Any) -> OntologyOperati
     return _OP_TYPE_ADAPTER.validate_python(op_copy)
 
 
+def resolve_session_version_dir_safe(sdir: Path, version_str: str) -> Path:
+    """Resolve `sdir/versions/vX.Y.Z` strictly inside `sdir/versions` via realpath."""
+    raw_ver = str(version_str)
+    if "\x00" in raw_ver:
+        raise StudioWorkflowError(
+            "INVALID_WORKSPACE_PATH",
+            "Version identifier must not contain NUL bytes.",
+            status_code=400,
+            exit_code=2,
+        )
+    clean_ver = raw_ver.strip().lstrip("v") or GENESIS_VERSION
+    vroot_real = os.path.realpath(sdir / "versions")
+    vroot_pfx = vroot_real if vroot_real.endswith(os.sep) else vroot_real + os.sep
+    vdir_real = os.path.realpath(os.path.join(vroot_real, normalize_version_tag(clean_ver)))
+    if not vdir_real.startswith(vroot_pfx):
+        raise StudioWorkflowError(
+            "INVALID_WORKSPACE_PATH",
+            f"Path traversal detected in version identifier '{version_str}'.",
+            status_code=400,
+            exit_code=2,
+        )
+    return Path(vdir_real)
+
+
 def load_session_version_ontology(
     sdir: Path,
     meta: SessionMetadata,
@@ -320,7 +345,7 @@ def load_session_version_ontology(
 ) -> GraphAOntology:
     """Load a committed GraphAOntology snapshot or synthesize genesis 0.0.0."""
     ver = (version_str or meta.head_version).lstrip("v")
-    vdir = sdir / "versions" / normalize_version_tag(ver)
+    vdir = resolve_session_version_dir_safe(sdir, ver)
     ont_json = vdir / "ontology.json"
     if ont_json.is_file():
         try:
@@ -378,7 +403,7 @@ def load_version_ontology_fail_closed(
     """Load version ontology failing closed (CORRUPT_SESSION_RECORD vs non-ancestor 409)."""
     clean_ver = str(version_str).strip().lstrip("v") or GENESIS_VERSION
     if clean_ver != GENESIS_VERSION:
-        vdir = sdir / "versions" / normalize_version_tag(clean_ver)
+        vdir = resolve_session_version_dir_safe(sdir, clean_ver)
         if not vdir.is_dir():
             committed_tags = {
                 normalize_version_tag(str(cv).strip().lstrip("v"))

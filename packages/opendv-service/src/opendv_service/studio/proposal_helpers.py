@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import re
 import uuid
 from datetime import UTC, datetime
@@ -23,19 +24,17 @@ from opendv_service.studio.delta_normalizer import (
     load_session_version_ontology,
     normalize_delta_operation_wire,
     raise_from_opendv_error,
+    resolve_session_version_dir_safe,
     validate_version_syntax,
 )
-from opendv_service.studio.session_manager import (
-    SessionMetadata,
-    normalize_version_tag,
-)
+from opendv_service.studio.session_manager import SessionMetadata
 from opendv_service.studio.workspace_security import (
     WINDOWS_RESERVED_DEVICES,
     replace_with_retry,
     set_owner_only_permissions,
 )
 
-_PROPOSAL_ID_PATTERN: re.Pattern[str] = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+_PROPOSAL_ID_PATTERN: re.Pattern[str] = re.compile(r"\A[a-zA-Z0-9_-]{1,64}\Z")
 
 
 def resolve_proposal_file_safe(sdir: Path, proposal_id: str) -> Path:
@@ -51,16 +50,17 @@ def resolve_proposal_file_safe(sdir: Path, proposal_id: str) -> Path:
             status_code=400,
             exit_code=2,
         )
-    proposals_dir = (sdir / "proposals").resolve()
-    target_file = (proposals_dir / f"{proposal_id}.json").resolve()
-    if not target_file.is_relative_to(proposals_dir):
+    props_real = os.path.realpath(sdir / "proposals")
+    props_pfx = props_real if props_real.endswith(os.sep) else props_real + os.sep
+    target_real = os.path.realpath(os.path.join(props_real, f"{proposal_id}.json"))
+    if not target_real.startswith(props_pfx):
         raise StudioWorkflowError(
             "INVALID_WORKSPACE_PATH",
             f"Path traversal detected in proposal identifier '{proposal_id}'.",
             status_code=400,
             exit_code=2,
         )
-    return target_file
+    return Path(target_real)
 
 
 def require_proposal_file(sdir: Path, proposal_id: str) -> Path:
@@ -269,16 +269,7 @@ def ensure_session_version_exists(sdir: Path, base_version: str | None) -> None:
     if base_version is None:
         return
     validate_version_syntax(base_version)
-    clean_ver = base_version.lstrip("v")
-    versions_dir = (sdir / "versions").resolve()
-    vdir = (versions_dir / normalize_version_tag(clean_ver)).resolve()
-    if not vdir.is_relative_to(versions_dir):
-        raise StudioWorkflowError(
-            "INVALID_WORKSPACE_PATH",
-            f"Path traversal detected in version identifier '{base_version}'.",
-            status_code=400,
-            exit_code=2,
-        )
+    vdir = resolve_session_version_dir_safe(sdir, base_version)
     if not vdir.is_dir():
         raise StudioWorkflowError(
             "VERSION_NOT_FOUND",

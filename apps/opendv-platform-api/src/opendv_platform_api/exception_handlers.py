@@ -75,6 +75,24 @@ def _extract_payload_too_large(exc: BaseException) -> PayloadTooLargeError | Non
     return None
 
 
+def _has_payload_too_large_cause(exc: BaseException) -> bool:
+    seen: set[int] = set()
+    frontier: list[BaseException | None] = [exc.__cause__, exc.__context__]
+    for _ in range(8):
+        next_frontier: list[BaseException | None] = []
+        for cur in frontier:
+            if cur is None or id(cur) in seen:
+                continue
+            seen.add(id(cur))
+            if _extract_payload_too_large(cur) is not None:
+                return True
+            next_frontier.extend((cur.__cause__, cur.__context__))
+        if not next_frontier:
+            break
+        frontier = next_frontier
+    return False
+
+
 def build_problem_details_response(
     status_code: int,
     detail: str,
@@ -189,7 +207,13 @@ def register_middlewares(application: FastAPI, active_settings: Any) -> None:
             ptl = _extract_payload_too_large(exc)
             if ptl is None:
                 raise
-            return _payload_too_large_response(is_studio, str(ptl), path_str)
+            detail_msg = (
+                f"Request payload stream ({received_bytes} bytes) "
+                f"exceeds limit ({max_limit} bytes)."
+                if received_bytes > max_limit
+                else f"Request payload size exceeds limit ({max_limit} bytes)."
+            )
+            return _payload_too_large_response(is_studio, detail_msg, path_str)
 
     @application.middleware("http")
     async def attach_security_headers(
@@ -245,6 +269,10 @@ def register_exception_handlers(application: FastAPI) -> None:
         exc: OpenDVError,
     ) -> JSONResponse:
         path_str = str(request.url.path)
+        if isinstance(exc, PayloadTooLargeError) or exc.error_code == ErrorCode.PAYLOAD_TOO_LARGE:
+            return _payload_too_large_response(
+                _is_studio_path(path_str), "Request payload size exceeds limit.", path_str
+            )
         if _is_studio_path(path_str):
             raw_code = getattr(exc, "error_code", ErrorCode.INTERNAL_ERROR)
             code_str = raw_code.value if hasattr(raw_code, "value") else str(raw_code)
@@ -280,11 +308,9 @@ def register_exception_handlers(application: FastAPI) -> None:
         exc: StarletteHTTPException,
     ) -> JSONResponse:
         path_str = str(request.url.path)
-        cause = exc.__cause__
-        payload_too_large = _extract_payload_too_large(cause) if cause is not None else None
-        if payload_too_large is not None:
+        if _has_payload_too_large_cause(exc):
             return _payload_too_large_response(
-                _is_studio_path(path_str), str(payload_too_large), path_str
+                _is_studio_path(path_str), "Request payload size exceeds limit.", path_str
             )
         return build_problem_details_response(
             status_code=exc.status_code,

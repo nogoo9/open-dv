@@ -3,6 +3,7 @@ import type {
 	PipelineRunRequest,
 	PipelineValidateRequest,
 } from "@opendv/protocol-ts";
+import { stripTrailingSlashes } from "../url-router";
 import type { StewardHoldPolicyOption } from "./NewRunFormFields";
 import type { PipelineValidationReport } from "./NewRunValidationSection";
 
@@ -74,7 +75,7 @@ export async function executeValidate(
 		(typeof globalThis.fetch === "function"
 			? globalThis.fetch.bind(globalThis)
 			: undefined);
-	const base = (apiUrl ?? "").replace(/\/+$/, "");
+	const base = stripTrailingSlashes(apiUrl ?? "");
 
 	if (fetchFn) {
 		const resp = await fetchFn(`${base}/api/v1/pipelines/validate`, {
@@ -179,7 +180,7 @@ export async function executeSubmitRun(
 		(typeof globalThis.fetch === "function"
 			? globalThis.fetch.bind(globalThis)
 			: undefined);
-	const base = (apiUrl ?? "").replace(/\/+$/, "");
+	const base = stripTrailingSlashes(apiUrl ?? "");
 	if (!fetchFn) {
 		throw new Error("No fetch implementation available to submit run");
 	}

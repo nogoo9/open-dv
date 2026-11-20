@@ -2,6 +2,10 @@
  * Types & stage-pill mapping helpers for SessionLogsInspector (`docs/28 §4.4`).
  */
 
+import { normalizeApiBaseUrl } from "../../explorer/url-router";
+
+export { normalizeApiBaseUrl };
+
 export type DeepLogTabId = "prompt" | "response" | "tools" | "raw";
 
 export interface SessionLogTokenUsage {
@@ -108,10 +112,6 @@ export function resolvePillToCanonicalStages(pill: string): string[] {
 		return [clean];
 	}
 	return [];
-}
-
-export function normalizeApiBaseUrl(apiUrl?: string): string {
-	return (apiUrl ?? "").replace(/\/api\/v1\/?$/, "").replace(/\/+$/, "");
 }
 
 export function buildLogsExportUrl(sessionId: string, apiUrl?: string): string {

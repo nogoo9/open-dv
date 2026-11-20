@@ -37,6 +37,7 @@ import { safeUseEffect, safeUseState } from "./modals/safeHooks";
 import { PipelineRunProgressBar } from "./progress/PipelineRunProgressBar";
 import { PlatformSettingsView } from "./settings/PlatformSettingsView";
 import { fetchPlatformConfig } from "./settings/usePlatformConfigActions";
+import { normalizeApiBaseUrl } from "./url-router";
 
 export { aggregateSessionCostFromLogs, type SessionCostLogEntry };
 
@@ -168,9 +169,7 @@ export function OpenDVWorkbenchExplorer({
 				: undefined);
 		if (!fetchFn) return;
 		let cancelled = false;
-		const base = (apiUrl ?? "")
-			.replace(/\/api\/v1\/?$/, "")
-			.replace(/\/+$/, "");
+		const base = normalizeApiBaseUrl(apiUrl);
 		void fetchFn(
 			`${base}/api/v1/ontology/studio/sessions/${encodeURIComponent(activeSessionId)}/logs`,
 			{ headers: { Accept: "application/json" } },

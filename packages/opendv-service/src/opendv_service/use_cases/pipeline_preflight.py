@@ -10,10 +10,13 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from opendv_agent_harness import HarnessSetupConfig
 from opendv_agent_harness.pipeline.runner import run_agentic_vault_pipeline
 from opendv_contracts.dtos.blueprint import VaultBlueprintDTO
 from opendv_contracts.errors import ErrorCode, OpenDVError
+from opendv_core.paths import PathContainmentError, resolve_workspace_path
 from opendv_service.seams import get_default_pipeline_runner
 from opendv_service.state.platform_config_probe import probe_providers_readiness_list
 from opendv_service.studio.job_runners_evidence import (
@@ -383,10 +386,76 @@ def resolve_cas_unstructured_docs_list(
     return resolved
 
 
+def _load_preflight_mapping(
+    raw_mapping: Any,
+    raw_content: Any,
+    raw_path: Any,
+    state: Any | None,
+) -> dict[str, Any]:
+    text: str | None = None
+    if isinstance(raw_path, str) and raw_path.strip():
+        ws_root = (
+            getattr(state, "repo_root", None)
+            or getattr(state, "workspace_root", None)
+            or Path.cwd()
+        )
+        with contextlib.suppress(PathContainmentError, OSError, UnicodeDecodeError):
+            safe_p = resolve_workspace_path(
+                raw_path.strip(), workspace_root=Path(ws_root), allow_temp=True
+            )
+            if safe_p.is_file():
+                text = safe_p.read_text(encoding="utf-8")
+        if not text:
+            return {}
+    elif isinstance(raw_content, str) and raw_content.strip():
+        text = raw_content
+    elif isinstance(raw_mapping, str) and raw_mapping.strip():
+        text = raw_mapping
+    elif isinstance(raw_mapping, dict):
+        return raw_mapping
+    if text:
+        with contextlib.suppress(yaml.YAMLError, ValueError, TypeError):
+            loaded = yaml.safe_load(text)
+            if isinstance(loaded, dict):
+                return loaded
+    return {}
+
+
+def _req_field(req: Any, name: str) -> Any:
+    return req.get(name) if isinstance(req, dict) else getattr(req, name, None)
+
+
+def _effective_harness_setup(req: Any, state: Any | None) -> HarnessSetupConfig:
+    """Resolve active HarnessSetupConfig from request override or PlatformStateContainer."""
+    hc_path = _req_field(req, "harness_config_path")
+    if isinstance(hc_path, str) and hc_path.strip():
+        hc_dict = _load_preflight_mapping(None, None, hc_path, state)
+        if hc_dict:
+            with contextlib.suppress(ValueError, TypeError):
+                return HarnessSetupConfig.model_validate(hc_dict)
+        return HarnessSetupConfig()
+    req_hc = _req_field(req, "harness_config")
+    if isinstance(req_hc, HarnessSetupConfig):
+        return req_hc
+    if isinstance(req_hc, dict):
+        return HarnessSetupConfig.model_validate(req_hc)
+    if state is not None and hasattr(state, "get_active_harness_setup_dict"):
+        raw = state.get_active_harness_setup_dict()
+        if isinstance(raw, dict):
+            return HarnessSetupConfig.model_validate(raw)
+    setup = getattr(state, "harness_setup", None)
+    if setup is None and state is not None and hasattr(state, "get_harness_setup"):
+        setup = state.get_harness_setup()
+    return setup if isinstance(setup, HarnessSetupConfig) else HarnessSetupConfig()
+
+
 def _extract_mode_and_policy(req: Any, state: Any | None) -> tuple[str, str]:
-    input_spec = getattr(req, "input_spec", None)
-    if not isinstance(input_spec, dict) and isinstance(req, dict):
-        input_spec = req.get("input_spec")
+    input_spec = _load_preflight_mapping(
+        _req_field(req, "input_spec"),
+        _req_field(req, "input_spec_content"),
+        _req_field(req, "input_spec_path"),
+        state,
+    )
     options = getattr(req, "options", None) or {}
     if not isinstance(options, dict):
         options = {}
@@ -395,33 +464,31 @@ def _extract_mode_and_policy(req: Any, state: Any | None) -> tuple[str, str]:
         config = {}
 
     raw_mode = (
-        getattr(req, "mode", None)
-        or (req.get("mode") if isinstance(req, dict) else None)
-        or (input_spec.get("mode") if isinstance(input_spec, dict) else None)
+        _req_field(req, "mode")
+        or input_spec.get("mode")
         or options.get("mode")
         or config.get("mode")
         or "auto"
     )
     clean_mode = str(raw_mode).strip().lower()
 
-    prov_ovr = getattr(req, "provider_override", None) or (
-        req.get("provider_override") if isinstance(req, dict) else None
-    )
+    prov_ovr = _req_field(req, "provider_override")
     ovr_policy = (
         prov_ovr.get("stage_output_policy")
         if isinstance(prov_ovr, dict)
         else getattr(prov_ovr, "stage_output_policy", None)
     )
-    state_setup = getattr(state, "harness_setup", None)
-    if state_setup is None and state is not None and hasattr(state, "get_harness_setup"):
-        state_setup = state.get_harness_setup()
-    state_policy = (
-        getattr(state_setup, "stage_output_policy", "strict") if state_setup else "strict"
+    gov_pol = _req_field(req, "governance_policy") or input_spec.get("governance_policy")
+    gov_policy = (
+        gov_pol.get("stage_output_policy")
+        if isinstance(gov_pol, dict)
+        else getattr(gov_pol, "stage_output_policy", None)
     )
+    state_policy = _effective_harness_setup(req, state).stage_output_policy
     raw_policy = (
-        getattr(req, "stage_output_policy", None)
-        or (req.get("stage_output_policy") if isinstance(req, dict) else None)
-        or (input_spec.get("stage_output_policy") if isinstance(input_spec, dict) else None)
+        _req_field(req, "stage_output_policy")
+        or input_spec.get("stage_output_policy")
+        or gov_policy
         or ovr_policy
         or config.get("stage_output_policy")
         or state_policy
@@ -446,11 +513,7 @@ def ensure_pipeline_agent_ready(
     if clean_mode == "deterministic" or clean_policy == "symbolic_completion":
         return
 
-    setup = getattr(state, "harness_setup", None)
-    if setup is None and state is not None and hasattr(state, "get_harness_setup"):
-        setup = state.get_harness_setup()
-    if not isinstance(setup, HarnessSetupConfig):
-        setup = HarnessSetupConfig()
+    setup = _effective_harness_setup(req, state)
     readiness = probe_providers_readiness_list(setup)
 
     env_provider = os.environ.get("OPENDV_AGENT_PROVIDER", "").strip().lower()

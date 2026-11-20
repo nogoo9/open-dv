@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { stripTrailingSlashes } from "./explorer/url-router";
 
 export const DEFAULT_DEV_SERVER_PORT = 5173;
 export const DEFAULT_DEV_SERVER_HOST = "127.0.0.1";
@@ -80,7 +81,7 @@ export function createWorkbenchDevServer(
 
 			// 1. Proxy /api and /api/* requests to upstream Platform API
 			if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
-				const targetUrl = `${apiUrl.replace(/\/+$/, "")}${url.pathname}${url.search}`;
+				const targetUrl = `${stripTrailingSlashes(apiUrl)}${url.pathname}${url.search}`;
 				const targetOrigin = new URL(apiUrl).origin;
 				const headers = new Headers();
 				for (const [key, value] of request.headers.entries()) {

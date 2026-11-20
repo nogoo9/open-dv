@@ -6,6 +6,7 @@
 import { useMemo } from "react";
 import { CLAUDE_TOKENS, EXPLORER_FONTS } from "../design-tokens";
 import { safeUseEffect, safeUseState } from "../modals/safeHooks";
+import { normalizeApiBaseUrl } from "../url-router";
 import { DvBipartiteGraphTab } from "./DvBipartiteGraphTab";
 import { DvContractIrTab } from "./DvContractIrTab";
 import { DvTriageAndWaveDiffTab } from "./DvTriageAndWaveDiffTab";
@@ -95,9 +96,7 @@ export function DvSchemaExplorerView({
 				? globalThis.fetch.bind(globalThis)
 				: undefined);
 		if (!fetchFn) return;
-		const base = (apiUrl ?? "")
-			.replace(/\/api\/v1\/?$/, "")
-			.replace(/\/+$/, "");
+		const base = normalizeApiBaseUrl(apiUrl);
 		let cancelled = false;
 		if (initialProjection === undefined) {
 			setLoadError(null);

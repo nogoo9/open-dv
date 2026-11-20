@@ -21,6 +21,7 @@ import {
 	EXPLORER_COLORS,
 	EXPLORER_FONTS,
 } from "../design-tokens";
+import { normalizeApiBaseUrl } from "../url-router";
 
 export const SETTINGS_FIELDSET_STYLE: CSSProperties = {
 	margin: 0,
@@ -449,7 +450,7 @@ function resolveFetch(customFetch?: typeof fetch | undefined): typeof fetch {
 }
 
 function normalizeBaseUrl(apiUrl?: string | undefined): string {
-	return (apiUrl ?? "").replace(/\/api\/v1\/?$/, "").replace(/\/+$/, "");
+	return normalizeApiBaseUrl(apiUrl);
 }
 
 export async function fetchPlatformConfig(

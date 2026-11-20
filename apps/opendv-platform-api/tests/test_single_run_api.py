@@ -173,6 +173,7 @@ def test_studio_export_blueprint_session_not_found(
 
 
 def test_post_runs_accepting_single_run_payload(
+    deterministic_pipeline_runner: None,
     api_client: tuple[TestClient, PlatformStateContainer, Path],
 ) -> None:
     """Verify POST /api/v1/runs and /api/v1/pipelines/runs accept single-run PipelineInputDTO."""

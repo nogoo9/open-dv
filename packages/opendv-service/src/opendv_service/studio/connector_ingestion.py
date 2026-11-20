@@ -70,7 +70,7 @@ def _persist_connector_evidence(
     principal: str,
 ) -> dict[str, Any]:
     session_dir = session_mgr.get_session_dir(session_id)
-    with reentrant_session_lock(session_dir / ".session.lock", session_id=session_id):
+    with reentrant_session_lock(session_dir / ".session.lock", session_id=session_dir.name):
         manifest_path = session_dir / "inputs" / "manifest.json"
         mdata = (
             json.loads(manifest_path.read_text(encoding="utf-8"))

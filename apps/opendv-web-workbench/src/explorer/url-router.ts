@@ -188,3 +188,28 @@ export function buildExplorerUrl(state: {
 	const qs = params.toString();
 	return qs ? `${path}?${qs}` : path;
 }
+
+/**
+ * Strip trailing `/` characters in O(n) time without backtracking regexes.
+ */
+export function stripTrailingSlashes(value: string): string {
+	let end = value.length;
+	while (end > 0 && value.charCodeAt(end - 1) === 47 /* '/' */) {
+		end -= 1;
+	}
+	return end === value.length ? value : value.slice(0, end);
+}
+
+/**
+ * Normalize an optional API base URL by stripping trailing `/api/v1` (or `/api/v1/`)
+ * and trailing `/` characters in strict O(n) linear time.
+ */
+export function normalizeApiBaseUrl(apiUrl?: string): string {
+	let raw = apiUrl ?? "";
+	if (raw.endsWith("/api/v1/")) {
+		raw = raw.slice(0, -8);
+	} else if (raw.endsWith("/api/v1")) {
+		raw = raw.slice(0, -7);
+	}
+	return stripTrailingSlashes(raw);
+}

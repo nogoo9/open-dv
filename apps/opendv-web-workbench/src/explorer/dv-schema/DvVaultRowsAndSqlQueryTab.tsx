@@ -6,6 +6,7 @@
 
 import { CLAUDE_TOKENS, EXPLORER_FONTS } from "../design-tokens";
 import { safeUseEffect, safeUseRef, safeUseState } from "../modals/safeHooks";
+import { normalizeApiBaseUrl } from "../url-router";
 import type { DvSchemaQueryResponseDTO, DvSchemaTableRowsDTO } from "./types";
 
 export interface DvVaultRowsAndSqlQueryTabProps {
@@ -78,7 +79,7 @@ export function DvVaultRowsAndSqlQueryTab({
 	}, [activeTable, controlledSql]);
 
 	const isMobileViewOnly = viewportWidth < 768;
-	const base = (apiUrl ?? "").replace(/\/api\/v1\/?$/, "").replace(/\/+$/, "");
+	const base = normalizeApiBaseUrl(apiUrl);
 
 	safeUseEffect(() => {
 		if (controlledRows !== undefined) {
