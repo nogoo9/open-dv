@@ -16,7 +16,8 @@ const PIPELINE_PHASES: readonly {
 	{
 		phase: "Modelling",
 		badgeClass: "badge badge-sat",
-		subtitle: "3-Pass Chain-of-Thought YAML contract synthesis",
+		subtitle:
+			"3-Pass Chain-of-Thought YAML contract synthesis (one job/session)",
 	},
 	{
 		phase: "Verification",
@@ -26,7 +27,8 @@ const PIPELINE_PHASES: readonly {
 	{
 		phase: "Compilation",
 		badgeClass: "badge badge-lnk",
-		subtitle: "Vendor-neutral Canonical IR, VaultBlueprint & 4-Zone SQL",
+		subtitle:
+			"Canonical IR, VaultBlueprint & 5-Zone (Z0–Z4) + information_mart",
 	},
 ];
 
@@ -34,7 +36,7 @@ export function HowItWorksSection(): React.JSX.Element {
 	return (
 		<section
 			id="how"
-			className="band"
+			className="band band-soft"
 			tabIndex={-1}
 			aria-labelledby="how-heading"
 		>
@@ -42,24 +44,26 @@ export function HowItWorksSection(): React.JSX.Element {
 				<div className="section-head">
 					<div className="section-head-copy">
 						<p className="eyebrow">
-							HOW IT WORKS · 8-STAGE DATA-DRIVEN PIPELINE
+							HOW IT WORKS · UNIFIED 6-STEP WIZARD &amp; 7-PILL CONSOLE
 						</p>
 						<h2 id="how-heading">
-							One stateless pipeline. Zero manual wave configuration.
+							One unified workflow from Scope to 5-Zone SQL.
 						</h2>
 					</div>
 					<p className="section-intro">
-						<code>mode_detector.py</code> inspects your prior contract and
-						incoming connectors to infer per-source actions
-						automatically—whether seeding from Day-0 FIBO ontology, profiling
-						SQLite greenfield tables, or onboarding Databricks UC alongside
-						drifted schemas.
+						Steps 1–5 guide baseline scope, connectors, &le; 50-row preview (or{" "}
+						<code>Fast-Forward to Step 6</code> /{" "}
+						<code>Export Ontology Only</code>), Agent synthesis, and optional{" "}
+						<code>VisualEditorDrawer</code>. Step 6 auto-binds{" "}
+						<code>deployed_contract</code>, enforces one active job per session
+						(<code>409</code> guard), and drives the 7-pill <code>00..06</code>{" "}
+						console over <code>STAGE_00..07</code>.
 					</p>
 				</div>
 
 				<InferenceMatrixDiagram />
 
-				<div className="grid-4" style={{ marginBlockStart: "1.5rem" }}>
+				<div className="grid-4" style={{ marginBlockStart: "1.75rem" }}>
 					{PIPELINE_PHASES.map(({ phase, badgeClass, subtitle }) => {
 						const stages = PIPELINE_STAGES.filter((s) => s.phase === phase);
 						return (

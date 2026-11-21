@@ -273,7 +273,8 @@
             "hk_customer": "CRM_SALESFORCE_CRM_CUSTOMERS",
             "hk_promotion": "ERP_NETSUITE"
           },
-          "rec_src_value": "ERP_NETSUITE_ERP_ORDERS"
+          "rec_src_value": "ERP_NETSUITE_ERP_ORDERS",
+          "where_filter_condition": "promo_campaign_code IS NOT NULL"
         }
       ]
     },

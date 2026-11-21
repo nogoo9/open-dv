@@ -11,15 +11,9 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
-import yaml
 
+from opendv_agent_harness.adapters.antigravity_adapter import ProviderConfigurationError
 from opendv_agent_harness.hold_manager import StewardHoldManager
-from opendv_agent_harness.models import (
-    HarnessEventKind,
-    HarnessStreamEvent,
-    ObservabilityVerdict,
-    PipelineStageId,
-)
 from opendv_agent_harness.pipeline.axi_repair_loop import (
     execute_resume_from_hold,
     execute_stage_05_static_gates,
@@ -27,6 +21,16 @@ from opendv_agent_harness.pipeline.axi_repair_loop import (
 from opendv_agent_harness.pipeline.config import HarnessSetupConfig, _load_yaml_or_json
 from opendv_agent_harness.pipeline.discovery_tabular import execute_stage_01_tabular
 from opendv_agent_harness.pipeline.discovery_unstructured import execute_stage_02_unstructured
+from opendv_agent_harness.pipeline.drift_projection import (
+    emit_runner_stream_event,
+    materialize_intermediate_contract_artifact,
+    record_runner_fallback,
+    resolve_runner_harness,
+)
+from opendv_agent_harness.pipeline.evolution_matching import (
+    merge_and_format_drift_findings,
+    prepare_wave_drift_context,
+)
 from opendv_agent_harness.pipeline.mode_detector import (
     execute_stage_00_orchestration,
     resolve_initial_blueprint_and_ontology,
@@ -55,7 +59,6 @@ from opendv_agent_harness.pipeline.validation_postflight import (
     materialize_final_pipeline_outputs,
 )
 from opendv_agent_harness.pipeline.validation_preflight import validate_pipeline_inputs
-from opendv_agent_harness.telemetry.translator import build_observability_event_dict
 from opendv_core.models.contract_v5 import NoMistakeDataVault2ContractV5
 from opendv_core.models.graph_a import GraphAOntology
 from opendv_core.models.vault_blueprint import VaultBlueprint
@@ -106,17 +109,12 @@ class AgenticVaultPipeline:
         self.observability_events: list[dict[str, Any]] = []
 
         if self.harness is None:
-            try:
-                from opendv_agent_harness.registry import get_harness_adapter
-
-                od = self.output_dir
-                h_cfg = self.harness_setup.to_harness_config(
-                    workspace_dir=self.workspace_root, state_dir=od / "state",
-                    app_data_dir=od / "app_data", save_dir=od / "save",
-                )
-                self.harness = get_harness_adapter(h_cfg, sdk_module=self.sdk_module)
-            except (ImportError, ValueError, KeyError, OSError, RuntimeError):
-                self.harness = None
+            self.harness = resolve_runner_harness(
+                self.harness_setup,
+                workspace_root=self.workspace_root,
+                output_dir=self.output_dir,
+                sdk_module=self.sdk_module,
+            )
 
     def _notify_stage_start(
         self, wave_index: int, stage_id: str, persona: str, model_used: str
@@ -135,44 +133,12 @@ class AgenticVaultPipeline:
         details: dict[str, Any] | None = None,
         fallback_key: str = "stage_output_policy.symbolic_completion",
     ) -> None:
-        st_id = PipelineStageId(stage_id)
-        self.fallbacks_applied.append({
-            "key": fallback_key,
-            "applied_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "stage_id": st_id.value,
-            "details": details or {},
-        })
-        self.observability_events.append(
-            build_observability_event_dict(
-                event_id=f"evt-{self.run_id}-{uuid.uuid4().hex[:8]}",
-                event_type="FALLBACK_APPLIED",
-                run_id=self.run_id,
-                trace_id=uuid.uuid4().hex,
-                span_id=uuid.uuid4().hex[:16],
-                stage_id=st_id,
-                status=ObservabilityVerdict.AUTO_REPAIRED,
-                rule_ids_evaluated=["DV-OPT-001"],
-                summary_metrics={"wave_index": wave_index, "fallback_key": fallback_key},
-            )
-        )
+        record_runner_fallback(self, wave_index, stage_id, details, fallback_key)
 
     def _emit_stream(
         self, text: str, stage_id: str = "STAGE_00_ORCHESTRATION", persona: str = "vault-first-mate"
     ) -> None:
-        if self.on_stream_event is not None:
-            self.on_stream_event(
-                HarnessStreamEvent(
-                    run_id=self.run_id,
-                    task_id=f"task-{self.run_id}",
-                    trace_id=uuid.uuid4().hex,
-                    span_id=uuid.uuid4().hex[:16],
-                    provider=getattr(self.harness_setup, "provider", "agy"),
-                    persona=persona,
-                    stage_id=stage_id,
-                    kind=HarnessEventKind.TEXT_DELTA,
-                    delta_text=text,
-                )
-            )
+        emit_runner_stream_event(self, text, stage_id=stage_id, persona=persona)
 
     def resolve_initial_state(
         self,
@@ -184,11 +150,7 @@ class AgenticVaultPipeline:
         return bp, ont, cnt
 
     def _materialize_intermediate_contract(self, contract_dict: dict[str, Any] | None) -> None:
-        if contract_dict:
-            fc_bytes = yaml.safe_dump(contract_dict, sort_keys=False).encode("utf-8")
-            (self.output_dir / "final_contract.yaml").write_bytes(fc_bytes)
-            if self.cas_store is not None:
-                self.cas_store.put(fc_bytes)
+        materialize_intermediate_contract_artifact(self.output_dir, self.cas_store, contract_dict)
 
     async def run_async(self) -> AgenticPipelineReport:
         t0 = datetime.now(UTC)
@@ -203,6 +165,7 @@ class AgenticVaultPipeline:
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         in_bp, ontology, deployed_contract = self.resolve_initial_state()
+        self._has_initial_contract = deployed_contract is not None
         self.ontology = ontology
         if self._loaded_graph_a:
             self.graph_a_sha256 = self._loaded_graph_a.sha256
@@ -216,7 +179,11 @@ class AgenticVaultPipeline:
         drift_findings: list[dict[str, Any]] = []
         rec_errors: list[str] = []
 
-        curr_contract = deployed_contract.model_dump(mode="json") if deployed_contract else None
+        curr_contract = (
+            deployed_contract.model_dump(mode="json", exclude_none=True)
+            if deployed_contract
+            else None
+        )
         out_blueprint = in_bp
         four_zone_sql: dict[str, Any] = {}
         diff_summary: dict[str, Any] = {}
@@ -236,6 +203,7 @@ class AgenticVaultPipeline:
 
         try:
             for w_idx, wave in enumerate(waves_to_run):
+                drift_findings = []
                 wave_sources = list(wave.sources or [])
                 wave_docs = list(wave.unstructured_documents or [])
                 wave_steps: list[PipelineStepReport] = []
@@ -272,9 +240,16 @@ class AgenticVaultPipeline:
                     wave_steps=wave_steps, step_reports=step_reports, artifacts=artifacts,
                     rec_errors=rec_errors,
                 )
+                projected_drift = prepare_wave_drift_context(curr_contract, s1_out, conn)
                 if paused_reason:
                     return build_paused_pipeline_report(
-                        self, t0, preflight, step_reports, artifacts, paused_reason
+                        self,
+                        t0,
+                        preflight,
+                        step_reports,
+                        artifacts,
+                        paused_reason,
+                        drift_findings=projected_drift,
                     )
 
                 # Stage 02: Unstructured Discovery
@@ -285,7 +260,13 @@ class AgenticVaultPipeline:
                 if s2_status == "PAUSE":
                     p_why = s2_reason or "TIER_U3_AMBIGUOUS_ENTITY"
                     return build_paused_pipeline_report(
-                        self, t0, preflight, step_reports, artifacts, p_why
+                        self,
+                        t0,
+                        preflight,
+                        step_reports,
+                        artifacts,
+                        p_why,
+                        drift_findings=projected_drift,
                     )
                 if s2_status == "REJECT":
                     r_why = s2_reason or "STAGE_02_SCOUT_UNSTRUCTURED"
@@ -329,6 +310,20 @@ class AgenticVaultPipeline:
                             stage_id="STAGE_04_SHIP_VAULT_PASS2", wave_reports=wave_reports,
                         )
                     if self.harness_setup.steward_hold_policy == "pause":
+                        hm = getattr(self, "hold_manager", None)
+                        if hm is not None and not hm.list_pending_holds():
+                            hm.record_hold(
+                                run_id=self.run_id,
+                                task_id=f"task-w{w_idx}-key-drift",
+                                session_id=getattr(self.input_spec, "session_id", None)
+                                or f"sess-w{w_idx}-kd",
+                                stage_id="STAGE_04_SHIP_VAULT_PASS2",
+                                persona="ship-vault",
+                                headline=f"Wave {w_idx} key drift requires steward confirmation.",
+                                escalation_reason="KEY_DRIFT",
+                                rule_id="DV-EVO-003",
+                                options=[],
+                            )
                         return build_paused_pipeline_report(
                             self, t0, preflight, step_reports, artifacts, "KEY_DRIFT"
                         )
@@ -375,6 +370,7 @@ class AgenticVaultPipeline:
                         getattr(doc, "candidates", []) or getattr(doc, "extracted_candidates", [])
                     )
                 )
+                drift_findings = merge_and_format_drift_findings(drift_findings, projected_drift)
                 out_blueprint, curr_contract, diff_summary = execute_stage_07_compilation(
                     runner=self, w_idx=w_idx, w_type=w_type, wave=wave, in_bp=in_bp,
                     curr_contract=curr_contract, verified_contract=verified_contract,
@@ -401,7 +397,12 @@ class AgenticVaultPipeline:
                 rec_errors=rec_errors, inference_plan=inference_plan,
                 four_zone_sql=four_zone_sql,
             )
-
+        except ProviderConfigurationError as exc:
+            st = step_reports[-1].stage_id if step_reports else "STAGE_00_ORCHESTRATION"
+            diag = [{"code": "PROVIDER_ERROR", "severity": "ERROR", "message": str(exc)}]
+            return build_rejected_pipeline_report(
+                self, t0, preflight, step_reports, artifacts, stage_id=st, diagnostics=diag
+            )
         finally:
             conn.close()
 

@@ -100,15 +100,19 @@ class PipelineExecutionMixin:
             gov_policy = (
                 {"steward_hold_policy": hold_policy_arg} if hold_policy_arg else {}
             )
-            single_run_input = PipelineInputDTO(
-                blueprint_path=str(Path(blueprint_arg).resolve()) if blueprint_arg else None,
-                ontology_source=ont_dict,
-                initial_contract_path=str(Path(contract_arg).resolve()) if contract_arg else None,
-                sources=sources_list,
-                target_dialect=dialect_arg,
-                harness_provider=provider_arg or "antigravity",
-                governance_policy=gov_policy,
-            )
+            dto_kwargs: dict[str, Any] = {
+                "blueprint_path": str(Path(blueprint_arg).resolve()) if blueprint_arg else None,
+                "ontology_source": ont_dict,
+                "initial_contract_path": (
+                    str(Path(contract_arg).resolve()) if contract_arg else None
+                ),
+                "sources": sources_list,
+                "target_dialect": dialect_arg,
+                "governance_policy": gov_policy,
+            }
+            if provider_arg:
+                dto_kwargs["harness_provider"] = provider_arg
+            single_run_input = PipelineInputDTO(**dto_kwargs)
 
             if action == "validate":
                 from opendv_service.use_cases.pipeline import validate_pipeline

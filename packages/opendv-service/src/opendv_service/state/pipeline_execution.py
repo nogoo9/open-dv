@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import contextlib
-import json
 import os
 import shutil
+import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -16,11 +17,9 @@ from opendv_agent_harness import (
     AgenticPipelineReport,
     HarnessStreamEvent,
     PipelineStepReport,
-    StewardHoldManager,
 )
 from opendv_core import resolve_workspace_path
 from opendv_service.models import (
-    ArtifactMetadataResponse,
     GateScorecardSummary,
     GateVerdictStatus,
     PipelineRunRequest,
@@ -34,7 +33,12 @@ from opendv_service.rbac import (
     redact_event_for_role,
 )
 from opendv_service.seams import PipelineRunner, get_default_pipeline_runner
-from opendv_telemetry import VaultLedgerEmitter
+from opendv_service.state.persistence import (
+    finalize_run_ledger,
+    register_report_artifacts,
+    save_platform_state,
+    wrap_pipeline_callbacks_with_ledger_flush,
+)
 
 if TYPE_CHECKING:
     from opendv_service.state.base import BaseStateContainer
@@ -61,6 +65,20 @@ class PipelineExecutionMixin:
         target_run_id = getattr(req, "run_id", None) or getattr(spec_obj, "run_id", None)
         if target_run_id and not spec_obj.run_id:
             spec_obj = spec_obj.model_copy(update={"run_id": target_run_id})
+        target_session_id = (
+            getattr(req, "session_id", None)
+            or getattr(spec_obj, "session_id", None)
+            or (
+                req.input_spec.get("session_id")
+                if isinstance(getattr(req, "input_spec", None), dict)
+                else None
+            )
+        )
+        if target_session_id and not getattr(spec_obj, "session_id", None):
+            spec_obj = spec_obj.model_copy(update={"session_id": target_session_id})
+        if target_session_id and target_run_id and hasattr(self, "run_session_ids"):
+            with self._state_lock:
+                self.run_session_ids[target_run_id] = str(target_session_id)
 
         eff_is_server = bool(
             getattr(self, "is_server", False)
@@ -86,17 +104,21 @@ class PipelineExecutionMixin:
         if eff_is_server:
             if spec_obj.output_dir is not None:
                 spec_obj = spec_obj.model_copy(update={"output_dir": None})
-            self._pipeline_run_seq += 1
+            with self._state_lock:
+                self._pipeline_run_seq += 1
+                seq_num = self._pipeline_run_seq
             out_dir: Path | None = (
-                self.state_dir / "pipeline_runs" / f"run_{self._pipeline_run_seq:04d}"
+                self.state_dir / "pipeline_runs" / f"run_{seq_num:04d}"
             )
         elif output_dir_str is not None:
             out_dir = self._resolve_repo_path(output_dir_str)
         elif spec_obj.output_dir is not None:
             out_dir = None
         else:
-            self._pipeline_run_seq += 1
-            out_dir = self.state_dir / "pipeline_runs" / f"run_{self._pipeline_run_seq:04d}"
+            with self._state_lock:
+                self._pipeline_run_seq += 1
+                seq_num = self._pipeline_run_seq
+            out_dir = self.state_dir / "pipeline_runs" / f"run_{seq_num:04d}"
 
         if out_dir is not None:
             shutil.rmtree(out_dir / "state" / "holds", ignore_errors=True)
@@ -104,6 +126,19 @@ class PipelineExecutionMixin:
             spec_out_cand = resolve_workspace_path(spec_obj.output_dir, workspace_root=base_dir)
             shutil.rmtree(spec_out_cand / "state" / "holds", ignore_errors=True)
 
+        cb_run_id = (
+            target_run_id
+            or getattr(spec_obj, "run_id", None)
+            or f"run-live-{uuid.uuid4().hex[:8]}"
+        )
+        w_start, w_complete, w_stream = wrap_pipeline_callbacks_with_ledger_flush(
+            self,
+            cb_run_id,
+            session_id=target_session_id,
+            on_stage_start=on_stage_start,
+            on_stage_complete=on_stage_complete,
+            on_stream_event=on_stream_event,
+        )
         runner: PipelineRunner = pipeline_runner or get_default_pipeline_runner()
         report: AgenticPipelineReport = runner(
             spec_obj,
@@ -111,44 +146,15 @@ class PipelineExecutionMixin:
             output_dir=out_dir,
             base_dir=base_dir,
             cas_store=self.cas_store,
-            on_stage_start=on_stage_start,
-            on_stage_complete=on_stage_complete,
-            on_stream_event=on_stream_event,
+            on_stage_start=w_start,
+            on_stage_complete=w_complete,
+            on_stream_event=w_stream,
             is_server=eff_is_server,
             allowed_hosts=server_allowed_hosts,
         )
 
         # Store all intermediate and final artifacts in self.cas_store and self.artifacts
-        for ref in [*report.intermediate_artifacts, *report.final_artifacts.values()]:
-            raw_bytes: bytes | None = None
-            if ref.file_path and Path(ref.file_path).is_file():
-                raw_bytes = Path(ref.file_path).read_bytes()
-                self.cas_store.put(raw_bytes)
-            elif self.cas_store.has(ref.sha256):
-                raw_bytes = self.cas_store.get_bytes(ref.sha256)
-
-            if raw_bytes is not None:
-                parsed_content: Any
-                try:
-                    text_val = raw_bytes.decode("utf-8")
-                    if ref.media_type == "application/json":
-                        parsed_content = json.loads(text_val)
-                    elif ref.media_type in {"application/yaml", "application/x-yaml"}:
-                        parsed_content = yaml.safe_load(text_val)
-                    else:
-                        parsed_content = text_val
-                except (json.JSONDecodeError, yaml.YAMLError, UnicodeDecodeError):
-                    parsed_content = raw_bytes.decode("utf-8", errors="replace")
-
-                meta = ArtifactMetadataResponse(
-                    sha256=ref.sha256.upper(),
-                    byte_length=ref.byte_length,
-                    media_type=ref.media_type or "application/octet-stream",
-                    artifact_name=ref.name,
-                    content=parsed_content,
-                )
-                self.artifacts[ref.sha256.upper()] = meta
-                self.artifacts[ref.sha256.lower()] = meta
+        register_report_artifacts(self, report)
 
         ont_art_ref = next(
             (
@@ -238,68 +244,20 @@ class PipelineExecutionMixin:
             }
             self.projects[spec_obj.project_id] = existing_proj.model_copy(update=proj_updates)
 
-        events_list = list(report.observability_events)
-        if not events_list:
-            cand_events = self.run_events.get(report.run_id) or (
-                self.run_events.get(target_run_id) if target_run_id else None
-            )
-            if cand_events:
-                events_list = list(cand_events)
-        self.run_events[report.run_id] = events_list
-        if target_run_id and target_run_id != report.run_id:
-            self.run_events[target_run_id] = events_list
-
-        ledger_file = self.ledger_dir / f"{report.run_id}.jsonl"
-        ledger_file.unlink(missing_ok=True)
-        ledger = VaultLedgerEmitter(
-            ledger_path=ledger_file,
-            cas_store=self.cas,
+        events_list = finalize_run_ledger(
+            self,
+            report_run_id=report.run_id,
+            target_run_id=target_run_id,
+            cb_run_id=cb_run_id,
+            target_session_id=target_session_id,
+            report_events=list(report.observability_events),
         )
-        for evt in events_list:
-            with contextlib.suppress(ValueError, TypeError, OSError):
-                ledger.emit(evt)
-        self.run_ledgers[report.run_id] = ledger
 
-        shutil.rmtree(self.state_dir / report.run_id / "holds", ignore_errors=True)
-        hold_mgr = StewardHoldManager(state_dir=self.state_dir / report.run_id)
-        def _rec_h(h: dict[str, Any], headline_def: str) -> tuple[str, Any]:
-            hid = str(h.get("hold_id") or h.get("decision_id") or f"hold-{report.run_id}")
-            rec = hold_mgr.record_hold(
-                run_id=report.run_id,
-                task_id=str(h.get("task_id") or f"task-{report.run_id}"),
-                session_id=str(h.get("session_id") or f"sess-{report.run_id}"),
-                stage_id=str(h.get("stage_id") or "STAGE_02_SCOUT_UNSTRUCTURED"),
-                persona=str(h.get("persona") or "vault-first-mate"),
-                decision_id=str(h.get("decision_id") or hid),
-                hold_id=hid,
-                event_id=str(
-                    h.get("event_id") or (events_list[-1]["event_id"] if events_list else "evt-0")
-                ),
-                headline=str(h.get("headline") or headline_def),
-                escalation_reason=str(h.get("escalation_reason") or "TIER_U3_AMBIGUOUS_ENTITY"),
-                rule_id=str(h.get("rule_id") or "ALG-A9B"),
-                options=list(h.get("options") or []),
-            )
-            return hid, rec
+        from opendv_service.state.hold_resume import sync_report_holds_to_manager
 
-        active_hold_ids: list[str] = [
-            _rec_h(h, "Steward hold pending resolution.")[0] for h in report.active_holds
-        ]
-        for h in report.resolved_holds:
-            _, r = _rec_h(h, "Steward hold resolved.")
-            hold_mgr.resolve_hold(
-                r.decision_id,
-                action="REJECT" if str(h.get("status")) == "REJECTED" else "APPROVE",
-                selected_option_id=h.get("selected_option_id"),
-                resolution_notes=h.get("resolution_notes"),
-            )
-        self.hold_managers[report.run_id] = hold_mgr
-        self.run_decisions[report.run_id] = []
-        self.run_sandbox_history[report.run_id] = []
-        if target_run_id and target_run_id != report.run_id:
-            self.hold_managers[target_run_id] = hold_mgr
-            self.run_decisions.setdefault(target_run_id, [])
-            self.run_sandbox_history.setdefault(target_run_id, [])
+        active_hold_ids = sync_report_holds_to_manager(
+            self, report, events_list, target_run_id=target_run_id
+        )
 
         all_codemods = {c for w in report.wave_reports for c in w.applied_codemods}
         last_w = report.wave_reports[-1] if report.wave_reports else None
@@ -365,13 +323,23 @@ class PipelineExecutionMixin:
         has_initial_contract = getattr(report, "has_initial_contract", False) or bool(
             getattr(spec_obj, "initial_contract_path", None)
             or getattr(spec_obj, "initial_contract", None)
+            or getattr(spec_obj, "initial_contract_content", None)
+            or (getattr(getattr(spec_obj, "blueprint", None), "contract", None) is not None)
         )
         init_c_path = getattr(report, "initial_contract_path", None) or getattr(
             spec_obj, "initial_contract_path", None
         )
         wave_id_val = getattr(report, "wave_id", None) or getattr(spec_obj, "wave_id", None)
-        lifecycle_stage = getattr(report, "lifecycle_stage", None) or (
-            "MULTI_SOURCE_EXPANSION" if has_initial_contract else "COLD_START_N1"
+        rep_lc = getattr(report, "lifecycle_stage", None)
+        lifecycle_stage = (
+            "MULTI_SOURCE_EXPANSION"
+            if has_initial_contract and rep_lc in (None, "COLD_START_N1")
+            else (rep_lc or ("MULTI_SOURCE_EXPANSION" if has_initial_contract else "COLD_START_N1"))
+        )
+        resolved_sid = (
+            target_session_id
+            or getattr(self, "run_session_ids", {}).get(report.run_id)
+            or (getattr(self, "run_session_ids", {}).get(target_run_id) if target_run_id else None)
         )
         run_dto = ProjectRunDTO(
             run_id=report.run_id,
@@ -392,6 +360,7 @@ class PipelineExecutionMixin:
             has_initial_contract=has_initial_contract,
             initial_contract_path=init_c_path,
             lifecycle_stage=lifecycle_stage,
+            session_id=str(resolved_sid) if resolved_sid else None,
         )
 
         gate_rep = self._build_default_gate_report(report.run_id, run_dto=run_dto)
@@ -461,12 +430,45 @@ class PipelineExecutionMixin:
                 "domain_namespace": spec_obj.domain_namespace or "default",
                 "contract": report_dict["contract"],
             }
-        self.pipeline_reports[report.run_id] = report_dict
-        if target_run_id and target_run_id != report.run_id:
-            self.pipeline_reports[target_run_id] = report_dict
-        self.runs[report.run_id] = run_dto
-        if target_run_id and target_run_id != report.run_id:
-            self.runs[target_run_id] = run_dto.model_copy(update={"run_id": target_run_id})
+        with self._state_lock:
+            self.pipeline_reports[report.run_id] = report_dict
+            if target_run_id and target_run_id != report.run_id:
+                self.pipeline_reports[target_run_id] = report_dict
+            self.runs[report.run_id] = run_dto
+            if target_run_id and target_run_id != report.run_id:
+                self.runs[target_run_id] = run_dto.model_copy(update={"run_id": target_run_id})
+            if hasattr(self, "explicit_hold_runs"):
+                if run_status == RunStatus.PAUSED_HOLD:
+                    self.explicit_hold_runs.add(report.run_id)
+                    if target_run_id and target_run_id != report.run_id:
+                        self.explicit_hold_runs.add(target_run_id)
+                else:
+                    self.explicit_hold_runs.discard(report.run_id)
+                    if target_run_id:
+                        self.explicit_hold_runs.discard(target_run_id)
+            if run_status == RunStatus.PAUSED_HOLD:
+                from opendv_service.runs.broadcaster import build_hold_sse_payload
+
+                eff_hold_run = target_run_id or report.run_id
+                hold_payload = build_hold_sse_payload(self, eff_hold_run)
+                hold_evt_id = f"evt-{eff_hold_run}-hold"
+                ev_list = self.run_events.setdefault(eff_hold_run, [])
+                if not any(
+                    isinstance(e, dict) and e.get("event_id") == hold_evt_id for e in ev_list
+                ):
+                    ev_list.append(
+                        {
+                            "event_id": hold_evt_id,
+                            "run_id": eff_hold_run,
+                            "timestamp_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "stage_id": str(
+                                hold_payload.get("stage_id") or "STAGE_04_SHIP_VAULT_PASS2"
+                            ),
+                            "event_type": "hold",
+                            "payload": hold_payload,
+                        }
+                    )
+        save_platform_state(self)
         eff_run_id = target_run_id or report.run_id
         synced = self._sync_pipeline_report(eff_run_id)
         redacted_rep = dict(synced)

@@ -1,17 +1,31 @@
 import type { SourceFeedDTO } from "@opendv/protocol-ts";
-import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
-import { getStudioAuthHeaders } from "../../ontology/store/studio-store";
-import { EXPLORER_COLORS as C, EXPLORER_FONTS as F } from "../design-tokens";
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
+import { CLAUDE_TOKENS, EXPLORER_FONTS as F } from "../design-tokens";
+import {
+	PICKER_STYLES as S,
+	pickerApplyBtnStyle as applyBtnStyle,
+	pickerBadgeStyle as badgeStyle,
+	pickerRowWrapStyle as rowWrapStyle,
+} from "./catalogPickerStyles";
 
-export interface ForeignKeyHintLike { target_table?: string; target_column?: string; target_columns?: string[] }
+export interface ForeignKeyHintLike {
+	table?: string;
+	column?: string;
+	target_table?: string;
+	target_column?: string;
+	target_columns?: string[];
+}
 
 export function formatForeignKeyRef(fk: unknown): string | null {
 	if (!fk) return null;
 	if (typeof fk === "string") return fk.trim() || null;
 	if (typeof fk !== "object") return null;
 	const r = fk as ForeignKeyHintLike;
-	const tbl = r.target_table?.trim() ?? "";
-	const col = r.target_column?.trim() || r.target_columns?.[0]?.trim() || "";
+	const tbl = (r.target_table ?? r.table)?.trim() ?? "";
+	const col =
+		(r.target_column ?? r.column)?.trim() ||
+		r.target_columns?.[0]?.trim() ||
+		"";
 	return tbl && col ? `${tbl}.${col}` : tbl || col || null;
 }
 
@@ -48,42 +62,7 @@ export interface CatalogTablePickerModalProps {
 	onApply: (feed: SourceFeedDTO) => void;
 }
 
-const row = { display: "flex", alignItems: "center" } as const;
-const between = { ...row, justifyContent: "space-between" } as const;
-const mono = { fontFamily: F.mono } as const;
-const bLine = `1px solid ${C.borderLine}`;
-const inputBase = { padding: "4px 7px", borderRadius: 4, border: bLine, fontSize: 12 } as const;
-const monoInput = { ...inputBase, ...mono } as const;
-const S = {
-	row,
-	between,
-	input: inputBase,
-	monoInput,
-	btn: { border: bLine, borderRadius: 4, backgroundColor: C.bgSurface, padding: "2px 6px", fontSize: 11, cursor: "pointer" } as const,
-	pk: { backgroundColor: "#EDE9FE", color: "#6D28D9", padding: "1px 4px", borderRadius: 3, fontWeight: 700, marginRight: 4 } as const,
-	fk: { backgroundColor: "#E0F2FE", color: "#0369A1", padding: "1px 4px", borderRadius: 3, fontWeight: 600 } as const,
-	tag: { backgroundColor: "#FEF3C7", color: "#92400E", padding: "1px 4px", borderRadius: 3, fontWeight: 600, marginRight: 4 } as const,
-	panel: { width: "100%", maxWidth: 760, maxHeight: "88vh", backgroundColor: C.bgSurface, borderRadius: 8, border: bLine, display: "flex", flexDirection: "column" as const, overflow: "hidden" as const },
-	header: { ...between, padding: "12px 16px", borderBottom: bLine } as const,
-	subbar: { padding: "8px 16px", backgroundColor: C.bgPage, borderBottom: bLine, display: "flex", flexDirection: "column" as const, gap: 6 },
-	body: { flex: 1, overflowY: "auto" as const, padding: "12px 16px", display: "flex", flexDirection: "column" as const, gap: 8 },
-	footer: { ...between, padding: "10px 16px", borderTop: bLine, backgroundColor: C.bgPage } as const,
-	tblHdr: { ...row, gap: 8, padding: "6px 10px", backgroundColor: "#F8FAFC", borderRadius: 4, border: "1px solid #E2E8F0", fontSize: 12, fontWeight: 600 } as const,
-	overlay: { ...row, position: "fixed" as const, inset: 0, zIndex: 9999, backgroundColor: "rgba(15, 23, 42, 0.65)", justifyContent: "center", padding: 16 },
-	tbl: { width: "100%", fontSize: 11, borderCollapse: "collapse" as const },
-	td: { padding: 3 },
-	tdName: { ...mono, padding: 3, fontWeight: 600 },
-	tdType: { ...mono, padding: 3, color: "#475569" },
-	closeBtn: { background: "none", border: "none", fontSize: 16, cursor: "pointer", color: C.inkMuted },
-	rowEst: { fontSize: 11, color: C.inkMuted, backgroundColor: "#F1F5F9", padding: "1px 4px", borderRadius: 3 },
-	colPanel: { borderTop: bLine, padding: "6px 10px", backgroundColor: "#FFF" },
-	loading: { textAlign: "center" as const, padding: 16, color: C.inkMuted, fontSize: 12 },
-	err: { padding: "8px 12px", backgroundColor: "#FEF2F2", color: "#991B1B", border: "1px solid #FECACA", borderRadius: 4, fontSize: 12, marginBottom: 8 },
-};
-
-const badgeStyle = (isSql: boolean) => ({ ...mono, padding: "2px 6px", borderRadius: 4, fontSize: 11, fontWeight: 700, backgroundColor: isSql ? "#E0E7FF" : "#FEF3C7", color: isSql ? "#3730A3" : "#92400E" });
-const applyBtnStyle = (d: boolean) => ({ padding: "5px 14px", borderRadius: 4, border: "none", backgroundColor: d ? "#94A3B8" : C.borderSelected, color: "#FFF", fontWeight: 600, fontSize: 12, cursor: d ? "not-allowed" : "pointer" });
-const rowWrapStyle = (chk: boolean) => ({ borderRadius: 4, border: `1px solid ${chk ? "#93C5FD" : C.borderLine}`, backgroundColor: chk ? "#F0F9FF" : C.bgSurface });
+const C = CLAUDE_TOKENS.colors;
 
 const renderKeyBadges = (c: InspectedColumn) => {
 	const fkStr = formatForeignKeyRef(c.foreign_key_ref);
@@ -130,6 +109,19 @@ export function CatalogTablePickerModal({
 	const [isLoading, setIsLoading] = useState(false);
 	const [fingerprint, setFingerprint] = useState<string | null>(() => initialFingerprint ?? null);
 	const [inspectError, setInspectError] = useState<string | null>(null);
+	const dlgRef = useRef<HTMLDialogElement | null>(null);
+
+	useEffect(() => {
+		const dlg = dlgRef.current;
+		if (!dlg) return;
+		if (isOpen) {
+			if (!dlg.open && typeof dlg.showModal === "function") {
+				dlg.showModal();
+			}
+		} else if (dlg.open && typeof dlg.close === "function") {
+			dlg.close();
+		}
+	}, [isOpen]);
 
 	useEffect(() => {
 		setUri(initialUri ?? "");
@@ -183,7 +175,7 @@ export function CatalogTablePickerModal({
 		fetcher(`${apiUrl}/sources/inspect`, {
 			method: "POST",
 			credentials: "include",
-			headers: getStudioAuthHeaders({ "Content-Type": "application/json" }),
+			headers: { "Content-Type": "application/json" },
 			signal: ctrl ? ctrl.signal : null,
 			body: JSON.stringify({
 				uri,
@@ -283,7 +275,22 @@ export function CatalogTablePickerModal({
 	if (!isOpen) return null;
 
 	return (
-		<div role="dialog" aria-modal="true" aria-labelledby="catalog-picker-title" data-testid="catalog-table-picker-modal" style={S.overlay} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+		<dialog
+			ref={dlgRef}
+			open={typeof HTMLDialogElement === "undefined" ? true : undefined}
+			onCancel={(e) => {
+				e.preventDefault();
+				onClose();
+			}}
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="catalog-picker-title"
+			data-testid="catalog-table-picker-modal"
+			style={S.dialog}
+			onClick={(e) => {
+				if (e.target === e.currentTarget) onClose();
+			}}
+		>
 			<div style={S.panel}>
 				<header style={S.header}>
 					<div style={{ ...S.row, gap: 8 }}>
@@ -299,11 +306,11 @@ export function CatalogTablePickerModal({
 					<div style={{ ...S.between, fontSize: 12 }}>
 						<div>
 							<strong>Namespace:</strong>{" "}
-							<span data-testid="picker-namespace-badge" style={{ fontFamily: F.mono, color: "#2563EB" }}>
+							<span data-testid="picker-namespace-badge" style={S.nsBadge}>
 								{isSqlite ? (catalog || "main") : catalog && schema ? `${catalog}.${schema}` : (catalog || schema || "default")}
 							</span>
 							{fingerprint && (
-								<span style={{ marginLeft: 8, color: C.inkMuted }}>
+								<span style={{ marginLeft: 8, color: C.muted }}>
 									FP: <span data-testid="picker-fingerprint-badge" style={{ fontFamily: F.mono }}>{fingerprint}</span>
 								</span>
 							)}
@@ -329,7 +336,7 @@ export function CatalogTablePickerModal({
 
 					{isLoading && <div data-testid="picker-loading-indicator" style={S.loading}>Inspecting schema...</div>}
 					{!isLoading && !inspectError && filtered.length === 0 && (
-						<div data-testid="picker-empty-state" style={{ padding: 24, textAlign: "center", color: C.inkMuted, fontSize: 12 }}>No tables found.</div>
+						<div data-testid="picker-empty-state" style={{ padding: 24, textAlign: "center", color: C.muted, fontSize: 12 }}>No tables found.</div>
 					)}
 
 					{!isLoading && filtered.map((t) => {
@@ -353,7 +360,7 @@ export function CatalogTablePickerModal({
 										<table style={S.tbl}>
 											<tbody>
 												{t.columns.map((colItem) => (
-													<tr key={colItem.name} style={{ borderTop: "1px solid #F1F5F9" }}>
+													<tr key={colItem.name} style={S.colRow}>
 														<td style={S.tdName}>{colItem.name}</td>
 														<td style={S.tdType}>{colItem.physical_type ?? colItem.data_type}</td>
 														{renderKeyBadges(colItem)}
@@ -376,6 +383,6 @@ export function CatalogTablePickerModal({
 					</button>
 				</footer>
 			</div>
-		</div>
+		</dialog>
 	);
 }

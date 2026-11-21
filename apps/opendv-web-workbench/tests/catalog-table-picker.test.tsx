@@ -16,8 +16,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
 	CatalogTablePickerModal,
-	formatForeignKeyRef,
 	type InspectedTable,
+	formatForeignKeyRef,
 } from "../src/explorer/builder/CatalogTablePickerModal";
 
 const TEST_SQLITE_TABLES: InspectedTable[] = [
@@ -138,12 +138,16 @@ describe("CatalogTablePickerModal (WS5.3)", () => {
 				}),
 			);
 
+			expect(html).toContain("<dialog");
 			expect(html).toContain('role="dialog"');
 			expect(html).toContain('aria-modal="true"');
 			expect(html).toContain('aria-labelledby="catalog-picker-title"');
 			expect(html).toContain('data-testid="catalog-table-picker-modal"');
 			expect(html).toContain('data-testid="btn-close-modal"');
 			expect(html).toContain("Inspect &amp; Pick Catalog Tables");
+			expect(html).not.toContain("#2563EB");
+			expect(html).not.toContain("#F8FAFC");
+			expect(html).not.toContain("#E0E7FF");
 		});
 	});
 
@@ -239,6 +243,9 @@ describe("CatalogTablePickerModal (WS5.3)", () => {
 			expect(
 				formatForeignKeyRef({ target_table: "issuers", target_column: "cik" }),
 			).toBe("issuers.cik");
+			expect(formatForeignKeyRef({ table: "issuers", column: "cik" })).toBe(
+				"issuers.cik",
+			);
 			expect(
 				formatForeignKeyRef({
 					target_table: "issuers",

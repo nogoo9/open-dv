@@ -35,28 +35,11 @@ describe("Challenger 5C Security & Waiver Empirical Tests (opendvctl)", () => {
 				}
 
 				if (url.pathname.includes("/accept")) {
-					const waiverKey = req.headers.get("x-opendv-waiver-key");
-					if (waiverKey === "valid-steward-secret-key") {
-						return Response.json({
-							status: "ACCEPTED",
-							proposal_id: "prop-01",
-							new_head_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
-						});
-					} else {
-						return new Response(
-							JSON.stringify({
-								type: "urn:opendv:error:forbidden-admin-required",
-								title: "Forbidden Admin Required",
-								status: 403,
-								detail: "Invalid steward waiver credentials.",
-								error_code: "FORBIDDEN_ADMIN_REQUIRED",
-							}),
-							{
-								status: 403,
-								headers: { "Content-Type": "application/problem+json" },
-							},
-						);
-					}
+					return Response.json({
+						status: "ACCEPTED",
+						proposal_id: "prop-01",
+						new_head_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+					});
 				}
 
 				if (url.pathname.includes("/status")) {
@@ -309,11 +292,11 @@ describe("Challenger 5C Security & Waiver Empirical Tests (opendvctl)", () => {
 		expect(codeRoleFirst).toBe(7);
 		expect(JSON.parse(errLines.join("\n")).error_code).toBe("FORBIDDEN_ADMIN_REQUIRED");
 
-		// 2a. Loopback workstation call WITH OPENDV_STUDIO_TOKEN still requires explicit waiver key (exit 7 parity)
+		// 2a. Loopback open-access call succeeds zero-key even when OPENDV_STUDIO_TOKEN is unset or set (FR-AUTH-02 / FR-CLI-06)
 		process.env.OPENDV_STUDIO_TOKEN = "valid-admin-bearer";
 		const outLinesLoopback: string[] = [];
 		const errLinesLoopback: string[] = [];
-		const codeLoopbackBlocked = await runCli(
+		const codeLoopbackAllowed = await runCli(
 			[
 				"ontology",
 				"studio",
@@ -335,10 +318,33 @@ describe("Challenger 5C Security & Waiver Empirical Tests (opendvctl)", () => {
 			(msg) => outLinesLoopback.push(msg),
 			(msg) => errLinesLoopback.push(msg),
 		);
-		expect(codeLoopbackBlocked).toBe(7);
-		expect(JSON.parse(errLinesLoopback.join("\n")).error_code).toBe("FORBIDDEN_ADMIN_REQUIRED");
+		expect(codeLoopbackAllowed).toBe(0);
 
-		// 2b. Non-loopback remote admin with RS256 Bearer token (OPENDV_TOKEN) is not blocked client-side when lacking local waiver key file
+		// 2b. Non-loopback remote without OPENDV_TOKEN or OPENDV_WAIVER_KEY still requires credentials client-side
+		delete process.env.OPENDV_TOKEN;
+		delete process.env.OPENDV_WAIVER_KEY;
+		const unauthRemoteExec = new RemoteExecutor({
+			baseUrl: "https://remote.opendv.example",
+			role: "DATA_STEWARD",
+			fetchImpl: (async () =>
+				Response.json({
+					status: "HEALTHY",
+					version: "0.1.0",
+					contract_version: spec.contract_version,
+					mode: "PLATFORM_API",
+				})) as typeof fetch,
+		});
+		await expect(
+			unauthRemoteExec.execute("ontology", "studio proposal accept", {
+				session: "sec-sess-01",
+				proposal_id: "prop-01",
+				base_sha256: "1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81",
+				low_confidence_waiver: true,
+				waiver_rationale: "Adequate rationale for unauthenticated remote admin.",
+			}),
+		).rejects.toMatchObject({ errorCode: "FORBIDDEN_ADMIN_REQUIRED" });
+
+		// 2c. Non-loopback remote admin with RS256 Bearer token (OPENDV_TOKEN) is not blocked client-side when lacking local waiver key file
 		process.env.OPENDV_TOKEN = "valid-remote-admin-jwt";
 		let remoteHeaders: Record<string, string> = {};
 		const remoteExec = new RemoteExecutor({
@@ -374,26 +380,19 @@ describe("Challenger 5C Security & Waiver Empirical Tests (opendvctl)", () => {
 		expect(remoteHeaders["authorization"]).toBe("Bearer valid-remote-admin-jwt");
 	});
 
-	it("Vector 1: Mismatched waiver key sent to server returns exit 7", async () => {
-		process.env.OPENDV_WAIVER_KEY = "wrong-steward-secret-key";
-
+	it("Vector 1: Legacy --token/--token= flags are tolerated as harmless no-ops on loopback (FR-CLI-06)", async () => {
 		const outLines: string[] = [];
 		const errLines: string[] = [];
 		const code = await runCli(
 			[
 				"ontology",
 				"studio",
-				"proposal",
-				"accept",
+				"status",
 				"-s",
 				"sec-sess-01",
-				"-p",
-				"prop-01",
-				"--base-sha256",
-				"1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81",
-				"--low-confidence-waiver",
-				"--waiver-rationale",
-				"Adequate rationale for security compliance test.",
+				"--token",
+				"legacy-raw-token",
+				"--token=inline-legacy-token",
 				"--api-url",
 				serverUrl,
 				"--json",
@@ -402,9 +401,8 @@ describe("Challenger 5C Security & Waiver Empirical Tests (opendvctl)", () => {
 			(msg) => errLines.push(msg),
 		);
 
-		expect(code).toBe(7);
-		const err = JSON.parse(errLines.join("\n"));
-		expect(err.error_code).toBe("FORBIDDEN_ADMIN_REQUIRED");
+		expect(code).toBe(0);
+		expect(JSON.parse(outLines.join("\n")).session_id).toBe("sec-sess-01");
 	});
 
 	it("Vector 2: Remote init unconditionally throws exit 7 (LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE)", async () => {

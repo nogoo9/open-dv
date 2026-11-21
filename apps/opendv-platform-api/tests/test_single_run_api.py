@@ -173,6 +173,7 @@ def test_studio_export_blueprint_session_not_found(
 
 
 def test_post_runs_accepting_single_run_payload(
+    deterministic_pipeline_runner: None,
     api_client: tuple[TestClient, PlatformStateContainer, Path],
 ) -> None:
     """Verify POST /api/v1/runs and /api/v1/pipelines/runs accept single-run PipelineInputDTO."""
@@ -204,3 +205,98 @@ def test_post_runs_accepting_single_run_payload(
     body_pipe = resp_pipe.json()
     assert "run_id" in body_pipe
     assert "status_url" in body_pipe
+
+
+def test_post_pipelines_runs_resolves_studio_cas_sources_and_unstructured_docs(
+    tmp_path: Path,
+    repo_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify POST /api/v1/pipelines/runs resolves Studio session cas:// sources & docs."""
+    import sqlite3
+
+    from opendv_agent_harness.pipeline.spec import (
+        AgenticPipelineReport,
+        DeterministicValidationReport,
+        PipelineInputSpec,
+    )
+    from opendv_core.models.vault_blueprint import create_vault_blueprint
+    from opendv_service import OpenDVService
+
+    state_dir = tmp_path / "state"
+    studio_root = state_dir / "ontology_studio"
+    session_id = "ses-api-cas-01"
+    mgr = StudioSessionManager(studio_root=studio_root)
+    mgr.create_session(session_id=session_id, domain_namespace="wealth_mgmt")
+    cas = mgr.get_cas(session_id)
+
+    db_file = tmp_path / "positions.sqlite"
+    conn = sqlite3.connect(str(db_file))
+    conn.execute("CREATE TABLE pos (id TEXT PRIMARY KEY)")
+    conn.execute("INSERT INTO pos VALUES ('P1')")
+    conn.commit()
+    conn.close()
+    sqlite_sha = cas.put(db_file.read_bytes())
+    md_sha = cas.put(b"# SLA Policy\n\nSettlement cutoff is T+1.\n")
+    monkeypatch.setenv("OPENDV_STUDIO_ROOT", str(studio_root))
+
+    ont = create_genesis_ontology("wealth_mgmt", "EA")
+    bp = create_vault_blueprint(domain_namespace="wealth_mgmt", ontology=ont)
+    captured_specs: list[PipelineInputSpec] = []
+
+    def mock_runner(
+        spec: PipelineInputSpec, *args: object, **kwargs: object
+    ) -> AgenticPipelineReport:
+        captured_specs.append(spec)
+        return AgenticPipelineReport(
+            run_id=spec.run_id or "run-api-cas",
+            pipeline_id="pipe-api",
+            project_id="proj-api",
+            domain_namespace="wealth_mgmt",
+            status="COMPLETED",
+            overall_passed=True,
+            blueprint=bp,
+            input_validation=DeterministicValidationReport(),
+            output_validation=DeterministicValidationReport(),
+        )
+
+    state = PlatformStateContainer(state_dir=state_dir, workspace_root=repo_root)
+    app = create_app(platform_state=state, workspace_root=repo_root)
+    app.state.service = OpenDVService(
+        state_store=state,
+        workspace_root=repo_root,
+        pipeline_runner=mock_runner,
+        is_server=True,
+    )
+    client = TestClient(app, client=("127.0.0.1", 50001), base_url="http://localhost:8000")
+
+    payload = {
+        "session_id": session_id,
+        "blueprint": bp.model_dump(mode="json"),
+        "target_dialect": "duckdb",
+        "sources": [
+            {"feed_id": "src-1", "source_system": "positions", "uri": f"cas://{sqlite_sha}"}
+        ],
+        "unstructured_documents": [
+            {
+                "doc_id": "doc-1",
+                "document_path": f"cas://{md_sha}",
+                "mime_type": "text/markdown",
+                "metadata": {"title": "sla.md", "source_sha256": md_sha},
+            }
+        ],
+    }
+    PipelineInputDTO.model_validate(payload)
+    resp = client.post("/api/v1/pipelines/runs", json=payload)
+    assert resp.status_code == 202, resp.text
+    import time
+
+    for _ in range(40):
+        if captured_specs:
+            break
+        time.sleep(0.05)
+    assert captured_specs
+    spec = captured_specs[0]
+    assert (spec.sources[0].uri or "").startswith("sqlite:///")
+    assert Path(spec.unstructured_documents[0].document_path or "").is_file()
+    assert "Settlement cutoff is T+1" in (spec.unstructured_documents[0].content or "")

@@ -28,10 +28,14 @@ export interface BuildSiteResult {
 
 const CANONICAL_SITE_URL = "https://nogoo9.github.io/open-dv/";
 
-const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect x="2" y="2" width="28" height="28" rx="7" fill="#f6f4ee" stroke="#cfc9ba" stroke-width="2"/>
-  <path d="M16 7L25 16L16 25L7 16L16 7Z" fill="#fef7e6" stroke="#9a680c" stroke-width="2.2"/>
-  <circle cx="16" cy="16" r="2.8" fill="#141210"/>
+const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <rect x="1" y="1" width="22" height="22" rx="6" fill="#faf9f5" stroke="#e6dfd8" stroke-width="1.5"/>
+  <g stroke="#141413" stroke-width="2.1" stroke-linecap="round">
+    <line x1="12" y1="4.5" x2="12" y2="19.5"/>
+    <line x1="4.5" y1="12" x2="19.5" y2="12"/>
+    <line x1="6.7" y1="6.7" x2="17.3" y2="17.3"/>
+    <line x1="17.3" y1="6.7" x2="6.7" y2="17.3"/>
+  </g>
 </svg>
 `;
 
@@ -42,7 +46,7 @@ Sitemap: ${CANONICAL_SITE_URL}sitemap.xml
 `;
 
 const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.w3.org/2000/svg">
   <url>
     <loc>${CANONICAL_SITE_URL}</loc>
     <changefreq>weekly</changefreq>

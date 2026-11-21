@@ -678,6 +678,18 @@
               },
               "rec_src_value": {
                 "type": "string"
+              },
+              "soft_deprecated_columns": {
+                "type": ["array", "null"],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "column_aliases": {
+                "type": ["object", "null"],
+                "additionalProperties": {
+                  "type": "string"
+                }
               }
             }
           }

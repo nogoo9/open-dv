@@ -125,3 +125,127 @@ def test_pipeline_scenario_s3_unmapped_feed_halts_at_gate1_hold(tmp_path: Path) 
         opt.get("coverage_artifact_id") == "art-w0-stage01-ontology-coverage"
         for opt in g1_hold.get("options", [])
     )
+
+
+def test_ds01_stage01_ontology_coverage_and_singularization(tmp_path: Path) -> None:
+    """Bug B TDD: DS-01-shaped ontology + feeds achieve coverage_ratio == 1.0,
+    unmapped_tables == [], and _resolve_hub_and_uri('securities', ont) -> ('hub_security', ...).
+    """
+    from opendv_agent_harness.pipeline.discovery_unstructured import _resolve_hub_and_uri
+    from opendv_agent_harness.pipeline.ontology_evolution import emit_stage01_ontology_coverage
+    from opendv_agent_harness.pipeline.spec import Stage01FeedDiscoveryItem
+    from opendv_core.models.graph_a import GraphAOntology
+
+    ontology = GraphAOntology.model_validate(
+        {
+            "ontology_version": "1.0.0",
+            "domain_namespace": "wealth_mgmt",
+            "enterprise_owner": "Enterprise",
+            "canonical_business_concepts": [
+                {
+                    "concept_uri": "urn:opendv:concept:issuer",
+                    "concept_name": "Issuer",
+                    "target_hub": "hub_issuer",
+                    "elm_archetype": "CORE_BUSINESS_CONCEPT",
+                    "attributes": [{"attribute_name": "cik"}],
+                },
+                {
+                    "concept_uri": "urn:opendv:concept:position",
+                    "concept_name": "Position",
+                    "target_hub": "hub_position",
+                    "elm_archetype": "CORE_BUSINESS_CONCEPT",
+                    "attributes": [
+                        {"attribute_name": "position_id"},
+                        {"attribute_name": "currency_code"},
+                    ],
+                },
+                {
+                    "concept_uri": "urn:opendv:concept:security",
+                    "concept_name": "Security",
+                    "target_hub": "hub_security",
+                    "elm_archetype": "CORE_BUSINESS_CONCEPT",
+                    "attributes": [
+                        {"attribute_name": "isin_code"},
+                        {"attribute_name": "currency_code"},
+                    ],
+                },
+                {
+                    "concept_uri": "urn:opendv:concept:treasury_rate",
+                    "concept_name": "Treasury Rate",
+                    "target_hub": "hub_treasury_rate",
+                    "elm_archetype": "CORE_BUSINESS_CONCEPT",
+                    "attributes": [
+                        {"attribute_name": "series_id"},
+                        {"attribute_name": "currency_code"},
+                    ],
+                },
+            ],
+            "canonical_relationships": [],
+        }
+    )
+
+    hub_name, hub_uri = _resolve_hub_and_uri("securities", ontology)
+    assert hub_name == "hub_security"
+    assert hub_uri == "urn:opendv:concept:security"
+
+    tr_hub, tr_uri = _resolve_hub_and_uri("treasury_rates", ontology)
+    assert tr_hub == "hub_treasury_rate"
+    assert tr_uri == "urn:opendv:concept:treasury_rate"
+
+    feeds = [
+        Stage01FeedDiscoveryItem(
+            source_system="ds01",
+            table_name="issuers",
+            row_count=45,
+            primary_keys=["cik"],
+            foreign_keys=[],
+        ),
+        Stage01FeedDiscoveryItem(
+            source_system="ds01",
+            table_name="positions",
+            row_count=20,
+            primary_keys=["row_seq_sk"],
+            foreign_keys=[
+                {"fk_column": "currency_code", "target_table": "currency_code"},
+                {"fk_column": "cik", "target_table": "issuers"},
+                {"fk_column": "isin_code", "target_table": "securities"},
+            ],
+        ),
+        Stage01FeedDiscoveryItem(
+            source_system="ds01",
+            table_name="securities",
+            row_count=20,
+            primary_keys=["isin_code"],
+            foreign_keys=[
+                {"fk_column": "currency_code", "target_table": "currency_code"},
+                {"fk_column": "cik", "target_table": "issuers"},
+            ],
+        ),
+        Stage01FeedDiscoveryItem(
+            source_system="ds01",
+            table_name="treasury_rates",
+            row_count=30,
+            primary_keys=["observation_date", "series_id"],
+            foreign_keys=[{"fk_column": "currency_code", "target_table": "currency_code"}],
+        ),
+        Stage01FeedDiscoveryItem(
+            source_system="ds01",
+            table_name="currency_code",
+            row_count=8,
+            primary_keys=["currency_code"],
+            foreign_keys=[],
+        ),
+    ]
+
+    cov_art, unmapped = emit_stage01_ontology_coverage(
+        ontology,
+        sources=[],
+        discovered_feeds=feeds,
+        output_dir=tmp_path,
+        wave_index=0,
+    )
+    assert cov_art is not None
+    payload = json.loads(Path(cov_art.file_path).read_text(encoding="utf-8"))
+    assert unmapped == []
+    assert payload["unmapped_tables"] == []
+    assert payload["coverage_ratio"] == 1.0

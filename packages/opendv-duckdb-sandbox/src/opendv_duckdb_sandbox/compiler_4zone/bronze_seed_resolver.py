@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -90,15 +91,51 @@ def _filter_hub_rows_for_bkcc(
     return matched or rows
 
 
+def _slugify_col_key(raw_key: str) -> str:
+    k_str = str(raw_key).strip()
+    slug = re.sub(r"[^A-Za-z0-9_]+", "_", k_str).strip("_").lower()
+    if not slug or not (slug[0].isalpha() or slug[0] == "_"):
+        slug = f"col_{slug}" if slug else "col_unknown"
+    return slug
+
+
+def _lookup_row_col_key(row: dict[str, Any] | None, target_col: str) -> str | None:
+    """Find `target_col` in `row` directly or via SQL-sanitized column-name matching."""
+    if not row:
+        return None
+    if target_col in row and row[target_col] is not None:
+        return target_col
+    target_low = target_col.lower()
+    slug_matches: list[str] = []
+    for k, v in row.items():
+        if v is None:
+            continue
+        k_str = str(k).strip()
+        if k_str.lower() == target_low:
+            return k
+        slug = _slugify_col_key(k_str)
+        if slug == target_low:
+            return k
+        slug_matches.append((k, slug))  # type: ignore[arg-type]
+    suffix_m = re.match(r"^(.+)_(\d+)$", target_low)
+    if suffix_m:
+        base_low, idx = suffix_m.group(1), int(suffix_m.group(2))
+        cands = [k for k, s in slug_matches if s == base_low]  # type: ignore[misc]
+        if idx >= 2 and idx - 1 < len(cands):
+            return cands[idx - 1]
+    return None
+
+
 def _format_bronze_payload_sql_literal(
     col: IRColumnDef,
     row: dict[str, Any] | None,
     row_idx: int,
 ) -> str:
     """Format a column value from a `loaded_bronze` row as a SQL literal, or fall back to seed."""
-    if row is None or col.name not in row or row[col.name] is None:
+    row_key = _lookup_row_col_key(row, col.name)
+    if row is None or row_key is None or row[row_key] is None:
         return _satellite_seed_sql_literal(col, row_idx)
-    s_val = str(row[col.name]).strip()
+    s_val = str(row[row_key]).strip()
     if not s_val:
         return _satellite_seed_sql_literal(col, row_idx)
 
@@ -239,13 +276,15 @@ def _resolve_hub_bk_rows_from_bronze(
                 else:
                     target_col = None
                     for c_cand in src_bk_cols:
-                        if c_cand in row and row[c_cand] is not None:
-                            target_col = c_cand
+                        matched = _lookup_row_col_key(row, c_cand)
+                        if matched is not None:
+                            target_col = matched
                             break
                     if target_col is None:
                         for c_cand in (bk.name, f"{hub.name}_id", "id", "code"):
-                            if c_cand in row and row[c_cand] is not None:
-                                target_col = c_cand
+                            matched = _lookup_row_col_key(row, c_cand)
+                            if matched is not None:
+                                target_col = matched
                                 break
                     if target_col is None:
                         valid_row = False

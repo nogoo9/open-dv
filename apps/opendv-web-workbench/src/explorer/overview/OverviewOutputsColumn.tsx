@@ -26,6 +26,7 @@ export function OverviewOutputsColumn({
 }: OverviewOutputsColumnProps) {
 	return (
 		<section
+			className="claude-explorer-col-full claude-overview-side-col"
 			aria-label="Final Pipeline Outputs"
 			onClick={(ev) => ev.stopPropagation()}
 			style={{

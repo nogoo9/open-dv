@@ -18,7 +18,11 @@ from opendv_contracts.dtos.pipeline import (
     PipelineValidateRequest,
 )
 from opendv_platform_api.deps import get_opendv_service, get_rbac_role
+from opendv_platform_api.studio_deps import reserve_session_run
 from opendv_service import OpenDVService
+from opendv_service.use_cases.pipeline import (
+    SingleRunExecutionResultDTO,
+)
 from opendv_service.use_cases.pipeline import (
     validate_pipeline as validate_pipeline_use_case,
 )
@@ -83,14 +87,18 @@ async def validate_pipeline(
     return await run_in_threadpool(service.validate_pipeline, val_req)
 
 
-@router.post("/pipelines/runs", response_model=PipelineRunHandle, status_code=202)
+@router.post(
+    "/pipelines/runs",
+    response_model=PipelineRunHandle | SingleRunExecutionResultDTO,
+    status_code=202,
+)
 async def run_pipeline(
     req: PipelineInputDTO | PipelineRunRequest,
     response: Response,
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
     role: Annotated[RbacRole, Depends(get_rbac_role)],
     sync: Annotated[bool, Query()] = False,
-) -> PipelineRunHandle | dict[str, Any]:
+) -> PipelineRunHandle | SingleRunExecutionResultDTO | dict[str, Any]:
     """Execute or submit an agentic pipeline run returning HTTP 202 handle."""
     if role == RbacRole.PUBLIC:
         raise HTTPException(
@@ -117,13 +125,20 @@ async def run_pipeline(
                 ),
             )
 
-    if sync:
-        from opendv_service.use_cases.pipeline import execute_pipeline_run_sync
+    eff_sid = getattr(req, "session_id", None) or (
+        req.input_spec.get("session_id")
+        if isinstance(getattr(req, "input_spec", None), dict)
+        else None
+    )
+    with reserve_session_run(service, eff_sid):
+        if sync:
+            from opendv_service.use_cases.pipeline import execute_pipeline_run_sync
 
-        return await run_in_threadpool(
-            execute_pipeline_run_sync, service.state, req, role=role
-        )
-    handle = await service.execute_run_async(req)
+            response.status_code = status.HTTP_200_OK
+            return await run_in_threadpool(
+                execute_pipeline_run_sync, service.state, req, role=role
+            )
+        handle = await service.execute_run_async(req, role=role)
     if hasattr(handle, "status_url"):
         response.headers["Location"] = handle.status_url
     return handle

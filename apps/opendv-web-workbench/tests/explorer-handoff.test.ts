@@ -9,10 +9,6 @@ import {
 	getArtifactConsumedBy,
 	getArtifactProducedBy,
 } from "@opendv/protocol-ts";
-import {
-	GLOBAL_COMMERCE_EXPLORER_BUNDLE,
-	PE_DEMO_EVENTS,
-} from "./fixtures/commerce-explorer-fixture";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createWorkbenchDevServer } from "../src/dev-server";
@@ -27,38 +23,42 @@ import {
 	createExplorerStore,
 	parseExplorerUrlState,
 } from "../src/index";
+import {
+	GLOBAL_COMMERCE_EXPLORER_BUNDLE,
+	PE_DEMO_EVENTS,
+} from "./fixtures/commerce-explorer-fixture";
 
 describe("3-Level Pipeline Explorer Workbench (HANDOFF.md)", () => {
 	describe("1. Design Tokens, Glyphs & @opendv/protocol-ts Data Lineage", () => {
 		it("defines the 3 element glyphs (control diamond, data square, component circle) and status pills", () => {
-			expect(EXPLORER_GLYPHS.control.bg).toBe("#B45309");
+			expect(EXPLORER_GLYPHS.control.bg).toBe("#a9583e");
 			expect(EXPLORER_GLYPHS.control.clip).toBe(
 				"polygon(50% 0,100% 50%,50% 100%,0 50%)",
 			);
-			expect(EXPLORER_GLYPHS.data.bg).toBe("#1D4ED8");
-			expect(EXPLORER_GLYPHS.setting.border).toBe("1.5px solid #1D4ED8");
-			expect(EXPLORER_GLYPHS.component.bg).toBe("#4B5563");
+			expect(EXPLORER_GLYPHS.data.bg).toBe("#cc785c");
+			expect(EXPLORER_GLYPHS.setting.border).toBe("1.5px solid #a9583e");
+			expect(EXPLORER_GLYPHS.component.bg).toBe("#3d3d3a");
 			expect(EXPLORER_GLYPHS.component.radius).toBe("999px");
 
 			expect(EXPLORER_STATUS_TAGS.PASS).toEqual({
-				bg: "#EEF0F2",
-				fg: "#16181D",
+				bg: "#efe9de",
+				fg: "#141413",
 			});
 			expect(EXPLORER_STATUS_TAGS.AUTO_REPAIRED).toEqual({
-				bg: "#FFF4E5",
-				fg: "#8A3B07",
+				bg: "#f5f0e8",
+				fg: "#8f452d",
 			});
 			expect(EXPLORER_STATUS_TAGS["ASK-USER → resolved"]).toEqual({
-				bg: "#FFF4E5",
-				fg: "#8A3B07",
+				bg: "#efe9de",
+				fg: "#7a4e05",
 			});
 			expect(EXPLORER_STATUS_TAGS["REJECT-WITH-TRACE"]).toEqual({
-				bg: "#FDECEA",
-				fg: "#8F1D12",
+				bg: "#fdf2f2",
+				fg: "#991b1b",
 			});
 			expect(EXPLORER_STATUS_TAGS["AUTO-FIX"]).toEqual({
-				bg: "#EEF2FF",
-				fg: "#1E3A8A",
+				bg: "#e8e0d2",
+				fg: "#141413",
 			});
 		});
 
@@ -357,9 +357,9 @@ describe("3-Level Pipeline Explorer Workbench (HANDOFF.md)", () => {
 			const prevLedgerLen =
 				store.getState().bundle.artifacts.ledger?.events?.length ?? 0;
 			store.getState().ingestLiveObservabilityEvent(sampleEvent);
-			expect(
-				store.getState().bundle.artifacts.ledger?.events?.length,
-			).toBe(prevLedgerLen + 1);
+			expect(store.getState().bundle.artifacts.ledger?.events?.length).toBe(
+				prevLedgerLen + 1,
+			);
 
 			// Resolve Steward Hold
 			const resp = await store.getState().resolveStewardHold({

@@ -173,6 +173,9 @@ def test_stress_dump_cli_tree_rfc8785_canonical_jcs_equality(
         "starter-pack",
         "text",
         "staged",
+        "attach-source",
+        "fibo-qa",
+        "logs",
     }
     assert set(py_groups.keys()) == expected_groups
     assert py_groups["init"]["availability"] == "standalone_only"
@@ -524,6 +527,8 @@ def test_stress_exit_code_matrix_0_to_7_both_clis(
     # Missing waiver key on accept
     monkeypatch.delenv("OPENDV_WAIVER_KEY", raising=False)
     unauth_py = [
+        "--role",
+        "EDITOR",
         "ontology",
         "studio",
         "proposal",
@@ -558,7 +563,7 @@ def test_stress_exit_code_matrix_0_to_7_both_clis(
     c_py_7b, out_py_7b, err_py_7b = cli_transport.invoke_raw(unauth_py)
     old_role_7 = client_cli_transport.role
     try:
-        client_cli_transport.role = "DATA_STEWARD"
+        client_cli_transport.role = "EDITOR"
         c_ts_7b, out_ts_7b, err_ts_7b = client_cli_transport.invoke_raw(unauth_ts)
     finally:
         client_cli_transport.role = old_role_7

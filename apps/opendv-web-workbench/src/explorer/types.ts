@@ -20,7 +20,14 @@ import type { StoreApi, UseBoundStore } from "zustand";
 import type { BlockingErrorState } from "./BlockingErrorBanner";
 import type { ExplorerDataSource } from "./data-source";
 
-export type ExplorerViewLevel = "pipeline" | "stage" | "builder" | "settings";
+export type ExplorerViewLevel =
+	| "ontology"
+	| "dv_schema"
+	| "pipeline"
+	| "stage"
+	| "builder"
+	| "settings";
+export type OntologySubView = "studio" | "builder";
 export type ExplorerSelectionType = "artifact" | "step" | "component" | null;
 export type ArtifactFullTab = "viz" | "raw" | "split";
 export type ExplorerRunState = "sealed" | "running" | "hold" | "failed";
@@ -56,12 +63,16 @@ export interface ExplorerStoreState {
 	isLoading: boolean;
 	activeBundleKey: ExplorerPresetBundleKey;
 	view: ExplorerViewLevel;
+	ontologySubView: OntologySubView;
 	stageIdx: number;
 	selType: ExplorerSelectionType;
 	selId: string | number | null;
 	fullId: string | null;
 	fullTab: ArtifactFullTab;
 	activeWave: WaveFilterId;
+	runId: string | null;
+	compareRunId: string | null;
+	sessionId: string | null;
 	builderSessionId: string | null;
 	builderSource: string | null;
 	builderDomain: string | null;
@@ -73,6 +84,8 @@ export interface ExplorerStoreState {
 	lastError: string | null;
 
 	// Navigation & Selection Actions
+	goOntology: (subView?: OntologySubView | undefined) => void;
+	goDvSchema: () => void;
 	goPipeline: () => void;
 	goBuilder: () => void;
 	goSettings: () => void;
@@ -110,6 +123,7 @@ export interface ExplorerStoreState {
 
 	// URL Synchronization
 	syncFromUrl: (pathname: string, search: string) => void;
+	syncUrl: () => void;
 	getCurrentUrl: () => string;
 
 	// Live Run & Steward Hold Actions
@@ -138,7 +152,7 @@ export type ExplorerStore = UseBoundStore<StoreApi<ExplorerStoreState>>;
 
 export function cloneBundle(bundle: ExplorerBundleDTO): ExplorerBundleDTO {
 	const artifacts: Record<string, Artifact> = {};
-	for (const [key, art] of Object.entries(bundle.artifacts)) {
+	for (const [key, art] of Object.entries(bundle.artifacts ?? {})) {
 		artifacts[key] = {
 			...art,
 			waves: art.waves ? [...art.waves] : undefined,
@@ -157,7 +171,7 @@ export function cloneBundle(bundle: ExplorerBundleDTO): ExplorerBundleDTO {
 			doc: art.doc
 				? {
 						...art.doc,
-						extractions: art.doc.extractions.map((ex) => ({
+						extractions: (art.doc.extractions ?? []).map((ex) => ({
 							...ex,
 							candidates: ex.candidates
 								? ex.candidates.map((cand) => ({ ...cand }))
@@ -168,26 +182,28 @@ export function cloneBundle(bundle: ExplorerBundleDTO): ExplorerBundleDTO {
 		};
 	}
 
-	const stages: Stage[] = bundle.stages.map((st) => ({
+	const stages: Stage[] = (bundle.stages ?? []).map((st) => ({
 		...st,
-		ins: [...st.ins],
-		outs: [...st.outs],
-		steps: st.steps.map((sp) => ({
+		ins: [...(st.ins ?? [])],
+		outs: [...(st.outs ?? [])],
+		steps: (st.steps ?? []).map((sp) => ({
 			...sp,
-			reads: [...sp.reads],
-			writes: [...sp.writes],
+			reads: [...(sp.reads ?? [])],
+			writes: [...(sp.writes ?? [])],
 		})),
-		comps: st.comps.map((c) => [...c] as [string, string, string, string]),
+		comps: (st.comps ?? []).map(
+			(c) => [...c] as [string, string, string, string],
+		),
 	}));
 
 	return {
 		...bundle,
-		waves: bundle.waves.map((w) => ({ ...w })),
-		phases: bundle.phases.map((p) => ({ ...p })),
+		waves: (bundle.waves ?? []).map((w) => ({ ...w })),
+		phases: (bundle.phases ?? []).map((p) => ({ ...p })),
 		stages,
 		artifacts,
-		settingIds: [...bundle.settingIds],
-		inputIds: [...bundle.inputIds],
-		outputIds: [...bundle.outputIds],
+		settingIds: [...(bundle.settingIds ?? [])],
+		inputIds: [...(bundle.inputIds ?? [])],
+		outputIds: [...(bundle.outputIds ?? [])],
 	};
 }

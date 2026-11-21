@@ -16,8 +16,8 @@ export function HomePage({
 }): React.JSX.Element {
 	return (
 		<DocumentShell
-			title="open-dv v6.0 — Neuro-Symbolic Data Vault 2.0 Verified Before One SQL Line Runs"
-			description="Open-source Apache-2.0 neuro-symbolic Data Vault 2.0 modelling, 6-gate axi-dv verification, DuckDB shadow sandbox, Ontology Studio, and multi-dialect SQL compiler."
+			title="open-dv — Agent-First 6-Step Data Vault 2.0 Studio & 5-Zone Compiler"
+			description="Open-source Apache-2.0 Agent-first 6-Step Data Vault 2.0 wizard, 4-View DV Schema Explorer, 6-gate axi-dv verifier, DuckDB shadow sandbox, and 5-Zone (Z0-Z4) SQL compiler."
 			canonicalPath="/"
 			activeRoute="home"
 			{...(basePath !== undefined ? { basePath } : {})}

@@ -261,3 +261,58 @@ def test_row7_hybrid_per_source_plan(
     assert actions_by_table["bronze_positions"] == "INTRA_SOURCE_DRIFT"
     assert actions_by_table["yield_curves"] == "INCREMENTAL_ONBOARDING"
     assert len(plan.doc_actions) == 1
+
+
+def test_resolve_initial_blueprint_parses_initial_contract_content_when_bp_contract_none(
+    empty_ontology: GraphAOntology,
+    deployed_v5_contract: NoMistakeDataVault2ContractV5,
+    tmp_path,
+) -> None:
+    """Bug 1: Parse initial_contract_content/path when blueprint.contract is None."""
+    import yaml
+
+    from opendv_agent_harness.pipeline.mode_detector import resolve_initial_blueprint_and_ontology
+    from opendv_agent_harness.pipeline.spec import PipelineInputSpec
+
+    bp = create_vault_blueprint(
+        domain_namespace="asset_management",
+        ontology=empty_ontology,
+        contract=None,
+    )
+    cnt_yaml = yaml.safe_dump(deployed_v5_contract.model_dump(mode="json"), sort_keys=False)
+
+    # 1. Inline initial_contract_content with blueprint(contract=None)
+    spec_inline = PipelineInputSpec(
+        blueprint=bp,
+        initial_contract_content=cnt_yaml,
+    )
+    out_bp, _out_ont, out_cnt, _ = resolve_initial_blueprint_and_ontology(spec_inline)
+    assert out_bp is not None
+    assert out_cnt is not None, (
+        "Expected initial_contract_content to be parsed when bp.contract is None"
+    )
+    assert out_cnt.hubs[0].name == "hub_position"
+
+    plan = infer_execution_plan(
+        blueprint=out_bp,
+        contract=out_cnt,
+        sources=[
+            PipelineSourceFeedInput(
+                source_system="custody",
+                table_name="custody_settlements",
+                business_keys=["settlement_id"],
+            )
+        ],
+    )
+    assert plan.primary_action == "MULTI_SOURCE_EXPANSION"
+
+    # 2. File-backed initial_contract_path with blueprint(contract=None)
+    cnt_file = tmp_path / "deployed_contract.yaml"
+    cnt_file.write_text(cnt_yaml, encoding="utf-8")
+    spec_file = PipelineInputSpec(
+        blueprint=bp,
+        initial_contract_path=str(cnt_file),
+    )
+    _, _, out_cnt_path, _ = resolve_initial_blueprint_and_ontology(spec_file)
+    assert out_cnt_path is not None
+    assert out_cnt_path.hubs[0].name == "hub_position"

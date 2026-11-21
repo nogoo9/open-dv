@@ -11,6 +11,9 @@ from typing import Any
 
 import duckdb
 
+from opendv_agent_harness.pipeline.ontology_coverage_helpers import (
+    _annotate_enum_candidate_roles,
+)
 from opendv_agent_harness.pipeline.ontology_evolution import (
     emit_stage01_advisory_proposal,
     emit_stage01_ontology_coverage,
@@ -28,6 +31,7 @@ from opendv_agent_harness.pipeline.stages_agentic import (
     resolve_stage_model,
 )
 from opendv_agent_harness.pipeline.tabular_helpers import (
+    HEX_64_RE,
     _calc_col_stats,
     _collect_roots,
     _enforce_server_ssrf,
@@ -39,7 +43,9 @@ from opendv_agent_harness.pipeline.tabular_helpers import (
     _resolve_cas_spec,
     _safe_load_view,
     _to_source_target,
+    attach_value_signatures_to_col_stats,
     quote_ident,
+    strip_value_signatures_from_profiles,
 )
 from opendv_sources.models.descriptors import ResolvedTableSource
 from opendv_sources.models.specs import SourceSpec
@@ -181,9 +187,29 @@ def discover_tabular_feeds(
                 if not cols:
                     row_cnt = rt.schema_descriptor.row_count_estimate or 0
                     cols = [c.name for c in rt.schema_descriptor.columns]
+                fk_hints = _make_fk_hints(rt.schema_descriptor.foreign_keys)
+                col_descs = _make_col_descs(rt.schema_descriptor.columns)
+                src_pii = list(getattr(src, "pii_columns", []) or [])
                 col_stats = _extract_pushdown_stats(
                     cat_adapter, rt.spec, rt.table_name, rt.schema_descriptor.namespace, row_cnt
                 ) or _calc_col_stats(conn, vname, cols, row_cnt)
+                attach_value_signatures_to_col_stats(
+                    conn,
+                    vname,
+                    cols,
+                    col_stats,
+                    pii_cols=src_pii,
+                    col_descs=col_descs,
+                    gov_tags=rt.schema_descriptor.governance_tags,
+                    do_not_send_to_agent=bool(options.get("do_not_send_to_agent")),
+                )
+                _annotate_enum_candidate_roles(
+                    col_stats,
+                    rt.table_name,
+                    rt.schema_descriptor.primary_key_columns,
+                    fk_hints,
+                    row_cnt,
+                )
                 _record_item(
                     items,
                     profile_summaries,
@@ -192,15 +218,30 @@ def discover_tabular_feeds(
                     cols=cols,
                     row_cnt=row_cnt,
                     pks=rt.schema_descriptor.primary_key_columns,
-                    fks=_make_fk_hints(rt.schema_descriptor.foreign_keys),
-                    col_descs=_make_col_descs(rt.schema_descriptor.columns),
+                    fks=fk_hints,
+                    col_descs=col_descs,
                     col_stats=col_stats,
                     gov_tags=rt.schema_descriptor.governance_tags,
                     extra_keys=(rt.qualified_name,),
+                    pii_cols=src_pii,
                 )
         else:
             ss = src.source_system or "source"
-            tname = src.table_name or "table"
+            raw_tname = src.table_name or ""
+            if not raw_tname or HEX_64_RE.match(raw_tname):
+                opt_tbl = str(options.get("table_name") or "").strip()
+                opt_src = str(options.get("source_name") or "").strip()
+                src_nm = str(getattr(src, "source_name", "") or "").strip()
+                if opt_tbl and not HEX_64_RE.match(opt_tbl):
+                    tname = opt_tbl
+                elif opt_src and not HEX_64_RE.match(Path(opt_src).stem):
+                    tname = Path(opt_src).stem
+                elif src_nm and not HEX_64_RE.match(src_nm):
+                    tname = src_nm
+                else:
+                    tname = ss if not HEX_64_RE.match(ss) else (src.feed_id or "table")
+            else:
+                tname = raw_tname
             clean_ss = re.sub(r"[^a-zA-Z0-9_]", "_", ss).strip("_")
             clean_tn = re.sub(r"[^a-zA-Z0-9_]", "_", tname).strip("_")
             eff_uri = src.data_path or (
@@ -245,6 +286,18 @@ def discover_tabular_feeds(
                             "target_table": tgt.removeprefix("hub_"),
                             "target_column": col,
                         })
+            src_pii = list(getattr(src, "pii_columns", []) or [])
+            col_stats = _calc_col_stats(conn, vname, cols, row_cnt)
+            attach_value_signatures_to_col_stats(
+                conn,
+                vname,
+                cols,
+                col_stats,
+                pii_cols=src_pii,
+                col_descs=col_descs,
+                do_not_send_to_agent=bool(options.get("do_not_send_to_agent")),
+            )
+            _annotate_enum_candidate_roles(col_stats, tname, bks, fks, row_cnt)
             _record_item(
                 items,
                 profile_summaries,
@@ -255,7 +308,8 @@ def discover_tabular_feeds(
                 pks=bks,
                 fks=fks,
                 col_descs=col_descs,
-                col_stats=_calc_col_stats(conn, vname, cols, row_cnt),
+                col_stats=col_stats,
+                pii_cols=src_pii,
             )
 
     return Stage01SourceDiscoveryOutput(
@@ -296,7 +350,7 @@ async def execute_stage_01_tabular(
             f.model_dump(mode="json") if hasattr(f, "model_dump") else f
             for f in s1_out.discovered_feeds
         ],
-        "profile_summaries": s1_out.profile_summaries,
+        "profile_summaries": strip_value_signatures_from_profiles(s1_out.profile_summaries),
     }
     s01_metrics, _ = await execute_stage_task(
         w_idx,
@@ -306,6 +360,7 @@ async def execute_stage_01_tabular(
         runner.on_stream_event,
         runner.run_id,
         context=s01_ctx,
+        stage_output_policy=runner.harness_setup.stage_output_policy,
     )
     cov_art, unmapped_tables = emit_stage01_ontology_coverage(
         runner.ontology,
@@ -364,10 +419,18 @@ async def execute_stage_01_tabular(
         )
         if s05_prop:
             artifacts.append(s05_prop)
+        resumed_from_hold = bool(
+            (getattr(runner.harness_setup, "extra_provider_options", None) or {}).get(
+                "resumed_from_hold", False
+            )
+        )
+        skip_unmapped_check = resumed_from_hold or not any(
+            "unmapped" in str(t).lower() for t in unmapped_tables
+        )
         if (
             runner.harness_setup.steward_hold_policy == "auto_approve_top_candidate"
             and runner.input_spec.ontology_policy != "steward_review"
-            and not any("unmapped" in str(t).lower() for t in unmapped_tables)
+            and skip_unmapped_check
         ):
             return s1_out, None
         runner.hold_manager.record_hold(

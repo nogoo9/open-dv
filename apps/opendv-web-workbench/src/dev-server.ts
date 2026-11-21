@@ -1,12 +1,16 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { stripTrailingSlashes } from "./explorer/url-router";
 
 export const DEFAULT_DEV_SERVER_PORT = 5173;
 export const DEFAULT_DEV_SERVER_HOST = "127.0.0.1";
 export const DEFAULT_API_URL =
 	process.env.OPENDV_API_URL ?? "http://127.0.0.1:8420";
 export const WORKBENCH_CSP =
-	"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'";
+	"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-ancestors 'self'";
+
+const STATIC_EXT_RE = /\.(js|css|html|png|jpg|jpeg|svg|ico|woff2?|map|wasm)$/i;
+const SAFE_FONT_FILENAME_RE = /^[a-z0-9._-]+\.woff2$/i;
 
 export interface WorkbenchDevServerOptions {
 	/** Port to listen on. Defaults to process.env.PORT ?? 5173. Use 0 for an ephemeral port in tests. */
@@ -77,7 +81,7 @@ export function createWorkbenchDevServer(
 
 			// 1. Proxy /api and /api/* requests to upstream Platform API
 			if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
-				const targetUrl = `${apiUrl.replace(/\/+$/, "")}${url.pathname}${url.search}`;
+				const targetUrl = `${stripTrailingSlashes(apiUrl)}${url.pathname}${url.search}`;
 				const targetOrigin = new URL(apiUrl).origin;
 				const headers = new Headers();
 				for (const [key, value] of request.headers.entries()) {
@@ -88,9 +92,10 @@ export function createWorkbenchDevServer(
 				if (headers.has("origin")) {
 					headers.set("origin", targetOrigin);
 				}
-				if (headers.has("referer")) {
+				const referer = headers.get("referer");
+				if (referer) {
 					try {
-						const refUrl = new URL(headers.get("referer")!);
+						const refUrl = new URL(referer);
 						headers.set(
 							"referer",
 							`${targetOrigin}${refUrl.pathname}${refUrl.search}`,
@@ -132,20 +137,43 @@ export function createWorkbenchDevServer(
 				}
 			}
 
-			// 2. Serve index.html at /, /index.html, /builder, /settings, /ontology, or deep-linked /stages/00..07 routes
+			// 2. Serve bundled .woff2 fonts at /assets/fonts/*.woff2
+			if (url.pathname.startsWith("/assets/fonts/")) {
+				const fontName = url.pathname.slice("/assets/fonts/".length);
+				if (SAFE_FONT_FILENAME_RE.test(fontName) && !fontName.includes("..")) {
+					const fontsDir = resolve(
+						workbenchRoot,
+						"../opendv-website/public/fonts",
+					);
+					const fontPath = resolve(fontsDir, fontName);
+					if (fontPath.startsWith(fontsDir) && existsSync(fontPath)) {
+						return new Response(readFileSync(fontPath), {
+							status: 200,
+							headers: {
+								"Content-Type": "font/woff2",
+								"Content-Security-Policy": WORKBENCH_CSP,
+							},
+						});
+					}
+				}
+			}
+
+			// 3. Serve index.html at /, /index.html, /builder*, /dv-schema*, /explorer*, /settings, /ontology*, or /stages/00..07
+			const isNonAssetSubpath = (prefix: string) =>
+				url.pathname.startsWith(prefix) && !STATIC_EXT_RE.test(url.pathname);
 			if (
 				url.pathname === "/" ||
 				url.pathname === "/index.html" ||
 				url.pathname === "/builder" ||
-				url.pathname === "/builder/" ||
+				isNonAssetSubpath("/builder/") ||
+				url.pathname === "/dv-schema" ||
+				isNonAssetSubpath("/dv-schema/") ||
+				url.pathname === "/explorer" ||
+				isNonAssetSubpath("/explorer/") ||
 				url.pathname === "/settings" ||
 				url.pathname === "/settings/" ||
 				url.pathname === "/ontology" ||
-				url.pathname === "/ontology/" ||
-				(url.pathname.startsWith("/ontology/") &&
-					!/\.(js|css|html|png|jpg|jpeg|svg|ico|woff2?|map|wasm)$/i.test(
-						url.pathname,
-					)) ||
+				isNonAssetSubpath("/ontology/") ||
 				/^\/stages\/0?[0-7]\/?$/.test(url.pathname)
 			) {
 				const htmlPath = join(workbenchRoot, "index.html");

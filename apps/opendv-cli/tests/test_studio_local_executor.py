@@ -22,6 +22,9 @@ from opendv_service.studio.workspace_security import WorkspaceSecurityManager
 @pytest.fixture
 def studio_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
     """Provide isolated workspace and studio storage roots."""
+    from opendv_core.schema_registry import get_default_schema_registry
+
+    get_default_schema_registry()
     ws = tmp_path / "workspace"
     ws.mkdir(parents=True, exist_ok=True)
     studio_root = tmp_path / "studio_root"
@@ -278,9 +281,11 @@ def test_studio_proposal_accept_waiver_matrix(studio_env: tuple[Path, Path]) -> 
     key_file = ws / "steward_waiver.key"
     key_file.write_text(waiver_key, encoding="utf-8")
 
-    # 3. Waiver without credentials checks auth/role FIRST (exit 7) BEFORE rationale length (MAJ-03)
+    # 3. Non-admin role waiver checks role FIRST (exit 7) BEFORE rationale length (MAJ-03)
     code_no_key_first = app_main(
         [
+            "--role",
+            "EDITOR",
             "ontology",
             "studio",
             "proposal",
@@ -299,7 +304,7 @@ def test_studio_proposal_accept_waiver_matrix(studio_env: tuple[Path, Path]) -> 
     )
     assert code_no_key_first == 7
 
-    # 3b. Valid waiver key with short rationale (< 10 chars) -> exit 4 (INVALID_GROUNDING_WAIVER)
+    # 3b. Local admin with short rationale (< 10 chars) -> exit 4 (INVALID_GROUNDING_WAIVER)
     code_short = app_main(
         [
             "ontology",
@@ -315,14 +320,12 @@ def test_studio_proposal_accept_waiver_matrix(studio_env: tuple[Path, Path]) -> 
             "--low-confidence-waiver",
             "--waiver-rationale",
             "too short",
-            "--waiver-key-file",
-            str(key_file),
             "--json",
         ]
     )
     assert code_short == 4
 
-    # 4. Low-confidence waiver without waiver key or admin role raises exit 7
+    # 4. Low-confidence waiver with non-admin role raises exit 7
     # (FORBIDDEN_ADMIN_REQUIRED)
     code_no_cred = app_main(
         [
@@ -346,8 +349,7 @@ def test_studio_proposal_accept_waiver_matrix(studio_env: tuple[Path, Path]) -> 
     )
     assert code_no_cred == 7
 
-    # 5. Low-confidence waiver with --waiver-key-file succeeds (exit 0)
-
+    # 5. Low-confidence waiver as local admin succeeds without --waiver-key-file (exit 0)
     code_success = app_main(
         [
             "ontology",
@@ -363,8 +365,6 @@ def test_studio_proposal_accept_waiver_matrix(studio_env: tuple[Path, Path]) -> 
             "--low-confidence-waiver",
             "--waiver-rationale",
             "Valid rationale explaining SEC regulatory compliance.",
-            "--waiver-key-file",
-            str(key_file),
             "--json",
         ]
     )
@@ -893,11 +893,11 @@ def test_studio_waiver_security_no_secret_leakage(studio_env: tuple[Path, Path])
     )
     assert code_no_waiver == 4
 
-    # 2. Attempt to accept with local token or invalid key -> exit 7 FORBIDDEN_ADMIN_REQUIRED
-    bogus_key_file = ws / "bogus.key"
-    bogus_key_file.write_text("invalid_token_xyz_123456", encoding="utf-8")
+    # 2. Non-admin role (EDITOR) waiver is still rejected -> exit 7 FORBIDDEN_ADMIN_REQUIRED
     code_invalid_waiver = app_main(
         [
+            "--role",
+            "EDITOR",
             "ontology",
             "studio",
             "proposal",
@@ -911,14 +911,12 @@ def test_studio_waiver_security_no_secret_leakage(studio_env: tuple[Path, Path])
             "--low-confidence-waiver",
             "--waiver-rationale",
             "Administrative grounding waiver for ungrounded concept",
-            "--waiver-key-file",
-            str(bogus_key_file),
             "--json",
         ]
     )
     assert code_invalid_waiver == 7
 
-    # 3. Accept with valid dedicated waiver key file -> exit 0
+    # 3. Accept as local admin without K_waiver secret -> exit 0
     code_valid_waiver = app_main(
         [
             "ontology",
@@ -934,8 +932,6 @@ def test_studio_waiver_security_no_secret_leakage(studio_env: tuple[Path, Path])
             "--low-confidence-waiver",
             "--waiver-rationale",
             "Administrative grounding waiver for ungrounded concept",
-            "--waiver-key-file",
-            str(wk_file),
             "--json",
         ]
     )
@@ -1979,7 +1975,7 @@ def test_studio_rbac_self_acceptance_and_waiver_key_errors_p12_maj04_p13_maj01(
     )
     capsys.readouterr()
 
-    # 2. Missing --waiver-key-file reports exit 3 FILE_NOT_FOUND (not exit 7)
+    # 2. Local admin waiver succeeds without --waiver-key-file (and tolerates legacy flag as no-op)
     p_ungrounded = ws / "ungrounded.json"
     p_ungrounded.write_text(
         json.dumps(
@@ -2014,10 +2010,9 @@ def test_studio_rbac_self_acceptance_and_waiver_key_errors_p12_maj04_p13_maj01(
                 "--json",
             ]
         )
-        == 3
+        == 0
     )
-    err_missing_key = _read_cli_json(capsys)
-    assert err_missing_key["error_code"] == "FILE_NOT_FOUND"
+    capsys.readouterr()
 
     # 3. Non-admin (`EDITOR`) waiver with short rationale fails with exit 7 BEFORE rationale exit 4!
     assert (
@@ -2100,7 +2095,7 @@ def test_studio_rbac_self_acceptance_and_waiver_key_errors_p12_maj04_p13_maj01(
     err_agent_accept = _read_cli_json(capsys)
     assert err_agent_accept["error_code"] == "AGENT_PROPOSAL_ACCEPT_FORBIDDEN"
 
-    # 5. Self-acceptance blocked by default (`PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN`, exit 7)
+    # 5. Self-acceptance is permitted under M1 open-access (`FR-AUTH-02`)
     assert (
         app_main(
             [
@@ -2114,53 +2109,6 @@ def test_studio_rbac_self_acceptance_and_waiver_key_errors_p12_maj04_p13_maj01(
                 "prop-self-1",
                 "--base-sha256",
                 head_sha,
-                "--json",
-            ]
-        )
-        == 7
-    )
-    err_self = _read_cli_json(capsys)
-    assert err_self["error_code"] == "PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN"
-
-    # 6. `--role EDITOR --allow-self-accepted-proposals` fails with exit 7 (admin-only override)
-    assert (
-        app_main(
-            [
-                "--role",
-                "EDITOR",
-                "ontology",
-                "studio",
-                "proposal",
-                "accept",
-                "-s",
-                "rbac-sess",
-                "-p",
-                "prop-self-1",
-                "--base-sha256",
-                head_sha,
-                "--allow-self-accepted-proposals",
-                "--json",
-            ]
-        )
-        == 7
-    )
-    capsys.readouterr()
-
-    # 7. Admin with `--allow-self-accepted-proposals` succeeds with exit 0!
-    assert (
-        app_main(
-            [
-                "ontology",
-                "studio",
-                "proposal",
-                "accept",
-                "-s",
-                "rbac-sess",
-                "-p",
-                "prop-self-1",
-                "--base-sha256",
-                head_sha,
-                "--allow-self-accepted-proposals",
                 "--json",
             ]
         )
@@ -2360,7 +2308,9 @@ def test_studio_24op_rebase_conflicts_and_corrupt_head_fail_closed_p12_maj05(
 
 
 def test_studio_construct_modes_delete_and_greenfield_promote(
-    studio_env: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+    studio_env: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify `construct --mode agent`, `NOOP_CONSTRUCT`, greenfield promote, and `delete`."""
     ws, studio_root = studio_env
@@ -2371,24 +2321,34 @@ def test_studio_construct_modes_delete_and_greenfield_promote(
     sdir = studio_root / "lifecycle-sess"
     genesis_sha = json.loads((sdir / "session.json").read_text(encoding="utf-8"))["head_sha256"]
 
-    # 1. `construct --mode agent` without agent harness fails closed (exit 1 AGENT_UNAVAILABLE)
-    assert (
-        app_main(
-            [
-                "ontology",
-                "studio",
-                "construct",
-                "-s",
-                "lifecycle-sess",
-                "--mode",
-                "agent",
-                "--json",
-            ]
+    # 1. `construct --mode agent` without configured harness fails closed (AGENT_NOT_CONFIGURED)
+    with monkeypatch.context() as mp:
+        for env_key in (
+            "OPENDV_AGY_CLI_BIN",
+            "OPENDV_CLAUDE_CLI_BIN",
+            "GEMINI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "OPENDV_AGENT_PROVIDER",
+        ):
+            mp.delenv(env_key, raising=False)
+        mp.setenv("PATH", "")
+        assert (
+            app_main(
+                [
+                    "ontology",
+                    "studio",
+                    "construct",
+                    "-s",
+                    "lifecycle-sess",
+                    "--mode",
+                    "agent",
+                    "--json",
+                ]
+            )
+            == 4
         )
-        == 1
-    )
     err_agent = _read_cli_json(capsys)
-    assert err_agent["error_code"] == "AGENT_UNAVAILABLE"
+    assert err_agent["error_code"] == "AGENT_NOT_CONFIGURED"
 
     # 2. Empty-evidence `construct --auto-commit` returns exit 0 `NOOP_CONSTRUCT` (does not fail!)
     assert (
@@ -3043,29 +3003,28 @@ def test_r3_s5_maj03_canonical_error_codes_and_exit_parity(
     from opendv_contracts.errors import ErrorCode
 
     registered = {e.value for e in ErrorCode}
-    src = Path(studio_mod.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(src)
-
     found_codes: list[str] = []
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "_err"
-            and len(node.args) >= 2
-            and isinstance(node.args[1], ast.Constant)
-            and isinstance(node.args[1].value, str)
-        ):
-            found_codes.append(node.args[1].value)
-        elif isinstance(node, ast.Dict):
-            for k, v in zip(node.keys, node.values, strict=False):
-                if (
-                    isinstance(k, ast.Constant)
-                    and k.value == "error_code"
-                    and isinstance(v, ast.Constant)
-                    and isinstance(v.value, str)
-                ):
-                    found_codes.append(v.value)
+    for sub_path in sorted(Path(studio_mod.__file__).parent.glob("ontology_studio*.py")):
+        tree = ast.parse(sub_path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_err"
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and isinstance(node.args[1].value, str)
+            ):
+                found_codes.append(node.args[1].value)
+            elif isinstance(node, ast.Dict):
+                for k, v in zip(node.keys, node.values, strict=False):
+                    if (
+                        isinstance(k, ast.Constant)
+                        and k.value == "error_code"
+                        and isinstance(v, ast.Constant)
+                        and isinstance(v.value, str)
+                    ):
+                        found_codes.append(v.value)
 
     assert len(found_codes) >= 25
     unregistered = sorted({c for c in found_codes if c not in registered})

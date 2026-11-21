@@ -283,7 +283,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 				animated: isSel,
 				className: `graph-edge ${isSel ? "edge-selected" : ""} ${term && !matches ? "edge-dimmed" : ""}`,
 				style: {
-					stroke: isSel ? "#1D4ED8" : "#64748B",
+					stroke: isSel ? "#cc785c" : "#6c6a64",
 					strokeWidth: isSel ? 3 : 1.5,
 				},
 			};
@@ -402,7 +402,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 	}, [
 		rawNodes,
 		rawEdges,
-		activeSession?.session_id,
 		initialFlowNodes,
 		layoutState.lodTier,
 		layoutState.searchTerm,
@@ -501,10 +500,10 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 				</div>
 
 				{/* 3-Tier LOD Selector */}
-				<div
+				<fieldset
 					className="lod-selector-group"
-					role="group"
 					aria-label="Level of Detail selector"
+					style={{ border: "none", margin: 0, padding: 0 }}
 				>
 					<span className="toolbar-label">LOD:</span>
 					<button
@@ -534,7 +533,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 					>
 						T3 Micro
 					</button>
-				</div>
+				</fieldset>
 
 				{/* Action Buttons */}
 				<div className="toolbar-actions">

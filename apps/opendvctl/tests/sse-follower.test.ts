@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { CliDomainError } from "../src/error-handler";
+import { RemoteHttpClient } from "../src/remote/http-client";
+import { handlePipeline } from "../src/remote/pipeline";
 import {
 	followEventStream,
 	followStudioJobEvents,
@@ -137,5 +139,62 @@ describe("sse-follower (Decision D2)", () => {
 		});
 		expect(summary.status).toBe("COMPLETED");
 		expect(summary.last_event_id).toBe("3");
+	});
+
+	it("routes pipeline SSE stage logs to errWriter when json output is requested", async () => {
+		const stdoutLines: string[] = [];
+		const stderrLines: string[] = [];
+		const sseBody = [
+			"event: message\n",
+			'data: {"event_type":"STAGE_STARTED","payload":{"stage_id":"STAGE_00_ORCHESTRATION","agent_persona":"vault-first-mate","model":"gemini-2.5-pro"}}\n\n',
+			"event: run_complete\n",
+			'data: {"status":"COMPLETED","run_id":"run-json-1"}\n\n',
+		].join("");
+
+		const mockFetch = async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.endsWith("/api/v1/pipelines/runs")) {
+				return new Response(
+					JSON.stringify({
+						run_id: "run-json-1",
+						events_sse_url: "/api/v1/runs/run-json-1/events",
+					}),
+					{ status: 202, headers: { "Content-Type": "application/json" } },
+				);
+			}
+			if (url.endsWith("/api/v1/runs/run-json-1/events")) {
+				return new Response(sseBody, {
+					status: 200,
+					headers: { "Content-Type": "text/event-stream" },
+				});
+			}
+			if (url.endsWith("/api/v1/runs/run-json-1/report")) {
+				return new Response(
+					JSON.stringify({ run_id: "run-json-1", status: "COMPLETED" }),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				);
+			}
+			return new Response("Not Found", { status: 404 });
+		};
+
+		const client = new RemoteHttpClient({
+			baseUrl: "http://localhost:8000",
+			writer: (line) => stdoutLines.push(line),
+			errWriter: (line) => stderrLines.push(line),
+			fetchImpl: mockFetch as unknown as typeof fetch,
+		});
+
+		const res = (await handlePipeline(client, "run", {
+			input: "manifest.yaml",
+			input_spec_content: { project_id: "p1" },
+			json: true,
+		})) as Record<string, unknown>;
+
+		expect(res.status).toBe("COMPLETED");
+		expect(stdoutLines.length).toBe(0);
+		expect(stderrLines.length).toBe(1);
+		expect(stderrLines[0]).toContain(
+			"[STAGE 00] Starting STAGE_00_ORCHESTRATION",
+		);
 	});
 });

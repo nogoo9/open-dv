@@ -243,3 +243,86 @@ def test_codemod_intra_source_schema_drift_contract_only(
     )
     assert ledger_esg["target_dv_entity"] == "sat_holding_ext_v2"
     assert ledger_esg["source_sql_type"] == "DECIMAL(5,2)"
+
+
+def test_detect_low_levenshtein_rename_via_value_jaccard_and_structural_fallback(
+    sample_v5_contract: NoMistakeDataVault2ContractV5,
+) -> None:
+    """Detect low-Levenshtein renames via value_jaccard >= 0.90 and structural fallback."""
+    from opendv_axi_verifier.codemods.alg_a9a_similarity import compute_value_jaccard
+
+    # 1. Explicit value_jaccard >= 0.90 detects even arbitrary-name rename
+    jmap = compute_value_jaccard(
+        {"market_value": [100.5, 250.0, 999.25, 42.0]},
+        {"mkt_val_usd": [100.5, 250.0, 999.25, 42.0]},
+    )
+    assert jmap[("market_value", "mkt_val_usd")] == pytest.approx(1.0)
+
+    cand_cols = ["holding_id", "fund_id", "mkt_val_usd", "holding_name", "obsolete_field"]
+    cand_types = {
+        "holding_id": "VARCHAR(64)",
+        "fund_id": "VARCHAR(64)",
+        "mkt_val_usd": "DECIMAL(18,2)",
+        "holding_name": "VARCHAR(128)",
+        "obsolete_field": "VARCHAR(32)",
+    }
+
+    findings_jac = detect_schema_drift_from_contract(
+        contract=sample_v5_contract,
+        source_table="bronze_holdings",
+        candidate_columns=cand_cols,
+        candidate_types=cand_types,
+        target_entity="sat_holding",
+        value_jaccard=jmap,
+    )
+    renamed_jac = [f for f in findings_jac if f.category == "RENAMED"]
+    assert len(renamed_jac) == 1
+    assert renamed_jac[0].column_name == "market_value"
+    assert renamed_jac[0].new_column_name == "mkt_val_usd"
+
+    # 2. Type+token/domain fallback when values match distribution (or value_jaccard omitted)
+    findings_struct = detect_schema_drift_from_contract(
+        contract=sample_v5_contract,
+        source_table="bronze_holdings",
+        candidate_columns=cand_cols,
+        candidate_types=cand_types,
+        target_entity="sat_holding",
+        value_jaccard={("market_value", "mkt_val_usd"): 0.75},
+    )
+    renamed_struct = [f for f in findings_struct if f.category == "RENAMED"]
+    assert len(renamed_struct) == 1
+    assert renamed_struct[0].column_name == "market_value"
+    assert renamed_struct[0].new_column_name == "mkt_val_usd"
+
+
+def test_codemod_persists_column_aliases_without_mutating_payload_columns(
+    sample_v5_contract: NoMistakeDataVault2ContractV5,
+) -> None:
+    """codemod persists column_aliases={old_col: new_col} without mutating payload_columns."""
+    dep_dict = sample_v5_contract.model_dump(mode="json")
+    candidate_dict = sample_v5_contract.model_dump(mode="json")
+    original_payload = list(dep_dict["satellites"][0]["payload_columns"])
+
+    cand_sat = candidate_dict["satellites"][0]
+    cand_sat["payload_columns"] = ["mkt_val_usd", "holding_name", "esg_score"]
+    cand_sat["column_types"] = {
+        "mkt_val_usd": "DECIMAL(18,2)",
+        "holding_name": "VARCHAR(128)",
+        "esg_score": "DECIMAL(5,2)",
+    }
+    cand_sat["value_jaccard"] = {("market_value", "mkt_val_usd"): 0.96}
+    cand_sat["staging_column_aliases"] = {"holding_name": "holding_nm_src"}
+
+    evolved = codemod_intra_source_schema_drift(
+        deployed_contract=dep_dict,
+        candidate_contract=candidate_dict,
+        schema_epoch_tag="v2",
+    )
+
+    base_sat = next(s for s in evolved["satellites"] if s["name"] == "sat_holding")
+    assert set(base_sat["payload_columns"]) == set(original_payload)
+    assert base_sat["column_aliases"] == {
+        "holding_name": "holding_nm_src",
+        "market_value": "mkt_val_usd",
+    }
+    assert "obsolete_field" in base_sat["soft_deprecated_columns"]

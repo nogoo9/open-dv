@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from opendv_contracts import PipelineRunHandle, RbacRole, RunArtifactDTO
 from opendv_contracts.dtos.pipeline import PipelineInputDTO
 from opendv_platform_api.deps import get_opendv_service, get_rbac_role
+from opendv_platform_api.studio_deps import reserve_session_run
 from opendv_service import (
     CreateRunRequest,
     OpenDVService,
@@ -18,23 +19,21 @@ from opendv_service import (
     RunStatus,
     redact_event_for_role,
 )
-from opendv_service.use_cases.pipeline import (
-    execute_pipeline_run_sync,
-)
-from opendv_service.use_cases.pipeline import (
-    execute_run_async as execute_run_async_use_case,
-)
+from opendv_service.use_cases.pipeline import execute_pipeline_run_sync
+from opendv_service.use_cases.pipeline import execute_run_async as execute_run_async_use_case
 
 router = APIRouter(tags=["runs"])
 _SERVER_PATH_FIELDS = ("blueprint_path",)
+SvcDep = Annotated[OpenDVService, Depends(get_opendv_service)]
+RoleDep = Annotated[RbacRole, Depends(get_rbac_role)]
 
 
 @router.post("/runs", response_model=PipelineRunHandle | dict[str, Any], status_code=202)
 async def start_run(
     req: PipelineInputDTO | CreateRunRequest,
     response: Response,
-    service: Annotated[OpenDVService, Depends(get_opendv_service)],
-    role: Annotated[RbacRole, Depends(get_rbac_role)],
+    service: SvcDep,
+    role: RoleDep,
     sync: Annotated[bool, Query()] = False,
 ) -> PipelineRunHandle | dict[str, Any]:
     """Start an asynchronous verification run or execute a single-run pipeline."""
@@ -60,56 +59,74 @@ async def start_run(
     if is_server_mode:
         for path_field in _SERVER_PATH_FIELDS:
             if getattr(req, path_field, None):
-                msg = (
-                    f"Field '{path_field}' rejected: server API calls must provide "
-                    "inline content or CAS references, not raw server filesystem paths."
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Field '{path_field}' rejected: server API calls must provide "
+                        "inline content or CAS references, not raw server filesystem paths."
+                    ),
                 )
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
 
+    session_id = getattr(req, "session_id", None)
+    hp = (
+        getattr(req, "harness_provider", None)
+        if "harness_provider" in req.model_fields_set
+        else None
+    )
     is_proj = (
         isinstance(req, PipelineInputDTO)
         and getattr(req, "project_id", None)
         and not (req.sources or req.blueprint or req.blueprint_path or req.blueprint_content)
     )
     if is_proj:
-        req = CreateRunRequest(
-            project_id=getattr(req, "project_id", "default-project"),
-            harness_provider=getattr(req, "harness_provider", "antigravity") or "agy",
-        )
+        kw: dict[str, Any] = {"project_id": getattr(req, "project_id", "default-project")}
+        if hp:
+            kw["harness_provider"] = hp
+        req = CreateRunRequest(**kw)
         is_single_run = False
     else:
         is_single_run = isinstance(req, PipelineInputDTO) or (
             isinstance(req, CreateRunRequest) and bool(req.blueprint_path or req.blueprint_content)
         )
     if is_single_run:
-        single_input = req if isinstance(req, PipelineInputDTO) else PipelineInputDTO(
-            blueprint_path=getattr(req, "blueprint_path", None),
-            blueprint_content=getattr(req, "blueprint_content", None),
-            harness_provider=getattr(req, "harness_provider", "antigravity") or "antigravity",
-            target_dialect="duckdb",
-        )
+        if isinstance(req, PipelineInputDTO):
+            single_input = req
+        else:
+            kw_s: dict[str, Any] = {
+                "blueprint_path": getattr(req, "blueprint_path", None),
+                "blueprint_content": getattr(req, "blueprint_content", None),
+                "target_dialect": "duckdb",
+            }
+            if hp:
+                kw_s["harness_provider"] = hp
+            single_input = PipelineInputDTO(**kw_s)
         if sync:
-            res = await run_in_threadpool(
-                execute_pipeline_run_sync, service.state, single_input, role=role
-            )
+            with reserve_session_run(service, session_id):
+                res = await run_in_threadpool(
+                    execute_pipeline_run_sync, service.state, single_input, role=role
+                )
             response.status_code = status.HTTP_200_OK
             res_dict = res if isinstance(res, dict) else res.model_dump(mode="json")
             if isinstance(res_dict, dict) and "observability_events" in res_dict:
-                evs = res_dict.get("observability_events", [])
-                res_dict["observability_events"] = [redact_event_for_role(ev, role) for ev in evs]
+                res_dict["observability_events"] = [
+                    redact_event_for_role(ev, role)
+                    for ev in res_dict.get("observability_events", [])
+                ]
             return res_dict
-        handle = await execute_run_async_use_case(
-            service.state, single_input, pipeline_runner=service.pipeline_runner
-        )
+        with reserve_session_run(service, session_id):
+            handle = await execute_run_async_use_case(
+                service.state, single_input, role=role, pipeline_runner=service.pipeline_runner
+            )
     else:
-        handle = await service.create_run_async(req)
+        with reserve_session_run(service, session_id):
+            handle = await service.create_run_async(req, role=role)
     response.headers["Location"] = handle.status_url
     return handle
 
 
 @router.get("/runs", response_model=list[ProjectRunDTO])
 async def list_runs(
-    service: Annotated[OpenDVService, Depends(get_opendv_service)],
+    service: SvcDep,
     project_id: Annotated[str | None, Query()] = None,
     status: Annotated[RunStatus | None, Query()] = None,
     stage_id: Annotated[str | None, Query()] = None,
@@ -119,57 +136,47 @@ async def list_runs(
 
 
 @router.get("/runs/{run_id}", response_model=ProjectRunDTO)
-async def get_run(
-    run_id: str, service: Annotated[OpenDVService, Depends(get_opendv_service)]
-) -> ProjectRunDTO:
+async def get_run(run_id: str, service: SvcDep) -> ProjectRunDTO:
     """Return status and gate scorecard for a specific run."""
     return service.get_run(run_id)
 
 
 @router.get("/runs/{run_id}/artifacts", response_model=list[RunArtifactDTO])
-async def list_run_artifacts(
-    run_id: str,
-    service: Annotated[OpenDVService, Depends(get_opendv_service)],
-    role: Annotated[RbacRole, Depends(get_rbac_role)],
-) -> list[RunArtifactDTO]:
+async def list_run_artifacts(run_id: str, service: SvcDep, role: RoleDep) -> list[RunArtifactDTO]:
     """Retrieve all run-isolated artifacts with lowercase 64-hex CAS hash and redaction."""
     return service.list_run_artifacts(run_id, role=role)
 
 
 @router.get("/runs/{run_id}/artifacts/{artifact_id}", response_model=RunArtifactDTO)
 async def get_run_artifact(
-    run_id: str,
-    artifact_id: str,
-    service: Annotated[OpenDVService, Depends(get_opendv_service)],
-    role: Annotated[RbacRole, Depends(get_rbac_role)],
+    run_id: str, artifact_id: str, service: SvcDep, role: RoleDep
 ) -> RunArtifactDTO:
     """Retrieve a run-isolated artifact with lowercase 64-hex CAS hash and RBAC redaction (T6)."""
     return service.get_run_artifact(run_id, artifact_id, role=role)
 
 
 @router.get("/runs/{run_id}/report")
-async def get_run_report(
-    run_id: str,
-    service: Annotated[OpenDVService, Depends(get_opendv_service)],
-    role: Annotated[RbacRole, Depends(get_rbac_role)],
-) -> dict[str, Any]:
+async def get_run_report(run_id: str, service: SvcDep, role: RoleDep) -> dict[str, Any]:
     """Return the `AgenticPipelineReport` for `run_id` (or synthesize a summary report)."""
     return service.get_pipeline_report(run_id, role=role)
 
 
 @router.post("/runs/{run_id}/abort", response_model=ProjectRunDTO)
-async def abort_run(
-    run_id: str, service: Annotated[OpenDVService, Depends(get_opendv_service)]
-) -> ProjectRunDTO:
+async def abort_run(run_id: str, service: SvcDep, role: RoleDep) -> ProjectRunDTO:
     """Abort an active run."""
+    if role == RbacRole.PUBLIC:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Public role cannot abort runs.",
+        )
     return service.abort_run(run_id)
 
 
 @router.get("/runs/{run_id}/events")
 async def stream_run_events(
     run_id: str,
-    service: Annotated[OpenDVService, Depends(get_opendv_service)],
-    role: Annotated[RbacRole, Depends(get_rbac_role)],
+    service: SvcDep,
+    role: RoleDep,
     last_event_id_header: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
     last_event_id_query: Annotated[str | None, Query(alias="last_event_id")] = None,
 ) -> StreamingResponse:
@@ -178,7 +185,9 @@ async def stream_run_events(
     service.get_run(run_id)
     event_gen = service.stream_run_events(run_id, role=role, last_event_id=effective_last_event_id)
     headers = {
-        "Cache-Control": "no-cache", "Connection": "keep-alive",
-        "X-Accel-Buffering": "no", "X-OpenDV-Effective-Role": role.value,
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+        "X-OpenDV-Effective-Role": role.value,
     }
     return StreamingResponse(event_gen, media_type="text/event-stream", headers=headers)

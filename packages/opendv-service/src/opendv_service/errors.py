@@ -28,6 +28,16 @@ class RolePermissionError(OpenDVError):
     exit_code = 2
     http_status = 403
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: ErrorCode | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, error_code=error_code, details=details)
+        self.http_status = 403
+
 
 class ProviderUnavailableError(OpenDVError):
     """Raised when a requested LLM harness provider or credentials are unavailable."""

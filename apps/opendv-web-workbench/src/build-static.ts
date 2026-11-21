@@ -8,6 +8,7 @@
  */
 
 import {
+	copyFileSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -17,6 +18,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+
+const BUNDLED_FONT_FILES = [
+	"instrument-serif-latin.woff2",
+	"instrument-serif-italic-latin.woff2",
+	"dm-sans-latin.woff2",
+	"jetbrains-mono-latin.woff2",
+] as const;
 
 export interface StaticBuildOptions {
 	workbenchRoot?: string | undefined;
@@ -34,10 +42,11 @@ export interface StaticBuildResult {
 
 export function generateStaticIndexHtml(): string {
 	return `<!doctype html>
-<html lang="en" data-theme="obsidian">
+<html lang="en" data-theme="claude">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
     <meta name="referrer" content="no-referrer" />
     <title>Open-DV Explorer</title>
     <link rel="stylesheet" href="/assets/workbench.css" />
@@ -140,15 +149,31 @@ export async function buildStaticWorkbenchAssets(
 	);
 	const indexHtml = generateStaticIndexHtml();
 
+	const fontsSourceDir = join(
+		repoRoot,
+		"apps",
+		"opendv-website",
+		"public",
+		"fonts",
+	);
+
 	for (const outDir of outDirs) {
 		const assetsDir = join(outDir, "assets");
+		const fontsDir = join(assetsDir, "fonts");
 		const ontologyDir = join(outDir, "ontology");
-		mkdirSync(assetsDir, { recursive: true });
+		mkdirSync(fontsDir, { recursive: true });
 		mkdirSync(ontologyDir, { recursive: true });
 		writeFileSync(join(outDir, "index.html"), indexHtml, "utf-8");
 		writeFileSync(join(ontologyDir, "index.html"), indexHtml, "utf-8");
 		writeFileSync(join(assetsDir, "workbench.js"), workbenchJs, "utf-8");
 		writeFileSync(join(assetsDir, "workbench.css"), workbenchCss, "utf-8");
+		for (const fontFile of BUNDLED_FONT_FILES) {
+			const srcFont = join(fontsSourceDir, fontFile);
+			if (!existsSync(srcFont)) {
+				throw new Error(`Bundled font file missing: ${srcFont}`);
+			}
+			copyFileSync(srcFont, join(fontsDir, fontFile));
+		}
 	}
 
 	const jsBytes = Buffer.byteLength(workbenchJs, "utf-8");

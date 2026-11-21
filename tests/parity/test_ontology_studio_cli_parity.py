@@ -52,9 +52,12 @@ _VOLATILE_FIELDS = frozenset(
 
 
 @pytest.fixture(autouse=True)
-def studio_parity_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure OPENDV_TOKEN and OPENDV_STUDIO_TOKEN are set for authenticated parity testing."""
+def studio_parity_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure OPENDV_TOKEN, OPENDV_STUDIO_TOKEN, and isolated OPENDV_STUDIO_ROOT are set."""
+    studio_root = tmp_path / "studio_root"
+    studio_root.mkdir(parents=True, exist_ok=True)
     token = "parity-test-token-012345"
+    monkeypatch.setenv("OPENDV_STUDIO_ROOT", str(studio_root))
     monkeypatch.setenv("OPENDV_TOKEN", token)
     monkeypatch.setenv("OPENDV_STUDIO_TOKEN", token)
 
@@ -128,6 +131,9 @@ def test_dump_cli_tree_studio_parity(
         "starter-pack",
         "text",
         "staged",
+        "attach-source",
+        "fibo-qa",
+        "logs",
     }
     expected_shared_groups = expected_groups - {"init"}
     assert set(py_groups.keys()) == expected_groups
@@ -172,8 +178,8 @@ def test_dump_cli_tree_studio_parity(
                     f"Option mismatch in '{group_name} {leaf_name}': py={py_opts} ts={ts_opts}"
                 )
 
-    assert leaf_count_py == 28, f"Expected 28 python leaf commands, got {leaf_count_py}"
-    assert leaf_count_ts == 27, f"Expected 27 TypeScript shared leaf commands, got {leaf_count_ts}"
+    assert leaf_count_py == 31, f"Expected 31 python leaf commands, got {leaf_count_py}"
+    assert leaf_count_ts == 30, f"Expected 30 TypeScript shared leaf commands, got {leaf_count_ts}"
 
 
 @pytest.mark.parity
@@ -576,9 +582,11 @@ def test_studio_exit_code_matrix_parity_0_to_7(
         _extract_error_code(stdout_remote_5, stderr_remote_5) == "ONT_EVO_CONCURRENT_MODIFICATION"
     )
 
-    # Exit 7: Missing waiver credentials on low_confidence_waiver
+    # Exit 7: Non-admin role on low_confidence_waiver
     monkeypatch.delenv("OPENDV_WAIVER_KEY", raising=False)
     waiver_unauth_py = [
+        "--role",
+        "EDITOR",
         "ontology",
         "studio",
         "proposal",
@@ -613,7 +621,7 @@ def test_studio_exit_code_matrix_parity_0_to_7(
     code_local_7, stdout_local_7, stderr_local_7 = cli_transport.invoke_raw(waiver_unauth_py)
     old_role_7 = client_cli_transport.role
     try:
-        client_cli_transport.role = "DATA_STEWARD"
+        client_cli_transport.role = "EDITOR"
         code_remote_7, stdout_remote_7, stderr_remote_7 = client_cli_transport.invoke_raw(
             waiver_unauth_ts
         )

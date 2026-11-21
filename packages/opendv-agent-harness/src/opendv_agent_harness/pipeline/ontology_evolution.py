@@ -22,6 +22,10 @@ from opendv_agent_harness.pipeline.discovery_unstructured import (
     _resolve_hub_and_uri,
     _slugify,
 )
+from opendv_agent_harness.pipeline.ontology_coverage_helpers import (
+    _collect_ontology_coverage_index,
+    _is_feed_covered_by_ontology,
+)
 from opendv_agent_harness.pipeline.spec import (
     PipelineArtifactRef,
 )
@@ -128,24 +132,16 @@ def emit_stage01_ontology_coverage(
     src_map = {
         getattr(s, "table_name", None) or getattr(s, "source_name", None): s for s in sources
     }
-    ont_hubs = {
-        cbc.target_hub.lower()
-        for cbc in getattr(ontology, "canonical_business_concepts", [])
-        if getattr(cbc, "target_hub", None)
-    }
-    ont_concepts = [
-        cbc.concept_name.lower().replace("cbc_", "")
-        for cbc in getattr(ontology, "canonical_business_concepts", [])
-    ]
+    ont_hubs, ont_concepts, ont_slugs, ont_attrs, fk_targets = (
+        _collect_ontology_coverage_index(ontology, discovered_feeds)
+    )
     mapped_tables: list[str] = []
     unmapped_tables: list[str] = []
     for f in discovered_feeds:
         s_in = src_map.get(f.table_name)
-        tgt_hub = (
-            getattr(s_in, "target_hub", None) or getattr(s_in, "target_hub_name", None) or ""
-        ).lower()
-        t_name = f.table_name.lower()
-        if (tgt_hub and tgt_hub in ont_hubs) or any(c in t_name for c in ont_concepts):
+        if _is_feed_covered_by_ontology(
+            f, s_in, ont_hubs, ont_concepts, ont_slugs, ont_attrs, fk_targets, ontology
+        ):
             mapped_tables.append(f.table_name)
         else:
             unmapped_tables.append(f.table_name)

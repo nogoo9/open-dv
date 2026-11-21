@@ -321,3 +321,80 @@ def test_concurrent_runs_isolation(service_env: tuple[OpenDVService, StateStore]
     assert b_events == ["evt-B-1"]
     assert "evt-B-1" not in a_events
     assert "evt-A-1" not in b_events
+
+
+def test_wrapped_stream_and_callbacks_scrub_cas_hex_and_pii_without_leak_error(
+    service_env: tuple[OpenDVService, StateStore],
+) -> None:
+    """Stream chunks with cas://, 64-hex table names, PII, or high-entropy tokens scrub safely."""
+    from types import SimpleNamespace
+
+    from opendv_service.runs.callbacks import build_pipeline_callbacks
+    from opendv_service.state.persistence import wrap_pipeline_callbacks_with_ledger_flush
+    from opendv_telemetry.pii_detector import PIILeakViolationError, validate_no_pii_leaks
+
+    service, store = service_env
+    run_id = "run-stream-pii-scrub"
+    hex64 = "6d411339026b7465d2261935773105981a8f1d0c651d936a7f2f40af5c79b942"
+    chunks = [
+        f'{{"bronze_table": "sqlite_{hex64}_main", "column": "id"}}',
+        # Slice boundary hits mid-hex at char 100
+        f'{{"stage": "STAGE_03_SHIP_VAULT_PASS1", "uri": "cas://{hex64}", "note": "ok"}}',
+        f"Padding text before sliced digest sqlite_{hex64[:36]}",
+        "Customer SSN 123-45-6789 EIN 12-3456789 ABA 021000021 email alice@example.com",
+        "Token A9F8B7C6D5E432109876543210ABCDEF12XYZ98765 emitted during JSON decode",
+    ]
+
+    _, w_complete, w_stream = wrap_pipeline_callbacks_with_ledger_flush(
+        store, run_id, session_id="sess-pii-01"
+    )
+    for chunk in chunks:
+        w_stream(SimpleNamespace(delta_text=chunk, stage_id="STAGE_03_SHIP_VAULT_PASS1"))
+    w_complete(
+        0,
+        SimpleNamespace(
+            stage_id="STAGE_03_SHIP_VAULT_PASS1",
+            status="PASS",
+            summary=chunks[0],
+            duration_ms=10,
+        ),
+    )
+
+    emitted = store.run_events[run_id]
+    assert len(emitted) == len(chunks) + 1
+    for evt in emitted:
+        validate_no_pii_leaks(evt)
+        impact = evt["layer1_story_banner"]["business_impact"]
+        assert hex64 not in impact
+        assert hex64[:36] not in impact
+        assert "123-45-6789" not in impact
+        assert "12-3456789" not in impact
+        assert "021000021" not in impact
+        assert "alice@example.com" not in impact
+        assert "A9F8B7C6D5E432109876543210ABCDEF12XYZ98765" not in impact
+
+    # Also verify RunExecutionEngine callbacks handle the same chunks
+    cb_run_id = "run-cb-pii-scrub"
+    ctx = RunContext(run_id=cb_run_id)
+    service.run_engine._contexts[cb_run_id] = ctx
+    cbs = build_pipeline_callbacks(ctx, store, service.run_engine)
+    for chunk in chunks:
+        cbs.on_stream_event(SimpleNamespace(delta_text=chunk))
+    cbs.on_stage_complete(
+        0,
+        SimpleNamespace(
+            stage_id="STAGE_04_SHIP_VAULT_PASS2",
+            status="PASS",
+            summary=chunks[0],
+            duration_ms=5,
+        ),
+    )
+    assert len(store.run_events[cb_run_id]) == len(chunks) + 1
+
+    # Sanity check: pii_detector remains strict and fail-closed on unredacted Layer 1 strings
+    bad_evt = dict(emitted[0])
+    bad_evt["layer1_story_banner"] = dict(
+        emitted[0]["layer1_story_banner"], business_impact=f"sqlite_{hex64}_main"
+    )
+    with pytest.raises(PIILeakViolationError):
+        validate_no_pii_leaks(bad_evt)

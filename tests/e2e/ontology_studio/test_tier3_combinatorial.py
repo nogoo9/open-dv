@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import json
+import time
 from pathlib import Path
 
 import duckdb
@@ -146,8 +147,24 @@ def test_combinatorial_ingestion_formats(
 def test_combinatorial_engine_modes(
     studio_client: TestClient,
     auth_headers: dict[str, str],
+    tmp_path: Path,
 ) -> None:
     """Combinatorial 2: Engine Modes Matrix (Deterministic vs Agent vs Auto)."""
+    from opendv_agent_harness.models import HarnessConfig
+    from opendv_service.studio.agent_runner import StudioAgentRunner
+    from opendv_testkit import DeterministicHarnessAdapter
+
+    studio_client.app.state.studio_agent_runner = StudioAgentRunner(  # type: ignore[attr-defined]
+        harness=DeterministicHarnessAdapter(
+            HarnessConfig(
+                provider="antigravity",
+                workspace_dir=tmp_path / "hw",
+                state_dir=tmp_path / "hs",
+                app_data_dir=tmp_path / "ha",
+                save_dir=tmp_path / "hsv",
+            )
+        )
+    )
     modes = ["deterministic", "agent", "auto"]
 
     for idx, mode in enumerate(modes):
@@ -166,13 +183,27 @@ def test_combinatorial_engine_modes(
             headers=auth_headers,
         )
 
-        # Parse source
+        # Parse source and wait for async parse job completion (FR-RUN-01 / D27 single job per session)
         parse_resp = studio_client.post(
             f"/api/v1/ontology/studio/sessions/{session_id}/parse",
             json={"ocr_mode": "auto"},
             headers=auth_headers,
         )
         assert parse_resp.status_code == 202
+        parse_job_id = parse_resp.json()["job_id"]
+        deadline = time.monotonic() + 10.0
+        parse_status = "PENDING"
+        while time.monotonic() < deadline:
+            pj = studio_client.get(
+                f"/api/v1/ontology/studio/jobs/{parse_job_id}",
+                headers=auth_headers,
+            )
+            assert pj.status_code == 200
+            parse_status = str(pj.json().get("status", "")).upper()
+            if parse_status in {"COMPLETED", "FAILED", "CANCELLED"}:
+                break
+            time.sleep(0.05)
+        assert parse_status == "COMPLETED", f"Parse job did not complete: {parse_status}"
 
         # Trigger construction with target engine mode
         construct_resp = studio_client.post(

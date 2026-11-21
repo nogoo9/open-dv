@@ -8,6 +8,7 @@ Supports:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -32,6 +33,7 @@ from opendv_contracts.dtos.promotion import (
     StagedCandidateDTO,
 )
 from opendv_contracts.errors import ErrorCode, OpenDVError
+from opendv_core.ontology_hashing import dumps_jcs_bytes
 from opendv_service.ontology.applier import parse_semver
 from opendv_service.ontology.matching.verifier import get_default_grounding_verifier
 from opendv_service.studio.locks import reentrant_session_lock
@@ -201,36 +203,6 @@ class StagedCandidatePromoter:
                 confidence = float(target.get("top_match_score", 0.0))
                 fibo_uri = target.get("top_match_uri")
 
-                draft_delta_sha = "0" * 64
-                actor_name = getattr(principal, "principal", str(principal))
-
-                waiver_record = StewardWaiverRecord(
-                    waiver_id=waiver_id,
-                    proposal_id=uuid.uuid4(),
-                    proposal_delta_sha256=draft_delta_sha,
-                    target_concept_uris=[concept_uri],
-                    base_sha256=meta.head_sha256,
-                    rationale=rationale,
-                    authorized_by=actor_name,
-                    authorized_role="admin",
-                    signature_or_token=self.session_mgr.security_manager.sign_waiver(
-                        f"{actor_name}:{meta.head_sha256}:{rationale}".encode()
-                    ),
-                )
-
-                waivers_file = self.session_dir / "waivers.json"
-                wdata: dict[str, Any] = {"waivers": []}
-                if waivers_file.is_file():
-                    try:
-                        wdata = json.loads(waivers_file.read_text(encoding="utf-8"))
-                    except (OSError, json.JSONDecodeError):
-                        wdata = {"waivers": []}
-                wdata.setdefault("waivers", []).append(waiver_record.model_dump(mode="json"))
-                tmp_w = self.session_dir / f".waivers.{uuid.uuid4().hex[:8]}.tmp"
-                tmp_w.write_text(json.dumps(wdata, indent=2), encoding="utf-8")
-                replace_with_retry(tmp_w, waivers_file)
-                set_owner_only_permissions(waivers_file)
-
                 add_concept = AddConceptOp(
                     op_id=f"op-concept-{_canonical_slug(concept_name)}-{uuid.uuid4().hex[:6]}",
                     concept_uri=concept_uri,
@@ -273,13 +245,6 @@ class StagedCandidatePromoter:
                 )
                 operations.append(rel_op.model_dump(mode="json", exclude_none=True))
 
-            updated_candidates = [c for c in candidates if c.get("candidate_id") != candidate_id]
-            data["staged_candidates"] = updated_candidates
-            tmp_c = self.evidence_file.parent / f".staged.{uuid.uuid4().hex[:8]}.tmp"
-            tmp_c.write_text(json.dumps(data, indent=2), encoding="utf-8")
-            replace_with_retry(tmp_c, self.evidence_file)
-            set_owner_only_permissions(self.evidence_file)
-
             safe_cid = _canonical_slug(candidate_id)
             prop_id = f"prop-promote-{safe_cid}-{uuid.uuid4().hex[:6]}"
             meta = self.session_mgr.get_session(session_id)
@@ -305,6 +270,80 @@ class StagedCandidatePromoter:
                 rationale=f"Promoted staged candidate '{candidate_id}' via {request.path.upper()}.",
                 metadata=delta_metadata,
             )
+
+            if request.path == "path_b":
+                actor_name = getattr(principal, "principal", str(principal))
+                rationale = (request.waiver_rationale or "").strip()
+                prop_digest16 = hashlib.sha256(f"opendv:proposal:{prop_id}".encode()).digest()[:16]
+                delta_sha = delta.canonical_sha256()
+                draft_record = StewardWaiverRecord(
+                    waiver_id=uuid.UUID(applied_waiver_id),
+                    proposal_id=uuid.UUID(bytes=prop_digest16, version=4),
+                    proposal_delta_sha256=delta_sha,
+                    target_concept_uris=[concept_uri],
+                    base_sha256=meta.head_sha256,
+                    rationale=rationale,
+                    authorized_by=actor_name,
+                    authorized_role="admin",
+                    signature_or_token="placeholder",
+                )
+                waiver_sig = self.session_mgr.security_manager.sign_waiver(
+                    draft_record.signing_payload().encode("utf-8")
+                )
+                waiver_record = draft_record.model_copy(update={"signature_or_token": waiver_sig})
+                dumped_waiver = waiver_record.model_dump(mode="json")
+                envelope: dict[str, Any] = {
+                    "waiver_id": applied_waiver_id,
+                    "proposal_id": prop_id,
+                    "proposal_delta_sha256": delta_sha,
+                    "target_concept_uris": [concept_uri],
+                    "base_sha256": meta.head_sha256,
+                    "rationale": rationale,
+                    "authorized_by": actor_name,
+                    "authorized_role": "admin",
+                    "created_at": waiver_record.created_at.isoformat(),
+                    "expires_at": None,
+                }
+                envelope_sig = self.session_mgr.security_manager.sign_waiver(
+                    dumps_jcs_bytes(envelope)
+                )
+
+                waivers_file = self.session_dir / "waivers.json"
+                wdata: dict[str, Any] | list[Any] = {"waivers": []}
+                if waivers_file.is_file():
+                    try:
+                        loaded_w = json.loads(waivers_file.read_text(encoding="utf-8"))
+                        if isinstance(loaded_w, (dict, list)):
+                            wdata = loaded_w
+                    except (OSError, json.JSONDecodeError):
+                        wdata = {"waivers": []}
+                if isinstance(wdata, list):
+                    wdata.append(
+                        {
+                            "envelope": envelope,
+                            "hmac_signature": envelope_sig,
+                            "record": dumped_waiver,
+                        }
+                    )
+                else:
+                    wdata.setdefault("waivers", []).append(
+                        {
+                            **dumped_waiver,
+                            "envelope": envelope,
+                            "hmac_signature": envelope_sig,
+                        }
+                    )
+                tmp_w = self.session_dir / f".waivers.{uuid.uuid4().hex[:8]}.tmp"
+                tmp_w.write_text(json.dumps(wdata, indent=2), encoding="utf-8")
+                replace_with_retry(tmp_w, waivers_file)
+                set_owner_only_permissions(waivers_file)
+
+            updated_candidates = [c for c in candidates if c.get("candidate_id") != candidate_id]
+            data["staged_candidates"] = updated_candidates
+            tmp_c = self.evidence_file.parent / f".staged.{uuid.uuid4().hex[:8]}.tmp"
+            tmp_c.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            replace_with_retry(tmp_c, self.evidence_file)
+            set_owner_only_permissions(self.evidence_file)
 
             record = {
                 "proposal_id": prop_id,

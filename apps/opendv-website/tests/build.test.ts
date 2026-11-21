@@ -26,11 +26,18 @@ const REQUIRED_FILES = [
 ] as const;
 
 const SHOT_SLUGS = [
-	"shot-01-ontology-studio-dag",
-	"shot-02-blueprint-ddl",
-	"shot-03-catalog-picker-modal",
-	"shot-04-hybrid-evolution-diff",
-	"shot-05-explorer-3layer",
+	"shot-01-step1-baseline",
+	"shot-02-step2-sources",
+	"shot-03a-structured-preview",
+	"shot-03b-parsed-chunks",
+	"shot-04a-agent-setup-gate",
+	"shot-04b-agent-discovery",
+	"shot-04c-citation-fibo",
+	"shot-05-diff-and-graph",
+	"shot-06-pipeline-console",
+	"shot-06b-dv-schema-explorer",
+	"shot-06c-triage-wave-diff",
+	"shot-07-session-logs",
 ] as const;
 
 const wb = ["W", "B-"].join("");
@@ -112,7 +119,7 @@ beforeAll(async () => {
 });
 
 describe("@opendv/website static build", () => {
-	test("dist/ contains all static HTML, assets, fonts, 2x screenshots, and video", () => {
+	test("dist/ contains all static HTML, assets, fonts, 12 canonical 2x screenshots, and video", () => {
 		expect(buildResult.basePath).toBe(BASE_PATH);
 		expect(buildResult.outDir).toBe(DIST_DIR);
 
@@ -130,11 +137,13 @@ describe("@opendv/website static build", () => {
 			expect(statSync(join(DIST_DIR, "fonts", f)).size).toBeGreaterThan(0);
 		}
 
+		const indexHtml = readDist("index.html");
 		for (const slug of SHOT_SLUGS) {
 			for (const ext of ["webp", "png"] as const) {
 				const p = join(DIST_DIR, "screenshots", `${slug}.${ext}`);
 				expect(existsSync(p)).toBe(true);
 				expect(statSync(p).size).toBeGreaterThan(0);
+				expect(indexHtml).toContain(`/screenshots/${slug}.${ext}`);
 			}
 		}
 
@@ -145,7 +154,7 @@ describe("@opendv/website static build", () => {
 		expect(bytes).toBeLessThan(25 * 1024 * 1024);
 	});
 
-	test('light-theme-only metadata and hidden="until-found" tabpanels', () => {
+	test('light-theme-only metadata and hidden="until-found" tabpanels (12 tour + 5 dialect)', () => {
 		const indexHtml = readDist("index.html");
 		const tourHtml = readDist("tour", "index.html");
 		const siteCss = readDist("assets", "site.css");
@@ -158,17 +167,66 @@ describe("@opendv/website static build", () => {
 			expect(text).not.toContain("dark-mode-toggle");
 			expect(text).not.toContain("light-dark(");
 			expect(text.toLowerCase()).not.toContain("#0b1118");
+			expect(text).not.toMatch(/prefers-color-scheme\s*:\s*dark/i);
 		}
 
 		const panels = indexHtml.match(/<div\b[^>]*\brole="tabpanel"[^>]*>/g) ?? [];
-		expect(panels.length).toBeGreaterThanOrEqual(9);
+		expect(panels.length).toBeGreaterThanOrEqual(17);
 		expect(
 			panels.filter((t) => t.includes('hidden="until-found"')),
-		).toHaveLength(7);
+		).toHaveLength(15);
 		for (const tag of panels) {
 			expect(tag).not.toMatch(/\bhidden=""/);
 			expect(tag).not.toMatch(/\bhidden(?!=)/);
 		}
+	});
+
+	test("Claude DESIGN.md tokens, 4-spoke SPIKE_MARK_SVG, and FR-DOC-01 5-Zone content", () => {
+		const indexHtml = readDist("index.html");
+		const tourHtml = readDist("tour", "index.html");
+		const siteCssLower = readDist("assets", "site.css").toLowerCase();
+		const faviconSvg = readDist("favicon.svg");
+
+		expect(siteCssLower).toContain("#faf9f5");
+		expect(siteCssLower).toContain("#cc785c");
+		expect(siteCssLower).toContain("#181715");
+		expect(siteCssLower).toMatch(/--header-h:\s*(?:4rem|64px)\b/i);
+		expect(siteCssLower).not.toContain("#f6f4ee");
+		expect(siteCssLower).not.toContain("#1d4ed8");
+
+		expect(indexHtml).toMatch(
+			/viewBox="0 0 24 24"[^>]*>[\s\S]*?<line\b[^>]*x1="12"[^>]*y1="2\.5"/,
+		);
+		expect(indexHtml).not.toContain("M14 6.5L21 14L14 21.5L7 14L14 6.5Z");
+		expect(indexHtml.toLowerCase()).not.toContain("#9a680c");
+		expect(faviconSvg).not.toContain("M16 7L25 16L16 25L7 16L16 7Z");
+
+		const docTexts = [
+			indexHtml,
+			tourHtml,
+			readDist("video", "opendv-tour-en.vtt"),
+			readDist("video", "opendv-tour-en.srt"),
+			readDist("video", "youtube-chapters.txt"),
+		];
+		for (const text of docTexts) {
+			expect(text).not.toMatch(/\b(?:4-Zone|four-zone)\b/i);
+		}
+
+		for (const html of [indexHtml, tourHtml]) {
+			expect(html).toMatch(/5-Zone/i);
+			expect(html).toMatch(/Z0\s*[–-]\s*Z4/i);
+			expect(html).toContain("information_mart");
+			expect(html).toMatch(/6-[Ss]tep/);
+			expect(html).toContain("DV Schema Explorer");
+			expect(html).toMatch(/Session\s*Logs|Logs\s*(?:&amp;|&)\s*Traces/i);
+		}
+
+		expect(indexHtml).toMatch(/Cost Meter/i);
+		expect(indexHtml).toContain("--allow-remote-unauthenticated");
+		expect(indexHtml).toContain("run dv-schema");
+		expect(indexHtml).toContain("attach-source");
+		expect(indexHtml).toContain("fibo-qa");
+		expect(indexHtml).toContain("ontology studio logs");
 	});
 
 	test("zero broken internal links, media paths, or CSS font URLs", () => {

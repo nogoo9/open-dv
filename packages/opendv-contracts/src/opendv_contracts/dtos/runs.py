@@ -206,6 +206,10 @@ class ProjectRunDTO(BaseContractModel):
         default=LifecycleStage.COLD_START_N1.value,
         description="Contract lifecycle stage (COLD_START_N1 or MULTI_SOURCE_EXPANSION)",
     )
+    session_id: str | None = Field(
+        default=None,
+        description="Optional Ontology Studio session ID linked to this run",
+    )
 
 
 __all__ = [

@@ -15,7 +15,16 @@ export function getBasePath(override?: string): string {
 	if (raw === undefined) {
 		return DEFAULT_BASE_PATH;
 	}
-	const trimmed = raw.trim().replace(/^\/+|\/+$/g, "");
+	const wsTrimmed = raw.trim();
+	let start = 0;
+	let end = wsTrimmed.length;
+	while (start < end && wsTrimmed.charCodeAt(start) === 47 /* '/' */) {
+		start += 1;
+	}
+	while (end > start && wsTrimmed.charCodeAt(end - 1) === 47 /* '/' */) {
+		end -= 1;
+	}
+	const trimmed = wsTrimmed.slice(start, end);
 	return trimmed === "" ? "" : `/${trimmed}`;
 }
 

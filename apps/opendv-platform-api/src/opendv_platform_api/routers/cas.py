@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import re
+import tempfile
+from pathlib import Path
 from typing import Annotated, Any, Final
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
@@ -16,6 +19,7 @@ router = APIRouter(prefix="/cas", tags=["cas"])
 
 HEX_64_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9A-Fa-f]{64}$")
 MAX_CAS_UPLOAD_BYTES: Final[int] = 100 * 1024 * 1024  # 100 MiB
+CAS_STREAM_CHUNK_BYTES: Final[int] = 65536  # 64 KiB
 
 
 @router.post("/blobs", status_code=status.HTTP_201_CREATED)
@@ -27,8 +31,8 @@ async def upload_cas_blob(
 ) -> dict[str, Any]:
     """Store an immutable binary blob into the Content-Addressable Store.
 
-    Validates optional X-CAS-SHA256 header, enforces max upload size, computes
-    SHA-256 digest, and persists into the CAS store.
+    Streams request payload in 64 KiB chunks to a temporary file, enforces
+    MAX_CAS_UPLOAD_BYTES mid-stream, verifies optional X-CAS-SHA256, and persists via put_file().
     """
     if _role == RbacRole.PUBLIC:
         raise HTTPException(
@@ -36,6 +40,7 @@ async def upload_cas_blob(
             detail="Forbidden: unauthenticated public role not authorized to upload CAS blobs",
         )
 
+    expected_digest: str | None = None
     if x_cas_sha256 is not None:
         clean_header = x_cas_sha256.strip()
         if not HEX_64_RE.match(clean_header):
@@ -46,26 +51,7 @@ async def upload_cas_blob(
                     "is not a 64-character hex digest."
                 ),
             )
-
-    body = await request.body()
-    if len(body) > MAX_CAS_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=(
-                f"Uploaded blob size ({len(body)} bytes) "
-                f"exceeds maximum limit ({MAX_CAS_UPLOAD_BYTES} bytes)."
-            ),
-        )
-
-    actual_digest = hashlib.sha256(body).hexdigest().lower()
-    if x_cas_sha256 is not None and x_cas_sha256.strip().lower() != actual_digest:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Cryptographic digest mismatch: header declared '{x_cas_sha256.strip().lower()}' "
-                f"but computed body digest is '{actual_digest}'."
-            ),
-        )
+        expected_digest = clean_header.lower()
 
     cas_store = (
         getattr(service, "cas_store", None)
@@ -78,11 +64,57 @@ async def upload_cas_blob(
             detail="Content-Addressable Store is not initialized on service.",
         )
 
-    cas_store.put(body)
+    cas_dir = getattr(cas_store, "base_dir", None)
+    if isinstance(cas_dir, Path):
+        cas_dir.mkdir(parents=True, exist_ok=True)
+    tmp_dir = str(cas_dir) if cas_dir is not None else None
+
+    hasher = hashlib.sha256()
+    total_bytes = 0
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=tmp_dir, prefix=".cas_upload_", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+            async for chunk in request.stream():
+                if not chunk:
+                    continue
+                for offset in range(0, len(chunk), CAS_STREAM_CHUNK_BYTES):
+                    part = chunk[offset : offset + CAS_STREAM_CHUNK_BYTES]
+                    total_bytes += len(part)
+                    if total_bytes > MAX_CAS_UPLOAD_BYTES:
+                        raise HTTPException(
+                            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            detail=(
+                                f"Uploaded blob size ({total_bytes} bytes) "
+                                f"exceeds maximum limit ({MAX_CAS_UPLOAD_BYTES} bytes)."
+                            ),
+                        )
+                    hasher.update(part)
+                    tmp.write(part)
+            tmp.flush()
+
+        actual_digest = hasher.hexdigest().lower()
+        if expected_digest is not None and expected_digest != actual_digest:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Cryptographic digest mismatch: header declared '{expected_digest}' "
+                    f"but computed body digest is '{actual_digest}'."
+                ),
+            )
+
+        if hasattr(cas_store, "put_file"):
+            cas_store.put_file(tmp_path)
+        else:
+            cas_store.put(tmp_path.read_bytes())
+    finally:
+        if tmp_path is not None:
+            with contextlib.suppress(OSError):
+                tmp_path.unlink(missing_ok=True)
 
     return {
         "sha256": actual_digest,
-        "size_bytes": len(body),
+        "size_bytes": total_bytes,
         "uri": f"cas://{actual_digest}",
     }
 

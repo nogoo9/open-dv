@@ -285,3 +285,128 @@ def test_no_legacy_workbench_references() -> None:
         f"Repository scan found {len(violations)} legacy workbench references:\n"
         + "\n".join(violations[:30])
     )
+
+
+# ---------------------------------------------------------------------------
+# M4 Unified Wizard & DV Schema Explorer Legacy Removal Guards (D19, FR-UI-LEG-01)
+# ---------------------------------------------------------------------------
+
+WORKBENCH_SRC = REPO_ROOT / "apps" / "opendv-web-workbench" / "src"
+
+M4_DELETED_LEGACY_FILES = [
+    "ontology/OntologyStudioApp.tsx",
+    "explorer/builder/PipelineBuilderView.tsx",
+    "explorer/builder/WizardShell.tsx",
+    "ontology/components/BlueprintView.tsx",
+    "ontology/components/ProposalDetailsView.tsx",
+    "ontology/components/ExportPromoteModal.tsx",
+    "ontology/components/QualityFeedbackPanel.tsx",
+    "ontology/components/SourcesPanel.tsx",
+    "ontology/components/ClarificationPanel.tsx",
+    "ontology/components/DiffOverlay.tsx",
+    "ontology/components/ProposalWorkspaceShared.tsx",
+]
+
+M4_RETIRED_COMPONENT_PATTERNS = [
+    re.compile(r"\bOntologyStudioApp(?:Props)?\b"),
+    re.compile(r"\bPipelineBuilderView(?:Props)?\b"),
+    re.compile(r"\bWizardShell(?:Props)?\b"),
+    re.compile(r"\bBlueprintView(?:Props)?\b"),
+    re.compile(r"\bProposalDetailsView(?:Props)?\b"),
+]
+
+M4_DEAD_AUTH_WAIVER_PATTERNS = [
+    re.compile(r"\blocal_token\b"),
+    re.compile(r"\bbootstrapLoopbackAuth\b"),
+    re.compile(r"\bexchangeLaunchNonce\b"),
+    re.compile(r"\bextractAndScrubLaunchNonce\b"),
+    re.compile(r"\bX-OpenDV-Workbench\b"),
+    re.compile(r"\bwaiverKey\b"),
+    re.compile(r"\bX-OpenDV-Waiver-Key\b"),
+]
+
+M4_RETAINED_REUSABLE_MODULES = [
+    "ontology/components/GraphCanvas.tsx",
+    "explorer/builder/CatalogTablePickerModal.tsx",
+    "ontology/components/VisualEditorDrawer.tsx",
+    "explorer/modals/StewardHoldModal.tsx",
+    "explorer/builder/YamlDrawer.tsx",
+]
+
+M4_REQUIRED_NEW_MODULES = [
+    "ontology/wizard/OntologyWizardShell.tsx",
+    "ontology/wizard/SessionLogsInspector.tsx",
+    "explorer/dv-schema/DvSchemaExplorerView.tsx",
+]
+
+
+@pytest.mark.architecture
+def test_m4_legacy_screen_files_deleted() -> None:
+    """Assert retired M4 legacy screen files do not exist under apps/opendv-web-workbench/src/."""
+    assert WORKBENCH_SRC.is_dir(), f"Workbench src directory not found: {WORKBENCH_SRC}"
+    remaining = [rel for rel in M4_DELETED_LEGACY_FILES if (WORKBENCH_SRC / rel).exists()]
+    assert not remaining, "Legacy screen files must be deleted (D19, FR-UI-LEG-01):\n" + "\n".join(
+        f"  - src/{rel}" for rel in remaining
+    )
+
+
+@pytest.mark.architecture
+def test_m4_zero_retired_component_references() -> None:
+    """Assert zero production imports/exports/references to retired M4 components in workbench src."""
+    assert WORKBENCH_SRC.is_dir(), f"Workbench src directory not found: {WORKBENCH_SRC}"
+    violations: list[str] = []
+    for file_path in sorted(WORKBENCH_SRC.rglob("*")):
+        if not file_path.is_file() or file_path.suffix not in {".ts", ".tsx"}:
+            continue
+        rel = file_path.relative_to(REPO_ROOT)
+        content = file_path.read_text(encoding="utf-8")
+        for line_no, line in enumerate(content.splitlines(), 1):
+            for pattern in M4_RETIRED_COMPONENT_PATTERNS:
+                if pattern.search(line):
+                    violations.append(
+                        f"{rel}:{line_no}: Retired component reference matched "
+                        f"{pattern.pattern}: {line.strip()}"
+                    )
+    assert not violations, (
+        f"Found {len(violations)} retired component references in workbench src:\n"
+        + "\n".join(violations[:40])
+    )
+
+
+@pytest.mark.architecture
+def test_m4_zero_dead_token_nonce_waiver_ui_state() -> None:
+    """Assert zero dead token/nonce/waiver UI state remains in apps/opendv-web-workbench/src/."""
+    assert WORKBENCH_SRC.is_dir(), f"Workbench src directory not found: {WORKBENCH_SRC}"
+    violations: list[str] = []
+    for file_path in sorted(WORKBENCH_SRC.rglob("*")):
+        if not file_path.is_file() or file_path.suffix not in {".ts", ".tsx"}:
+            continue
+        rel = file_path.relative_to(REPO_ROOT)
+        content = file_path.read_text(encoding="utf-8")
+        for line_no, line in enumerate(content.splitlines(), 1):
+            for pattern in M4_DEAD_AUTH_WAIVER_PATTERNS:
+                if pattern.search(line):
+                    violations.append(
+                        f"{rel}:{line_no}: Dead auth/nonce/waiver symbol matched "
+                        f"{pattern.pattern}: {line.strip()}"
+                    )
+    assert not violations, (
+        f"Found {len(violations)} dead token/nonce/waiver UI references in workbench src:\n"
+        + "\n".join(violations[:40])
+    )
+
+
+@pytest.mark.architecture
+def test_m4_retained_and_new_modules_exist() -> None:
+    """Assert retained reusable modules and new M4 wizard/explorer modules exist on disk."""
+    assert WORKBENCH_SRC.is_dir(), f"Workbench src directory not found: {WORKBENCH_SRC}"
+    missing_retained = [
+        rel for rel in M4_RETAINED_REUSABLE_MODULES if not (WORKBENCH_SRC / rel).is_file()
+    ]
+    missing_new = [rel for rel in M4_REQUIRED_NEW_MODULES if not (WORKBENCH_SRC / rel).is_file()]
+    assert not missing_retained and not missing_new, (
+        "Required M4 modules missing on disk:\n"
+        + "\n".join(f"  - [retained] src/{rel}" for rel in missing_retained)
+        + ("\n" if missing_retained and missing_new else "")
+        + "\n".join(f"  - [new] src/{rel}" for rel in missing_new)
+    )

@@ -117,7 +117,9 @@ class ContractHubSpec(StrictContractModel):
     """Data Vault 2.0 Hub contract specification."""
 
     name: str = Field(pattern=r"^hub_[a-z0-9_]+$")
-    ontology_concept_uri: str = Field(pattern=r"^urn:ontology:entity:[a-z0-9_]+$")
+    ontology_concept_uri: str = Field(
+        pattern=r"^urn:(ontology:entity|opendv:concept):[a-z0-9_]+$"
+    )
     business_key_sources: list[BusinessKeySource] = Field(min_length=1)
 
 
@@ -134,7 +136,9 @@ class ContractLinkSpec(StrictContractModel):
 
     name: str = Field(pattern=r"^(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$")
     link_type: ContractLinkTypeLiteral
-    ontology_concept_uri: str = Field(pattern=r"^urn:ontology:(event|relationship):[a-z0-9_]+$")
+    ontology_concept_uri: str = Field(
+        pattern=r"^urn:(ontology|opendv):(event|relationship):[a-z0-9_]+$"
+    )
     source_bronze_table: str
     driving_key_hub: str | None = None
     where_filter_condition: str | None = None
@@ -155,6 +159,7 @@ class ContractSatelliteSpec(StrictContractModel):
     volatility_tier: VolatilityTierLiteral | None = None
     hash_diff_migration_policy: HashDiffMigrationPolicyLiteral | None = None
     soft_deprecated_columns: list[str] | None = None
+    column_aliases: dict[str, str] | None = None
     payload_columns: list[str]
 
 
@@ -162,7 +167,7 @@ class ContractReferenceTableSpec(StrictContractModel):
     """Data Vault 2.0 Reference Table (`ref_*`) contract specification."""
 
     name: str = Field(pattern=r"^ref_[a-z0-9_]+$")
-    ontology_concept_uri: str = Field(pattern=r"^urn:ontology:enum:[a-z0-9_]+$")
+    ontology_concept_uri: str = Field(pattern=r"^urn:(ontology|opendv):enum:[a-z0-9_]+$")
     source_bronze_table: str
     code_column: str
     description_columns: list[str]

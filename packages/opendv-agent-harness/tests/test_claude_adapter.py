@@ -678,14 +678,12 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
     )
     from opendv_agent_harness.adapters.claude_cli_adapter import (
         _extract_json_from_stdout,
-        _strip_internal_stage_context,
     )
 
     assert ClaudeCodeCliAdapter is ClaudeCliHarnessAdapter
 
-    # 1. Verify internal stage context stripping & JSON extraction helper
-    prompt_with_ctx = 'Synthesize Pass 1 Triage\n__OPENDV_STAGE_CONTEXT_JSON__:{"secret": 456}'
-    assert _strip_internal_stage_context(prompt_with_ctx) == "Synthesize Pass 1 Triage"
+    # 1. Verify prompt inline context preservation & JSON extraction helper
+    prompt_with_ctx = 'Synthesize Pass 1 Triage\nInlineContext: {"secret": 456}'
     assert _extract_json_from_stdout('log line\n{"status": "SUCCESS", "result": "ok"}\n') == {
         "status": "SUCCESS",
         "result": "ok",
@@ -758,16 +756,19 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
 
     # 4. Verify subprocess invocation via claude_cli_runner (flags, --agents, --resume)
     captured_cmds: list[list[str]] = []
+    captured_inputs: list[str] = []
 
     def _fake_claude_runner(
         cmd: list[str],
         *,
         env: dict[str, str],
         timeout: float,
+        input_text: str = "",
     ) -> subprocess.CompletedProcess[str]:
         assert env.get("NO_COLOR") == "1"
         assert timeout > 0
         captured_cmds.append(list(cmd))
+        captured_inputs.append(input_text)
         out_payload = {
             "type": "result",
             "subtype": "success",
@@ -850,9 +851,12 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
     cmd0 = captured_cmds[0]
     assert cmd0[0] == str(fake_claude_exe)
     assert cmd0[1] == "-p"
-    assert "__OPENDV_STAGE_CONTEXT_JSON__" not in cmd0[2]
+    assert cmd0[2] == "--model"
+    assert "Synthesize Pass 1 Triage" not in " ".join(cmd0)
+    assert 'InlineContext: {"secret": 456}' in captured_inputs[0]
     assert cmd0[cmd0.index("--model") + 1] == "claude-opus-4-6"
     assert cmd0[cmd0.index("--output-format") + 1] == "stream-json"
+    assert "--verbose" in cmd0
     assert "--disable-slash-commands" in cmd0
     assert cmd0[cmd0.index("--tools") + 1] == ""
     assert cmd0[cmd0.index("--system-prompt") + 1] == vfm_spec.system_instructions.strip()
@@ -1003,6 +1007,7 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
     assert len(fallback_cmds) == 2
     assert "--json-schema" in fallback_cmds[0]
     assert "--json-schema" not in fallback_cmds[1]
+    assert "--verbose" in fallback_cmds[1]
     assert "--agents" in fallback_cmds[1]
     assert "--system-prompt" in fallback_cmds[1]
     assert "--resume" in fallback_cmds[1]
@@ -1065,3 +1070,69 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
     )
     with pytest.raises(ProviderConfigurationError, match="Rate limit exceeded"):
         await ClaudeCliHarnessAdapter(nonzero_ndjson_cfg).run_task(vfm_spec)
+
+
+@pytest.mark.asyncio
+async def test_claude_cli_effort_flag_and_platform_probe_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fix 3 TDD: ClaudeCliHarnessAdapter passes --effort and probe reports claude-4 defaults."""
+    import json
+    import subprocess
+
+    from opendv_agent_harness import ClaudeCliHarnessAdapter
+    from opendv_agent_harness.pipeline.config import HarnessSetupConfig
+    from opendv_service.state.platform_config_probe import probe_providers_readiness_list
+
+    fake_claude_exe = tmp_path / "fake_claude_effort"
+    fake_claude_exe.write_text("#!/bin/sh\necho fake\n", encoding="utf-8")
+    seen_cmds: list[list[str]] = []
+
+    def _effort_runner(
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        del env, timeout
+        seen_cmds.append(list(cmd))
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=json.dumps({"type": "result", "is_error": False, "result": "ok"}),
+            stderr="",
+        )
+
+    spec = build_vault_first_mate_task_spec(
+        prompt="Quick check",
+        run_id="run-effort-01",
+        trace_id=SAMPLE_TRACE_ID,
+    )
+
+    cfg_opt = HarnessConfig(
+        provider="claude-cli",
+        workspace_dir=tmp_path,
+        state_dir=tmp_path / "state",
+        app_data_dir=tmp_path / "app_data",
+        save_dir=tmp_path / "save",
+        env={"OPENDV_CLAUDE_CLI_BIN": str(fake_claude_exe)},
+        extra_provider_options={"claude_cli_runner": _effort_runner, "claude_effort": "low"},
+    )
+    await ClaudeCliHarnessAdapter(cfg_opt).run_task(spec)
+    assert "--effort" in seen_cmds[-1]
+    assert seen_cmds[-1][seen_cmds[-1].index("--effort") + 1] == "low"
+
+    monkeypatch.setenv("OPENDV_CLAUDE_EFFORT", "medium")
+    cfg_env = cfg_opt.model_copy(
+        update={"extra_provider_options": {"claude_cli_runner": _effort_runner}}
+    )
+    await ClaudeCliHarnessAdapter(cfg_env).run_task(spec)
+    assert "--effort" in seen_cmds[-1]
+    assert seen_cmds[-1][seen_cmds[-1].index("--effort") + 1] == "medium"
+
+    probed = {dto.provider: dto for dto in probe_providers_readiness_list(HarnessSetupConfig())}
+    for p_name in ("claude-cli", "claude-code"):
+        assert probed[p_name].default_reasoning_model == "claude-opus-4-6"
+        assert probed[p_name].default_fast_model == "claude-haiku-4-5"
+

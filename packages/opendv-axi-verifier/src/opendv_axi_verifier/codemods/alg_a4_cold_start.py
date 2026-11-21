@@ -156,8 +156,13 @@ def _extract_bronze_cold_start_metrics(
     for b_table, raw_tbl in bronze_profile.items():
         if not isinstance(raw_tbl, dict):
             continue
+        col_src = (
+            raw_tbl["column_stats"]
+            if isinstance(raw_tbl.get("column_stats"), dict)
+            else raw_tbl
+        )
         t_cols = {}
-        for col_name, metrics in raw_tbl.items():
+        for col_name, metrics in col_src.items():
             if not isinstance(metrics, dict):
                 continue
             nn_candidates = []
@@ -179,14 +184,26 @@ def _extract_bronze_cold_start_metrics(
 
 def codemod_enforce_cold_start_extensibility(
     contract: dict[str, Any],
-    ontology_graph: dict[str, Any],
-    bronze_profile: dict[str, Any],
+    ontology_graph: Any,
+    bronze_profile: dict[str, Any] | None = None,
     deployed_contract: dict[str, Any] | None = None,
+    *,
+    profile_summaries: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Algorithm A.4: 3-Tier `BKCC` Authority & Nullable-FK Link Splitter (`U_nn >= 0.95`)."""
+    from opendv_axi_verifier.codemods.alg_a4_sparse_sal_helpers import (
+        promote_sparse_fks_and_sal_in_contract,
+    )
+
     ir = copy.deepcopy(contract)
-    authority_map, relationship_uris = _extract_ontology_authority(ontology_graph)
-    col_metrics, table_collisions = _extract_bronze_cold_start_metrics(bronze_profile)
+    ont_dict = (
+        ontology_graph.model_dump(mode="json", exclude_none=True)
+        if hasattr(ontology_graph, "model_dump")
+        else ontology_graph
+    )
+    eff_profile = bronze_profile if bronze_profile is not None else (profile_summaries or {})
+    authority_map, relationship_uris = _extract_ontology_authority(ont_dict)
+    col_metrics, table_collisions = _extract_bronze_cold_start_metrics(eff_profile)
     ledger: list[dict[str, Any]] = ir.get("column_triage_ledger", [])
 
     deployed_hub_sources: set[tuple[str, str, str]] = set()
@@ -327,6 +344,12 @@ def codemod_enforce_cold_start_extensibility(
                 "to prevent cross-system SHA-256 hash key collisions."
             )
 
+    # 1b. Promote unmodeled ontology/sparse FKs out of Satellites and repair Same-As Links
+    ir = promote_sparse_fks_and_sal_in_contract(
+        ir, ont_dict, col_metrics, deployed_contract=deployed_contract
+    )
+    ledger = ir.get("column_triage_ledger", [])
+
     # 2. Split Nullable Optional FKs (`U_nn < 0.95`) out of N-ary Links or filter Binary Links
     new_links: list[dict[str, Any]] = []
     existing_link_names = {str(lnk.get("name", "")) for lnk in ir.get("links", [])}
@@ -337,12 +360,16 @@ def codemod_enforce_cold_start_extensibility(
             new_links.append(lnk)
             continue
         refs = list(lnk.get("hub_references", []))
-        if len(refs) < 2 or lnk.get("where_filter_condition"):
+        if (
+            len(refs) < 2
+            or lnk.get("where_filter_condition")
+            or str(lnk.get("link_type", "")).upper() == "SAME_AS_LINK"
+        ):
             new_links.append(lnk)
             continue
 
         b_table = str(lnk.get("source_bronze_table", ""))
-        t_profile = col_metrics.get(b_table, {})
+        t_profile = col_metrics.get(b_table) or col_metrics.get(b_table.split(".")[-1], {})
 
         mandatory_refs: list[dict[str, Any]] = []
         optional_refs: list[dict[str, Any]] = []

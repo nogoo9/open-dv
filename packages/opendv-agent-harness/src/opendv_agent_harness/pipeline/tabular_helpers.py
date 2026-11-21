@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import os
 import re
 from collections.abc import Sequence
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -15,6 +17,7 @@ import duckdb
 from opendv_agent_harness.pipeline.spec import (
     Stage01FeedDiscoveryItem,
 )
+from opendv_core.config import get_core_modeling_config
 from opendv_sources.models.specs import SourceSpec
 from opendv_sources.registry.scheme_registry import get_scheme_registry
 from opendv_sources.registry.source_registry import get_source_registry
@@ -184,12 +187,23 @@ def _calc_col_stats(
     qv = quote_ident(vname)
     for c in cols:
         nn = 1.0
+        dist_cnt = 0
         if row_cnt > 0:
+            qc = quote_ident(c)
             with contextlib.suppress(Exception):
-                nn = float(
-                    conn.execute(f"SELECT COUNT({quote_ident(c)}) FROM {qv}").fetchone()[0]
-                ) / float(row_cnt)
-        stats[c] = {"column_name": c, "non_null_ratio": nn, "null_rate": 1.0 - nn}
+                row = conn.execute(
+                    f"SELECT COUNT({qc}), COUNT(DISTINCT {qc}) FROM {qv}"
+                ).fetchone()
+                if row:
+                    nn = float(row[0]) / float(row_cnt)
+                    dist_cnt = int(row[1] or 0)
+        stats[c] = {
+            "column_name": c,
+            "non_null_ratio": nn,
+            "null_rate": 1.0 - nn,
+            "distinct_count": dist_cnt,
+            "row_count": row_cnt,
+        }
     return stats
 
 
@@ -242,6 +256,7 @@ def _record_item(
     col_stats: dict[str, Any],
     gov_tags: dict[str, Any] | None = None,
     extra_keys: Sequence[str] = (),
+    pii_cols: Sequence[str] = (),
 ) -> None:
     items.append(
         Stage01FeedDiscoveryItem(
@@ -252,6 +267,7 @@ def _record_item(
             primary_keys=pks,
             foreign_keys=fks,
             column_descriptors=col_descs,
+            pii_columns=list(pii_cols),
         )
     )
     entry = {
@@ -279,7 +295,20 @@ def _resolve_cas_spec(
         if cas_store and hasattr(cas_store, "base_dir")
         else (eff_base / "state/artifacts")
     )
-    p = next((p for c in (h.upper(), h.lower(), h) if (p := cdir / c).exists()), None)
+    p = next(
+        (
+            cand
+            for cand in (
+                cdir / h.upper(),
+                cdir / h.lower(),
+                cdir / h,
+                cdir / h[:2].lower() / h[2:].lower(),
+                cdir / h[:2].upper() / h[2:].upper(),
+            )
+            if cand.exists()
+        ),
+        None,
+    )
     if p is None:
         return spec
     adp = (
@@ -295,6 +324,8 @@ def _resolve_cas_spec(
                 efmt = "parquet"
             elif hd.startswith(b"SQLite format 3\x00"):
                 efmt = "sqlite"
+            elif len(hd) >= 12 and hd[8:12] == b"DUCK":
+                efmt = "duckdb"
             else:
                 txt = hd.decode("utf-8", errors="ignore").strip()
                 if txt.startswith(("{", "[")):
@@ -348,8 +379,153 @@ def _extract_pushdown_stats(
                         )
                     m["non_null_ratio"] = float(nn)
                     m["null_rate"] = float(1.0 - float(nn) if nr is None else nr)
+                    if "distinct_count" not in m and "approx_distinct" in m:
+                        m["distinct_count"] = int(m["approx_distinct"])
+                    m.setdefault("row_count", int(tot))
             return res.column_stats
     return {}
+
+
+_PII_NAME_HINTS: tuple[str, ...] = (
+    "email", "ssn", "phone", "tax_id", "salary", "mnpi", "passport",
+    "dob", "birth", "iban", "credit_card", "address", "tin", "national_id",
+)
+_SENSITIVE_TAGS: frozenset[str] = frozenset(
+    {"pii", "mnpi", "confidential", "restricted", "pii_high"}
+)
+
+
+def _is_pii_col(
+    col_name: str,
+    pii_cols: Sequence[str] | set[str] = (),
+    col_descs: Sequence[dict[str, Any]] = (),
+) -> bool:
+    cl = col_name.strip().lower()
+    if not cl:
+        return False
+    if cl in {str(c).strip().lower() for c in pii_cols if c}:
+        return True
+    if any(h in cl for h in _PII_NAME_HINTS):
+        return True
+    for cd in col_descs:
+        if not isinstance(cd, dict) or str(cd.get("name") or "").strip().lower() != cl:
+            continue
+        tags = cd.get("governance_tags") or {}
+        if isinstance(tags, dict):
+            cv = str(tags.get("classification") or "").strip().lower()
+            sv = str(tags.get("security_classification") or "").strip().lower()
+            if (
+                cv in _SENSITIVE_TAGS
+                or sv in _SENSITIVE_TAGS
+                or str(tags.get("pii") or "").lower() == "true"
+                or str(tags.get("mnpi") or "").lower() == "true"
+            ):
+                return True
+    return False
+
+
+def _hash_norm_value(val: Any) -> str:
+    if isinstance(val, bool):
+        norm = str(val).lower()
+    else:
+        raw = str(val).strip()
+        try:
+            d = Decimal(raw)
+            norm = str(d.normalize()) if d.is_finite() else raw.lower()
+        except (InvalidOperation, ValueError):
+            norm = raw.lower()
+    return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
+
+
+def extract_non_pii_value_signatures(
+    conn: Any,
+    view_name: str,
+    cols: Sequence[str],
+    *,
+    pii_cols: Sequence[str] | set[str] = (),
+    col_descs: Sequence[dict[str, Any]] = (),
+    gov_tags: dict[str, Any] | None = None,
+    do_not_send_to_agent: bool = False,
+    cfg: Any = None,
+) -> dict[str, list[str]]:
+    """Extract bounded SHA-256 value digests for non-PII columns from DuckDB."""
+    tags = gov_tags if isinstance(gov_tags, dict) else {}
+    sensitive_src = do_not_send_to_agent or tags.get("do_not_send_to_agent") is True or (
+        str(tags.get("classification") or "").strip().lower() in _SENSITIVE_TAGS
+        or str(tags.get("security_classification") or "").strip().lower() in _SENSITIVE_TAGS
+    )
+    if conn is None or not view_name or sensitive_src:
+        return {}
+    core_cfg = cfg or get_core_modeling_config()
+    limit = int(
+        getattr(core_cfg, "max_jaccard_profile_values_per_col", None)
+        or getattr(core_cfg, "max_sandbox_rows", 10000)
+    )
+    qv = quote_ident(view_name)
+    out: dict[str, list[str]] = {}
+    for col in cols:
+        if not col or _is_pii_col(col, pii_cols, col_descs):
+            continue
+        qc = quote_ident(col)
+        sigs: set[str] = set()
+        with contextlib.suppress(Exception):
+            rows = conn.execute(
+                f"SELECT DISTINCT {qc} FROM {qv} WHERE {qc} IS NOT NULL LIMIT {limit}"
+            ).fetchall()
+            for r in rows:
+                if r and r[0] is not None:
+                    sigs.add(_hash_norm_value(r[0]))
+        if sigs:
+            out[col] = sorted(sigs)
+    return out
+
+
+def attach_value_signatures_to_col_stats(
+    conn: Any,
+    view_name: str,
+    cols: list[str],
+    col_stats: dict[str, Any],
+    *,
+    pii_cols: Sequence[str] | set[str] = (),
+    col_descs: Sequence[dict[str, Any]] = (),
+    gov_tags: dict[str, Any] | None = None,
+    do_not_send_to_agent: bool = False,
+    cfg: Any = None,
+) -> dict[str, Any]:
+    """Attach bounded non-PII SHA-256 value signatures onto ``col_stats`` entries."""
+    sigs_by_col = extract_non_pii_value_signatures(
+        conn, view_name, cols, pii_cols=pii_cols, col_descs=col_descs,
+        gov_tags=gov_tags, do_not_send_to_agent=do_not_send_to_agent, cfg=cfg,
+    )
+    for col, sigs in sigs_by_col.items():
+        if isinstance(col_stats.get(col), dict):
+            col_stats[col]["value_signatures"] = sigs
+    return col_stats
+
+
+def strip_value_signatures_from_profiles(profile_summaries: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of ``profile_summaries`` omitting ``value_signatures`` for slim prompts."""
+    cleaned: dict[str, Any] = {}
+    skip = {"row_count", "columns", "primary_keys", "governance_tags", "column_stats"}
+    for k, entry in (profile_summaries or {}).items():
+        if not isinstance(entry, dict):
+            cleaned[k] = entry
+            continue
+        new_entry = dict(entry)
+        if isinstance(entry.get("column_stats"), dict):
+            new_entry["column_stats"] = {
+                ck: (
+                    {sk: sv for sk, sv in cv.items() if sk != "value_signatures"}
+                    if isinstance(cv, dict)
+                    else cv
+                )
+                for ck, cv in entry["column_stats"].items()
+            }
+        for ck, cv in list(new_entry.items()):
+            if ck not in skip and isinstance(cv, dict):
+                new_entry[ck] = {sk: sv for sk, sv in cv.items() if sk != "value_signatures"}
+        cleaned[k] = new_entry
+    return cleaned
 
 
 __all__ = [
@@ -358,6 +534,7 @@ __all__ = [
     "_collect_roots",
     "_enforce_server_ssrf",
     "_extract_pushdown_stats",
+    "_is_pii_col",
     "_load_table_into_duckdb",
     "_make_col_descs",
     "_make_fk_hints",
@@ -365,6 +542,9 @@ __all__ = [
     "_resolve_cas_spec",
     "_safe_load_view",
     "_to_source_target",
+    "attach_value_signatures_to_col_stats",
+    "extract_non_pii_value_signatures",
     "quote_ident",
+    "strip_value_signatures_from_profiles",
     "validate_identifier",
 ]

@@ -2,9 +2,9 @@
 	min-inline-size: 0;
 	max-inline-size: 100%;
 	margin: 0;
-	background: var(--bg-card);
+	background: var(--bg-canvas);
 	border: 1px solid var(--border);
-	border-radius: var(--radius-lg);
+	border-radius: var(--radius-xl);
 	padding: 1rem 1.15rem;
 	box-shadow: var(--shadow-card);
 }
@@ -39,10 +39,10 @@
 	gap: 0.35rem;
 	min-block-size: 40px;
 	min-inline-size: 44px;
-	padding: 0.35rem 0.8rem;
-	border-radius: var(--radius-sm);
-	border: 1px solid var(--border-control);
-	background: var(--bg-subtle);
+	padding: 0.35rem 0.85rem;
+	border-radius: var(--radius);
+	border: 1px solid var(--border-strong);
+	background: var(--surface-soft);
 	color: var(--ink);
 	font-family: var(--font-sans);
 	font-size: 0.84rem;
@@ -53,22 +53,27 @@
 }
 
 .dia-ctrl-btn:hover {
-	background: var(--bg-code);
+	background: var(--bg-card);
 	border-color: var(--ink);
 }
 
 .dia-ctrl-btn[aria-pressed="true"],
 .diagram-toolbar .dia-ctrl-btn[aria-selected="true"] {
-	background: var(--ink);
-	color: #ffffff;
-	border-color: var(--ink);
+	background: var(--surface-dark);
+	color: var(--on-dark);
+	border-color: var(--surface-dark);
 }
 
 .dia-canvas {
 	min-inline-size: 0;
 	max-inline-size: 100%;
 	overflow-x: auto;
-	background: var(--bg-subtle);
+	background-color: var(--surface-soft);
+	background-image: radial-gradient(
+		var(--border-strong) 1px,
+		var(--surface-soft) 1px
+	);
+	background-size: 18px 18px;
 	border: 1px solid var(--border);
 	border-radius: var(--radius);
 	padding: 0.65rem;
@@ -92,7 +97,6 @@ svg.dia {
 	color: var(--ink-muted);
 }
 
-/* Compositor-Safe Animations (WCAG 2.2.2 & 2.3.1 compliant) */
 @keyframes dia-flow {
 	to {
 		stroke-dashoffset: -28;
@@ -129,7 +133,6 @@ svg.dia {
 	animation-play-state: paused !important;
 }
 
-/* Vault Firewall Interactive Mode States */
 .diagram-frame .dia-opendv-branch,
 .diagram-frame .dia-naive-branch {
 	transition: opacity 180ms ease;
@@ -148,7 +151,6 @@ svg.dia {
 	stroke: var(--danger-stroke);
 }
 
-/* Inference Matrix Scenario Highlighting */
 [data-scenario-node] {
 	opacity: 0.45;
 	transition: opacity 180ms ease;
@@ -165,7 +167,6 @@ svg.dia {
 	opacity: 1;
 }
 
-/* Six-Gate Interactive Nodes & Fault Simulation */
 .dia-gate-node,
 [data-gate-node] {
 	cursor: pointer;
@@ -174,7 +175,7 @@ svg.dia {
 
 .dia-gate-node:focus-visible,
 [data-gate-node]:focus-visible {
-	outline: 3px solid var(--gold);
+	outline: 3px solid var(--primary-active);
 	outline-offset: 4px;
 }
 
@@ -184,9 +185,9 @@ svg.dia {
 .diagram-frame[data-active-gate="G3"] [data-gate-select="G3"] .dia-gate-box,
 .diagram-frame[data-active-gate="G4"] [data-gate-select="G4"] .dia-gate-box,
 .diagram-frame[data-active-gate="G5"] [data-gate-select="G5"] .dia-gate-box {
-	stroke: var(--gold);
+	stroke: var(--primary);
 	stroke-width: 2.5px;
-	fill: var(--gold-fill);
+	fill: var(--surface-cream-strong);
 }
 
 .diagram-frame[data-active-fault="fault-nullable-fk"]
@@ -204,11 +205,10 @@ svg.dia {
 }
 
 .diagram-frame[data-active-fault="fault-hub-grain"] .dia-heal-arc {
-	stroke: var(--gold);
+	stroke: var(--primary);
 	stroke-width: 2.5px;
 }
 
-/* Readout & Diagnostic Consoles Below SVG */
 .scenario-readout,
 .gate-readout-dl {
 	display: grid;
@@ -216,7 +216,7 @@ svg.dia {
 	gap: 0.75rem 1.25rem;
 	margin: 1rem 0 0;
 	padding: 0.95rem 1.05rem;
-	background: var(--bg-subtle);
+	background: var(--surface-soft);
 	border: 1px solid var(--border);
 	border-radius: var(--radius);
 }
@@ -235,7 +235,7 @@ svg.dia {
 .readout-row dt {
 	font-family: var(--font-mono);
 	font-size: 0.72rem;
-	font-weight: 600;
+	font-weight: 500;
 	letter-spacing: 0.06em;
 	text-transform: uppercase;
 	color: var(--ink-muted);
@@ -252,7 +252,7 @@ svg.dia {
 [data-fault-detail] {
 	margin-block-start: 0.85rem;
 	padding: 0.9rem 1.05rem;
-	background: var(--bg-subtle);
+	background: var(--surface-soft);
 	border: 1px solid var(--border);
 	border-radius: var(--radius);
 	font-size: 0.92rem;
@@ -266,10 +266,6 @@ svg.dia {
 	margin: 0 !important;
 }
 
-.fault-trace {
-	margin: 0.6rem 0 0;
-}
-
 .scenario-readout[hidden],
 .gate-readout[hidden],
 [data-fault-detail][hidden] {
@@ -278,12 +274,13 @@ svg.dia {
 
 .trace-line {
 	display: block;
-	padding: 0.5rem 0.75rem;
-	background: var(--bg-code);
-	border: 1px solid var(--border-strong);
+	margin-block-start: 0.6rem;
+	padding: 0.55rem 0.8rem;
+	background: var(--surface-dark);
+	border: 1px solid var(--surface-dark-elevated);
 	border-radius: var(--radius-sm);
 	font-family: var(--font-mono);
 	font-size: 0.8rem;
-	color: var(--ink);
+	color: var(--on-dark);
 	overflow-x: auto;
 }

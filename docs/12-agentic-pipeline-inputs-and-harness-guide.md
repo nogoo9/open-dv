@@ -2,6 +2,11 @@
 
 This document is the authoritative, field-by-field reference guide for configuring and executing the **Open-DV 8-Stage Neuro-Symbolic Agentic Data Vault 2.0 Pipeline** (`packages/opendv-agent-harness`). It covers:
 
+> **Phase 2–4 Alignment Notes (`D10`, `D21`, `D28`, `docs/25`, `docs/27`, `docs/28`):**
+> - **Single-Run `VaultBlueprint` vs. Multi-Wave CI Specs:** The Unified 6-Step Wizard and platform core execute single-run `VaultBlueprint` transformations (`mode_detector.py`, see [`docs/25-data-driven-single-run-pipeline-design.md`](25-data-driven-single-run-pipeline-design.md)) with auto-bound `deployed_contract` (`D12`), while `PipelineInputSpec` multi-wave `waves[]` specs remain supported in CLI/CI and `MultiWaveScenarioRunner` (`opendv-testkit`).
+> - **Fail-Closed `422 AGENT_NOT_CONFIGURED` Gate & Agent-Only UI (`D28`):** Default `mode="agent"` with `stage_output_policy="strict"` fails closed (`422 AGENT_NOT_CONFIGURED`) if no configured real LLM provider is ready; the Web Workbench exposes zero deterministic mode toggle (`--mode deterministic` is CLI/API-only for offline CI).
+> - **Stage Console Projection (`docs/28 §4.4`) & `5-Zone (Z0–Z4)` UI Standard:** The engine executes all 8 canonical internal stages (`STAGE_00`..`STAGE_07`), which Step 6 projects onto 7 clickable UI pills (`00..06`: `03 Synth` = `STAGE_03+04`, `04 Repair` = `STAGE_05`, `05 Lower` = `STAGE_07`, `06 Prover` = `STAGE_06`, see [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md#44-stage-id-mapping--backward-compatibility-contract-step-6-0006-console-vs-8-stage-stage_0007-engine)). UI and DV Schema Explorer views label the output **5-Zone (`Z0–Z4`)** + **`information_mart`**, while internal artifact keys (`final_four_zone_sql`, `final_four_zone.sql`) stay unchanged for parity compatibility.
+
 1. **Agent Harness Configuration (`HarnessSetupConfig` / `harness_config.yaml`)**: How to configure **Google Antigravity** (`AgyCliHarnessAdapter` / `AntigravityHarnessAdapter`) vs **Anthropic Claude** (`ClaudeCliHarnessAdapter` / `ClaudeAgentHarnessAdapter`), semantic model-tier routing (`reasoning` vs `fast`), fine-grained per-agent model overrides (`agent_models`), and **API / Cloud Authentication mechanisms** (`HarnessAuthConfig`: API keys, Google Cloud Vertex AI ADC, AWS Bedrock IAM/SSO, and CLI sessions).
 2. **Pipeline Input Specification (`PipelineInputSpec` / `pipeline_input.yaml`)**: Every field of the root pipeline spec, multi-wave execution schedule (`PipelineWaveInput`), relational Bronze source feeds (`PipelineSourceFeedInput`), and span-grounded unstructured documents (`PipelineUnstructuredDocInput` & `PipelineUnstructuredCandidateInput`).
 3. **Enterprise Graph A Ontology (`GraphAOntology`) & Seed Contract (`initial_contract_path`)**: Complete schema reference for Core Business Concepts (CBCs), 3-Tier Business Key Authority (`BKCC`), governance constraints, canonical relationships, and baseline `NoMistakeDataVault2ContractV5` contracts.
@@ -22,10 +27,10 @@ The Open-DV pipeline decouples its 8-stage neuro-symbolic workflow from any sing
 | `model_overrides` | `dict[str, str]` | No | `{"reasoning": "gemini-4-argon-high", "fast": "gemini-3.8-flash-high"}` (or `{"reasoning": "claude-opus-4-6", "fast": "claude-haiku-4-5"}` when `provider` is `"claude-cli"` / `"claude-code"`) | Maps semantic model tiers (`reasoning` for `ModelTier.HIGH_REASONING` and `fast` for `ModelTier.FAST_TIER`) to concrete provider model IDs. Legacy keys `argon` and `flash` are rejected during schema validation (`HARNESS_SETUP_INVALID`). |
 | `agent_models` | `dict[str, str]` | No | `{}` | Optional fine-grained per-agent model overrides keyed by canonical persona identifier (`"vault-first-mate"`, `"scout-source"`, `"scout-unstructured"`, `"ship-vault"`). Takes highest precedence over `model_overrides[tier]` and provider defaults for both top-level agent tasks and delegated subagents. |
 | `auth` | `HarnessAuthConfig` | No | `HarnessAuthConfig(auth_mode="none")` (`auth_mode="cli_session"` when `provider` is `"claude-cli"` / `"claude-code"`) | Declarative authentication and cloud provider routing configuration (API key environment variable lookup, Vertex AI ADC, AWS Bedrock, or CLI session). Secrets are resolved from environment variables at runtime so raw credentials are never committed to YAML files. |
-| `budget` | `HarnessBudget` | No | `HarnessBudget()` | Per-task execution guardrails for turns, model calls, tool invocations, input/output tokens, USD cost ceiling, wall-clock timeout, and `@toon_v1` self-healing retries. |
+| `budget` | `HarnessBudget` | No | `HarnessBudget()` | Per-task execution guardrails for turns, model calls, tool invocations, input/output tokens, USD cost ceiling, wall-clock timeout, and `@toon_v1` self-healing retries. Feeds the live Workbench Cost Meter and triggers fail-closed `BudgetHold` (`D21`) on `TOKEN_BUDGET_EXCEEDED`, `COST_BUDGET_EXCEEDED`, or timeout. |
 | `sandbox` | `SandboxPolicy` | No | `SandboxPolicy()` | Workspace read/write isolation, allowed directories, shell execution toggle, blocked command substrings, and built-in tool allow/deny lists. |
 | `steward_hold_policy` | `"auto_approve_top_candidate" \| "pause" \| "reject_on_hold"` | No | `"auto_approve_top_candidate"` | Controls how `Tier-U3` (`ASK-USER` / `STEWARD_HOLD`) ambiguous entity resolution holds are handled during autonomous pipeline runs:<ul><li>`"auto_approve_top_candidate"`: Automatically approves the highest-scoring candidate Hub match and records an `AUTO_REPAIRED` audit event.</li><li>`"pause"`: Halts the pipeline with `status="PAUSED_HOLD"`, persists a `PENDING` `StewardHoldRecord`, and awaits human Steward resolution via CLI/API/Workbench.</li><li>`"reject_on_hold"`: Rejects the hold immediately (`REJECT-WITH-TRACE`) and fails the wave.</li></ul> |
-| `inject_adversarial_fault_on_attempt_1` | `bool` | No | `false` | When `true`, injects a deterministic Attempt $k=1$ Pass 1 column triage omission on Wave 0 so `STAGE_05_AXI_DV_STATIC_GATES` exercises closed-loop `@toon_v1` `REJECT-WITH-TRACE` $\to$ `@ship-vault` self-healing convergence on Attempt $k=2$. Defaults to `false` so production runs execute clean single-pass synthesis unless a real static gate violation occurs. |
+| `inject_adversarial_fault_on_attempt_1` | `bool` | No | `false` | **Test/Demo-Only Flag (Default `false`):** When `true`, injects a deterministic Attempt $k=1$ Pass 1 column triage omission on Wave 0 so `STAGE_05_AXI_DV_STATIC_GATES` exercises closed-loop `@toon_v1` `REJECT-WITH-TRACE` $\to$ `@ship-vault` self-healing convergence on Attempt $k=2$. Production and UAT runs must keep this `false` so synthesis runs clean unless a real static gate violation occurs. |
 | `env` | `dict[str, str]` | No | `{}` | Optional additional environment variables injected into the adapter runtime (`LocalAgentConfig.env` for Antigravity or `ClaudeAgentOptions.env` for Claude). Any keys present in `env` are automatically redacted to `"[REDACTED]"` in `AgenticPipelineReport.harness_setup`. |
 | `extra_provider_options` | `dict[str, Any]` | No | `{}` | Optional vendor-specific adapter options forwarded to `HarnessConfig.extra_provider_options`. |
 
@@ -105,9 +110,9 @@ When `HarnessSetupConfig.to_harness_config()` runs, it constructs the resolved e
 
 ---
 
-### 1.4 Execution Budget (`budget: HarnessBudget`) Reference
+### 1.4 Execution Budget (`budget: HarnessBudget`), Live Cost Meter & Fail-Closed `BudgetHold` (`D21`)
 
-`HarnessBudget` (`packages/opendv-agent-harness/src/opendv_agent_harness/models.py`) enforces strict per-task resource and retry ceilings across all providers:
+`HarnessBudget` (`packages/opendv-agent-harness/src/opendv_agent_harness/models.py`) enforces strict per-task resource and retry ceilings across all providers. In the Web Workbench, cumulative tokens and USD spend stream live to the topbar **Cost Meter** and `SessionLogsInspector`, and any `TOKEN_BUDGET_EXCEEDED`, `COST_BUDGET_EXCEEDED`, or timeout stop opens an in-place fail-closed **`BudgetHold`** card (`Raise budget & resume` / `Abort`) rather than silently truncating or falling back:
 
 | Field | Type | Default | Constraints | Description |
 | :--- | :--- | :---: | :---: | :--- |
@@ -139,6 +144,9 @@ When `HarnessSetupConfig.to_harness_config()` runs, it constructs the resolved e
 ---
 
 ### 1.6 Copy-Paste YAML Examples for Antigravity, Claude, and Local `agy` & `claude` CLI Harnesses
+
+> [!NOTE]
+> **Test-Only Fault Injection in Sample YAMLs:** The sample configs in `examples/pipeline_samples/global_commerce_vault/` set `inject_adversarial_fault_on_attempt_1: true` exclusively to exercise deterministic `@toon_v1` self-healing in CI/demo runs; omit this flag (default `false`) for real production and UAT runs.
 
 #### Example A: Google Antigravity Harness (`examples/pipeline_samples/global_commerce_vault/harness_config_antigravity.yaml`)
 
@@ -603,10 +611,10 @@ Every pipeline run materializes a self-contained, cryptographically verifiable d
 | `waves/wave_<w>/wave_<w>_axi_trace_attempt_<k>.toon` | `art-w<w>-stage05-toon-attempt<k>` | `STAGE_05_AXI_DV_STATIC_GATES` | `text/plain` | Token-Oriented Object Notation (`@toon_v1`) diagnostic trace for Attempt `<k>` across Gates `G0`–`G5`. |
 | `waves/wave_<w>/wave_<w>_contract_verified.yaml` | `art-w<w>-stage05-contract-verified` | `STAGE_05_AXI_DV_STATIC_GATES` | `application/x-yaml` | Converged, 6-Gate verified `NoMistakeDataVault2ContractV5` YAML after deterministic codemods (`A.1`, `A.4`, `A.9a`) and `@toon_v1` self-healing. |
 | `waves/wave_<w>/wave_<w>_canonical_ir.json` | `art-w<w>-stage06-canonical-ir` | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `application/json` | Lowered `CanonicalIR` (`v1.0.0`) with length-prefixed SHA-256 hash expressions and topological load wave DAG. |
-| `waves/wave_<w>/wave_<w>_four_zone.sql` | `art-w<w>-stage06-four-zone-sql` | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `application/sql` | Compiled 4-Zone DuckDB SQL bundle (`Zones 0–4`: Staging views, Raw Vault DDL, Zero Keys & Ghost Records, idempotent DML loaders, and PIT audit queries). |
+| `waves/wave_<w>/wave_<w>_four_zone.sql` | `art-w<w>-stage06-four-zone-sql` | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `application/sql` | Compiled 5-Zone (`Z0–Z4` + `information_mart`, internal artifact key `wave_<w>_four_zone.sql`) DuckDB SQL bundle (Staging views, Raw Vault DDL, Zero Keys & Ghost Records, idempotent DML loaders, and PIT audit queries). |
 | `final_contract.yaml` | `final_artifacts["final_contract"]` | `STAGE_07_DETERMINISTIC_COMPILER` | `application/x-yaml` | Final verified cumulative Data Vault 2.0 Model Contract (`v5.0`). |
 | `final_canonical_ir.json` | `final_artifacts["final_canonical_ir"]` | `STAGE_07_DETERMINISTIC_COMPILER` | `application/json` | Final lowered Canonical IR (`v1.0.0`). |
-| `final_four_zone.sql` | `final_artifacts["final_four_zone_sql"]` | `STAGE_07_DETERMINISTIC_COMPILER` | `application/sql` | Final compiled 4-Zone DuckDB SQL bundle. |
+| `final_four_zone.sql` | `final_artifacts["final_four_zone_sql"]` | `STAGE_07_DETERMINISTIC_COMPILER` | `application/sql` | Final compiled 5-Zone (`Z0–Z4` + `information_mart`) DuckDB SQL bundle (internal parity filename `final_four_zone.sql`). |
 | `vault-ledger.jsonl` | `final_artifacts["vault_ledger_jsonl"]` | `STAGE_07_DETERMINISTIC_COMPILER` | `application/x-ndjson` | Append-only JSONL ledger of RBAC-redacted `VaultObservabilityEvent` records. |
 | `pipeline_report.md` | `final_artifacts["pipeline_report_md"]` | `STAGE_07_DETERMINISTIC_COMPILER` | `text/markdown` | Human-readable Markdown summary report with validation tables, wave progression, step ledger, and SHA-256 artifact manifest. |
 | `pipeline_report.json` | `final_artifacts["pipeline_report_json"]` | `STAGE_07_DETERMINISTIC_COMPILER` | `application/json` | Full serialized `AgenticPipelineReport` JSON document. |

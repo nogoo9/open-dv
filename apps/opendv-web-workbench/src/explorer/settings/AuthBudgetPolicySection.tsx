@@ -324,7 +324,7 @@ export function AuthBudgetPolicySection({
 							name="max_output_tokens"
 							type="number"
 							min={512}
-							step={512}
+							step={1}
 							data-testid="settings-input-max-output-tokens"
 							value={budget.max_output_tokens}
 							onChange={(e) =>
@@ -369,7 +369,7 @@ export function AuthBudgetPolicySection({
 							name="max_cost_usd"
 							type="number"
 							min={0.01}
-							step={0.5}
+							step={0.01}
 							data-testid="settings-input-max-cost-usd"
 							value={budget.max_cost_usd}
 							onChange={(e) =>
@@ -521,26 +521,16 @@ export function AuthBudgetPolicySection({
 						>
 							Stage Output Policy (<code>stage_output_policy</code>)
 						</label>
-						<select
+						<div
 							id="settings-select-stage-output-policy"
-							name="stage_output_policy"
 							data-testid="settings-select-stage-output-policy"
-							value={harness.stage_output_policy}
-							onChange={(e) =>
-								onPolicyChange({
-									stage_output_policy: e.target
-										.value as HarnessConfigDTO["stage_output_policy"],
-								})
-							}
-							style={INPUT_STYLE}
+							style={{
+								...INPUT_STYLE,
+								backgroundColor: EXPLORER_COLORS.bgSubtle,
+							}}
 						>
-							<option value="llm_only">
-								llm_only · Strict LLM Schema Output Only
-							</option>
-							<option value="symbolic_completion">
-								symbolic_completion · Allow Symbolic Completion
-							</option>
-						</select>
+							llm_only · Strict LLM Schema Output Only (Agent-Only UI)
+						</div>
 					</div>
 
 					<div style={FIELD_COL_STYLE}>

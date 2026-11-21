@@ -29,7 +29,7 @@
       "7": "Authentication & Authorization (RBAC) Violation (HTTP 401, 403)"
     }
   },
-  "total_error_codes": 157,
+  "total_error_codes": 159,
   "error_codes": [
     {
       "code": "OK",
@@ -2691,6 +2691,40 @@
       "problem_title": "Unauthenticated Request",
       "problem_type_uri": "urn:opendv:error:unauthenticated",
       "description": "Authentication missing, invalid, expired, or failed token resolution.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "AGENT_NOT_CONFIGURED",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Agent Not Configured",
+      "problem_type_uri": "urn:opendv:error:agent-not-configured",
+      "description": "No usable LLM agent harness or provider credentials are configured.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "SESSION_JOB_ACTIVE",
+      "category": "Resolution",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Session Job Already Active",
+      "problem_type_uri": "urn:opendv:error:session-job-active",
+      "description": "Another background job is currently active in the target Studio session.",
       "waivability": {
         "is_waivable": false,
         "rationale_required": false,

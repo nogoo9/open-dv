@@ -264,13 +264,13 @@ class TestFeature3StudioAgentRunnerFallbackAndSLA:
     """StudioAgentRunner Fallback & SLA resilience (<2.5s)."""
 
     def test_fallback_sla_under_missing_harness_binary(self, tmp_path: Path) -> None:
-        """When agent harness binary is missing / offline, fallback executes within <2.5s SLA."""
+        """Explicit deterministic mode executes within <2.5s SLA when harness is absent (D28)."""
         runner = StudioAgentRunner(harness=None)
         base_ont = get_core_spine_pack()
 
         start = time.monotonic()
         proposal = runner(
-            mode="agent",  # Requested agent mode
+            mode="deterministic",
             base_ontology=base_ont,
             session_dir=tmp_path,
             principal="human:analyst",
@@ -279,26 +279,22 @@ class TestFeature3StudioAgentRunnerFallbackAndSLA:
         elapsed = time.monotonic() - start
 
         # Assert SLA < 2.5s
-        assert elapsed < 2.50, f"Fallback exceeded 2.5s SLA: took {elapsed:.3f}s"
+        assert elapsed < 2.50, f"Deterministic mode exceeded 2.5s SLA: took {elapsed:.3f}s"
         assert proposal.recommender_id.startswith("deterministic:")
-        assert any("engine_mode:deterministic_fallback" in d for d in (proposal.diagnostics or []))
+        assert any("engine_mode:deterministic" in d for d in (proposal.diagnostics or []))
         assert any("proposer_principal:deterministic:job-sla-test" in d for d in (proposal.diagnostics or []))
 
     def test_agent_runner_none_base_ontology_validation_defect(self, tmp_path: Path) -> None:
-        """DEFECT: StudioAgentRunner crashes with ValidationError when base_ontology=None
-        because GraphAOntology(domain_namespace='core') requires >= 1 concept for version 1.0.0.
-        """
+        """D28: StudioAgentRunner(mode='deterministic') cleanly initializes genesis when base_ontology=None."""
         runner = StudioAgentRunner(harness=None)
-        try:
-            runner(
-                mode="agent",
-                base_ontology=None,
-                session_dir=tmp_path,
-                principal="human:analyst",
-            )
-            # If it didn't raise, check that proposal succeeded
-        except Exception as exc:
-            assert "ONTOLOGY_REQUIRES_CONCEPT" in str(exc) or "ValidationError" in type(exc).__name__
+        proposal = runner(
+            mode="deterministic",
+            base_ontology=None,
+            session_dir=tmp_path,
+            principal="human:analyst",
+        )
+        assert proposal is not None
+        assert any("engine_mode:deterministic" in d for d in (proposal.diagnostics or []))
 
 
 # ============================================================================

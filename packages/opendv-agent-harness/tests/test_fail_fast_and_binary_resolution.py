@@ -248,3 +248,29 @@ def test_resolve_relationship_uri_fail_fast_on_unmapped_link() -> None:
     exc = exc_info.value
     assert exc.error_code == ErrorCode.INPUT_VALIDATION_ERROR
     assert "Unmapped ontology relationship for link 'lnk_ghost_link'" in exc.message
+
+
+def test_claude_cli_binary_unwraps_windows_npm_cmd_shim(tmp_path: Path) -> None:
+    """Fix 3 TDD: _resolve_claude_binary unwraps claude.cmd to claude.exe on Windows."""
+    npm_dir = tmp_path / "npm"
+    shim_cmd = npm_dir / "claude.CMD"
+    shim_cmd.parent.mkdir(parents=True, exist_ok=True)
+    shim_cmd.write_text('"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe" %*\r\n')
+
+    real_exe = npm_dir / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+    real_exe.parent.mkdir(parents=True, exist_ok=True)
+    real_exe.write_text("MZfake")
+
+    cfg = _make_harness_config(tmp_path, provider="claude-cli")
+    adapter = ClaudeCliHarnessAdapter(cfg)
+
+    with (
+        patch("opendv_agent_harness.adapters.claude_cli_adapter.os.name", "nt"),
+        patch(
+            "shutil.which",
+            side_effect=lambda name: str(shim_cmd) if name in ("claude", "claude.cmd") else None,
+        ),
+    ):
+        resolved = adapter._resolve_claude_binary()
+        assert resolved == str(real_exe)
+

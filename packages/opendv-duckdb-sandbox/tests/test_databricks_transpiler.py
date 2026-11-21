@@ -128,9 +128,11 @@ def test_compile_databricks_hub_ddl_and_zero_keys(
     hub = pe_canonical_ir.hubs[0]
     ddl_and_merge = compile_databricks_hub_ddl_and_zero_keys(hub)
 
-    assert f"CREATE TABLE IF NOT EXISTS raw_vault.{hub.name}" in ddl_and_merge
-    assert "USING DELTA;" in ddl_and_merge
-    assert f"MERGE INTO raw_vault.{hub.name} AS target" in ddl_and_merge
+    assert f"CREATE TABLE IF NOT EXISTS opendv_catalog.raw_vault.{hub.name}" in ddl_and_merge
+    assert "USING DELTA" in ddl_and_merge
+    assert f"CLUSTER BY ({hub.hk_column.name}, load_dts)" in ddl_and_merge
+    assert "TBLPROPERTIES ('delta.appendOnly' = 'true')" in ddl_and_merge
+    assert f"MERGE INTO opendv_catalog.raw_vault.{hub.name} AS target" in ddl_and_merge
     assert "WHEN NOT MATCHED THEN" in ddl_and_merge
     assert "INSERT" in ddl_and_merge
     # Zero key tokens
@@ -142,8 +144,10 @@ def test_compile_databricks_link_ddl(pe_canonical_ir: CanonicalIR) -> None:
     """Verify Delta DDL generation for Link."""
     link = pe_canonical_ir.links[0]
     ddl = compile_databricks_link_ddl(link)
-    assert f"CREATE TABLE IF NOT EXISTS raw_vault.{link.name}" in ddl
-    assert "USING DELTA;" in ddl
+    assert f"CREATE TABLE IF NOT EXISTS opendv_catalog.raw_vault.{link.name}" in ddl
+    assert "USING DELTA" in ddl
+    assert f"CLUSTER BY ({link.hk_column.name}, load_dts)" in ddl
+    assert "TBLPROPERTIES ('delta.appendOnly' = 'true')" in ddl
     assert link.hk_column.name in ddl
 
 
@@ -151,8 +155,10 @@ def test_compile_databricks_satellite_ddl(pe_canonical_ir: CanonicalIR) -> None:
     """Verify Delta DDL generation for Satellite."""
     sat = pe_canonical_ir.satellites[0]
     ddl = compile_databricks_satellite_ddl(sat)
-    assert f"CREATE TABLE IF NOT EXISTS raw_vault.{sat.name}" in ddl
-    assert "USING DELTA;" in ddl
+    assert f"CREATE TABLE IF NOT EXISTS opendv_catalog.raw_vault.{sat.name}" in ddl
+    assert "USING DELTA" in ddl
+    assert f"CLUSTER BY ({sat.parent_hk_column.name}, load_dts)" in ddl
+    assert "TBLPROPERTIES ('delta.appendOnly' = 'true')" in ddl
     assert sat.parent_hk_column.name in ddl
     assert sat.hash_diff_column.name in ddl
 
@@ -163,16 +169,16 @@ def test_compile_databricks_zone_2_merge(pe_canonical_ir: CanonicalIR) -> None:
     assert "ZONE 2: IDEMPOTENT DELTA MERGE INTO RAW VAULT LOADS" in merge_sql
 
     for hub in pe_canonical_ir.hubs:
-        assert f"MERGE INTO raw_vault.{hub.name} AS target" in merge_sql
+        assert f"MERGE INTO opendv_catalog.raw_vault.{hub.name} AS target" in merge_sql
         assert f"ON target.{hub.hk_column.name} = source.{hub.hk_column.name}" in merge_sql
         assert "WHEN NOT MATCHED THEN" in merge_sql
 
     for link in pe_canonical_ir.links:
-        assert f"MERGE INTO raw_vault.{link.name} AS target" in merge_sql
+        assert f"MERGE INTO opendv_catalog.raw_vault.{link.name} AS target" in merge_sql
         assert f"ON target.{link.hk_column.name} = source.{link.hk_column.name}" in merge_sql
 
     for sat in pe_canonical_ir.satellites:
-        assert f"MERGE INTO raw_vault.{sat.name} AS target" in merge_sql
+        assert f"MERGE INTO opendv_catalog.raw_vault.{sat.name} AS target" in merge_sql
         on_clause = (
             f"ON target.{sat.parent_hk_column.name} = source.{sat.parent_hk_column.name} "
             f"AND target.load_dts = source.load_dts"
@@ -186,7 +192,8 @@ def test_compile_canonical_ir_to_databricks(pe_canonical_ir: CanonicalIR) -> Non
     assert isinstance(bundle, CompiledDatabricksBundle)
     assert bundle.dialect == "databricks"
     assert bundle.model_name == pe_canonical_ir.model_name
-    assert "USING DELTA;" in bundle.zone_0_sql
+    assert "USING DELTA" in bundle.zone_0_sql
+    assert "TBLPROPERTIES ('delta.appendOnly' = 'true')" in bundle.zone_0_sql
     assert "MERGE INTO" in bundle.zone_2_sql
     assert len(bundle.full_sql_bundle) > 500
 
@@ -210,3 +217,81 @@ def test_transpile_bundle_to_databricks(pe_canonical_ir: CanonicalIR) -> None:
     assert "USING DELTA;" in db_bundle.zone_0_sql
     assert "MERGE INTO" in db_bundle.zone_2_sql
     assert "SHA2(" in db_bundle.zone_1_sql
+
+
+def test_databricks_zone2_emits_steward_and_sparse_and_sal_predicates_valid_sqlglot(
+    pe_canonical_ir: CanonicalIR,
+) -> None:
+    """Bug D: Databricks Zone 2 MERGE emits steward_gate_status='APPROVED', sparse IS NOT NULL,
+    and SAME_AS anti-self-link predicate, all parsing cleanly under sqlglot databricks dialect.
+    """
+    import sqlglot
+
+    ir_copy = pe_canonical_ir.model_copy(deep=True)
+    base_link = ir_copy.links[0]
+
+    unstructured_link = base_link.model_copy(
+        update={
+            "name": "lnk_doc_claim",
+            "link_type": "UNSTRUCTURED_EXTRACTION_LINK",
+            "requires_steward_approval_gate": True,
+            "steward_filter_predicate": "steward_gate_status = 'APPROVED'",
+            "hk_column": base_link.hk_column.model_copy(update={"name": "hk_lnk_doc_claim"}),
+            "source_mappings": [
+                {
+                    **dict(base_link.source_mappings[0]),
+                    "steward_filter_predicate": "steward_gate_status = 'APPROVED'",
+                }
+            ],
+        }
+    )
+
+    sparse_link = base_link.model_copy(
+        update={
+            "name": "lnk_encounter_partner_sparse",
+            "link_type": "STANDARD",
+            "requires_steward_approval_gate": False,
+            "steward_filter_predicate": None,
+            "hk_column": base_link.hk_column.model_copy(
+                update={"name": "hk_lnk_encounter_partner_sparse"}
+            ),
+            "source_mappings": [
+                {
+                    **dict(base_link.source_mappings[0]),
+                    "where_filter_condition": "partner_clinic_id IS NOT NULL",
+                }
+            ],
+        }
+    )
+
+    sal_refs = [
+        base_link.hub_references[0].model_copy(update={"fk_column_name": "hk_master_patient"}),
+        base_link.hub_references[1].model_copy(update={"fk_column_name": "hk_duplicate_patient"}),
+    ]
+    sal_link = base_link.model_copy(
+        update={
+            "name": "sal_patient",
+            "link_type": "SAME_AS",
+            "requires_steward_approval_gate": False,
+            "steward_filter_predicate": None,
+            "hk_column": base_link.hk_column.model_copy(update={"name": "hk_sal_patient"}),
+            "hub_references": sal_refs,
+            "source_mappings": [
+                {
+                    **dict(base_link.source_mappings[0]),
+                    "where_filter_condition": "master_patient_id <> duplicate_patient_code",
+                }
+            ],
+        }
+    )
+
+    ir_copy.links = [unstructured_link, sparse_link, sal_link]
+    merge_sql = compile_databricks_zone_2_merge(ir_copy)
+
+    assert "steward_gate_status = 'APPROVED'" in merge_sql
+    assert "IS NOT NULL" in merge_sql
+    assert "src.hk_master_patient <> src.hk_duplicate_patient" in merge_sql
+
+    parsed = sqlglot.parse(merge_sql, read="databricks")
+    assert all(stmt is not None for stmt in parsed)
+

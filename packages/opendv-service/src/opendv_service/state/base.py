@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +90,8 @@ class BaseStateContainer:
         self.projects: dict[str, ProjectResponse] = {}
         self.project_bronze_sources: dict[str, list[str]] = {}
         self.runs: dict[str, ProjectRunDTO] = {}
+        self.run_session_ids: dict[str, str] = {}
+        self.explicit_hold_runs: set[str] = set()
         self.run_events: dict[str, list[dict[str, Any]]] = {}
         self.run_ledgers: dict[str, VaultLedgerEmitter] = {}
         self.hold_managers: dict[str, StewardHoldManager] = {}
@@ -99,6 +102,18 @@ class BaseStateContainer:
         self.artifacts: dict[str, ArtifactMetadataResponse] = {}
         self.pipeline_reports: dict[str, dict[str, Any]] = {}
         self._pipeline_run_seq: int = 0
+        self._state_lock = threading.RLock()
+        self._lock = self._state_lock
+
+        from opendv_service.state.persistence import load_platform_state
+
+        load_platform_state(self)
+
+    def register_run(self, run_dto: ProjectRunDTO) -> ProjectRunDTO:
+        """Thread-safely register a ProjectRunDTO and persist platform state."""
+        from opendv_service.state.persistence import register_run_record
+
+        return register_run_record(self, run_dto)
 
     def _resolve_repo_path(self, rel_path: str | Path) -> Path:
         """Resolve a repository-relative path and enforce repository-root containment."""

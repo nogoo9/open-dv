@@ -10,7 +10,7 @@ export function WorkbenchShowcaseSection({
 	return (
 		<section
 			id="workbench"
-			className="band"
+			className="band band-soft"
 			tabIndex={-1}
 			aria-labelledby="workbench-heading"
 		>
@@ -18,21 +18,25 @@ export function WorkbenchShowcaseSection({
 				<div className="section-head">
 					<div className="section-head-copy">
 						<p className="eyebrow">
-							UNIFIED PLATFORM WORKBENCH · HTTP://127.0.0.1:8420
+							4-TAB WORKBENCH · ONTOLOGY &amp; PIPELINE | DV SCHEMA EXPLORER |
+							RUN EXPLORER | SETTINGS
 						</p>
 						<h2 id="workbench-heading">
-							Ontology Studio, Pipeline Builder, and 3-Level Explorer in one
-							app.
+							12-Screen Tour: 6-Step Wizard, 4-View DV Schema Explorer &amp;
+							Session Logs.
 						</h2>
 					</div>
 					<p className="section-intro">
-						Every screenshot below is captured at 2× Retina from the live local
-						platform server. Inspect interactive hotspots or enlarge any screen.
+						Explore all 12 screens at 1440×920 (2× Retina) across the Agent-only
+						6-Step Wizard, the 4-View DV Schema Explorer (Graph, 100% Column
+						Triage, W1→W3 Wave Diff, and Safe Read-Only SQL via{" "}
+						<code>validate_safe_sql()</code>), plus live Cost Meter and{" "}
+						<code>Logs &amp; Traces</code>.
 					</p>
 				</div>
 
 				<div data-tabs-group="workbench">
-					<div role="tablist" aria-label="Open-DV Workbench screens">
+					<div role="tablist" aria-label="Open-DV Workbench 12-screen tour">
 						{WORKBENCH_SCREENS.map((screen, idx) => (
 							<button
 								key={screen.id}
@@ -83,7 +87,7 @@ export function WorkbenchShowcaseSection({
 												)}
 												data-lightbox-title={screen.title}
 											>
-												Enlarge 2× Screenshot
+												Enlarge 2× Preview
 											</button>
 										</div>
 									</div>
@@ -135,9 +139,7 @@ export function WorkbenchShowcaseSection({
 												<strong>
 													{pIdx + 1}. {pin.label}
 												</strong>
-												<p className="prose" style={{ fontSize: "0.9rem" }}>
-													{pin.detail}
-												</p>
+												<p className="prose">{pin.detail}</p>
 											</div>
 										))}
 									</div>

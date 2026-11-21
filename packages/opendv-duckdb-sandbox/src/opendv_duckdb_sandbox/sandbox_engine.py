@@ -20,9 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
-import sqlglot
 from pydantic import BaseModel, ConfigDict, Field
-from sqlglot import exp
 
 from opendv_contracts.dtos.sandbox import SandboxColumnMetadata
 from opendv_core.hashing import compute_dv2_length_prefixed_sha256
@@ -57,76 +55,15 @@ from opendv_duckdb_sandbox.pit_query_engine import (
     QueryD10bRow,
     QueryD10Row,
 )
+from opendv_duckdb_sandbox.sql_guard import (
+    FORBIDDEN_SQL_FUNCTIONS,
+    FORBIDDEN_SQL_TYPES,
+    assert_external_access_disabled,
+    enforce_external_access_disabled,
+    validate_safe_sql,
+)
 from opendv_telemetry.hash_pills import format_hub_pill
 from opendv_telemetry.ledger_emitter import VaultLedgerEmitter
-
-FORBIDDEN_SQL_TYPES = (
-    exp.Insert,
-    exp.Update,
-    exp.Delete,
-    exp.Drop,
-    exp.Create,
-    exp.Alter,
-    exp.Command,
-    exp.Set,
-    exp.Pragma,
-)
-
-FORBIDDEN_SQL_FUNCTIONS = {
-    "read_csv",
-    f"{'read'}_{'csv_auto'}",
-    f"{'read'}_{'parquet'}",
-    "read_json",
-    f"{'read'}_{'json_auto'}",
-    "scan_parquet",
-    "scan_csv",
-    "parquet_scan",
-    "duckdb_query",
-    "query",
-    "load",
-    "install",
-    "copy",
-    "export_database",
-    "import_database",
-    "read_blob",
-    "write_blob",
-    "write_parquet",
-    "write_csv",
-}
-
-
-def validate_safe_sql(sql: str) -> None:
-    """Validate that a SQL statement is a single read-only SELECT or UNION query."""
-    if not sql or not sql.strip():
-        raise ValueError("SQL query cannot be empty")
-    try:
-        statements = [stmt for stmt in sqlglot.parse(sql, read="duckdb") if stmt is not None]
-    except Exception as e:
-        raise ValueError(f"Invalid SQL syntax: {e}") from e
-
-    if len(statements) != 1:
-        raise ValueError(
-            f"CUSTOM_SQL permits exactly one statement, but {len(statements)} "
-            "statements were provided"
-        )
-
-    stmt = statements[0]
-    if not isinstance(stmt, (exp.Select, exp.Union)):
-        raise ValueError(
-            f"CUSTOM_SQL permits only read-only SELECT or UNION queries; got {type(stmt).__name__}"
-        )
-
-    for node, _parent, _key in stmt.walk():
-        if isinstance(node, FORBIDDEN_SQL_TYPES):
-            raise ValueError(f"Forbidden SQL operation in sandbox: {type(node).__name__}")
-        if isinstance(node, (exp.Func, exp.Anonymous)):
-            func_name = (
-                node.sql_name().lower()
-                if hasattr(node, "sql_name")
-                else getattr(node, "name", "").lower()
-            )
-            if func_name in FORBIDDEN_SQL_FUNCTIONS:
-                raise ValueError(f"Forbidden SQL function in sandbox: {func_name}")
 
 
 class SafeSqlResult(BaseModel):
@@ -180,6 +117,7 @@ class DuckDbShadowSandbox:
                     "enable_external_access": False,
                 },
             )
+        enforce_external_access_disabled(self.conn)
         self.ledger_emitter = ledger_emitter
 
     def close(self) -> None:
@@ -522,3 +460,14 @@ class DuckDbShadowSandbox:
             ),
         )
         return event
+
+
+__all__ = [
+    "FORBIDDEN_SQL_FUNCTIONS",
+    "FORBIDDEN_SQL_TYPES",
+    "DuckDbShadowSandbox",
+    "SafeSqlResult",
+    "SandboxVerificationReport",
+    "assert_external_access_disabled",
+    "validate_safe_sql",
+]

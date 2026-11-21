@@ -67,10 +67,13 @@ export function PipelineOverviewView({
 
 	return (
 		<main
+			className="claude-explorer-stack-mobile"
 			data-testid="pipeline-overview-view"
 			onClick={() => onClearSelection()}
 			style={{
 				maxWidth: "1600px",
+				width: "100%",
+				boxSizing: "border-box",
 				margin: "0 auto",
 				padding: "24px",
 				display: "flex",
@@ -81,6 +84,7 @@ export function PipelineOverviewView({
 		>
 			{/* Left Column: Settings & Inputs */}
 			<section
+				className="claude-explorer-col-full claude-overview-side-col"
 				aria-label="Settings and Inputs"
 				onClick={(ev) => ev.stopPropagation()}
 				style={{

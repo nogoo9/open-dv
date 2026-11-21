@@ -380,6 +380,29 @@ opendv run artifact --help
 opendvctl run artifact --api-url $OPENDV_API_URL --json
 ```
 
+##### `run dv-schema` *(Both CLIs)*
+
+Inspect Data Vault 2.1 schema graph, table rows, or run bounded read-only DuckDB SQL queries
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--run-id` | `-r` | `string` | Yes | — | No | Target pipeline run ID |
+| `--compare` | — | `string` | No | — | No | Optional baseline run ID to diff schema nodes and edges against |
+| `--table` | — | `string` | No | — | No | Inspect paged sample rows for a specific DV table |
+| `--sql` | — | `string` | No | — | No | Execute a bounded read-only SELECT/WITH SQL query against run tables |
+| `--limit` | — | `integer` | No | `50` | No | Maximum number of table rows to return |
+| `--offset` | — | `integer` | No | `0` | No | Pagination row offset when reading --table |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv run dv-schema --help
+
+# Client execution
+opendvctl run dv-schema --api-url $OPENDV_API_URL --json
+```
+
 ### `opendv hold` / `opendvctl hold`
 
 **Availability:** *(Both CLIs)*  
@@ -1297,6 +1320,76 @@ opendv ontology studio staged promote --help
 opendvctl ontology studio staged promote --api-url $OPENDV_API_URL --json
 ```
 
+###### `ontology studio attach-source` *(Both CLIs)*
+
+Attach and profile a tabular connector source (filesystem/SQLite/DuckDB/CSV/Parquet/XLSX/JSONL)
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Target studio session identifier |
+| `--adapter` | — | `string` | Yes | — | No | Connector adapter type (e.g. filesystem, sqlite, duckdb, csv) |
+| `--uri` | — | `string` | Yes | — | No | Source URI, file path, or connection identifier |
+| `--table` | — | `string` | No | — | No | Target table name or alias |
+| `--namespace` | — | `string` | No | — | No | Optional domain namespace override |
+| `--credentials-ref` | — | `string` | No | — | No | Secret reference (env:... or secret:...) — plaintext credentials are rejected |
+| `--description` | — | `string` | No | — | No | Optional human source description |
+| `--do-not-send-to-agent` | — | `boolean` | No | `False` | No | Mark connector source confidential (taint perimeter) |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio attach-source --help
+
+# Client execution
+opendvctl ontology studio attach-source --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio fibo-qa` *(Both CLIs)*
+
+Ask read-only FIBO & evidence alignment questions against a Studio session
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Target studio session identifier |
+| `--question` | `-q` | `string` | Yes | — | No | Natural-language FIBO/evidence question |
+| `--source-id` | — | `string` | No | — | No | Optional source ID scope |
+| `--concept-uri` | — | `string` | No | — | No | Optional concept URI scope |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio fibo-qa --help
+
+# Client execution
+opendvctl ontology studio fibo-qa --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio logs` *(Both CLIs)*
+
+Inspect or stream Studio session AI & compiler execution logs
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | No | — | No | Target studio session identifier |
+| `--session-id` | — | `string` | No | — | No | Target studio session identifier alias |
+| `--stage` | — | `string` | No | — | No | Filter by stage ID or stage pill alias (STAGE_00..07 or 00..06) |
+| `--step` | — | `integer` | No | — | No | Filter by wizard step number |
+| `--category` | — | `string` | No | — | No | Filter by log entry category (e.g. agent, compiler) |
+| `--persona` | — | `string` | No | — | No | Filter by persona (e.g. @ship-vault) |
+| `--follow` | — | `boolean` | No | `False` | No | Stream logs live via SSE until stage completes |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio logs --help
+
+# Client execution
+opendvctl ontology studio logs --api-url $OPENDV_API_URL --json
+```
+
 ### `opendv config` / `opendvctl config`
 
 **Availability:** *(Both CLIs)*  
@@ -1384,6 +1477,7 @@ opendvctl config validate --api-url $OPENDV_API_URL --json
 | `--config` | `-c` | `path` | No | — | No | Path to opendv.config.yaml configuration file |
 | `--workspace` | `-w` | `path` | No | — | No | Workspace root directory for path containment and state storage |
 | `--open` | — | `boolean` | No | `False` | No | Automatically open the Web Explorer UI in the default browser on startup |
+| `--allow-remote-unauthenticated` | — | `boolean` | No | `False` | No | Allow binding to a non-loopback host without authentication (unsafe) |
 
 
 **Example Invocations:**
@@ -1600,6 +1694,8 @@ Both CLIs adhere to normative exit code standards across all failure scenarios:
 | `INTERNAL_CLONE_ERROR` | `1` | `500` | Internal Clone Error | `urn:opendv:error:internal-clone-error` |
 | `AGENT_LAUNCH_NONCE_FORBIDDEN` | `7` | `403` | Agent Launch Nonce Forbidden | `urn:opendv:error:agent-launch-nonce-forbidden` |
 | `HARNESS_CONFIG_INVALID` | `4` | `422` | Harness Configuration Invalid | `urn:opendv:error:harness-config-invalid` |
+| `AGENT_NOT_CONFIGURED` | `4` | `422` | Agent Not Configured | `urn:opendv:error:agent-not-configured` |
+| `SESSION_JOB_ACTIVE` | `6` | `409` | Session Job Already Active | `urn:opendv:error:session-job-active` |
 
 ---
 

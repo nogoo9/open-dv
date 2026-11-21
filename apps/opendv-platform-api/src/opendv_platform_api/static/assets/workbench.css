@@ -1,4 +1,36 @@
 /* apps/opendv-web-workbench/src/index.css */
+@font-face {
+	font-family: "Instrument Serif";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/assets/fonts/instrument-serif-latin.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "Instrument Serif";
+	font-style: italic;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/assets/fonts/instrument-serif-italic-latin.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "DM Sans";
+	font-style: normal;
+	font-weight: 400 700;
+	font-display: swap;
+	src: url("/assets/fonts/dm-sans-latin.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "JetBrains Mono";
+	font-style: normal;
+	font-weight: 400 700;
+	font-display: swap;
+	src: url("/assets/fonts/jetbrains-mono-latin.woff2") format("woff2");
+}
+
 *,
 *::before,
 *::after {
@@ -6,6 +38,68 @@
 }
 
 :root,
+[data-theme="claude"] {
+	color-scheme: light;
+	--claude-primary: #cc785c;
+	--claude-primary-active: #a9583e;
+	--claude-primary-disabled: #e6dfd8;
+	--claude-ink: #141413;
+	--claude-body: #3d3d3a;
+	--claude-body-strong: #252523;
+	--claude-muted: #6c6a64;
+	--claude-muted-soft: #8e8b82;
+	--claude-hairline: #e6dfd8;
+	--claude-hairline-soft: #ebe6df;
+	--claude-hairline-strong: #d5cdc2;
+	--claude-canvas: #faf9f5;
+	--claude-surface-soft: #f5f0e8;
+	--claude-surface-card: #efe9de;
+	--claude-surface-cream-strong: #e8e0d2;
+	--claude-surface-dark: #181715;
+	--claude-surface-dark-soft: #1f1e1b;
+	--claude-surface-dark-elevated: #252320;
+	--claude-on-primary: #ffffff;
+	--claude-on-dark: #faf9f5;
+	--claude-on-dark-soft: #a09d96;
+	--claude-accent-teal: #5db8a6;
+	--claude-accent-amber: #e8a55a;
+	--claude-success: #5db872;
+	--claude-warning: #d4a017;
+	--claude-error: #c64545;
+
+	--dv-bg-canvas: #faf9f5;
+	--dv-surface-1: #efe9de;
+	--dv-surface-2: #f5f0e8;
+	--dv-surface-3: #e8e0d2;
+	--dv-border-subtle: #e6dfd8;
+	--dv-border-strong: #d5cdc2;
+
+	--dv-text-primary: #141413;
+	--dv-text-secondary: #3d3d3a;
+	--dv-text-muted: #6c6a64;
+	--dv-text-inverse: #faf9f5;
+
+	/* Data Vault 2.0 Dual-Encoded Entity Accents */
+	--dv-hub-accent: #181715;
+	--dv-lnk-accent: #cc785c;
+	--dv-sal-accent: #5db8a6;
+	--dv-sat-accent: #e8a55a;
+	--dv-sat-pii-accent: #a9583e;
+	--dv-ref-accent: #6c6a64;
+	--dv-surrogate-accent: #8e8b82;
+
+	/* Verification Verdict Tokens */
+	--dv-gate-pass: #5db872;
+	--dv-gate-autofix: #5db8a6;
+	--dv-gate-reject: #c64545;
+	--dv-gate-askuser: #d4a017;
+
+	/* React Flow Canvas & Minimap Tokens */
+	--dv-minimap-bg: #f5f0e8;
+	--dv-minimap-node-bg: #e8e0d2;
+	--dv-minimap-mask-bg: rgba(250, 249, 245, 0.72);
+}
+
 [data-theme="obsidian"] {
 	--dv-bg-canvas: #0b0f19;
 	--dv-surface-1: #111827;
@@ -115,10 +209,11 @@ body,
 	background-color: var(--dv-bg-canvas);
 	color: var(--dv-text-primary);
 	margin: 0;
-	font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-		"Segoe UI", Roboto, sans-serif;
-	font-size: 14px;
+	font-family: "DM Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+		sans-serif;
+	font-size: 13px;
 	line-height: 1.45;
+	-webkit-font-smoothing: antialiased;
 }
 
 /* Prevent scroll chaining behind native modal <dialog> (modern-web-guidance) */
@@ -156,6 +251,11 @@ dialog::backdrop {
 	overflow: hidden;
 	background-color: var(--dv-bg-canvas);
 	color: var(--dv-text-primary);
+}
+
+.opendv-workbench-explorer .ontology-studio-app {
+	height: 100%;
+	width: 100%;
 }
 
 .studio-header {
@@ -2763,4 +2863,327 @@ svg.react-flow__connectionline {
 }
 .react-flow__edge-text {
 	fill: var(--xy-edge-label-color, var(--xy-edge-label-color-default));
+}
+
+/* ==========================================================================
+   Claude DESIGN.md Workbench Shell, React Flow Contrast & Responsive Rules (D26)
+   ========================================================================== */
+
+[data-theme="claude"] .react-flow,
+.opendv-workbench-explorer .react-flow {
+	--xy-minimap-background-color-default: #f5f0e8;
+	--xy-minimap-mask-background-color-default: rgba(250, 249, 245, 0.72);
+	--xy-minimap-node-background-color-default: #e8e0d2;
+	--xy-controls-button-background-color-default: #faf9f5;
+	--xy-controls-button-background-color-hover-default: #efe9de;
+	--xy-controls-button-color-default: #141413;
+	--xy-controls-button-color-hover-default: #141413;
+	--xy-controls-button-border-color-default: #d5cdc2;
+}
+
+[data-theme="claude"] .canvas-flow-wrapper .react-flow__controls,
+.opendv-workbench-explorer .canvas-flow-wrapper .react-flow__controls {
+	background-color: #faf9f5;
+	border: 1px solid #d5cdc2;
+	box-shadow: 0 2px 8px rgba(20, 20, 19, 0.08);
+}
+
+[data-theme="claude"] .canvas-flow-wrapper .react-flow__controls-button,
+.opendv-workbench-explorer .canvas-flow-wrapper .react-flow__controls-button {
+	background-color: #faf9f5;
+	color: #141413;
+	border-bottom: 1px solid #e6dfd8;
+}
+
+[data-theme="claude"] .canvas-flow-wrapper .react-flow__controls-button:hover,
+.opendv-workbench-explorer
+	.canvas-flow-wrapper
+	.react-flow__controls-button:hover {
+	background-color: #efe9de;
+	color: #141413;
+}
+
+[data-theme="claude"] .canvas-flow-wrapper .react-flow__minimap,
+.opendv-workbench-explorer .canvas-flow-wrapper .react-flow__minimap {
+	background-color: #f5f0e8;
+	border: 1px solid #d5cdc2;
+	box-shadow: 0 2px 8px rgba(20, 20, 19, 0.08);
+}
+
+.claude-h1 {
+	font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+	font-size: 26px;
+	font-weight: 400;
+	line-height: 1.08;
+	letter-spacing: -0.45px;
+	color: #141413;
+}
+
+.claude-h2 {
+	font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+	font-size: 20px;
+	font-weight: 400;
+	line-height: 1.15;
+	letter-spacing: -0.3px;
+	color: #141413;
+}
+
+.claude-topbar {
+	height: 54px;
+	padding: 0 24px;
+	background: #faf9f5;
+	border-bottom: 1px solid #e6dfd8;
+	color: #141413;
+}
+
+.claude-stepper {
+	height: 44px;
+	padding: 0 24px;
+	background: #f5f0e8;
+	border-bottom: 1px solid #e6dfd8;
+}
+
+.claude-subbar {
+	min-height: 46px;
+	padding: 6px 24px;
+	background: #f5f0e8;
+	border-bottom: 1px solid #e6dfd8;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 10px;
+	box-sizing: border-box;
+	max-width: 100%;
+}
+
+.claude-footer {
+	height: 52px;
+	padding: 0 24px;
+	background: #faf9f5;
+	border-top: 1px solid #e6dfd8;
+}
+
+.claude-card {
+	background: #faf9f5;
+	border: 1px solid #e6dfd8;
+	border-radius: 10px;
+}
+
+.claude-card-cream {
+	background: #efe9de;
+	border: 1px solid #e6dfd8;
+	border-radius: 12px;
+}
+
+.claude-card-selected {
+	background: #e8e0d2;
+	border: 1.5px solid #cc785c;
+	border-radius: 10px;
+}
+
+.claude-card-dark {
+	background: #181715;
+	color: #faf9f5;
+	border: 1px solid #252320;
+	border-radius: 12px;
+}
+
+.claude-btn-primary {
+	background: #cc785c;
+	color: #ffffff;
+	border: none;
+	border-radius: 8px;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.claude-btn-primary:hover {
+	background: #a9583e;
+}
+
+.claude-btn-secondary {
+	background: #faf9f5;
+	color: #141413;
+	border: 1px solid #d5cdc2;
+	border-radius: 8px;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.claude-pill-dark {
+	background: #181715;
+	color: #faf9f5;
+	border-radius: 9999px;
+	font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.claude-drawer-panel {
+	width: min(716px, 92vw);
+	background: #faf9f5;
+	border-left: 1px solid #e6dfd8;
+	box-shadow: -12px 0 32px rgba(20, 20, 19, 0.14);
+}
+
+.dag-dot-grid {
+	background-color: #f5f0e8;
+	background-image: radial-gradient(#d5cdc2 1px, #f5f0e8 1px);
+	background-size: 18px 18px;
+}
+
+.claude-topbar {
+	padding: 0 24px;
+	box-sizing: border-box;
+	max-width: 100%;
+}
+
+.claude-topbar-nav {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.claude-mobile-nav-toggle {
+	display: none;
+}
+
+.claude-responsive-grid > * {
+	min-width: 0;
+}
+
+@media (max-width: 1279px) {
+	.claude-topbar {
+		height: auto !important;
+		min-height: 54px;
+		flex-wrap: wrap;
+		row-gap: 6px;
+		padding-top: 6px !important;
+		padding-bottom: 6px !important;
+	}
+
+	.claude-topbar-run-controls,
+	.claude-topbar-right {
+		flex-wrap: wrap;
+		max-width: 100%;
+	}
+
+	.claude-overview-side-col {
+		width: 256px !important;
+	}
+
+	.claude-overview-stages-track {
+		min-width: 320px !important;
+	}
+}
+
+@media (max-width: 767px) {
+	html,
+	body,
+	#root,
+	.opendv-workbench-explorer,
+	.ontology-studio-app {
+		width: 100%;
+		max-width: 100%;
+		overflow-x: hidden;
+	}
+
+	.claude-topbar {
+		height: auto !important;
+		min-height: 54px !important;
+		padding: 8px 12px !important;
+		flex-wrap: wrap !important;
+		z-index: 30;
+	}
+
+	.claude-topbar-left {
+		flex-wrap: wrap !important;
+		width: 100% !important;
+	}
+
+	.claude-mobile-nav-toggle {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 40px;
+		min-width: 40px;
+	}
+
+	.claude-topbar-nav {
+		width: 100% !important;
+		flex-direction: column !important;
+		align-items: stretch !important;
+	}
+
+	.claude-topbar-nav[data-mobile-open="false"] {
+		display: none !important;
+	}
+
+	.claude-topbar-nav[data-mobile-open="true"] {
+		display: flex !important;
+	}
+
+	.claude-explorer-stack-mobile {
+		flex-direction: column !important;
+		padding: 12px !important;
+		gap: 16px !important;
+		box-sizing: border-box !important;
+		max-width: 100% !important;
+	}
+
+	.claude-explorer-inner-stack-mobile {
+		flex-direction: column !important;
+		gap: 16px !important;
+		max-width: 100% !important;
+	}
+
+	.claude-explorer-col-full {
+		width: 100% !important;
+		min-width: 0 !important;
+		max-width: 100% !important;
+		box-sizing: border-box !important;
+	}
+
+	.claude-stage-step-grid {
+		grid-template-columns: 1fr !important;
+	}
+
+	.claude-stepper,
+	.claude-subbar,
+	.claude-footer,
+	.claude-card,
+	.claude-card-cream,
+	.claude-card-dark {
+		box-sizing: border-box;
+		max-width: 100%;
+	}
+
+	.claude-stepper,
+	.claude-subbar,
+	.claude-footer {
+		height: auto;
+		min-height: 44px;
+		padding: 8px 12px;
+		flex-wrap: wrap;
+	}
+
+	.claude-responsive-grid {
+		grid-template-columns: minmax(0, 1fr) !important;
+	}
+
+	.opendv-workbench-explorer button,
+	.opendv-workbench-explorer [role="tab"],
+	.opendv-workbench-explorer input:not([type="checkbox"]),
+	.opendv-workbench-explorer select {
+		min-height: 40px !important;
+		box-sizing: border-box !important;
+	}
+
+	.view-only-mobile {
+		pointer-events: none;
+		opacity: 0.75;
+	}
+
+	.claude-drawer-panel {
+		width: 100%;
+	}
 }

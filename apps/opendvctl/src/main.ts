@@ -32,6 +32,38 @@ function argvWantsJson(argv: string[]): boolean {
 	return false;
 }
 
+export function stripLegacyTokenFlags(rawArgs: string[]): string[] {
+	const cleaned: string[] = [];
+	let i = 0;
+	while (i < rawArgs.length) {
+		const tok = rawArgs[i];
+		if (tok === undefined) {
+			i += 1;
+			continue;
+		}
+		if (tok === "--") {
+			cleaned.push(...rawArgs.slice(i));
+			break;
+		}
+		if (tok === "--token") {
+			const nextTok = rawArgs[i + 1];
+			if (nextTok !== undefined && !nextTok.startsWith("-")) {
+				i += 2;
+			} else {
+				i += 1;
+			}
+			continue;
+		}
+		if (tok.startsWith("--token=")) {
+			i += 1;
+			continue;
+		}
+		cleaned.push(tok);
+		i += 1;
+	}
+	return cleaned;
+}
+
 function normalizeSourceInspectArgv(rawArgs: string[]): string[] {
 	if (!rawArgs.includes("source") || !rawArgs.includes("inspect")) {
 		return rawArgs;
@@ -95,7 +127,8 @@ export async function runCli(
 		return 0;
 	}
 
-	const normalizedArgv = normalizeSourceInspectArgv(argv);
+	const sanitizedArgv = stripLegacyTokenFlags(argv);
+	const normalizedArgv = normalizeSourceInspectArgv(sanitizedArgv);
 	let isJson = argvWantsJson(normalizedArgv);
 
 	try {

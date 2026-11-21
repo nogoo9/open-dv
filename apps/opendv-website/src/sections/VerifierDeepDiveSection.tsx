@@ -22,10 +22,10 @@ export function VerifierDeepDiveSection(): React.JSX.Element {
 					</div>
 					<p className="section-intro">
 						Every candidate contract runs through six deterministic verification
-						gates (<code>G0</code>–<code>G5</code>). Mechanical violations
-						trigger Algorithms <code>A.1</code>–<code>A.9b</code> codemods
-						automatically; structural errors emit compact <code>@toon_v1</code>{" "}
-						repair traces.
+						gates (<code>G0</code>–<code>G5</code>) and 15 dynamic sandbox
+						invariants. Codemods <code>A.1</code>–<code>A.9b</code> heal
+						mechanical faults; <code>@toon_v1</code> repairs structural edges,
+						and Tier-U2 / Budget Holds resolve inline inside Step 6.
 					</p>
 				</div>
 
@@ -35,14 +35,14 @@ export function VerifierDeepDiveSection(): React.JSX.Element {
 					className="grid-3"
 					style={{
 						listStyle: "none",
-						margin: "1.5rem 0 0",
+						margin: "1.75rem 0 0",
 						padding: 0,
 					}}
 					aria-label="Axi-DV Gates G0 to G5"
 				>
 					{AXI_GATES.map((gate) => (
 						<li key={gate.id} className="card">
-							<div className="badge-row" style={{ marginBlockEnd: "0.45rem" }}>
+							<div className="badge-row" style={{ marginBlockEnd: "0.55rem" }}>
 								<span className="badge badge-pass">{gate.id}</span>
 								<span className="badge">{gate.rules}</span>
 							</div>
@@ -54,8 +54,8 @@ export function VerifierDeepDiveSection(): React.JSX.Element {
 								className="prose"
 								style={{
 									fontSize: "0.86rem",
-									marginBlockStart: "0.65rem",
-									paddingBlockStart: "0.65rem",
+									marginBlockStart: "0.75rem",
+									paddingBlockStart: "0.75rem",
 									borderBlockStart: "1px solid var(--border)",
 								}}
 							>

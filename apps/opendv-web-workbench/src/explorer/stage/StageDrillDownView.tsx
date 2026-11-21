@@ -56,6 +56,7 @@ export function StageDrillDownView({
 
 	return (
 		<main
+			className="claude-explorer-stack-mobile"
 			data-testid="stage-drilldown-view"
 			onClick={() => onClearSelection()}
 			onKeyDown={(ev) => {
@@ -79,6 +80,8 @@ export function StageDrillDownView({
 			tabIndex={-1}
 			style={{
 				maxWidth: "1600px",
+				width: "100%",
+				boxSizing: "border-box",
 				margin: "0 auto",
 				padding: "20px 24px",
 				display: "flex",
@@ -95,7 +98,10 @@ export function StageDrillDownView({
 				onNextStage={onNextStage}
 			/>
 
-			<div style={{ display: "flex", gap: "20px", alignItems: "flex-start" }}>
+			<div
+				className="claude-explorer-inner-stack-mobile"
+				style={{ display: "flex", gap: "20px", alignItems: "flex-start" }}
+			>
 				<StageComponentsColumn
 					stage={stage}
 					selType={selType}

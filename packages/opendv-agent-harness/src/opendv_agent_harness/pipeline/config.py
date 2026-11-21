@@ -126,7 +126,7 @@ class HarnessSetupConfig(BaseModel):
         "pause"
     )
     ontology_policy: str = "off"
-    stage_output_policy: Literal["llm_only", "symbolic_completion"] = "llm_only"
+    stage_output_policy: Literal["strict", "llm_only", "symbolic_completion"] = "strict"
     inject_adversarial_fault_on_attempt_1: bool = False
     env: dict[str, str] = Field(default_factory=dict)
     extra_provider_options: dict[str, Any] = Field(default_factory=dict)

@@ -3,15 +3,12 @@
  * (apps/opendv-web-workbench/tests/wave-r4e-hardening.test.tsx)
  *
  * Covers:
- * - P14c-MAJ-01: promoteWorkspace contract + ExportPromoteModal remote_platform optional path,
- *   greenfield 64-zeros quick-fill, historical_contract_rationale, and no fake SessionCommit
+ * - P14c-MAJ-01: promoteWorkspace contract, historical_contract_rationale, and no fake SessionCommit
  * - P14c-MAJ-02: commitChanges hydrates server-verified JCS snapshot via loadGraph without
  *   fabricating client-side FIBO confidence (1.0/0.85) or verified_pack provenance
  * - P14c-MAJ-03: selectSession SSE/poll cleanup, handleJobPayloadUpdate non-terminal stream
  *   preservation, and myGen === activeJobGeneration clobber guards
  * - P14c-MAJ-04: generateLocalExport("json" | "yaml") canonical GraphAOntology conformance
- * - P14c-MAJ-05: Greenfield 0.0.0 waiver submission, QualityFeedbackPanel pending proposal
- *   ungrounded concepts, and ClarificationPanel non-PENDING button gating + Admin override
  * - P14c-MAJ-06 & P14c-MIN-01: Clean startConstruct / acceptProposal payloads and submitAnswer
  *   409/412 draft preservation
  */
@@ -19,9 +16,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ClarificationPanel } from "../src/ontology/components/ClarificationPanel";
-import { ExportPromoteModal } from "../src/ontology/components/ExportPromoteModal";
-import { QualityFeedbackPanel } from "../src/ontology/components/QualityFeedbackPanel";
 import {
 	VisualEditorDrawer,
 	validateConceptEdit,
@@ -229,35 +223,8 @@ describe("Wave R4-E: Pre-Opus Hardening Regression Suite", () => {
 			expect(store.getState().sessions[0]?.status).toBe("PROMOTED");
 		});
 
-		it("renders remote_platform optional empty workspacePath and greenfield 64-zeros quick-fill helper in ExportPromoteModal", () => {
-			studioStore.setState({
-				activeMode: "remote_platform",
-				activeSession: makeSession({
-					domain_namespace: "private_equity",
-					head_sha256: "a".repeat(64),
-				}),
-			});
-
-			const html = renderToStaticMarkup(
-				createElement(ExportPromoteModal, {
-					isOpen: true,
-					initialTab: "promote",
-					onClose: () => {},
-				}),
-			);
-
-			expect(html).toContain(
-				"Target Workspace Path (Optional — Server Managed):",
-			);
-			expect(html).not.toContain('value="workspaces/private_equity"');
-			expect(html).toContain('data-testid="greenfield-workspace-sha-btn"');
-			expect(html).toContain("Greenfield (64 zeros)");
-		});
 	});
 
-	// =========================================================================
-	// 2. P14c-MAJ-02: commitChanges server-verified JCS snapshot reload
-	// =========================================================================
 	describe("2. P14c-MAJ-02: commitChanges reloads server-verified ontology snapshot without fabricating confidence", () => {
 		it("hydrates true server-verified confidence/provenance via loadGraph after POST /delta and avoids fabricating 1.0/0.85 on fallback", async () => {
 			const session = makeSession({
@@ -580,159 +547,6 @@ describe("Wave R4-E: Pre-Opus Hardening Regression Suite", () => {
 			expect(yamlExport).toContain("canonical_relationships:");
 			expect(yamlExport).toContain('target_link: "lnk_portfolio_asset"');
 			expect(yamlExport).toContain("endpoints:");
-		});
-	});
-
-	// =========================================================================
-	// 5. P14c-MAJ-05: Greenfield 0.0.0 waiver & proposal ratification fixes
-	// =========================================================================
-	describe("5. P14c-MAJ-05: Greenfield 0.0.0 waiver authorization & proposal ratification gating", () => {
-		it("authorizes waiver on 0.0.0 greenfield session using pending proposal add_concept URIs and renders them in QualityFeedbackPanel", async () => {
-			const greenfieldSession = makeSession({
-				session_id: "sess-greenfield-0",
-				active_version: "0.0.0",
-				head_sha256: GENESIS_SHA256,
-				status: "CONSTRUCTED",
-			});
-			const pendingProposals = [
-				{
-					proposal_id: "prop-green-1",
-					status: "PENDING",
-					base_sha256: GENESIS_SHA256,
-					target_version: "1.0.0",
-					ops_count: 1,
-					created_at: "2026-11-13T00:00:00Z",
-					operations: [
-						{
-							op_id: "op-1",
-							op_type: "add_concept",
-							concept_uri: "urn:opendv:concept:waterfall_tier",
-							concept_name: "Waterfall Tier",
-							external_mappings: [],
-						},
-					],
-				},
-			];
-
-			const store = createStudioStore({
-				initialSession: greenfieldSession,
-				userRole: "admin",
-			});
-			store.setState({
-				nodes: [],
-				edges: [],
-				proposals: pendingProposals,
-			});
-
-			let capturedWaiverBody: Record<string, unknown> | null = null;
-			const mockWaiverFetch: typeof fetch = (async (_url, init) => {
-				capturedWaiverBody = JSON.parse(String(init?.body || "{}")) as Record<
-					string,
-					unknown
-				>;
-				return new Response(
-					JSON.stringify({
-						waiver_applied: true,
-						waived_concept_uris: ["urn:opendv:concept:waterfall_tier"],
-						waived_base_sha256: GENESIS_SHA256,
-					}),
-					{ status: 200 },
-				);
-			}) as typeof fetch;
-
-			const ok = await store
-				.getState()
-				.submitWaiver(
-					"Proprietary waterfall carry concept has no FIBO equivalent",
-					"admin-waiver-secret-key",
-					mockWaiverFetch,
-				);
-			expect(ok).toBe(true);
-			expect(capturedWaiverBody?.target_concept_uris).toEqual([
-				"urn:opendv:concept:waterfall_tier",
-			]);
-
-			// QualityFeedbackPanel surfaces the ungrounded concept from the PENDING proposal even when nodes === []
-			studioStore.setState({
-				activeSession: greenfieldSession,
-				nodes: [],
-				proposals: pendingProposals,
-				qualityScorecard: {
-					...studioStore.getState().qualityScorecard,
-					waiver_applied: true,
-					waiver_rationale:
-						"Proprietary waterfall carry concept has no FIBO equivalent",
-					waived_concept_uris: ["urn:opendv:concept:waterfall_tier"],
-				},
-			});
-			const qfpHtml = renderToStaticMarkup(createElement(QualityFeedbackPanel));
-			expect(qfpHtml).toContain(
-				'data-testid="waiver-concept-checkbox-urn:opendv:concept:waterfall_tier"',
-			);
-			expect(qfpHtml).toContain("Waterfall Tier");
-		});
-
-		it("disables Accept and Rebase for non-PENDING proposals and renders rationale + Admin self-acceptance override on PENDING proposals", () => {
-			studioStore.setState({
-				activeSession: makeSession(),
-				userRole: "admin",
-				proposals: [
-					{
-						proposal_id: "prop-pending",
-						status: "PENDING",
-						base_sha256: "a".repeat(64),
-						target_version: "1.1.0",
-						ops_count: 1,
-						created_at: "2026-11-13T00:00:00Z",
-					},
-					{
-						proposal_id: "prop-superseded",
-						status: "SUPERSEDED",
-						base_sha256: "a".repeat(64),
-						target_version: "1.1.0",
-						ops_count: 1,
-						created_at: "2026-11-13T00:00:00Z",
-					},
-					{
-						proposal_id: "prop-rejected",
-						status: "REJECTED",
-						base_sha256: "a".repeat(64),
-						target_version: "1.1.0",
-						ops_count: 1,
-						created_at: "2026-11-13T00:00:00Z",
-					},
-				],
-			});
-
-			const html = renderToStaticMarkup(createElement(ClarificationPanel));
-
-			// PENDING proposal has enabled Accept/Rebase + rationale input + Admin override checkbox
-			expect(html).toContain(
-				'data-testid="proposal-accept-rationale-prop-pending"',
-			);
-			expect(html).toContain(
-				'data-testid="proposal-self-accept-override-prop-pending"',
-			);
-			expect(html).not.toMatch(
-				/<button(?=[^>]*\bdisabled="")(?=[^>]*data-testid="accept-proposal-btn-prop-pending")[^>]*>/,
-			);
-			expect(html).not.toMatch(
-				/<button(?=[^>]*\bdisabled="")(?=[^>]*data-testid="rebase-proposal-btn-prop-pending")[^>]*>/,
-			);
-
-			// SUPERSEDED and REJECTED proposals have disabled Accept & Rebase buttons
-			for (const pid of ["prop-superseded", "prop-rejected"]) {
-				expect(html).toMatch(
-					new RegExp(
-						`<button(?=[^>]*\\bdisabled="")(?=[^>]*data-testid="accept-proposal-btn-${pid}")[^>]*>`,
-					),
-				);
-				expect(html).toMatch(
-					new RegExp(
-						`<button(?=[^>]*\\bdisabled="")(?=[^>]*data-testid="rebase-proposal-btn-${pid}")[^>]*>`,
-					),
-				);
-			}
 		});
 	});
 

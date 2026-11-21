@@ -5,8 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from opendv_core.constants import GLOBAL_BKCC, ZERO_KEY_UNKNOWN
 from opendv_core.hashing import compute_dv2_length_prefixed_sha256
 from opendv_core.models.canonical_ir import CanonicalIR, IRHub
+from opendv_duckdb_sandbox.compiler_4zone.bronze_link_tables import (
+    compile_bronze_link_tables_sql,
+)
 from opendv_duckdb_sandbox.compiler_4zone.bronze_seed_resolver import (
     _filter_hub_rows_for_bkcc,
     _format_bronze_payload_sql_literal,
@@ -19,17 +23,53 @@ from opendv_duckdb_sandbox.compiler_4zone.hashing import (
     _validate_ident,
 )
 from opendv_duckdb_sandbox.compiler_4zone.schema_utils import (
+    _bitemporal_restatement_sql_literal,
     _effective_hub_bkcc_column_expr,
+    _effective_hub_bkcc_literal,
     _effective_hub_sm_bkcc_literal,
     _find_bitemporal_satellite,
     _satellite_all_data_columns,
-    _satellite_seed_sql_literal,
 )
 from opendv_duckdb_sandbox.compiler_4zone.staging_registry import (
     _table_lookup_keys,
     build_staging_bkcc_registry,
     resolve_staging_bkcc_literal,
 )
+
+
+def _compute_ref_fk_hash(
+    t_hub: IRHub,
+    chosen_row: list[str],
+    ref_bkcc_lit: str | None,
+) -> str:
+    """Compute the Algorithm A.5 parent Hub HK matching Zone 1 `stg_<link>` views."""
+    t_has_bkcc_col = any(bool(bk.is_bkcc) for bk in t_hub.business_keys)
+    eff_bkcc_lit = ref_bkcc_lit or _effective_hub_bkcc_literal(t_hub)
+    if eff_bkcc_lit is not None or not t_has_bkcc_col:
+        non_bkcc_vals = [
+            v for bk, v in zip(t_hub.business_keys, chosen_row, strict=True) if not bk.is_bkcc
+        ] or chosen_row
+        return compute_dv2_length_prefixed_sha256(
+            non_bkcc_vals,
+            is_business_key=True,
+            bkcc_prefix=eff_bkcc_lit or GLOBAL_BKCC,
+        )
+    return compute_dv2_length_prefixed_sha256(chosen_row, is_business_key=True)
+
+
+def _format_aliased_payload_literal(
+    col: Any,
+    phys_name: str,
+    src_row: dict[str, Any] | None,
+    row_idx: int,
+) -> str:
+    if src_row is not None:
+        if phys_name in src_row and src_row[phys_name] is not None:
+            target = col if phys_name == col.name else col.model_copy(update={"name": phys_name})
+            return _format_bronze_payload_sql_literal(target, src_row, row_idx)
+        if col.name in src_row and src_row[col.name] is not None:
+            return _format_bronze_payload_sql_literal(col, src_row, row_idx)
+    return _format_bronze_payload_sql_literal(col, src_row, row_idx)
 
 
 def _make_table_and_insert(table_name: str, col_defs: list[str], insert_rows: list[str]) -> str:
@@ -184,106 +224,25 @@ def compile_generic_bronze_tables_sql(
     }
 
     # 2. Bronze source tables & seed rows for each Link
-    for link in ir_obj.links:
-        tbl = _validate_ident(link.name)
-        sm0_dict = link.source_mappings[0] if link.source_mappings else {}
-        rec_src = (
-            str(sm0_dict.get("rec_src_value", "SYSTEM_SEED"))
-            if isinstance(sm0_dict, dict)
-            else "SYSTEM_SEED"
+    parts.extend(
+        compile_bronze_link_tables_sql(
+            ir_obj,
+            hub_by_name=hub_by_name,
+            hub_bk_rows=hub_bk_rows,
+            loaded_bronze=loaded_bronze,
+            bkcc_registry=bkcc_registry,
+            unstructured_links_by_name=unstructured_links_by_name,
         )
-        link_stg_tbl = (
-            str(sm0_dict.get("staging_table", f"stg_{tbl}"))
-            if isinstance(sm0_dict, dict)
-            else f"stg_{tbl}"
-        )
-        fk_src_map = sm0_dict.get("fk_source_columns") or {} if isinstance(sm0_dict, dict) else {}
-        col_defs = []
-        row1_tokens: list[str] = []
-        row2_tokens: list[str] = []
-        row3_tokens: list[str] = []
-        row4_tokens: list[str] = []
-        target_counts: dict[str, int] = {}
-        for ref_idx, ref in enumerate(link.hub_references):
-            fk_col = _validate_ident(ref.fk_column_name)
-            t_hub = hub_by_name[ref.target_hub]
-            occ = target_counts.get(t_hub.name, 0)
-            target_counts[t_hub.name] = occ + 1
-            fk_src_col = str(fk_src_map.get(ref.fk_column_name, ref.fk_column_name))
-            ref_bkcc_lit = resolve_staging_bkcc_literal(
-                ir_obj,
-                link_stg_tbl,
-                fk_src_col,
-                ref.target_hub,
-                role_name=ref.role_name,
-                registry=bkcc_registry,
-            )
-            scoped_rows = _filter_hub_rows_for_bkcc(t_hub, hub_bk_rows[t_hub.name], ref_bkcc_lit)
-            h_r1 = scoped_rows[0]
-            h_r2 = scoped_rows[1] if len(scoped_rows) > 1 else scoped_rows[0]
-            r1_bks = h_r1 if (occ == 0 or scoped_rows != hub_bk_rows[t_hub.name]) else h_r2
-            r2_bks = h_r2
-            for bk, val1, val2 in zip(t_hub.business_keys, r1_bks, r2_bks, strict=True):
-                raw_col = _validate_ident(f"{fk_col}__{bk.name}")
-                col_defs.append(f"    {raw_col} VARCHAR,")
-                esc1 = ((ref_bkcc_lit or val1) if bk.is_bkcc else val1).replace("'", "''")
-                esc2 = ((ref_bkcc_lit or val2) if bk.is_bkcc else val2).replace("'", "''")
-                row1_tokens.append(f"'{esc1}'")
-                if ref_idx == 0:
-                    row2_tokens.append(f"'{esc2}'")
-                    row3_tokens.append(f"'{esc1}'")
-                    row4_tokens.append(f"'{esc2}'")
-                else:
-                    row2_tokens.append(f"'{esc2}'" if bk.is_bkcc else "NULL")
-                    row3_tokens.append(f"'{esc1}'" if bk.is_bkcc else "'-1'")
-                    row4_tokens.append(f"'{esc2}'" if bk.is_bkcc else "'-2'")
-            t_bkcc_col_expr = _effective_hub_bkcc_column_expr(t_hub)
-            if t_bkcc_col_expr and t_bkcc_col_expr not in {bk.name for bk in t_hub.business_keys}:
-                t_bkcc_idx = next(
-                    (idx for idx, bk in enumerate(t_hub.business_keys) if bk.is_bkcc), 0
-                )
-                extra_fk_bkcc_col = _validate_ident(f"{fk_col}__{t_bkcc_col_expr}")
-                col_defs.append(f"    {extra_fk_bkcc_col} VARCHAR,")
-                v1_bkcc = r1_bks[t_bkcc_idx].replace("'", "''")
-                v2_bkcc = r2_bks[t_bkcc_idx].replace("'", "''")
-                row1_tokens.append(f"'{v1_bkcc}'")
-                row2_tokens.append(f"'{v2_bkcc}'")
-                row3_tokens.append(f"'{v1_bkcc}'")
-                row4_tokens.append(f"'{v2_bkcc}'")
-
-        col_defs.append("    load_dts TIMESTAMP,")
-        if link.name in unstructured_links_by_name:
-            col_defs.append("    rec_src VARCHAR,")
-            col_defs.append("    steward_gate_status VARCHAR")
-            steward_r1 = ", 'APPROVED'"
-            steward_r2 = ", 'STEWARD_HOLD'"
-            steward_r3 = ", 'STEWARD_HOLD'"
-            steward_r4 = ", 'STEWARD_HOLD'"
-        else:
-            col_defs.append("    rec_src VARCHAR")
-            steward_r1 = steward_r2 = steward_r3 = steward_r4 = ""
-
-        l_ts = "TIMESTAMP '2026-10-01 06:00:00'"
-        esc_rec = _sql_lit(rec_src)
-        parts.append(
-            _make_table_and_insert(
-                f"src_{tbl}",
-                col_defs,
-                [
-                    f"    ({', '.join(row1_tokens)}, {l_ts}, '{esc_rec}'{steward_r1})",
-                    f"    ({', '.join(row2_tokens)}, {l_ts}, '{esc_rec}'{steward_r2})",
-                    f"    ({', '.join(row3_tokens)}, {l_ts}, '{esc_rec}'{steward_r3})",
-                    f"    ({', '.join(row4_tokens)}, {l_ts}, '{esc_rec}'{steward_r4})",
-                ],
-            )
-        )
+    )
 
     # 3. Bronze source tables & seed rows for each Satellite
     for sat in ir_obj.satellites:
         tbl = _validate_ident(sat.name)
         rec_src = sat.source_mapping.rec_src_value
         has_applied = sat.applied_dts_column is not None
-        data_cols = _satellite_all_data_columns(sat)
+        soft_deprecated = set(getattr(sat.source_mapping, "soft_deprecated_columns", None) or ())
+        aliases = dict(getattr(sat.source_mapping, "column_aliases", None) or {})
+        data_cols = [c for c in _satellite_all_data_columns(sat) if c.name not in soft_deprecated]
         col_defs = []
         parent_val_rows: list[list[str]] = []
 
@@ -328,6 +287,7 @@ def compile_generic_bronze_tables_sql(
                 c_ident = _validate_ident(f"parent_fk__{ref.fk_column_name}")
                 col_defs.append(f"    {c_ident} VARCHAR,")
             ref_hub_rows: list[list[list[str]]] = []
+            ref_bkcc_lits: list[str | None] = []
             for ref in p_lnk.hub_references:
                 t_hub = hub_by_name[ref.target_hub]
                 sm0_dict = p_lnk.source_mappings[0] if p_lnk.source_mappings else {}
@@ -352,20 +312,30 @@ def compile_generic_bronze_tables_sql(
                     t_hub, hub_bk_rows[t_hub.name], ref_bkcc_lit
                 )
                 ref_hub_rows.append(t_cand_rows)
+                ref_bkcc_lits.append(ref_bkcc_lit)
+            is_sal_link = (
+                p_lnk.name.startswith("sal_") or p_lnk.link_type == "SAME_AS"
+            ) and len(p_lnk.hub_references) == 2
             n_rows = len(sat_source_rows) if sat_source_rows else 2
             for row_idx in range(n_rows):
                 fk_vals: list[str] = []
+                target_counts: dict[str, int] = {}
                 for ref_idx, ref in enumerate(p_lnk.hub_references):
                     t_hub = hub_by_name[ref.target_hub]
+                    occ = target_counts.get(t_hub.name, 0)
+                    target_counts[t_hub.name] = occ + 1
                     c_rows = ref_hub_rows[ref_idx]
-                    chosen_row = (
-                        c_rows[row_idx % len(c_rows)] if c_rows else [f"FALLBACK-{row_idx}"]
-                    )
-                    fk_hash = compute_dv2_length_prefixed_sha256(
-                        chosen_row,
-                        is_business_key=True,
-                    )
+                    if is_sal_link and not sat_source_rows and row_idx == 1 and ref_idx > 0:
+                        # Match bronze_link_tables row 2 (h_r2, ZERO_KEY_UNKNOWN) so Zone 2 SAL
+                        # inverse-pair filtering keeps row 2 in esat_sal_*.
+                        fk_hash = ZERO_KEY_UNKNOWN
+                    else:
+                        pick_idx = (row_idx + occ) % len(c_rows) if c_rows else 0
+                        chosen_row = c_rows[pick_idx] if c_rows else [f"FALLBACK-{row_idx}"]
+                        fk_hash = _compute_ref_fk_hash(t_hub, chosen_row, ref_bkcc_lits[ref_idx])
                     fk_vals.append(f"'{fk_hash}'")
+                if is_sal_link and len(fk_vals) == 2 and fk_vals[0] == fk_vals[1]:
+                    fk_vals[1] = f"'{ZERO_KEY_UNKNOWN}'"
                 parent_val_rows.append(fk_vals)
 
         col_defs.append("    load_dts TIMESTAMP,")
@@ -387,18 +357,17 @@ def compile_generic_bronze_tables_sql(
                 seen_sat_col_names.add(col_part)
                 clean_col_defs.append(def_line)
 
-        deduped_data_cols: list[Any] = []
+        deduped_data_cols: list[tuple[Any, str]] = []
         for col in data_cols:
-            c_name = _validate_ident(col.name)
-            if c_name not in seen_sat_col_names:
-                seen_sat_col_names.add(c_name)
-                deduped_data_cols.append(col)
+            phys_name = _validate_ident(aliases.get(col.name, col.name))
+            if phys_name not in seen_sat_col_names:
+                seen_sat_col_names.add(phys_name)
+                deduped_data_cols.append((col, phys_name))
 
-        for idx_c, col in enumerate(deduped_data_cols):
-            c_name = _validate_ident(col.name)
+        for idx_c, (col, phys_name) in enumerate(deduped_data_cols):
             c_type = _normalize_duckdb_type(col.data_type)
             comma = "," if (idx_c < len(deduped_data_cols) - 1 or add_steward_col) else ""
-            clean_col_defs.append(f"    {c_name} {c_type}{comma}")
+            clean_col_defs.append(f"    {phys_name} {c_type}{comma}")
 
         if add_steward_col and "steward_gate_status" not in seen_sat_col_names:
             seen_sat_col_names.add("steward_gate_status")
@@ -420,7 +389,8 @@ def compile_generic_bronze_tables_sql(
             )
             row_app_lit = f"TIMESTAMP '{row_app_dts}', " if has_applied else ""
             r_payload = [
-                _format_bronze_payload_sql_literal(c, src_row, idx_r + 1) for c in deduped_data_cols
+                _format_aliased_payload_literal(c, phys_name, src_row, idx_r + 1)
+                for c, phys_name in deduped_data_cols
             ]
             r_pay_sql = f", {', '.join(r_payload)}" if r_payload else ""
             steward_lit = ""
@@ -434,7 +404,8 @@ def compile_generic_bronze_tables_sql(
 
         if include_batch4_restatement_in_seed and sat.name == bitemp_sat_name and parent_val_rows:
             r3_payload = [
-                _satellite_seed_sql_literal(c, len(parent_val_rows) + 1) for c in deduped_data_cols
+                _bitemporal_restatement_sql_literal(sat, c, len(parent_val_rows) + 1)
+                for c, _phys in deduped_data_cols
             ]
             r3_pay_sql = f", {', '.join(r3_payload)}" if r3_payload else ""
             steward_lit_r3 = ", 'APPROVED'" if add_steward_col else ""

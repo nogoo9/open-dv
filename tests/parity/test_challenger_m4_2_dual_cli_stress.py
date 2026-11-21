@@ -329,16 +329,17 @@ class TestDualCliRbacEscalationAndGovernance:
         client_cli_transport: ClientCliTransport,
         tmp_path: Path,
     ) -> None:
-        """Verify that invoking remote commands with a tampered token fails with exit 7."""
-        # Directly invoke bun client with a tampered token env without poisoning test process
-        env = {
+        """Verify legacy OPENDV_TOKEN is tolerated on loopback while OPENDV_ROLE=PUBLIC fails with exit 7."""
+        import shutil
+
+        sid_noop = f"tampered_sess_noop_{uuid.uuid4().hex[:8]}"
+        env_noop = {
             **os.environ,
             "OPENDV_STUDIO_TOKEN": "bogus_tampered_token_xyz_999",
             "OPENDV_TOKEN": "bogus_tampered_token_xyz_999",
             "OPENDV_API_URL": client_cli_transport.server_url,
-            "OPENDV_ROLE": "INTERNAL_MODELER",
         }
-        cmd = [
+        cmd_noop = [
             "bun",
             "run",
             str(OPENDVCTL_TS),
@@ -346,18 +347,48 @@ class TestDualCliRbacEscalationAndGovernance:
             "studio",
             "create",
             "-s",
-            "tampered_sess",
+            sid_noop,
             "--json",
         ]
-        proc = subprocess.run(
-            cmd,
+        try:
+            proc_noop = subprocess.run(
+                cmd_noop,
+                capture_output=True,
+                text=True,
+                cwd=str(tmp_path),
+                env=env_noop,
+            )
+            assert proc_noop.returncode == 0, (
+                f"Expected loopback OPENDV_TOKEN no-op exit 0, got {proc_noop.returncode}: {proc_noop.stderr}"
+            )
+        finally:
+            shutil.rmtree(REPO_ROOT / ".opendv" / "ontology_studio" / sid_noop, ignore_errors=True)
+            (REPO_ROOT / ".opendv" / "ontology_studio" / f".lifecycle_{sid_noop}.lock").unlink(
+                missing_ok=True
+            )
+
+        # Explicit PUBLIC role still denied mutation (exit 7)
+        env_pub = {**env_noop, "OPENDV_ROLE": "PUBLIC"}
+        cmd_pub = [
+            "bun",
+            "run",
+            str(OPENDVCTL_TS),
+            "ontology",
+            "studio",
+            "create",
+            "-s",
+            "tampered_sess_pub",
+            "--json",
+        ]
+        proc_pub = subprocess.run(
+            cmd_pub,
             capture_output=True,
             text=True,
             cwd=str(tmp_path),
-            env=env,
+            env=env_pub,
         )
-        assert proc.returncode == 7, (
-            f"Expected exit 7 on tampered token, got {proc.returncode}: {proc.stderr}"
+        assert proc_pub.returncode == 7, (
+            f"Expected exit 7 for PUBLIC role mutation, got {proc_pub.returncode}: {proc_pub.stderr}"
         )
 
 

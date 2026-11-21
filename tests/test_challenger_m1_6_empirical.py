@@ -658,7 +658,7 @@ class TestStudioAgentRunnerEmpirical:
         assert proposal is not None
         assert proposal.delta.base_version == "0.0.0"
         assert len(proposal.delta.operations) > 0
-        assert any("engine_mode:deterministic_fallback" in d for d in proposal.diagnostics)
+        assert any("engine_mode:deterministic" in d for d in proposal.diagnostics)
 
     def test_agent_runner_deterministic_fallback_sla(self) -> None:
         """Verify deterministic fallback latency is strictly below 2.5s SLA threshold."""
@@ -695,20 +695,47 @@ class TestStudioAgentRunnerEmpirical:
         assert avg_dt < 0.500, f"Average fallback latency {avg_dt:.4f}s was too slow"
         assert max_dt < DETERMINISTIC_FALLBACK_SLA_SECONDS
 
-    def test_agent_runner_graceful_recovery_on_harness_crash(self) -> None:
-        """Verify StudioAgentRunner catches agent harness exceptions and seamlessly falls back."""
+    def test_agent_runner_graceful_recovery_on_harness_crash(self, tmp_path: Path) -> None:
+        """D28: Verify StudioAgentRunner fails closed with AGENT_UNAVAILABLE on agent harness error."""
+        from opendv_agent_harness.models import (
+            AgentTaskSpec,
+            HarnessConfig,
+            HarnessRunResult,
+            HarnessStopReason,
+            HarnessUsageMetrics,
+        )
+        from opendv_contracts.errors import ErrorCode, OpenDVError
 
         class MockFailingHarness:
-            provider_name = "mock_failing_agy"
+            provider_name = "claude-cli"
 
             def __init__(self) -> None:
-                pass
+                self.config = HarnessConfig(
+                    provider="claude-cli",
+                    workspace_dir=tmp_path,
+                    state_dir=tmp_path / "s",
+                    app_data_dir=tmp_path / "a",
+                    save_dir=tmp_path / "sv",
+                )
 
-        runner = StudioAgentRunner(harness=MockFailingHarness())
-        runner._is_harness_executable_available = MagicMock(return_value=True)
-        runner._run_persona_orchestration_sync = MagicMock(
-            side_effect=RuntimeError("Simulated LLM API 500 internal server error")
-        )
+            async def run_task(
+                self, spec: AgentTaskSpec[Any], *, on_event: Any = None
+            ) -> HarnessRunResult[Any]:
+                _ = on_event
+                return HarnessRunResult(
+                    task_id=spec.task_id,
+                    run_id=spec.run_id,
+                    session_id="mock-fail-session",
+                    trace_id=spec.trace_id,
+                    span_id=uuid.uuid4().hex[:16],
+                    provider="claude-cli",
+                    model_used="claude-sonnet-4-5",
+                    stop_reason=HarnessStopReason.PROVIDER_ERROR,
+                    text_output="Simulated LLM API 500 internal server error",
+                    usage=HarnessUsageMetrics(),
+                )
+
+        runner = StudioAgentRunner(harness=MockFailingHarness())  # type: ignore[arg-type]
 
         tbl = TableStructure(
             table_id="tbl_trades",
@@ -716,14 +743,13 @@ class TestStudioAgentRunnerEmpirical:
             rows=[["TR-01", "SEC-US-01", "100", "150.25"]],
         )
 
-        proposal = runner(
-            base_ontology=None,
-            tables=[tbl],
-            mode="agent",
-        )
-        assert proposal is not None
-        assert any("engine_mode:deterministic_fallback" in d for d in proposal.diagnostics)
-        assert proposal.recommender_id.startswith("deterministic:")
+        with pytest.raises(OpenDVError) as exc_info:
+            runner(
+                base_ontology=None,
+                tables=[tbl],
+                mode="agent",
+            )
+        assert exc_info.value.error_code == ErrorCode.AGENT_UNAVAILABLE
 
 
 # ==============================================================================

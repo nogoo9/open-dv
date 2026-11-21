@@ -16,18 +16,34 @@ import type {
 	PlatformConfigValidationResponse,
 } from "@opendv/protocol-ts";
 import type { CSSProperties, FormEvent } from "react";
-import { EXPLORER_COLORS, EXPLORER_FONTS } from "../design-tokens";
-import { safeUseEffect, safeUseState } from "../modals/safeHooks";
+import {
+	CLAUDE_TOKENS,
+	EXPLORER_COLORS,
+	EXPLORER_FONTS,
+} from "../design-tokens";
+import { safeUseEffect, safeUseRef, safeUseState } from "../modals/safeHooks";
+import { AgentHarnessConfigCard } from "./AgentHarnessConfigCard";
 import { AuthBudgetPolicySection } from "./AuthBudgetPolicySection";
-import { HarnessModelSettingsSection } from "./HarnessModelSettingsSection";
 import {
 	type CanonicalPersonaId,
+	applyPersonaModelChange,
+	applyProviderSwitch,
+	applyTierModelChange,
 	createDefaultPlatformConfig,
 	fetchPlatformConfig,
-	resolvePersonaModels,
 	savePlatformConfig,
 	validatePlatformConfig,
 } from "./usePlatformConfigActions";
+
+export { applyPersonaModelChange, applyProviderSwitch, applyTierModelChange };
+
+export function applyHydratedPlatformConfig(
+	current: PlatformConfigResponse,
+	loaded: PlatformConfigResponse,
+	hasUserEdited: boolean,
+): PlatformConfigResponse {
+	return hasUserEdited ? current : loaded;
+}
 
 export interface PlatformSettingsViewProps {
 	initialConfig?: PlatformConfigResponse | null | undefined;
@@ -42,6 +58,8 @@ export interface PlatformSettingsViewProps {
 
 const SECTION_STYLE: CSSProperties = {
 	maxWidth: "1120px",
+	width: "100%",
+	boxSizing: "border-box",
 	margin: "0 auto",
 	padding: "24px 20px 48px",
 	fontFamily: EXPLORER_FONTS.sans,
@@ -66,10 +84,10 @@ const SECONDARY_BTN_STYLE: CSSProperties = {
 	padding: "8px 14px",
 	fontSize: "12.5px",
 	fontWeight: 500,
-	border: `1px solid ${EXPLORER_COLORS.borderLine}`,
-	borderRadius: "6px",
-	backgroundColor: EXPLORER_COLORS.bgSubtle,
-	color: EXPLORER_COLORS.inkPrimary,
+	border: `1px solid ${CLAUDE_TOKENS.colors.hairlineStrong}`,
+	borderRadius: "8px",
+	backgroundColor: CLAUDE_TOKENS.colors.canvas,
+	color: CLAUDE_TOKENS.colors.ink,
 	cursor: "pointer",
 };
 
@@ -78,69 +96,11 @@ const PRIMARY_BTN_STYLE: CSSProperties = {
 	fontSize: "12.5px",
 	fontWeight: 600,
 	border: "none",
-	borderRadius: "6px",
-	backgroundColor: EXPLORER_COLORS.inkPrimary,
-	color: "#FFFFFF",
+	borderRadius: "8px",
+	backgroundColor: CLAUDE_TOKENS.colors.primary,
+	color: CLAUDE_TOKENS.colors.onPrimary,
 	cursor: "pointer",
 };
-
-export function applyProviderSwitch(
-	prev: PlatformConfigResponse,
-	nextProvider: HarnessProviderId,
-): PlatformConfigResponse {
-	const oldEntry = prev.providers.find(
-		(p) => p.provider === prev.harness.provider,
-	);
-	const nextEntry = prev.providers.find((p) => p.provider === nextProvider);
-	const isClaude = nextProvider.startsWith("claude");
-
-	const defaultReasoning =
-		nextEntry?.default_reasoning_model ??
-		(isClaude ? "claude-opus-4-6" : "gemini-4-argon-high");
-	const defaultFast =
-		nextEntry?.default_fast_model ??
-		(isClaude ? "claude-haiku-4-5" : "gemini-3.8-flash-high");
-	const defaultEnvVar =
-		nextEntry?.api_key_env_var ??
-		(isClaude ? "ANTHROPIC_API_KEY" : "GEMINI_API_KEY");
-
-	const prevReasoning = prev.harness.model_overrides?.reasoning ?? "";
-	const prevFast = prev.harness.model_overrides?.fast ?? "";
-	const nextReasoning =
-		!prevReasoning || prevReasoning === oldEntry?.default_reasoning_model
-			? defaultReasoning
-			: prevReasoning;
-	const nextFast =
-		!prevFast || prevFast === oldEntry?.default_fast_model
-			? defaultFast
-			: prevFast;
-
-	const prevEnvVar = prev.harness.auth?.api_key_env_var ?? "";
-	const nextEnvVar =
-		!prevEnvVar || prevEnvVar === oldEntry?.api_key_env_var
-			? defaultEnvVar
-			: prevEnvVar;
-
-	const nextHarness: HarnessConfigDTO = {
-		...prev.harness,
-		provider: nextProvider,
-		model_overrides: {
-			...prev.harness.model_overrides,
-			reasoning: nextReasoning,
-			fast: nextFast,
-		},
-		auth: {
-			...prev.harness.auth,
-			api_key_env_var: nextEnvVar,
-		},
-	};
-
-	return {
-		...prev,
-		harness: nextHarness,
-		resolved_persona_models: resolvePersonaModels(nextHarness, prev.providers),
-	};
-}
 
 export function PlatformSettingsView({
 	initialConfig,
@@ -169,6 +129,7 @@ export function PlatformSettingsView({
 	const [errorMessage, setErrorMessage] = safeUseState<string | null>(
 		initialErrorMessage,
 	);
+	const hasUserEditedRef = safeUseRef<boolean>(false);
 
 	// Load configuration on mount when initialConfig is not supplied
 	safeUseEffect(() => {
@@ -180,8 +141,10 @@ export function PlatformSettingsView({
 		setIsLoading(true);
 		void fetchPlatformConfig({ apiUrl, fetchImpl })
 			.then((loaded) => {
-				if (cancelled) return;
-				setConfig(loaded);
+				if (cancelled || hasUserEditedRef.current) return;
+				setConfig((prev) =>
+					applyHydratedPlatformConfig(prev, loaded, hasUserEditedRef.current),
+				);
 				setErrorMessage(null);
 			})
 			.catch((err) => {
@@ -198,13 +161,14 @@ export function PlatformSettingsView({
 		};
 	}, [initialConfig, apiUrl]);
 
-	const clearTransientBanners = () => {
+	const markUserEditedAndClearBanners = () => {
+		hasUserEditedRef.current = true;
 		setSaveSuccess(false);
 		setErrorMessage(null);
 	};
 
 	const handleProviderChange = (nextProvider: HarnessProviderId) => {
-		clearTransientBanners();
+		markUserEditedAndClearBanners();
 		setConfig((prev) => applyProviderSwitch(prev, nextProvider));
 	};
 
@@ -212,54 +176,20 @@ export function PlatformSettingsView({
 		tier: "reasoning" | "fast",
 		modelId: string,
 	) => {
-		clearTransientBanners();
-		setConfig((prev) => {
-			const nextHarness: HarnessConfigDTO = {
-				...prev.harness,
-				model_overrides: { ...prev.harness.model_overrides, [tier]: modelId },
-			};
-			return {
-				...prev,
-				harness: nextHarness,
-				resolved_persona_models: resolvePersonaModels(
-					nextHarness,
-					prev.providers,
-				),
-			};
-		});
+		markUserEditedAndClearBanners();
+		setConfig((prev) => applyTierModelChange(prev, tier, modelId));
 	};
 
 	const handlePersonaModelChange = (
 		persona: CanonicalPersonaId,
 		modelId: string,
 	) => {
-		clearTransientBanners();
-		setConfig((prev) => {
-			const nextAgentModels: Record<string, string> = {
-				...prev.harness.agent_models,
-			};
-			if (modelId.trim()) {
-				nextAgentModels[persona] = modelId;
-			} else {
-				delete nextAgentModels[persona];
-			}
-			const nextHarness: HarnessConfigDTO = {
-				...prev.harness,
-				agent_models: nextAgentModels,
-			};
-			return {
-				...prev,
-				harness: nextHarness,
-				resolved_persona_models: resolvePersonaModels(
-					nextHarness,
-					prev.providers,
-				),
-			};
-		});
+		markUserEditedAndClearBanners();
+		setConfig((prev) => applyPersonaModelChange(prev, persona, modelId));
 	};
 
 	const handleAuthChange = (patch: Partial<HarnessAuthConfigDTO>) => {
-		clearTransientBanners();
+		markUserEditedAndClearBanners();
 		setConfig((prev) => ({
 			...prev,
 			harness: { ...prev.harness, auth: { ...prev.harness.auth, ...patch } },
@@ -267,7 +197,7 @@ export function PlatformSettingsView({
 	};
 
 	const handleBudgetChange = (patch: Partial<HarnessBudgetConfigDTO>) => {
-		clearTransientBanners();
+		markUserEditedAndClearBanners();
 		setConfig((prev) => ({
 			...prev,
 			harness: {
@@ -278,7 +208,7 @@ export function PlatformSettingsView({
 	};
 
 	const handleSandboxChange = (patch: Partial<HarnessSandboxPolicyDTO>) => {
-		clearTransientBanners();
+		markUserEditedAndClearBanners();
 		setConfig((prev) => ({
 			...prev,
 			harness: {
@@ -299,7 +229,7 @@ export function PlatformSettingsView({
 			>
 		>,
 	) => {
-		clearTransientBanners();
+		markUserEditedAndClearBanners();
 		setConfig((prev) => ({
 			...prev,
 			harness: { ...prev.harness, ...patch },
@@ -307,7 +237,7 @@ export function PlatformSettingsView({
 	};
 
 	const handleMaxInlineBytesChange = (bytes: number) => {
-		clearTransientBanners();
+		markUserEditedAndClearBanners();
 		setConfig((prev) => ({ ...prev, max_inline_bytes: bytes }));
 	};
 
@@ -387,7 +317,16 @@ export function PlatformSettingsView({
 		>
 			<header style={HEADER_STYLE}>
 				<div>
-					<h1 style={{ margin: 0, fontSize: "18px", fontWeight: 600 }}>
+					<h1
+						style={{
+							margin: 0,
+							fontFamily: EXPLORER_FONTS.serif,
+							fontSize: "26px",
+							fontWeight: 400,
+							letterSpacing: "-0.45px",
+							lineHeight: 1.08,
+						}}
+					>
 						Platform &amp; Agent Harness Settings
 					</h1>
 					<p
@@ -491,10 +430,11 @@ export function PlatformSettingsView({
 				}}
 				style={{ display: "flex", flexDirection: "column", gap: "18px" }}
 			>
-				<HarnessModelSettingsSection
-					harness={config.harness}
-					providers={config.providers}
-					resolvedPersonaModels={config.resolved_persona_models}
+				<AgentHarnessConfigCard
+					variant="settings"
+					config={config}
+					showActionBar={false}
+					showPersonaRouting={true}
 					onProviderChange={handleProviderChange}
 					onTierModelChange={handleTierModelChange}
 					onPersonaModelChange={handlePersonaModelChange}
@@ -512,6 +452,7 @@ export function PlatformSettingsView({
 				<footer
 					style={{
 						display: "flex",
+						flexWrap: "wrap",
 						alignItems: "center",
 						justifyContent: "space-between",
 						gap: "12px",
@@ -519,13 +460,27 @@ export function PlatformSettingsView({
 						borderTop: `1px solid ${EXPLORER_COLORS.borderLine}`,
 					}}
 				>
-					<span style={{ fontSize: "12px", color: EXPLORER_COLORS.inkMuted }}>
+					<span
+						style={{
+							fontSize: "12px",
+							color: EXPLORER_COLORS.inkMuted,
+							wordBreak: "break-word",
+							minWidth: 0,
+						}}
+					>
 						{isLoading
 							? "Loading active platform configuration..."
 							: `Persisted target: ${config.persisted_config_path}`}
 					</span>
 
-					<div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+					<div
+						style={{
+							display: "flex",
+							flexWrap: "wrap",
+							alignItems: "center",
+							gap: "10px",
+						}}
+					>
 						<button
 							type="button"
 							data-testid="btn-validate-settings"

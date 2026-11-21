@@ -40,6 +40,7 @@ export function OverviewStagesTrack({
 }: OverviewStagesTrackProps) {
 	return (
 		<section
+			className="claude-explorer-col-full claude-overview-stages-track"
 			aria-label="8-Stage Pipeline"
 			onClick={(ev) => ev.stopPropagation()}
 			style={{
@@ -53,8 +54,10 @@ export function OverviewStagesTrack({
 			<div
 				style={{
 					display: "flex",
+					flexWrap: "wrap",
 					alignItems: "center",
 					justifyContent: "space-between",
+					gap: "8px",
 					marginBottom: "4px",
 				}}
 			>
@@ -298,6 +301,7 @@ export function OverviewStagesTrack({
 										<div
 											style={{
 												flex: 1,
+												minWidth: 0,
 												background: "#FFFFFF",
 												border: isStageRunning
 													? "2px solid #1D4ED8"
@@ -338,6 +342,7 @@ export function OverviewStagesTrack({
 											<div
 												style={{
 													display: "flex",
+													flexWrap: "wrap",
 													alignItems: "center",
 													justifyContent: "space-between",
 													gap: "10px",
@@ -424,6 +429,7 @@ export function OverviewStagesTrack({
 											<div
 												style={{
 													display: "flex",
+													flexWrap: "wrap",
 													alignItems: "center",
 													justifyContent: "space-between",
 													gap: "8px",

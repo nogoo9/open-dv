@@ -334,6 +334,7 @@ class SessionMetadata(BaseModel):
     promoted_versions: list[str] = Field(default_factory=list)
     last_promoted_sha256: str | None = None
     imported_audit_anchor_sha256: str | None = None
+    wizard_schema_version: int | None = None
 
     @property
     def active_version(self) -> str:
@@ -1046,6 +1047,7 @@ class StudioSessionManager:
             domain_namespace=effective_ns,
             enterprise_owner=enterprise_owner,
             committed_versions=committed_versions,
+            wizard_schema_version=2,
         )
         _atomic_write_session_json(session_dir, metadata)
         return metadata
@@ -1097,19 +1099,19 @@ class StudioSessionManager:
     def delete_session(self, session_id: str, force: bool = False) -> None:
         """Delete an existing studio session directory under L5 lifecycle + session locks."""
         session_dir = self.get_session_dir(session_id)
-        lifecycle_lock_path = session_dir.parent / f".lifecycle_{session_id}.lock"
+        lifecycle_lock_path = session_dir.parent / f".lifecycle_{session_dir.name}.lock"
 
         with studio_lock(
             lifecycle_lock_path,
             level=L5_SESSION,
-            session_id=session_id,
+            session_id=session_dir.name,
             remove_on_release=False,
         ):
             if not session_dir.exists() or session_dir.is_symlink():
                 raise SessionNotFoundError(f"Session '{session_id}' not found")
 
             lock_path = session_dir / ".session.lock"
-            with reentrant_session_lock(lock_path, session_id=session_id):
+            with reentrant_session_lock(lock_path, session_id=session_dir.name):
                 session_json = session_dir / "session.json"
                 if session_json.is_file():
                     try:
@@ -1133,7 +1135,7 @@ class StudioSessionManager:
                 with contextlib.suppress(OSError):
                     write_session_fence_marker(session_dir)
 
-            tombstone = self.studio_root / f".trash-{session_id}-{uuid.uuid4().hex[:8]}"
+            tombstone = self.studio_root / f".trash-{session_dir.name}-{uuid.uuid4().hex[:8]}"
             try:
                 replace_with_retry(session_dir, tombstone)
                 shutil.rmtree(tombstone)
@@ -1187,11 +1189,20 @@ class StudioSessionManager:
         scratch_dir = self.studio_root / ".scratch"
         scratch_dir.mkdir(parents=True, exist_ok=True)
         set_owner_only_permissions(scratch_dir)
-        staging_dir = scratch_dir / f".staging_clone_{new_sid}_{secrets.token_hex(6)}"
+        scratch_real = os.path.realpath(scratch_dir)
+        scratch_pfx = scratch_real if scratch_real.endswith(os.sep) else scratch_real + os.sep
+        staging_real = os.path.realpath(
+            os.path.join(scratch_real, f".staging_clone_{new_dir.name}_{secrets.token_hex(6)}")
+        )
+        if not staging_real.startswith(scratch_pfx):
+            raise InvalidSessionIdentifierError(
+                f"Clone staging path for '{new_dir.name}' escapes studio scratch root"
+            )
+        staging_dir = Path(staging_real)
 
         try:
             try:
-                with reentrant_session_lock(sdir / ".session.lock", session_id=source_session_id):
+                with reentrant_session_lock(sdir / ".session.lock", session_id=sdir.name):
                     if not (sdir / "session.json").is_file():
                         raise SessionNotFoundError(f"Session '{source_session_id}' not found")
 
@@ -1354,9 +1365,9 @@ class StudioSessionManager:
             set_owner_only_permissions(staging_dir)
 
             with studio_lock(
-                new_dir.parent / f".lifecycle_{new_sid}.lock",
+                new_dir.parent / f".lifecycle_{new_dir.name}.lock",
                 level=L5_SESSION,
-                session_id=new_sid,
+                session_id=new_dir.name,
                 remove_on_release=False,
             ):
                 if new_dir.exists():
@@ -1449,7 +1460,7 @@ class StudioSessionManager:
         if not session_dir.exists():
             raise SessionNotFoundError(f"Session '{session_id}' not found")
 
-        raw_bytes = text.encode("utf-8")
+        raw_bytes = text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
         size_bytes = len(raw_bytes)
         if size_bytes == 0:
             raise OpenDVError(
@@ -1457,8 +1468,7 @@ class StudioSessionManager:
                 error_code=ErrorCode.CORRUPT_SOURCE_BLOB,
             )
 
-        cas = self.get_cas(session_id)
-        source_sha256 = cas.put(raw_bytes)
+        source_sha256 = hashlib.sha256(raw_bytes).hexdigest().lower()
         source_id = f"src-{source_sha256[:16]}"
 
         clean_fmt = format.strip().lower()
@@ -1479,7 +1489,13 @@ class StudioSessionManager:
             filename = f"note_{source_sha256[:8]}.{ext}"
 
         lock_path = session_dir / ".session.lock"
-        with reentrant_session_lock(lock_path, session_id=session_id):
+        with reentrant_session_lock(lock_path, session_id=session_dir.name):
+            session_meta = self.get_session(session_id)
+            reconcile_or_verify_audit_ledger(
+                session_dir, session_meta, self.security_manager, mutate=True
+            )
+            cas = self.get_cas(session_id)
+            cas.put(raw_bytes)
             mfile = session_dir / "inputs" / "manifest.json"
             mfile.parent.mkdir(parents=True, exist_ok=True)
             mdata: dict[str, Any] = {"files": []}
@@ -1526,33 +1542,10 @@ class StudioSessionManager:
 
             if effective_do_not_send:
                 taint_idx_path = session_dir / "taint_index.json"
-                taint_data: dict[str, Any] = {"is_tainted": True, "tainted_sources": []}
-                if taint_idx_path.is_file():
-                    with contextlib.suppress(OSError, json.JSONDecodeError):
-                        loaded_t = json.loads(taint_idx_path.read_text(encoding="utf-8"))
-                        if isinstance(loaded_t, dict):
-                            taint_data = loaded_t
-                            taint_data["is_tainted"] = True
-                tainted_list = list(taint_data.get("tainted_sources") or [])
-                if not any(
-                    isinstance(item, dict) and item.get("source_id") == source_id
-                    for item in tainted_list
-                ):
-                    tainted_list.append(
-                        {
-                            "source_id": source_id,
-                            "sha256": source_sha256,
-                            "filename": filename,
-                            "marked_at": datetime.now(UTC).isoformat(),
-                        }
-                    )
-                taint_data["tainted_sources"] = tainted_list
-                tmp_taint = session_dir / f".taint_index.{uuid.uuid4().hex[:8]}.tmp"
-                tmp_taint.write_text(json.dumps(taint_data, indent=2), encoding="utf-8")
-                replace_with_retry(tmp_taint, taint_idx_path)
-                set_owner_only_permissions(taint_idx_path)
+                record_tainted_source_index(
+                    session_dir, taint_idx_path, source_id, source_sha256, filename
+                )
 
-                session_meta = self.get_session(session_id)
                 if session_meta.taint_classification != "TAINTED":
                     updated_meta = session_meta.model_copy(
                         update={
@@ -1590,3 +1583,37 @@ class StudioSessionManager:
             "provenance": "cas:text",
             "created_at": datetime.now(UTC).isoformat(),
         }
+
+
+def record_tainted_source_index(
+    session_dir: Path,
+    taint_idx_path: Path,
+    source_id: str,
+    source_sha256: str,
+    filename: str,
+) -> None:
+    """Atomically add a tainted source record to `taint_index.json`."""
+    taint_data: dict[str, Any] = {"is_tainted": True, "tainted_sources": []}
+    if taint_idx_path.is_file():
+        with contextlib.suppress(OSError, json.JSONDecodeError):
+            loaded_t = json.loads(taint_idx_path.read_text(encoding="utf-8"))
+            if isinstance(loaded_t, dict):
+                taint_data = loaded_t
+                taint_data["is_tainted"] = True
+    tainted_list = list(taint_data.get("tainted_sources") or [])
+    if not any(
+        isinstance(item, dict) and item.get("source_id") == source_id for item in tainted_list
+    ):
+        tainted_list.append(
+            {
+                "source_id": source_id,
+                "sha256": source_sha256,
+                "filename": filename,
+                "marked_at": datetime.now(UTC).isoformat(),
+            }
+        )
+    taint_data["tainted_sources"] = tainted_list
+    tmp_taint = session_dir / f".taint_index.{uuid.uuid4().hex[:8]}.tmp"
+    tmp_taint.write_text(json.dumps(taint_data, indent=2), encoding="utf-8")
+    replace_with_retry(tmp_taint, taint_idx_path)
+    set_owner_only_permissions(taint_idx_path)

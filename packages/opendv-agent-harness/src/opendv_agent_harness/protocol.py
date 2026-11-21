@@ -221,10 +221,34 @@ class BaseVaultAgentHarness(abc.ABC):
                                 tool_calls=tool_call_count,
                                 cost_usd=float(u.get("cost_usd", 0.0)),
                             )
+                            budget = self._config.budget
+                            if (
+                                (
+                                    budget.max_input_tokens is not None
+                                    and usage.input_tokens > budget.max_input_tokens
+                                )
+                                or (
+                                    budget.max_output_tokens is not None
+                                    and usage.output_tokens > budget.max_output_tokens
+                                )
+                                or (
+                                    budget.max_total_tokens is not None
+                                    and usage.total_tokens > budget.max_total_tokens
+                                )
+                            ):
+                                stop_reason = HarnessStopReason.TOKEN_BUDGET_EXCEEDED
+                            elif (
+                                budget.max_cost_usd is not None
+                                and usage.cost_usd > budget.max_cost_usd
+                            ):
+                                stop_reason = HarnessStopReason.COST_BUDGET_EXCEEDED
         except ToolCallBudgetExceededError:
             stop_reason = HarnessStopReason.MAX_TOOL_CALLS_EXCEEDED
             await self.cancel_active_turn(spec.task_id)
         except asyncio.CancelledError:
+            task = asyncio.current_task()
+            if task is not None and task.cancelling() > 0:
+                raise
             stop_reason = HarnessStopReason.CANCELLED
         except TimeoutError:
             stop_reason = HarnessStopReason.MAX_TURNS_EXCEEDED

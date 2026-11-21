@@ -39,9 +39,6 @@ export const MIN_RATIONALE_LENGTH = 10;
 /** Canonical 64-hex-zero SHA-256 baseline representing a greenfield workspace promotion. */
 export const GREENFIELD_ZERO_HASH_SHA256 = "0".repeat(64);
 
-/** Relative filesystem location where `opendv serve` persists the local studio token. */
-export const LOCAL_TOKEN_PATH_HINT = ".opendv/ontology_studio/.local_token";
-
 /** Number of hex characters rendered when displaying shortened SHA-256 digests. */
 export const SHA256_SHORT_DISPLAY_CHARS = 16;
 

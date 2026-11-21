@@ -1716,3 +1716,122 @@ def test_r3_validate_ontology_delta_ignores_staged_candidates_provisional_uris()
     res_bad = validate_ontology_delta(base, delta_leaked)
     assert res_bad.valid is False
     assert any("ONT-EVO-002" in v for v in res_bad.violations)
+
+
+def test_ont_evo_002_fibo_grounded_empirical_fallback_and_fail_closed() -> None:
+    """B1/B2: FIBO_GROUNDED with failing Path A passes iff empirical evidence_refs exist."""
+    from opendv_contracts.dtos.ontology import EvidenceRef
+    from opendv_service.ontology.validator_models import is_path_b_empirically_grounded
+    from opendv_service.studio.atomic_commit_grounding import (
+        verify_ont_evo_002_post_state_grounding,
+    )
+
+    base = make_sample_ontology()
+    low_verifier = StubGroundingVerifier(default_score=0.42)
+    gov = GovernanceValidator(grounding_verifier=low_verifier)
+
+    delta_pass = OntologyDelta(
+        delta_id="d-fibo-emp-pass",
+        domain_namespace="finance",
+        base_ontology_version="1.0.0",
+        operations=[
+            AddConceptOp(
+                op_id="op-emp-col",
+                concept_uri="urn:ontology:entity:collateral_lot",
+                concept_name="Collateral Lot",
+                grounding_origin="FIBO_GROUNDED",
+                external_mappings=[
+                    ExternalMapping(
+                        scheme="fibo",
+                        target_uri="https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/Collateral",
+                        predicate="skos:broadMatch",
+                        confidence=0.42,
+                    )
+                ],
+                evidence_refs=[
+                    EvidenceRef(
+                        evidence_type="column_profile",
+                        bronze_table="collateral_lots",
+                        column_name="lot_id",
+                    )
+                ],
+            ),
+            AddConceptOp(
+                op_id="op-emp-doc",
+                concept_uri="urn:ontology:entity:margin_haircut_rule",
+                concept_name="Margin Haircut Rule",
+                grounding_origin="FIBO_GROUNDED",
+                external_mappings=[
+                    ExternalMapping(
+                        scheme="fibo",
+                        target_uri="https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/Collateral",
+                        predicate="skos:exactMatch",
+                        confidence=0.42,
+                    )
+                ],
+                evidence_refs=[
+                    EvidenceRef(
+                        evidence_type="document_span",
+                        chunk_id="chk-haircut-1",
+                        doc_sha256="b" * 64,
+                        char_start=0,
+                    )
+                ],
+            ),
+        ],
+    )
+    target_pass = apply(base, delta_pass)
+    target_map = {c.concept_uri: c for c in target_pass.canonical_business_concepts}
+    assert is_path_b_empirically_grounded(
+        "urn:ontology:entity:collateral_lot",
+        target_map["urn:ontology:entity:collateral_lot"],
+        delta_pass,
+    )
+    assert is_path_b_empirically_grounded(
+        "urn:ontology:entity:margin_haircut_rule",
+        target_map["urn:ontology:entity:margin_haircut_rule"],
+        delta_pass,
+    )
+    gov.validate_grounding(base, delta_pass, target_pass)
+    verify_ont_evo_002_post_state_grounding(
+        base, delta_pass, target_pass, grounding_verifier=low_verifier
+    )
+
+    delta_fail = OntologyDelta(
+        delta_id="d-fibo-emp-fail",
+        domain_namespace="finance",
+        base_ontology_version="1.0.0",
+        operations=[
+            AddConceptOp(
+                op_id="op-emp-empty",
+                concept_uri="urn:ontology:entity:unanchored_lot",
+                concept_name="Unanchored Lot",
+                grounding_origin="FIBO_GROUNDED",
+                external_mappings=[
+                    ExternalMapping(
+                        scheme="fibo",
+                        target_uri="https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/Collateral",
+                        predicate="skos:broadMatch",
+                        confidence=0.42,
+                    )
+                ],
+                evidence_refs=[],
+            )
+        ],
+    )
+    target_fail = apply(base, delta_fail)
+    target_fail_map = {c.concept_uri: c for c in target_fail.canonical_business_concepts}
+    assert (
+        is_path_b_empirically_grounded(
+            "urn:ontology:entity:unanchored_lot",
+            target_fail_map["urn:ontology:entity:unanchored_lot"],
+            delta_fail,
+        )
+        is False
+    )
+    with pytest.raises(UngroundedConceptError):
+        gov.validate_grounding(base, delta_fail, target_fail)
+    with pytest.raises(UngroundedConceptError):
+        verify_ont_evo_002_post_state_grounding(
+            base, delta_fail, target_fail, grounding_verifier=low_verifier
+        )

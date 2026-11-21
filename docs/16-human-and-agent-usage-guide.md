@@ -2,7 +2,7 @@
 
 > **Practical Playbook for Data Vault 2.0 Modelling, Periodic Source Onboarding, Downstream Warehouse Integration (`dbt` / `AutomateDV` / `Snowflake` / `Databricks` / `BigQuery` / `SQLMesh`), and Role-Specific Workflows**  
 > **Target Audience:** Data Architects, Analytics Engineers, Data Stewards, Orchestration Agents, Downstream Translation Agents, and Core Contributors  
-> **Companion Specifications:** [`AGENTS.md`](../AGENTS.md), [`README.md`](../README.md), [`docs/00-mission-vision-and-functional-requirements.md`](00-mission-vision-and-functional-requirements.md), [`docs/12-agentic-pipeline-inputs-and-harness-guide.md`](12-agentic-pipeline-inputs-and-harness-guide.md), [`docs/14-end-to-end-consistency-and-scenarios-audit.md`](14-end-to-end-consistency-and-scenarios-audit.md), [`docs/15-end-to-end-pipeline-execution-and-interactive-spec.md`](15-end-to-end-pipeline-execution-and-interactive-spec.md)
+> **Companion Specifications:** [`DESIGN.md`](../DESIGN.md), [`AGENTS.md`](../AGENTS.md), [`README.md`](../README.md), [`docs/00-mission-vision-and-functional-requirements.md`](00-mission-vision-and-functional-requirements.md), [`docs/12-agentic-pipeline-inputs-and-harness-guide.md`](12-agentic-pipeline-inputs-and-harness-guide.md), [`docs/14-end-to-end-consistency-and-scenarios-audit.md`](14-end-to-end-consistency-and-scenarios-audit.md), [`docs/15-end-to-end-pipeline-execution-and-interactive-spec.md`](15-end-to-end-pipeline-execution-and-interactive-spec.md), [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](27-unified-ontology-pipeline-requirements-and-uat.md), [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md)
 
 ---
 
@@ -27,7 +27,8 @@
 5. [Role-Specific Guides for Humans](#5-role-specific-guides-for-humans)
    - [5.1 Data Architects (Ontology Curation, BKCC Governance & Topology Review)](#51-data-architects-ontology-curation-bkcc-governance--topology-review)
    - [5.2 Data & Analytics Engineers (Running Waves, Consuming IR & Inspecting Hash Formulas)](#52-data--analytics-engineers-running-waves-consuming-ir--inspecting-hash-formulas)
-   - [5.3 Data Stewards (Resolving Captain-Holds via CLI & Explorer UI)](#53-data-stewards-resolving-captain-holds-via-cli--explorer-ui)
+   - [5.3 Data Stewards (Resolving Captain-Holds via CLI, Step 6 & Run Explorer)](#53-data-stewards-resolving-captain-holds-via-cli-step-6--run-explorer)
+   - [5.4 Unified 4-Tab Web Workbench & New D13 CLI Commands](#54-unified-4-tab-web-workbench--new-d13-cli-commands)
 6. [Role-Specific Guides for Autonomous Agents](#6-role-specific-guides-for-autonomous-agents)
    - [6.1 Modelling & Orchestration Agents (`--json`, `--toon`, Exit Codes & Gate Discipline)](#61-modelling--orchestration-agents---json---toon-exit-codes--gate-discipline)
    - [6.2 Downstream Warehouse Translation Agents (Consuming `final_canonical_ir.json` Safely)](#62-downstream-warehouse-translation-agents-consuming-final_canonical_irjson-safely)
@@ -52,10 +53,10 @@ When teams adopt **`open-dv`**, their primary pain point is **Data Vault 2.0 arc
 | Feature / Dimension | **In-Process Engine: `opendv`** (`apps/opendv-cli`) | **Platform Client: `opendvctl`** (`apps/opendvctl`) |
 | :--- | :--- | :--- |
 | **Runtime & Binary** | Python 3.12+ package executed via `uv run opendv` or direct console script. | Bun-compiled standalone binary (zero Python or Node runtime needed on the client). |
-| **Execution Architecture** | In-process execution: directly invokes the shared application core in `opendv_service` within the local Python process. | Remote client: communicates over HTTP/SSE with an `opendv-platform-api` server via `--api-url <url>` (default `http://localhost:8000`). |
-| **Target Use Cases** | Air-gapped environments, standalone pipelines, local developer iterations, deterministic CI/CD runners, and headless serverless workers. | Shared data engineering teams, CI/CD runners dispatching to platform services, enterprise environments requiring role-based access control, and Explorer UI. |
+| **Execution Architecture** | In-process execution: directly invokes the shared application core in `opendv_service` within the local Python process. | Remote client: communicates over HTTP/SSE with an `opendv-platform-api` server via `--api-url <url>` (default `http://127.0.0.1:8420`). |
+| **Target Use Cases** | Air-gapped environments, standalone pipelines, local developer iterations, deterministic CI/CD runners, and headless serverless workers. | Shared data engineering teams, CI/CD runners dispatching to platform services, loopback zero-auth local sessions, and the 4-tab Web Workbench. |
 | **Pluggable Sources** | Resolves local and server-side files directly from the execution host (`server_resolved`). | Automatically detects local files and uploads them inline (`client_uploadable`) via multipart stream to the platform service. |
-| **Subcommands & Flags** | `verify`, `profile`, `compile`, `sandbox`, `run`, `hold`, `pipeline`, `ontology` | Identical: `verify`, `profile`, `compile`, `sandbox`, `run`, `hold`, `pipeline`, `ontology` |
+| **Subcommands & Flags** | `verify`, `profile`, `compile`, `sandbox`, `run` (incl. `run dv-schema`), `hold`, `pipeline`, `ontology` (incl. `ontology studio attach-source`, `fibo-qa`, `logs`), `config`, `serve`, `source` | Identical (except `serve`, standalone only): `verify`, `profile`, `compile`, `sandbox`, `run`, `hold`, `pipeline`, `ontology`, `config`, `source` |
 | **Output Parity** | RFC 8785 canonical JSON (`--json`), Token-Oriented Object Notation (`--toon`), and identical exit codes. | Identical RFC 8785 canonical JSON (`--json`), `@toon_v1` (`--toon`), and identical exit codes. |
 
 ---
@@ -68,10 +69,10 @@ Depending on your goal, `open-dv` supports three distinct operating modes:
 
 | Dimension | **Mode A: Target-Agnostic DV 2.0 Modelling & Evolution Engine** *(Most Common Enterprise Mode)* | **Mode B: Standalone Symbolic Verifier & CI/CD Quality Gate** *(Zero-LLM Mode)* | **Mode C: End-to-End Local / DuckDB Reference Execution** *(Prototyping & Lakehouse Mode)* |
 | :--- | :--- | :--- | :--- |
-| **Primary Goal** | Automatically model Day-1 sources ($N=1$) and periodically onboard new sources ($N \to N+1$) or schema drift ($S_k(t) \to S_k(t+1)$), then implement the verified model in **dbt / AutomateDV / Snowflake / Databricks / BigQuery / SQLMesh**. | Deterministically verify hand-authored or externally generated DV 2.0 contracts in CI/CD pull requests against enterprise ontologies (`Graph A`), empirical data profiles (`Graph B`), and prior production contracts. | Run the complete 8-stage pipeline and execute the generated 4-Zone SQL directly inside DuckDB for local prototyping, education, or DuckDB/MotherDuck data lakes. |
-| **Primary Commands** | `opendv pipeline validate`<br>`opendv pipeline run --initial-contract ...`<br>*(or `opendvctl pipeline run --api-url ...`)* | `opendv profile`<br>`opendv verify --toon`<br>`opendv sandbox`<br>*(or `opendvctl verify --api-url ...`)* | `opendv pipeline run`<br>`opendv compile`<br>`opendv sandbox` |
-| **LLM Harness Required?** | **Yes** (`agy`, `claude-cli`, `antigravity`, or `claude`). | **No** (runs 100% deterministically with zero LLM tokens). | **Yes** for `pipeline run`; **No** for standalone `compile` / `sandbox`. |
-| **Primary Output Artifacts You Consume** | 1. **`final_contract.yaml`** (`NoMistakeDataVault2ContractV5` — stored in Git as your versioned architectural source of truth and passed as `--initial-contract` on the next wave)<br>2. **`final_canonical_ir.json`** (`CanonicalIR` — machine-readable AST fed into your dbt/Snowflake/Databricks code generator) | 1. **Gate Scorecard JSON / `@toon_v1` Trace**<br>2. **Process Exit Code** (blocks non-compliant PRs in GitHub Actions / GitLab CI) | 1. **`final_four_zone.sql`** (Zones 0–4 DuckDB DDL, Staging Views, Raw Vault DML, Business Vault PIT/Bridge, and Bi-Temporal PIT queries)<br>2. **`final_contract.yaml` & `pipeline_report.md`** |
+| **Primary Goal** | Automatically model Day-1 sources ($N=1$) and periodically onboard new sources ($N \to N+1$) or schema drift ($S_k(t) \to S_k(t+1)$), then implement the verified model in **dbt / AutomateDV / Snowflake / Databricks / BigQuery / SQLMesh**. | Deterministically verify hand-authored or externally generated DV 2.0 contracts in CI/CD pull requests against enterprise ontologies (`Graph A`), empirical data profiles (`Graph B`), and prior production contracts. | Run the complete 8-stage pipeline and execute the generated **5-Zone (`Z0–Z4`)** SQL (`bronze`, `staging`, `raw_vault`, `business_vault`, `information_mart`; emitted on disk as `final_four_zone.sql`) directly inside DuckDB for local prototyping, education, or DuckDB/MotherDuck data lakes. |
+| **Primary Commands** | `opendv pipeline validate`<br>`opendv pipeline run --initial-contract ...`<br>*(or `opendvctl pipeline run --api-url ...`)* | `opendv profile`<br>`opendv verify --toon`<br>`opendv sandbox`<br>*(or `opendvctl verify --api-url ...`)* | `opendv pipeline run`<br>`opendv compile`<br>`opendv sandbox`<br>`opendv run dv-schema` |
+| **LLM Harness Required?** | **Yes** (`agy`, `claude-cli`, `antigravity`, or `claude`). | **No** (runs 100% deterministically with zero LLM tokens). | **Yes** for `pipeline run`; **No** for standalone `compile` / `sandbox` / `run dv-schema`. |
+| **Primary Output Artifacts You Consume** | 1. **`final_contract.yaml`** (`NoMistakeDataVault2ContractV5` — stored in Git as your versioned architectural source of truth and passed as `--initial-contract` on the next wave)<br>2. **`final_canonical_ir.json`** (`CanonicalIR` — machine-readable AST fed into your dbt/Snowflake/Databricks code generator) | 1. **Gate Scorecard JSON / `@toon_v1` Trace**<br>2. **Process Exit Code** (blocks non-compliant PRs in GitHub Actions / GitLab CI) | 1. **`final_four_zone.sql`** (5-Zone `Z0–Z4` DuckDB DDL: `bronze`, `staging`, `raw_vault`, `business_vault`, `information_mart` bi-temporal PIT views)<br>2. **`final_contract.yaml` & `pipeline_report.md`** |
 | **Is `final_four_zone.sql` Deployed to Production?** | **No.** Your production warehouse executes its own native SQL / dbt macros generated from `final_canonical_ir.json` or `final_contract.yaml`. | **No** (used only transiently inside the ephemeral `:memory:` DuckDB sandbox during Gate 5 verification). | **Yes** (executed directly in DuckDB / MotherDuck). |
 
 ---
@@ -87,7 +88,7 @@ However, even in **Mode A**, `open-dv`'s internal SQL compiler and `final_four_z
 1. **Role 1 — Mandatory Behind-the-Scenes Stage 06 Dynamic Verification Harness (`DV-DYN-001..015`):**
    - Static graph checks (`STAGE_05_AXI_DV_STATIC_GATES`) prove that your YAML contract is a valid bipartite DAG (`networkx`), that 100% of source columns are accounted for, and that `Algorithm A.7` additive evolution locks are respected.
    - However, static checks alone cannot prove **runtime data behavior**—such as whether your chosen Business Key actually deduplicates micro-batches cleanly, whether nullable foreign keys cause `INNER JOIN` row loss in Point-in-Time (PIT) tables, or whether re-running the same batch twice inserts duplicate Satellite rows.
-   - Therefore, during `STAGE_06_AXI_DV_DYNAMIC_SANDBOX`, `open-dv` automatically compiles `final_canonical_ir.json` into 4-Zone DuckDB SQL in memory and runs **4 Adversarial Batches** against your actual sample data (`Batch 1: Cold Start + NULL FKs`, `Batch 2: Duplicate Replay Idempotency`, `Batch 3: Single-Attribute Mutation & Boundary-Shift Collision`, `Batch 4: Multi-Source Collision & PIT Reconstruction`).
+   - Therefore, during `STAGE_06_AXI_DV_DYNAMIC_SANDBOX`, `open-dv` automatically compiles `final_canonical_ir.json` into 5-Zone (`Z0–Z4`) DuckDB SQL (`bronze`, `staging`, `raw_vault`, `business_vault`, `information_mart`; emitted on disk as `final_four_zone.sql`) in memory and runs **4 Adversarial Batches** against your actual sample data (`Batch 1: Cold Start + NULL FKs`, `Batch 2: Duplicate Replay Idempotency`, `Batch 3: Single-Attribute Mutation & Boundary-Shift Collision`, `Batch 4: Multi-Source Collision & PIT Reconstruction`).
    - **Why this matters for Mode A:** Because `STAGE_06` executes this SQL in an ephemeral in-memory DuckDB instance *before* `STAGE_07` seals your artifacts, you have mathematical proof that `final_canonical_ir.json` is dynamically sound before you ever translate it into Snowflake, Databricks, or dbt.
 
 2. **Role 2 — Optional "Golden Reference Blueprint" for Data Engineers & Translation Agents:**
@@ -99,7 +100,7 @@ flowchart TB
     subgraph OpenDV ["open-dv Neuro-Symbolic Engine (Run Periodically When Sources Change)"]
         IN["Graph A Ontology + Bronze CSV/Parquet\n+ Prior final_contract.yaml (--initial-contract)"]
         S04["Stages 00–05: Multi-Agent Discovery,\n3-Pass CoT Modelling & 6-Gate Static Verifier"]
-        S06["Stage 06: Ephemeral In-Memory DuckDB Sandbox\n(Compiles 4-Zone SQL internally to prove\nBatches 1–4 & DV-DYN-001..015)"]
+        S06["Stage 06: Ephemeral In-Memory DuckDB Sandbox\n(Compiles 5-Zone Z0–Z4 SQL internally to prove\nBatches 1–4 & DV-DYN-001..015)"]
         S07["Stage 07: Root Artifact Certification (CAS)"]
         IN --> S04 --> S06 --> S07
     end
@@ -221,7 +222,7 @@ uv run opendv pipeline validate \
 
 # Or remote platform client:
 opendvctl pipeline validate \
-  --api-url http://localhost:8000 \
+  --api-url http://127.0.0.1:8420 \
   --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml \
   --json
 
@@ -236,7 +237,7 @@ uv run opendv pipeline run \
 
 # Or remote platform client:
 opendvctl pipeline run \
-  --api-url http://localhost:8000 \
+  --api-url http://127.0.0.1:8420 \
   --role INTERNAL_MODELER \
   --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml \
   --output-dir ./releases/wave0
@@ -304,7 +305,7 @@ uv run opendv pipeline run \
   --output-dir ./releases/wave1
 
 # Or remote platform client:
-# opendvctl pipeline run --api-url http://localhost:8000 --role INTERNAL_MODELER --input examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml --initial-contract ./releases/wave0/final_contract.yaml --output-dir ./releases/wave1
+# opendvctl pipeline run --api-url http://127.0.0.1:8420 --role INTERNAL_MODELER --input examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml --initial-contract ./releases/wave0/final_contract.yaml --output-dir ./releases/wave1
 ```
 
 #### What `--initial-contract` Guarantees (`Algorithm A.7` Additive Evolution Lock):
@@ -369,7 +370,7 @@ Whenever a live source feed contains columns that are added, renamed, dropped, o
 | **2** | **Renamed Source Column** *(Semantic/statistical match to an existing attribute, but physical column name changed)* | `STAGE_01_SCOUT_SOURCE` (functional dependency / distribution match + Levenshtein similarity $\ge 0.85$) $\to$ `STAGE_04` | `EVO-03` (Renamed Column Alias) | Maps `stg.<new_physical_col> AS <canonical_col>` inside the **Zone 1 Staging View (`stg_*`)**. The Raw Vault Satellite DDL and `hash_diff` formula remain 100% invariant. |
 | **3** | **System / Operational Noise Column** *(e.g., `_fivetran_synced`, `etl_batch_id`, `row_seq_id` absent from ontology)* | `STAGE_01_SCOUT_SOURCE` regex/entropy profile $\to$ `STAGE_03_SHIP_VAULT_PASS1` | `DV-COL-012` (100% Column Accounting) + `SYSTEM_SURROGATE_DROPPED` | Explicitly records the column in `column_triage_ledger` with `elm_classification: "SYSTEM_SURROGATE_DROPPED"` and `target_dv_entity: "DROPPED_SURROGATE"`. Satisfies the 100% column audit rule while excluding the noise column from all Hubs and Satellite `hash_diff` calculations. |
 | **4** | **Unknown Business Key or Orphan Foreign Key** *(Table or FK references an entity completely absent from `Graph A` ontology)* | `STAGE_01` (Gate 0) $\to$ `STAGE_05_AXI_DV_STATIC_GATES` (`Gate 1` `DV-G4-001` / `Gate 3` `DV-STR-*`) | `@toon_v1` `REJECT-WITH-TRACE` ($k \le 3$ self-heal) or `ASK-USER` (`PAUSED_HOLD`) | First emits a `@toon_v1` trace for `@ship-vault` to re-triage against existing `Graph A` concepts ($k=1 \to 2$). If the source genuinely introduces a new business concept not yet in `Graph A` (`urn:ontology:provisional:entity:<slug>`), Gate 1 blocks silent Hub proliferation (`Trap 1`) and either pauses with a **`StewardHoldRecord`** or fails static gates, prompting the Data Architect to add the new CBC to `graph_a_ontology.yaml`. |
-| **5** | **Unmatched / Ambiguous Entity Extracted from Unstructured Documents** *(e.g., `"Apex Sovereign Co-Invest Vehicle"` in an MSA addendum)* | `STAGE_02_SCOUT_UNSTRUCTURED` (`Algorithm A.9b` 3-Tier Entity Resolution) | `Tier-U3` (`TIER_U3_CAPTAIN_HOLD`, confidence $c < 0.75$ or top-2 margin $\Delta < 0.15$) $\to$ `Rule U1 / U4` | Refuses to guess or silently pollute `hub_customer`. Creates a `StewardHoldRecord` routed according to `steward_hold_policy` (`pause` halts the run for human Steward approval in the Explorer UI or `opendv hold approve`; `auto_approve_top_candidate` selects the top match and logs an explicit `AUTO_REPAIRED` audit event). |
+| **5** | **Unmatched / Ambiguous Entity Extracted from Unstructured Documents** *(e.g., `"Apex Sovereign Co-Invest Vehicle"` in an MSA addendum)* | `STAGE_02_SCOUT_UNSTRUCTURED` (`Algorithm A.9b` 3-Tier Entity Resolution) | `Tier-U3` (`TIER_U3_CAPTAIN_HOLD`, confidence $c < 0.75$ or top-2 margin $\Delta < 0.15$) $\to$ `Rule U1 / U4` | Refuses to guess or silently pollute `hub_customer`. Creates a `StewardHoldRecord` routed according to `steward_hold_policy` (`pause` halts the run for inline human Steward resolution via Step 6 `StewardHoldModal`, `Run Explorer`, or `opendv hold approve`; `auto_approve_top_candidate` selects the top match and logs an explicit `AUTO_REPAIRED` audit event). |
 
 ---
 
@@ -674,10 +675,10 @@ As a **Data Architect**, you govern the semantic guardrails (`Graph A`) and revi
    - Specify `governance_constraints.pii_confidential_attributes` and `required_satellite_split` so PII columns are automatically isolated into `PII_HIGH` satellites.
    - Define `key_authority_tiers` (`tier_1_global_standard`, `tier_2_enterprise_sor`, `tier_3_local_scoped`) and `bkcc_policy` namespaces (`GLOBAL` vs source-scoped prefixes like `STRIPE_EU` or `LEGACY_GP_ADMIN`).
 2. **Review Wave Topology Diffs & Gate Scorecards:**
-   - Inspect `pipeline_report.md` or open the Explorer UI (Pipeline Overview, Bipartite Topology Canvas, 6-Gate Scorecard, and Schema Evolution & Drift Inspector).
+   - Inspect `pipeline_report.md` or open the 4-tab Web Workbench (`DV Schema Explorer` for the bipartite graph, 100% column triage, wave diff, and 5-Zone `Z0–Z4` + `information_mart` SQL; `Run Explorer` for stage drill-downs and 6-Gate scorecards).
    - Verify that `TIER_3_LOCAL_SCOPED` keys have a valid `system_scoped_bk_justification` and never collide with `TIER_1_GLOBAL_STANDARD` keys in shared Hubs.
 3. **Approve Ontology Additions When Scenario S3 Occurs:**
-   - When a new data source introduces an unmapped concept and halts at Gate 1 (`DV-G4-001`), decide whether the table belongs to an existing Hub (add a `cbc_mapping_hints` entry) or represents a genuine new enterprise concept (add the new CBC and relationship to `graph_a_ontology.yaml`).
+   - When a new data source introduces an unmapped concept and halts at Gate 1 (`DV-G4-001`), use **`↺ Sync Drift to Step 4`** in Step 6 (or decide via `Graph A`) whether the table belongs to an existing Hub (`cbc_mapping_hints`) or represents a genuine new enterprise concept (add the new CBC and relationship to `graph_a_ontology.yaml`).
 4. **Govern Ontology Mutations via Decision-Gated CLI Commands (`opendv ontology` / `opendvctl ontology`):**
    - In accordance with `FR-DOM-06` and `REQ-ONT-01/02`, recommenders (LLM or heuristic) produce proposals only; human Architects or Stewards retain sole authority to accept deltas.
    ```bash
@@ -705,7 +706,7 @@ As a **Data Architect**, you govern the semantic guardrails (`Graph A`) and revi
      --delta delta_proposal.json \
      --json
 
-   # (Or execute remotely via platform client: opendvctl ontology suggest --api-url http://localhost:8000 ...)
+   # (Or execute remotely via platform client: opendvctl ontology suggest --api-url http://127.0.0.1:8420 ...)
    ```
 
 ---
@@ -726,7 +727,7 @@ As a **Data / Analytics Engineer**, you execute onboarding waves, troubleshoot s
 
    # Or remote platform client:
    opendvctl profile \
-     --api-url http://localhost:8000 \
+     --api-url http://127.0.0.1:8420 \
      --source-csv path/to/new_source.csv \
      --source-system billing_stripe \
      --table-name stripe_invoices \
@@ -736,28 +737,28 @@ As a **Data / Analytics Engineer**, you execute onboarding waves, troubleshoot s
 2. **Run Pre-Flight Validation & Incremental Pipeline Waves (`opendv pipeline`):**
    - Always run `opendv pipeline validate` first to catch missing files, column typos (`DECLARED_COLUMNS_MISSING`), or unstructured character-span mismatches (`SPAN_QUOTE_MISMATCH`) in $<1$ second.
    - Run `opendv pipeline run --initial-contract <prev_final_contract.yaml> --output-dir <wave_dir>`.
-3. **Inspect Column Lineage & Hash Formulas (`final_four_zone.sql`):**
-   - Check `waves/wave_<w>/wave_<w>_pass1_column_triage.json` (or Column Lineage & Hash-Pill Inspector) to verify how every physical source column was routed (`BUSINESS_KEY`, `FOREIGN_KEY_REF`, `OPTIONAL_FOREIGN_KEY_REF`, `DESCRIPTIVE_PAYLOAD`, `PII_RESTRICTED_PAYLOAD`, `SYSTEM_SURROGATE_DROPPED`).
-   - Use `final_four_zone.sql` as your reference blueprint when validating custom dbt macros or debugging hash discrepancies across environments.
+3. **Inspect Column Lineage & 5-Zone (`Z0–Z4`) SQL (`final_four_zone.sql`):**
+   - Check `waves/wave_<w>/wave_<w>_pass1_column_triage.json` or the `100% Triage & Wave Diff` tab inside `DV Schema Explorer` (`/dv-schema`) to verify how every physical source column was routed (`BUSINESS_KEY`, `FOREIGN_KEY_REF`, `OPTIONAL_FOREIGN_KEY_REF`, `DESCRIPTIVE_PAYLOAD`, `PII_RESTRICTED_PAYLOAD`, `SYSTEM_SURROGATE_DROPPED`).
+   - Use `final_four_zone.sql` (containing Zones `Z0–Z4`, including `information_mart` PIT views) as your reference blueprint when validating custom dbt macros or debugging hash discrepancies across environments.
 
 ---
 
-### 5.3 Data Stewards (Resolving Captain-Holds via CLI & Explorer UI)
+### 5.3 Data Stewards (Resolving Captain-Holds via CLI, Step 6 & Run Explorer)
 
 As a **Data Steward**, you are the human-in-the-loop authority whenever `open-dv` encounters ambiguous entity resolution in unstructured documents (`Tier-U3` Captain-Hold, confidence $c < 0.75$ or top-2 margin $\Delta < 0.15$) or ambiguous grain escalations (`Gate 3 / Gate 4` holds).
 
 #### Your Core Workflow:
-1. **Listing Active Captain-Holds via CLI (`opendv hold list` / `opendvctl hold list`) or Explorer UI:**
+1. **Listing Active Captain-Holds via CLI (`opendv hold list` / `opendvctl hold list`) or Step 6 / Run Explorer:**
    When a pipeline run is executed with `--hold-policy pause` (or `steward_hold_policy: pause` in `harness_config.yaml`), any `Tier-U3` extraction pauses the run with `status: "PAUSED_HOLD"`.
    ```bash
    # Standalone in-process:
    uv run opendv hold list --role DATA_STEWARD --json
 
    # Or remote platform client:
-   opendvctl hold list --api-url http://localhost:8000 --role DATA_STEWARD --json
+   opendvctl hold list --api-url http://127.0.0.1:8420 --role DATA_STEWARD --json
    ```
 2. **Inspecting Evidence & Candidate Matches:**
-   In Explorer UI (Steward Captain-Hold & Entity Resolution Queue or Unmapped Escalation & Governance Console), inspect:
+   In Step 6's inline **`StewardHoldModal`** (`D14`, or `Run Explorer` Governance Console), inspect:
    - The exact `verbatim_quote` highlighted at `[char_start, char_end]` in the source document.
    - The ranked `candidate_hub_matches` (with similarity scores and top-2 margin $\Delta = s_1 - s_2$).
 3. **Approving, Rejecting, or Answering a Hold (`opendv hold approve | reject | answer`):**
@@ -780,9 +781,33 @@ As a **Data Steward**, you are the human-in-the-loop authority whenever `open-dv
      --json
 
    # Or via remote platform client:
-   # opendvctl hold approve --api-url http://localhost:8000 --hold-id <id> --candidate <candidate> --steward <steward> --notes <notes> --json
+   # opendvctl hold approve --api-url http://127.0.0.1:8420 --hold-id <id> --candidate <candidate> --steward <steward> --notes <notes> --json
    ```
    Every Steward decision is cryptographically recorded in `vault-ledger.jsonl` with your `steward_id`, timestamp, and rationale notes.
+
+---
+
+### 5.4 Unified 4-Tab Web Workbench & New D13 CLI Commands
+
+When running `opendv serve` (loopback `http://127.0.0.1:8420`, zero-auth by default per `D18`; non-loopback `--host` without `--allow-remote-unauthenticated` aborts with exit code `40`), the Web Workbench presents **4 top-level tabs**:
+
+1. **`Ontology & Pipeline`** (`/`, `/ontology`, `/builder` — Unified 6-Step Wizard):
+   - **Steps 1–5**: Scope/Baseline (with `wizard_schema_version` isolation), Multi-Connector & Document Ingestion, Evidence Preview (`<= 50` rows, chunks), Agent Discovery (`422 AGENT_NOT_CONFIGURED` fail-closed gate until a live LLM provider is verified via `<AgentHarnessConfigCard />`), and Diff/Graph/Export (`VisualEditorDrawer`, `Export Ontology Only`, CAS commit).
+   - **Step 6 (`DV 2.0 Build & Run`)**: Auto-binds `deployed_contract` via the **`D12` Baseline Picker**, exposes the 7-pill (`00..06`) live stage console mapped onto internal `STAGE_00..07`, renders **5-Zone (`Z0–Z4`)** + `information_mart` SQL alongside DuckDB/Databricks dialects, resolves `PAUSED_HOLD` / budget stops inline via **`D14` `StewardHoldModal`** / `BudgetHold`, and triggers **`↺ Sync Drift to Step 4`** when Stage 02 surfaces unmodeled drift. Concurrent runs on the same session fail fast with **`409 SESSION_JOB_ACTIVE`** (`D27`).
+2. **`DV Schema Explorer`** (`/dv-schema`):
+   - **4 interactive views**: `Interactive DV 2.0 Graph`, `100% Triage & Wave Diff`, `Vault Rows & Safe SQL` (**`D11` Safe SQL Runner** enforcing `validate_safe_sql()` read-only `SELECT`/`WITH` allowlist against persisted DuckDB sandboxes), and `5-Zone SQL (Z0–Z4) & IR`.
+3. **`Run Explorer`** (`/explorer`, `/stages/00..07`):
+   - Stage-by-stage observability drill-down and gate scorecard inspection.
+4. **`Settings`** (`/settings`) & **`SessionLogsInspector`**:
+   - Shared `<AgentHarnessConfigCard />` provider setup, plus **`SessionLogsInspector`** streaming live `EventSource` telemetry over `/logs/stream` (`Follow Live Tail`, 50 MB `.gz` rotation, `.jsonl` bundle retention).
+
+#### Companion `D13` & Platform CLI Commands (`opendv` & `opendvctl`):
+
+- **`run dv-schema`**: Inspect DV 2.0 schema projection, wave diff (`--compare`), table sample rows (`--table`, `--limit`, `--offset`), or execute safe read-only SQL (`--sql`) for a certified `--run-id`.
+- **`ontology studio attach-source`**: Attach and profile a tabular connector (`--session`, `--adapter`, `--uri`, `--table`, `--namespace`, `--credentials-ref`, `--do-not-send-to-agent`).
+- **`ontology studio fibo-qa`**: Ask cited natural-language FIBO and evidence questions (`--session`, `--question`, `--source-id`, `--concept-uri`).
+- **`ontology studio logs`**: Query or live-stream (`--follow`) session & compiler logs (`--session`, `--stage`, `--step`, `--category`, `--persona`).
+- **`config` / `serve` / `source`**: Manage harness/platform config (`opendv config`), start the loopback server (`opendv serve --allow-remote-unauthenticated`), and inspect external catalogs (`opendv source inspect`).
 
 ---
 
@@ -805,7 +830,7 @@ Check both the process exit code and the top-level JSON `status` / `verdict` fie
 | **`0`** | `PASS` / `COMPLETED` | All static gates (`G0`–`G5`) and dynamic sandbox batches (`Batches 1–4`, `DV-DYN-001..015`) passed (or `PAUSED_HOLD` cleanly persisted when `--hold-policy pause` is active). | Proceed to consume `final_contract.yaml` and `final_canonical_ir.json` (or notify Steward if `status == "PAUSED_HOLD"`). |
 | **`1`** *(Normative `10`)* | `REJECT_WITH_TRACE` / `FAILED_STATIC_GATES` | One or more static gates (`G0`–`G4`: schema, grain, BKCC authority, SQLGlot AST, NetworkX DAG, or YAGNI guard) failed. | Read `diagnostics[]` or `toon_text` (`@toon_v1`) and repair the candidate contract within the retry budget (`max_schema_validation_retries <= 3`). **Never bypass the gate.** |
 | **`1`** *(Normative `20` / `21`)* | `FAILED_EVOLUTION_LOCK` (`DV-EVO-001..008`) / `FAILED_DYNAMIC_SANDBOX` (`DV-DYN-001..015`) | Breaking mutation against `--initial-contract` (`Algorithm A.7`) or runtime failure in the 4-Batch DuckDB Shadow Sandbox (`STAGE_06`). | Restore dropped/mutated baseline entities (`DV-EVO-*`) or fix grain/FK mappings causing runtime duplicates/orphans (`DV-DYN-*`). If intentional grain shift is required, escalate to human Architect. |
-| **`0` / `1`** *(Normative `30`)* | `ASK_USER` / `PAUSED_HOLD` | Ambiguous `Tier-U3` entity resolution or `unmapped_escalations` requiring human Steward or Architect decision. | Do **not** hallucinate a resolution. Surface the `StewardHoldRecord` (`hold_id`, `verbatim_quote`, `candidate_hub_matches`) to the human via `opendv hold` or the Explorer UI. |
+| **`0` / `1`** *(Normative `30`)* | `ASK_USER` / `PAUSED_HOLD` | Ambiguous `Tier-U3` entity resolution or `unmapped_escalations` requiring human Steward or Architect decision. | Do **not** hallucinate a resolution. Surface the `StewardHoldRecord` (`hold_id`, `verbatim_quote`, `candidate_hub_matches`) to the human via `opendv hold`, Step 6 `StewardHoldModal`, or `Run Explorer`. |
 | **`2`** *(Normative `40`)* | `ERROR` / `PREFLIGHT_FAILED` | Invalid CLI arguments, missing input files, path traversal attempt, or harness credential failure (`HARNESS_AUTH_MISSING`, `HARNESS_PROVIDER_UNAVAILABLE`). | Inspect `validation_errors[]` / `detail` in the JSON output and fix the input file path or environment variable configuration. |
 
 #### 3. Anti-Reward-Hacking Boundaries (Hard Rules for Orchestration Agents):
@@ -847,6 +872,6 @@ If you are a **Core Contributor Agent** implementing bug fixes (such as the reme
      # Run Python unit, package, and end-to-end normative specification tests
      uv run pytest -v
 
-     # Run TypeScript Protocol SDK and 3-Level Explorer Web Workbench tests
+     # Run TypeScript Protocol SDK and Web Workbench tests
      bun test
      ```

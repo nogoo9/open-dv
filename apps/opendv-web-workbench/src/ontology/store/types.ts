@@ -1,12 +1,9 @@
 /**
- * Open-DV Ontology Construction Studio Workbench State Types
+ * Open-DV Ontology Construction Studio & Unified Wizard State Types
  * (apps/opendv-web-workbench/src/ontology/store/types.ts)
- *
- * Conforms to:
- * - docs/20-ontology-studio-spec.md (§6 Web Workbench Specifications, §6.1-§6.4)
- * - schemas/v1/openapi.json
- * - schemas/v1/error-codes.json
  */
+
+import type { ForeignKeyHintLike } from "../../explorer/builder/CatalogTablePickerModal";
 
 export interface SessionCommit {
 	commit_id: string;
@@ -27,6 +24,7 @@ export interface StudioSessionSummary {
 	head_sha256?: string | undefined;
 	created_at: string;
 	updated_at: string;
+	wizard_schema_version?: number | undefined;
 	sources_count?: number | undefined;
 	proposals_count?: number | undefined;
 	versions_count?: number | undefined;
@@ -49,26 +47,95 @@ export interface CreateSessionRequest {
 	from_workspace?: string | undefined;
 }
 
+export interface ImportOntologyRequest {
+	session_id?: string | undefined;
+	domain_namespace?: string | undefined;
+	enterprise_owner?: string | undefined;
+	format: "yaml" | "json" | "ttl";
+	content: string;
+	expected_sha256?: string | undefined;
+	description?: string | undefined;
+}
+
+export interface StarterPackMetadata {
+	pack_id: string;
+	display_name: string;
+	concept_count: number;
+	relationship_count: number;
+	description?: string | undefined;
+}
+
 export interface SourceDocument {
 	source_id: string;
 	source_sha256: string;
 	file_name: string;
+	filename?: string | undefined;
 	size_bytes: number;
+	byte_count?: number | undefined;
 	mime_type: string;
 	do_not_send_to_agent: boolean;
 	confidential?: boolean | undefined;
 	tombstoned?: boolean | undefined;
 	uploaded_at?: string | undefined;
 	status?: string | undefined;
+	status_badge?: string | undefined;
+	ocr_mode?: string | undefined;
+	scope_summary?: string | undefined;
+}
+
+export interface ConnectorSourceInput {
+	adapter: string;
+	uri?: string | undefined;
+	table?: string | undefined;
+	namespace?:
+		| string
+		| { catalog?: string | undefined; schema_name?: string | undefined }
+		| undefined;
+	credentials_ref?: string | undefined;
+	options?: Record<string, unknown> | undefined;
+	description?: string | undefined;
+	cas_hash?: string | undefined;
+	source_name?: string | undefined;
+}
+
+export interface EvidenceColumnProfile {
+	column_name: string;
+	sql_type: string;
+	is_primary_key: boolean;
+	surrogate_hint: boolean;
+	foreign_key: string | ForeignKeyHintLike | null;
+	null_rate: number;
+	shannon_entropy: number;
+}
+
+export interface EvidenceTableProfile {
+	table_id: string;
+	table_name: string;
+	headers: string[];
+	sample_rows: string[][];
+	columns: EvidenceColumnProfile[];
+	fibo_gap_hints?: Array<Record<string, unknown>> | undefined;
 }
 
 export interface EvidenceChunk {
 	chunk_id: string;
-	source_id: string;
-	source_file: string;
-	text_snippet: string;
-	token_count: number;
-	layout_complexity: "SIMPLE" | "TABULAR" | "MULTI_COLUMN" | "COMPLEX";
+	source_id?: string | undefined;
+	document_id?: string | undefined;
+	source_file?: string | undefined;
+	page_number?: number | undefined;
+	text_snippet?: string | undefined;
+	text?: string | undefined;
+	token_count?: number | undefined;
+	confidence?: number | undefined;
+	is_table?: boolean | undefined;
+	table_id?: string | null | undefined;
+	table_data?: { headers: string[]; rows: string[][] } | null | undefined;
+	layout_complexity?:
+		| "SIMPLE"
+		| "TABULAR"
+		| "MULTI_COLUMN"
+		| "COMPLEX"
+		| undefined;
 	start_char?: number | undefined;
 	end_char?: number | undefined;
 }
@@ -88,17 +155,22 @@ export interface ClarificationRationaleOption {
 	id: string;
 	label: string;
 	description?: string | undefined;
+	fibo_uri?: string | undefined;
+	evidence_citations?: Array<Record<string, unknown>> | undefined;
 }
 
 export interface ClarificationEvidenceCitation {
 	source_file: string;
 	chunk_id: string;
 	excerpt: string;
+	evidence_type?: string | undefined;
+	source_label?: string | undefined;
 }
 
 export interface ClarificationQuestion {
 	question_id: string;
 	concept_name: string;
+	focus_concept?: string | undefined;
 	question_text: string;
 	certainty: "HIGH" | "MEDIUM" | "LOW";
 	rationale_options: ClarificationRationaleOption[];
@@ -116,6 +188,23 @@ export interface ClarificationAnswer {
 	answered_at?: string | undefined;
 }
 
+export interface EvidenceRef {
+	evidence_type: string;
+	reference_uri?: string | null | undefined;
+	snippet?: string | null | undefined;
+	confidence?: number | null | undefined;
+	doc_sha256?: string | null | undefined;
+	char_start?: number | null | undefined;
+	char_end?: number | null | undefined;
+	bronze_table?: string | null | undefined;
+	column_name?: string | null | undefined;
+	source_label?: string | null | undefined;
+	chunk_id?: string | null | undefined;
+	page_number?: number | null | undefined;
+	table_id?: string | null | undefined;
+	fibo_uri?: string | null | undefined;
+}
+
 export interface ConceptAttribute {
 	attribute_name: string;
 	data_type: string;
@@ -125,6 +214,7 @@ export interface ConceptAttribute {
 	deprecated?: boolean | null | undefined;
 	metadata?: Record<string, unknown> | null | undefined;
 	source_hints?: string[] | null | undefined;
+	evidence_refs?: EvidenceRef[] | null | undefined;
 }
 
 export interface ExternalMapping {
@@ -151,6 +241,8 @@ export interface ConceptNode {
 	parent_concept_uri?: string | null | undefined;
 	confidence?: number | undefined;
 	grounding_status: "GROUNDED" | "LOW_CONFIDENCE" | "UNGROUNDED";
+	grounding_origin?: string | null | undefined;
+	evidence_refs?: EvidenceRef[] | null | undefined;
 	attributes: ConceptAttribute[];
 	synonyms: string[];
 	external_mappings: ExternalMapping[];
@@ -177,6 +269,7 @@ export interface RelationshipEdge {
 	deprecated?: boolean | null | undefined;
 	metadata?: Record<string, unknown> | null | undefined;
 	source_hints?: string[] | null | undefined;
+	evidence_refs?: EvidenceRef[] | null | undefined;
 	yagni_cost_guard_policy?: Record<string, unknown> | null | undefined;
 }
 
@@ -222,7 +315,7 @@ export interface QualityScorecard {
 	waiver_rationale: string;
 	waived_concept_uris?: string[] | undefined;
 	waived_base_sha256?: string | undefined;
-	feedback_rating: number; // 1-5
+	feedback_rating: number;
 	feedback_comment: string;
 	feedback_concept_uri?: string | null | undefined;
 	feedback_submitted?: boolean | undefined;
@@ -241,6 +334,61 @@ export interface CandidateProposalSummary {
 	ops_count?: number | undefined;
 	operations?: Array<Record<string, unknown>> | undefined;
 	created_at?: string | undefined;
+}
+
+export interface StagedCandidateDTO {
+	candidate_id: string;
+	concept_name: string;
+	suggested_hub?: string | undefined;
+	top_match_uri?: string | null | undefined;
+	top_match_score?: number | undefined;
+	reason_held_back?: string | undefined;
+	status: "held_back" | "promoted" | "rejected";
+	evidence_refs?: Array<Record<string, unknown>> | undefined;
+	attributes?: Array<Record<string, unknown>> | undefined;
+	dependent_links?: Array<Record<string, unknown>> | undefined;
+}
+
+export interface ResolvedCitationItem {
+	evidence_type: string;
+	citation: Record<string, unknown>;
+	highlighted_span?: string | null | undefined;
+	surrounding_text?: string | null | undefined;
+	table_profile?:
+		| {
+				table_id: string;
+				table_name: string;
+				column_name: string;
+				column_profile?: Record<string, unknown> | null | undefined;
+				sample_rows?: unknown[][] | undefined;
+		  }
+		| null
+		| undefined;
+	fibo_definition?:
+		| {
+				uri: string;
+				label: string;
+				definition: string;
+				module?: string | undefined;
+				parents?: string[] | undefined;
+				match_score?: number | undefined;
+		  }
+		| null
+		| undefined;
+}
+
+export interface FiboQaResult {
+	question: string;
+	answer: string;
+	citations: Array<Record<string, unknown>>;
+	suggested_actions: Array<Record<string, unknown>>;
+}
+
+export interface BudgetHoldInfo {
+	job_id: string;
+	reason: string;
+	total_tokens: number;
+	cost_usd: number;
 }
 
 export interface StudioEventLogEntry {
@@ -280,6 +428,31 @@ export interface StudioErrorToast {
 	detail: string;
 	code: string;
 	timestamp: string;
+}
+
+export interface ProposalDraftEdit {
+	rationale: string;
+	operations: Array<Record<string, unknown>>;
+}
+
+export interface QualityScorecardOptions {
+	grandfatheredUris?: string[];
+	waiverApplied?: boolean;
+	waivedUris?: string[];
+	committedNodes?: ConceptNode[];
+	waivedSnapshots?: Record<string, ConceptNode>;
+}
+
+export interface StudioStoreOptions {
+	activeMode?: StudioMode;
+	userRole?: StudioUserRole;
+	initialSession?: StudioSessionSummary | null;
+	apiUrl?: string;
+	maxPollingDurationMs?: number;
+	maxPollAttempts?: number;
+	maxPollErrorRetries?: number;
+	initialPollIntervalMs?: number;
+	maxPollIntervalMs?: number;
 }
 
 export type StudioMode = "local_standalone" | "remote_platform";

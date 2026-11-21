@@ -4,29 +4,17 @@
  *
  * Authored by: challenger_5d_2 (teamwork_challenger)
  * Empirical verification of:
- * 1. Administrative waiver authorization bypass attempts
- * 2. OCC concurrency conflict simulation (409 Conflict & 412 Precondition Failed)
- * 3. XSS / script injection attacks in visual editor, drawer, scorecard & exports
- * 4. Export serialization roundtrips (RDF/XML, Turtle, JSON-LD, YAML, RFC 8785 JCS)
- * 5. Graph A golden fixture cross-language SHA-256 parity
+ * 1. OCC concurrency conflict simulation (409 Conflict & 412 Precondition Failed)
+ * 2. XSS / script injection attacks in visual editor & exports
+ * 3. Export serialization roundtrips (RDF/XML, Turtle, JSON-LD, YAML, RFC 8785 JCS)
+ * 4. Graph A golden fixture cross-language SHA-256 parity
  */
 
 import { beforeEach, describe, expect, it } from "bun:test";
-import React, { createElement } from "react";
+import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { VisualEditorDrawer } from "../src/ontology/components/VisualEditorDrawer";
 import {
-	ExportPromoteModal,
-} from "../src/ontology/components/ExportPromoteModal";
-import {
-	QualityFeedbackPanel,
-} from "../src/ontology/components/QualityFeedbackPanel";
-import {
-	VisualEditorDrawer,
-	validateConceptEdit,
-} from "../src/ontology/components/VisualEditorDrawer";
-import {
-	canonicalizeGraphADict,
-	computeQualityScorecard,
 	createDefaultQualityScorecard,
 	createStudioStore,
 	dumpsJcs,
@@ -35,7 +23,6 @@ import {
 	escapeXml,
 	escapeYamlString,
 	generateLocalExport,
-	recomputeScorecard,
 	studioStore,
 } from "../src/ontology/store/studio-store";
 import type {
@@ -82,21 +69,6 @@ describe("Empirical Challenger 5D: Adversarial Security & OCC Concurrency Suite"
 		...overrides,
 	});
 
-	const createUngroundedNode = (overrides?: Partial<ConceptNode>): ConceptNode => ({
-		id: "urn:entity:provisional_instrument",
-		concept_uri: "urn:entity:provisional_instrument",
-		concept_name: "Provisional Instrument",
-		elm_archetype: "CORE_CONCEPT",
-		definition: "Provisional ungrounded instrument",
-		target_hub: "hub_instrument",
-		confidence: 0.45,
-		grounding_status: "UNGROUNDED",
-		attributes: [],
-		synonyms: [],
-		external_mappings: [],
-		...overrides,
-	});
-
 	beforeEach(() => {
 		const initial = createStudioStore().getState();
 		studioStore.setState({
@@ -110,247 +82,6 @@ describe("Empirical Challenger 5D: Adversarial Security & OCC Concurrency Suite"
 			sessionWaivers: {},
 			qualityScorecard: createDefaultQualityScorecard(),
 			hasUnsavedChanges: false,
-		});
-	});
-
-	// =========================================================================
-	// 1. ADMINISTRATIVE WAIVER AUTHORIZATION BYPASS ATTEMPTS
-	// =========================================================================
-	describe("1. Administrative Waiver Authorization Bypass Attempts", () => {
-		it("blocks waiver submission when rationale is short, empty, whitespace-only or multibyte boundary", async () => {
-			const ungrounded = createUngroundedNode();
-			studioStore.setState({ nodes: [createSampleNode(), ungrounded] });
-
-			let fetchCalled = false;
-			const mockFetch = (async () => {
-				fetchCalled = true;
-				return new Response(JSON.stringify({ waiver_applied: true }), { status: 200 });
-			}) as unknown as typeof fetch;
-
-			// Attack 1a: Empty string
-			const resEmpty = await studioStore.getState().submitWaiver("", "admin-secret-key-123", mockFetch);
-			expect(resEmpty).toBe(false);
-			expect(fetchCalled).toBe(false);
-			expect(studioStore.getState().toasts[0].code).toBe("INVALID_GROUNDING_WAIVER");
-
-			// Attack 1b: 9 characters (below 10 char minimum)
-			const res9 = await studioStore.getState().submitWaiver("123456789", "admin-secret-key-123", mockFetch);
-			expect(res9).toBe(false);
-			expect(fetchCalled).toBe(false);
-
-			// Attack 1c: Whitespace padding hiding short rationale
-			const resPadded = await studioStore.getState().submitWaiver("   short   ", "admin-secret-key-123", mockFetch);
-			expect(resPadded).toBe(false);
-			expect(fetchCalled).toBe(false);
-
-			// Attack 1d: Multibyte emojis with character count < 10
-			const resEmoji = await studioStore.getState().submitWaiver("🚀🚀🚀🚀", "admin-secret-key-123", mockFetch);
-			expect(resEmoji).toBe(false);
-			expect(fetchCalled).toBe(false);
-
-			// QualityScorecard must remain un-waived and ONT-EVO-002 must FAIL
-			const scorecard = studioStore.getState().qualityScorecard;
-			expect(scorecard.waiver_applied).toBe(false);
-		});
-
-		it("blocks waiver submission when waiver key / credential is empty or blank", async () => {
-			const ungrounded = createUngroundedNode();
-			studioStore.setState({ nodes: [createSampleNode(), ungrounded] });
-
-			let fetchCalled = false;
-			const mockFetch = (async () => {
-				fetchCalled = true;
-				return new Response(JSON.stringify({ waiver_applied: true }), { status: 200 });
-			}) as unknown as typeof fetch;
-
-			// Attack 2a: Empty key
-			const resEmptyKey = await studioStore.getState().submitWaiver("Valid rationale with more than 10 characters", "", mockFetch);
-			expect(resEmptyKey).toBe(false);
-			expect(fetchCalled).toBe(false);
-			expect(studioStore.getState().toasts[0].code).toBe("MISSING_WAIVER_CREDENTIAL");
-
-			// Attack 2b: Whitespace key
-			const resBlankKey = await studioStore.getState().submitWaiver("Valid rationale with more than 10 characters", "   \t\n  ", mockFetch);
-			expect(resBlankKey).toBe(false);
-			expect(fetchCalled).toBe(false);
-		});
-
-		it("rejects unauthorized waiver when server responds with 401 Unauthorized or 403 Forbidden", async () => {
-			const ungrounded = createUngroundedNode();
-			studioStore.setState({ nodes: [createSampleNode(), ungrounded] });
-
-			const mockFetch403 = (async () => {
-				return new Response(
-					JSON.stringify({
-						title: "Forbidden",
-						status: 403,
-						detail: "Invalid steward administrative credentials.",
-						code: "FORBIDDEN_ADMIN_REQUIRED",
-					}),
-					{ status: 403, headers: { "Content-Type": "application/json" } },
-				);
-			}) as unknown as typeof fetch;
-
-			const res = await studioStore.getState().submitWaiver(
-				"Legitimate rationale for regulatory delay",
-				"attacker-forged-key",
-				mockFetch403,
-			);
-			expect(res).toBe(false);
-			const toasts = studioStore.getState().toasts;
-			expect(toasts.some((t) => t.code === "FORBIDDEN_ADMIN_REQUIRED")).toBe(true);
-			expect(studioStore.getState().qualityScorecard.waiver_applied).toBe(false);
-		});
-
-		it("rejects waiver when active session has no head_sha256 or is uncommitted", async () => {
-			studioStore.setState({
-				activeSession: createSampleSession({ head_sha256: "" }),
-				nodes: [createSampleNode(), createUngroundedNode()],
-			});
-
-			let fetchCalled = false;
-			const mockFetch = (async () => {
-				fetchCalled = true;
-				return new Response(JSON.stringify({ waiver_applied: true }), { status: 200 });
-			}) as unknown as typeof fetch;
-
-			const res = await studioStore.getState().submitWaiver(
-				"Sufficient rationale for grounding waiver",
-				"valid-admin-key-123",
-				mockFetch,
-			);
-			expect(res).toBe(false);
-			expect(fetchCalled).toBe(false);
-			expect(studioStore.getState().toasts[0].code).toBe("MISSING_HEAD_SHA");
-		});
-
-		it("rejects waiver attempt when graph has zero ungrounded concepts (precondition bypass)", async () => {
-			// All nodes are grounded
-			studioStore.setState({ nodes: [createSampleNode()] });
-
-			let fetchCalled = false;
-			const mockFetch = (async () => {
-				fetchCalled = true;
-				return new Response(JSON.stringify({ waiver_applied: true }), { status: 200 });
-			}) as unknown as typeof fetch;
-
-			const res = await studioStore.getState().submitWaiver(
-				"Sufficient rationale for grounding waiver",
-				"valid-admin-key-123",
-				mockFetch,
-			);
-			expect(res).toBe(false);
-			expect(fetchCalled).toBe(false);
-			expect(studioStore.getState().toasts[0].code).toBe("NO_UNGROUNDED_CONCEPTS");
-		});
-
-		it("prevents state spoofing via updateQualityScorecard attempting to inject waiver authorization", () => {
-			const ungrounded = createUngroundedNode();
-			studioStore.setState({ nodes: [createSampleNode(), ungrounded] });
-
-			// Initial state: not waived
-			expect(studioStore.getState().qualityScorecard.waiver_applied).toBe(false);
-
-			// Adversary calls updateQualityScorecard trying to flip waiver_applied and waived_concept_uris
-			studioStore.getState().updateQualityScorecard({
-				waiver_applied: true,
-				waived_concept_uris: [ungrounded.concept_uri],
-				waiver_rationale: "Spoofed by adversary",
-				checks: [{ rule: "ONT-EVO-002", status: "PASS", description: "Bypassed" }],
-			} as any);
-
-			// Invariant check: waiver fields MUST be stripped by updateQualityScorecard sanitizer
-			const current = studioStore.getState().qualityScorecard;
-			expect(current.waiver_applied).toBe(false);
-			expect(current.waived_concept_uris).toEqual([]);
-			expect(current.waiver_rationale).toBe("");
-		});
-
-		it("invalidates authorized waiver when an ungrounded concept NOT in waived_concept_uris is introduced", async () => {
-			const ungrounded1 = createUngroundedNode({
-				id: "urn:entity:waived_concept_1",
-				concept_uri: "urn:entity:waived_concept_1",
-				concept_name: "Waived Concept 1",
-			});
-			studioStore.setState({ nodes: [createSampleNode(), ungrounded1] });
-
-			const mockFetchSuccess = (async () => {
-				return new Response(
-					JSON.stringify({
-						status: "AUTHORIZED",
-						waiver_applied: true,
-						waived_concept_uris: [ungrounded1.concept_uri],
-						waived_base_sha256: studioStore.getState().activeSession?.head_sha256,
-						rationale: "Steward approved waiver for ungrounded concept 1",
-					}),
-					{ status: 200, headers: { "Content-Type": "application/json" } },
-				);
-			}) as unknown as typeof fetch;
-
-			const ok = await studioStore.getState().submitWaiver(
-				"Steward approved waiver for ungrounded concept 1",
-				"valid-admin-key-123",
-				mockFetchSuccess,
-			);
-			expect(ok).toBe(true);
-
-			// At this point ONT-EVO-002 passes because ungrounded1 is waived
-			expect(studioStore.getState().qualityScorecard.waiver_applied).toBe(true);
-			const evoCheck = studioStore.getState().qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002");
-			expect(evoCheck?.status).toBe("PASS");
-
-			// Adversary or developer adds a SECOND ungrounded concept that was NOT in the authorized waiver
-			const ungrounded2 = createUngroundedNode({
-				id: "urn:entity:unauthorized_concept_2",
-				concept_uri: "urn:entity:unauthorized_concept_2",
-				concept_name: "Unauthorized Concept 2",
-			});
-			studioStore.getState().addConcept(ungrounded2);
-
-			// Invariant: The scorecard MUST recompute and ONT-EVO-002 MUST FAIL because ungrounded2 is not waived!
-			const updatedScorecard = studioStore.getState().qualityScorecard;
-			const updatedEvoCheck = updatedScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002");
-			expect(updatedEvoCheck?.status).toBe("FAIL");
-			expect(updatedEvoCheck?.details).toContain("violates ONT-EVO-002");
-		});
-
-		it("invalidates authorized waiver when session head_sha256 advances via commit or rebase (MAJ-02)", async () => {
-			const ungrounded = createUngroundedNode();
-			studioStore.setState({ nodes: [createSampleNode(), ungrounded] });
-
-			const currentHead = studioStore.getState().activeSession?.head_sha256;
-			const mockFetchSuccess = (async () => {
-				return new Response(
-					JSON.stringify({
-						waiver_applied: true,
-						waived_concept_uris: [ungrounded.concept_uri],
-						waived_base_sha256: currentHead,
-					}),
-					{ status: 200, headers: { "Content-Type": "application/json" } },
-				);
-			}) as unknown as typeof fetch;
-
-			await studioStore.getState().submitWaiver("Valid rationale for waiver", "valid-key-123", mockFetchSuccess);
-			expect(studioStore.getState().qualityScorecard.waiver_applied).toBe(true);
-
-			// Simulate session head advancing to new SHA
-			const newHead = "f".repeat(64);
-			studioStore.setState((s) => ({
-				activeSession: s.activeSession ? { ...s.activeSession, head_sha256: newHead } : null,
-			}));
-
-			// Calling recomputeScorecard with the new state
-			const recomputed = recomputeScorecard(
-				studioStore.getState(),
-				studioStore.getState().nodes,
-				studioStore.getState().edges,
-			);
-
-			// Invariant: Because savedWaiver.waived_base_sha256 !== state.activeSession.head_sha256, waiver is INVALID!
-			expect(recomputed.waiver_applied).toBe(false);
-			expect(recomputed.waived_concept_uris).toEqual([]);
-			const evoCheck = recomputed.checks.find((c) => c.rule_id === "ONT-EVO-002");
-			expect(evoCheck?.status).toBe("FAIL");
 		});
 	});
 
@@ -567,39 +298,6 @@ describe("Empirical Challenger 5D: Adversarial Security & OCC Concurrency Suite"
 			expect(markup).toContain("&lt;img src=x onerror=alert(&#x27;XSS_DEF&#x27;)&gt;");
 			expect(markup).not.toContain("<svg onload=");
 			expect(markup).toContain("&lt;svg onload=alert(&#x27;XSS_SYN&#x27;)&gt;");
-		});
-
-		it("properly escapes malicious payloads in QualityFeedbackPanel without DOM injection", () => {
-			studioStore.setState({
-				qualityScorecard: {
-					...createDefaultQualityScorecard(),
-					waiver_applied: true,
-					waiver_rationale: `<script>alert('XSS_WAIVER')</script>`,
-					feedback_comment: `<img src=x onerror=alert('XSS_FEEDBACK')>`,
-					feedback_rating: 4,
-					feedback_submitted: true,
-				},
-			});
-
-			const markup = renderToStaticMarkup(createElement(QualityFeedbackPanel, {}));
-
-			expect(markup).not.toContain("<script>alert('XSS_WAIVER')</script>");
-			expect(markup).toContain("&lt;script&gt;alert(&#x27;XSS_WAIVER&#x27;)&lt;/script&gt;");
-			expect(markup).not.toContain("<img src=x onerror=alert('XSS_FEEDBACK')>");
-			expect(markup).toContain("&lt;img src=x onerror=alert(&#x27;XSS_FEEDBACK&#x27;)&gt;");
-		});
-
-		it("properly escapes malicious payloads in ExportPromoteModal preview", () => {
-			const markup = renderToStaticMarkup(
-				createElement(ExportPromoteModal, {
-					isOpen: true,
-					initialTab: "promote",
-					onClose: () => {},
-				}),
-			);
-			// Modal markup exists and contains zero raw scripts
-			expect(markup).toContain("modal-dialog");
-			expect(markup).not.toContain("<script>");
 		});
 
 		it("escapes special characters and prevents XML injection in escapeXml", () => {

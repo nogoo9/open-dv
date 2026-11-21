@@ -158,6 +158,32 @@ def validate_pipeline_outputs(
     )
 
 
+def _h_setup_summary(runner: Any) -> dict[str, Any]:
+    hs = getattr(runner, "harness_setup", None)
+    if hasattr(hs, "to_summary_dict"):
+        return hs.to_summary_dict()
+    if hasattr(hs, "model_dump"):
+        return hs.model_dump(mode="json")
+    return {}
+
+
+def _initial_contract_metadata(runner: Any) -> tuple[bool, str | None, str]:
+    spec = getattr(runner, "input_spec", None)
+    bp = getattr(spec, "blueprint", None)
+    has_ic = bool(
+        spec
+        and (
+            getattr(spec, "initial_contract", None) is not None
+            or getattr(spec, "initial_contract_content", None) is not None
+            or getattr(bp, "contract", None) is not None
+        )
+    )
+    ip = getattr(spec, "initial_contract_path", None)
+    return has_ic, (str(ip) if (has_ic and ip) else None), (
+        "MULTI_SOURCE_EXPANSION" if has_ic else "COLD_START_N1"
+    )
+
+
 def build_paused_pipeline_report(
     runner: Any,
     t0: datetime.datetime,
@@ -165,26 +191,50 @@ def build_paused_pipeline_report(
     step_reports: list[PipelineStepReport],
     artifacts: list[PipelineArtifactRef],
     reason: str,
+    *,
+    drift_findings: list[dict[str, Any]] | None = None,
 ) -> AgenticPipelineReport:
     """Build and return an AgenticPipelineReport in PAUSED_HOLD state."""
-    pending = [
-        h.model_dump(mode="json") if hasattr(h, "model_dump") else h
-        for h in runner.hold_manager.list_pending_holds()
-    ]
-    h_setup_summary = (
-        runner.harness_setup.to_summary_dict()
-        if hasattr(runner.harness_setup, "to_summary_dict")
-        else (
-            runner.harness_setup.model_dump(mode="json")
-            if hasattr(runner.harness_setup, "model_dump")
-            else {}
-        )
+    paused_stage_id = (
+        step_reports[-1].stage_id if step_reports else "STAGE_02_SCOUT_UNSTRUCTURED"
     )
+    hold_mgr = getattr(runner, "hold_manager", None)
+    if hold_mgr is not None and not hold_mgr.list_pending_holds():
+        persona = (
+            step_reports[-1].persona
+            if step_reports and step_reports[-1].persona
+            else "vault-first-mate"
+        )
+        hold_mgr.record_hold(
+            run_id=runner.run_id,
+            task_id=f"task-{runner.run_id}-pause",
+            session_id=getattr(getattr(runner, "input_spec", None), "session_id", None)
+            or f"sess-{runner.run_id}",
+            stage_id=paused_stage_id or "STAGE_02_SCOUT_UNSTRUCTURED",
+            persona=persona,
+            headline=f"Steward hold at {paused_stage_id}: {reason}",
+            escalation_reason=str(reason or "STEWARD_HOLD"),
+            rule_id="DV-HOLD-001",
+            options=[],
+        )
+    pending = (
+        [
+            h.model_dump(mode="json") if hasattr(h, "model_dump") else h
+            for h in hold_mgr.list_pending_holds()
+        ]
+        if hold_mgr is not None
+        else []
+    )
+    h_setup_summary = _h_setup_summary(runner)
+    has_init_c, init_c_path, lc_stage = _initial_contract_metadata(runner)
     report = AgenticPipelineReport(
         run_id=runner.run_id,
         pipeline_id=getattr(runner.input_spec, "pipeline_id", "default_pipeline"),
         project_id=getattr(runner.input_spec, "project_id", "default_project"),
         domain_namespace=runner.input_spec.domain_namespace,
+        has_initial_contract=has_init_c,
+        initial_contract_path=init_c_path,
+        lifecycle_stage=lc_stage,
         status="PAUSED_HOLD",
         overall_passed=False,
         started_at=t0.isoformat(),
@@ -201,7 +251,15 @@ def build_paused_pipeline_report(
         graph_a_sha256=runner.graph_a_sha256,
         ontology_version=getattr(runner.ontology, "ontology_version", "1.0.0"),
         parent_sha256=getattr(runner.ontology, "parent_sha256", None),
+        drift_findings=list(drift_findings or []),
         summary_markdown=f"# Pipeline Paused: {reason}\n",
+    )
+    from opendv_agent_harness.pipeline.drift_projection import persist_resumable_run_context
+
+    persist_resumable_run_context(
+        runner,
+        paused_stage_id=paused_stage_id,
+        paused_reason=reason,
     )
     report.output_validation = validate_pipeline_outputs(report, cas_store=runner.cas_store)
     return report
@@ -218,15 +276,7 @@ def build_rejected_pipeline_report(
     diagnostics: list[dict[str, Any]] | None = None,
 ) -> AgenticPipelineReport:
     """Build and return an AgenticPipelineReport in FAILED / REJECT-WITH-TRACE state."""
-    h_setup_summary = (
-        runner.harness_setup.to_summary_dict()
-        if hasattr(runner.harness_setup, "to_summary_dict")
-        else (
-            runner.harness_setup.model_dump(mode="json")
-            if hasattr(runner.harness_setup, "model_dump")
-            else {}
-        )
-    )
+    h_setup_summary = _h_setup_summary(runner)
     out_val = DeterministicValidationReport(
         stage="OUTPUT_VALIDATION",
         passed=False,
@@ -442,20 +492,26 @@ def build_completed_pipeline_report(
     four_zone_sql: dict[str, Any],
 ) -> AgenticPipelineReport:
     """Build and return terminal AgenticPipelineReport in COMPLETED state."""
-    h_setup_summary = (
-        runner.harness_setup.to_summary_dict()
-        if hasattr(runner.harness_setup, "to_summary_dict")
-        else (
-            runner.harness_setup.model_dump(mode="json")
-            if hasattr(runner.harness_setup, "model_dump")
-            else {}
-        )
-    )
+    h_setup_summary = _h_setup_summary(runner)
+    from opendv_agent_harness.pipeline.drift_projection import enrich_drift_findings
+
+    for wr in wave_reports:
+        if getattr(wr, "schema_drift_events", None):
+            wr.schema_drift_events = enrich_drift_findings(list(wr.schema_drift_events))
+    aggregated_drift = [
+        ev
+        for wr in wave_reports
+        for ev in (getattr(wr, "schema_drift_events", None) or [])
+    ]
+    has_init_c, init_c_path, lc_stage = _initial_contract_metadata(runner)
     report = AgenticPipelineReport(
         run_id=runner.run_id,
         pipeline_id=getattr(runner.input_spec, "pipeline_id", "default_pipeline"),
         project_id=getattr(runner.input_spec, "project_id", "default_project"),
         domain_namespace=runner.input_spec.domain_namespace,
+        has_initial_contract=has_init_c,
+        initial_contract_path=init_c_path,
+        lifecycle_stage=lc_stage,
         status="COMPLETED",
         overall_passed=True,
         started_at=t0.isoformat(),
@@ -480,6 +536,7 @@ def build_completed_pipeline_report(
         recommender_errors=rec_errors if rec_errors else None,
         inference_plan=inference_plan.model_dump(mode="json") if inference_plan else {},
         four_zone_sql=four_zone_sql,
+        drift_findings=aggregated_drift,
         summary_markdown=f"# Open-DV Pipeline Run {runner.run_id}\n\n- Verdict: PASS\n",
     )
 
@@ -505,15 +562,7 @@ def build_preflight_failure_report(
     preflight: Any,
 ) -> AgenticPipelineReport:
     """Build and return terminal AgenticPipelineReport when preflight validation fails."""
-    h_setup_summary = (
-        runner.harness_setup.to_summary_dict()
-        if hasattr(runner.harness_setup, "to_summary_dict")
-        else (
-            runner.harness_setup.model_dump(mode="json")
-            if hasattr(runner.harness_setup, "model_dump")
-            else {}
-        )
-    )
+    h_setup_summary = _h_setup_summary(runner)
     return AgenticPipelineReport(
         run_id=runner.run_id,
         pipeline_id=getattr(runner.input_spec, "pipeline_id", "default_pipeline"),

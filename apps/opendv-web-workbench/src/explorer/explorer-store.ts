@@ -67,15 +67,22 @@ export function createExplorerStore(
 	const initialBundle = cloneBundle(
 		options.bundle ?? createEmptyExplorerBundle(),
 	);
-	const startV = options.startView ?? "pipeline";
+	const startV =
+		options.startView ??
+		(options.bundle || options.dataSource ? "pipeline" : "ontology");
 	const initialView: ExplorerViewLevel =
 		startV === "stage"
 			? "stage"
-			: startV === "builder"
-				? "builder"
-				: startV === "settings"
-					? "settings"
-					: "pipeline";
+			: startV === "dv_schema"
+				? "dv_schema"
+				: startV === "builder"
+					? "ontology"
+					: startV === "settings"
+						? "settings"
+						: startV === "pipeline" || startV === "artifact"
+							? "pipeline"
+							: "ontology";
+	const initialOntologySubView = startV === "builder" ? "builder" : "studio";
 	const initialStageIdx = Math.max(0, Math.min(7, options.startStage ?? 5));
 	const initialSelType: ExplorerSelectionType =
 		startV === "stage" ? "step" : startV === "artifact" ? "artifact" : null;
@@ -109,10 +116,14 @@ export function createExplorerStore(
 
 	const pushBrowserUrl = (state: {
 		view: ExplorerViewLevel;
+		ontologySubView?: "studio" | "builder" | undefined;
 		stageIdx: number;
 		fullId: string | null;
 		fullTab: "viz" | "raw" | "split";
 		activeWave: "all" | "W0" | "W1" | "W2" | "W3";
+		runId?: string | null | undefined;
+		compareRunId?: string | null | undefined;
+		sessionId?: string | null | undefined;
 		builderSessionId?: string | null | undefined;
 		builderSource?: string | null | undefined;
 		builderDomain?: string | null | undefined;
@@ -143,12 +154,16 @@ export function createExplorerStore(
 		isLoading: false,
 		activeBundleKey: initialBundle.projectId || "default",
 		view: initialView,
+		ontologySubView: initialOntologySubView,
 		stageIdx: initialStageIdx,
 		selType: initialSelType,
 		selId: initialSelId,
 		fullId: initialFullId,
 		fullTab: "split",
 		activeWave: options.startWave ?? "all",
+		runId: null,
+		compareRunId: null,
+		sessionId: null,
 		builderSessionId: null,
 		builderSource: null,
 		builderDomain: null,
@@ -159,13 +174,33 @@ export function createExplorerStore(
 		holdResolutions: {},
 		lastError: null,
 
+		goOntology: (subView = "studio") => {
+			set({
+				view: "ontology",
+				ontologySubView: subView,
+				selType: null,
+				selId: null,
+			});
+			pushBrowserUrl(get());
+		},
+
+		goDvSchema: () => {
+			set({ view: "dv_schema", selType: null, selId: null });
+			pushBrowserUrl(get());
+		},
+
 		goPipeline: () => {
 			set({ view: "pipeline", selType: null, selId: null });
 			pushBrowserUrl(get());
 		},
 
 		goBuilder: () => {
-			set({ view: "builder", selType: null, selId: null });
+			set({
+				view: "ontology",
+				ontologySubView: "builder",
+				selType: null,
+				selId: null,
+			});
 			pushBrowserUrl(get());
 		},
 
@@ -271,8 +306,8 @@ export function createExplorerStore(
 
 		loadRunsList: () => executeLoadRunsList(get, set),
 
-		loadRun: (runId: string, waveId?: string | undefined) =>
-			executeLoadRun(
+		loadRun: async (runId: string, waveId?: string | undefined) => {
+			await executeLoadRun(
 				get,
 				set,
 				runId,
@@ -281,7 +316,11 @@ export function createExplorerStore(
 				(fn) => {
 					unsubscribeSse = fn;
 				},
-			),
+			);
+			if (!get().blockingError) {
+				pushBrowserUrl(get());
+			}
+		},
 
 		loadFromFile: (file: File) => executeLoadFromFile(get, set, file),
 
@@ -305,16 +344,22 @@ export function createExplorerStore(
 			const parsed = parseExplorerUrlState(pathname, search, validIds);
 			set({
 				view: parsed.view,
+				ontologySubView: parsed.ontologySubView ?? "studio",
 				stageIdx: parsed.stageIdx,
 				fullId: parsed.fullId,
 				fullTab: parsed.fullTab,
 				activeWave: parsed.activeWave,
+				runId: parsed.runId ?? get().runId ?? null,
+				compareRunId: parsed.compareRunId ?? null,
+				sessionId: parsed.sessionId ?? null,
 				builderSessionId: parsed.builderSessionId ?? null,
 				builderSource: parsed.builderSource ?? null,
 				builderDomain: parsed.builderDomain ?? null,
 				builderPipelineId: parsed.builderPipelineId ?? null,
 			});
 		},
+
+		syncUrl: () => pushBrowserUrl(get()),
 
 		getCurrentUrl: () => buildExplorerUrl(get()),
 

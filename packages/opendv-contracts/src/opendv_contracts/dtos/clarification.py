@@ -25,6 +25,10 @@ class ClarificationOption(BaseContractModel):
     rationale: str = Field(
         ..., description="Semantic explanation of how this option models the concept"
     )
+    evidence_citations: list[EvidenceRef] = Field(
+        default_factory=list,
+        description="Option-level citations grounding this resolution choice",
+    )
 
 
 class ClarificationQuestion(BaseContractModel):

@@ -78,6 +78,12 @@ function discoverChromium(): string {
 }
 
 const CHROMIUM_PREINSTALLED_PATH = discoverChromium();
+const E2E_API_PORT = process.env.OPENDV_E2E_API_PORT || "8420";
+const E2E_WEB_PORT = process.env.OPENDV_E2E_WEB_PORT || "5173";
+const E2E_API_URL = `http://127.0.0.1:${E2E_API_PORT}`;
+const E2E_WEB_URL = `http://127.0.0.1:${E2E_WEB_PORT}`;
+const REUSE_EXISTING_SERVERS =
+	!process.env.OPENDV_E2E_API_PORT && !process.env.OPENDV_E2E_WEB_PORT;
 
 export default defineConfig({
 	testDir: "./tests/e2e",
@@ -94,7 +100,7 @@ export default defineConfig({
 		["html", { outputFolder: "playwright-report", open: "never" }],
 	],
 	use: {
-		baseURL: process.env.OPENDV_BASE_URL || "http://127.0.0.1:5173",
+		baseURL: process.env.OPENDV_BASE_URL || E2E_WEB_URL,
 		trace: "retain-on-failure",
 		screenshot: "only-on-failure",
 		video: "off",
@@ -119,16 +125,21 @@ export default defineConfig({
 	],
 	webServer: [
 		{
-			command: "uv run python tests/e2e/run_e2e_platform_server.py --port 8420 --host 127.0.0.1",
-			url: "http://127.0.0.1:8420/api/v1/health",
-			reuseExistingServer: true,
+			command: `uv run python tests/e2e/run_e2e_platform_server.py --port ${E2E_API_PORT} --host 127.0.0.1`,
+			url: `${E2E_API_URL}/api/v1/health`,
+			reuseExistingServer: REUSE_EXISTING_SERVERS,
 			timeout: 90_000,
 			cwd: "../..",
 		},
 		{
 			command: "bun run src/dev-server.ts",
-			url: "http://127.0.0.1:5173",
-			reuseExistingServer: true,
+			url: E2E_WEB_URL,
+			env: {
+				...process.env,
+				PORT: E2E_WEB_PORT,
+				OPENDV_API_URL: E2E_API_URL,
+			},
+			reuseExistingServer: REUSE_EXISTING_SERVERS,
 			timeout: 90_000,
 		},
 	],

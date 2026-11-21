@@ -14,12 +14,10 @@ from typing import Any
 
 import yaml
 
+from opendv_agent_harness.pipeline.evolution_matching import infer_deployed_table_action
 from opendv_agent_harness.pipeline.spec import (
     PipelineSourceFeedInput,
     PipelineUnstructuredDocInput,
-)
-from opendv_axi_verifier.codemods.alg_a9a_schema_drift import (
-    detect_schema_drift_from_contract,
 )
 from opendv_contracts.dtos.pipeline import (
     DocExecutionActionDTO,
@@ -84,72 +82,8 @@ def infer_table_action(
             matched_existing_entity=None,
             drift_findings=[],
         )
-
-    deployed_tables, _, _ = _get_deployed_tables_and_columns(contract)
-    t_key = table_name.lower()
-    t_base = t_key.split(".")[-1]
-    qual_key = f"{source_system.lower()}.{t_base}"
-
-    is_deployed = qual_key in deployed_tables or t_key in deployed_tables
-    if not is_deployed and t_base in deployed_tables:
-        conflicting = any(
-            dt.endswith(f".{t_base}") and not dt.startswith(f"{source_system.lower()}.")
-            for dt in deployed_tables
-            if "." in dt
-        )
-        if not conflicting:
-            is_deployed = True
-
-    if not is_deployed:
-        return TableExecutionActionDTO(
-            source_system=source_system,
-            table_name=table_name,
-            action="INCREMENTAL_ONBOARDING",
-            matched_existing_entity=None,
-            drift_findings=[],
-        )
-
-    c_dict = (
-        contract.model_dump(mode="json")
-        if hasattr(contract, "model_dump")
-        else (contract if isinstance(contract, dict) else {})
-    )
-    matched_sat: str | None = None
-    for sat in c_dict.get("satellites") or []:
-        if isinstance(sat, dict):
-            src_b = str(sat.get("source_bronze_table") or "")
-            if src_b.lower() in (t_key, t_base):
-                matched_sat = sat.get("name")
-                break
-    if not matched_sat:
-        for e in c_dict.get("column_triage_ledger") or []:
-            if isinstance(e, dict):
-                t = str(e.get("bronze_table") or e.get("source_table") or "").lower()
-                tgt = str(e.get("target_dv_entity") or "")
-                if t in (t_key, t_base) and tgt.startswith("sat_"):
-                    matched_sat = tgt
-                    break
-    matched_entity = matched_sat or f"sat_{t_base}"
-
-    # Deployed table -> Check for Intra-Source Drift (Alg A.9a)
-    drift_findings = []
-    if incoming_columns:
-        findings = detect_schema_drift_from_contract(
-            contract=contract,
-            source_table=table_name,
-            candidate_columns=list(incoming_columns),
-            candidate_types=incoming_types or {},
-            target_entity=matched_entity,
-        )
-        drift_findings = [f.to_dict() for f in findings]
-
-    action: Any = "INTRA_SOURCE_DRIFT" if drift_findings else "NO_OP"
-    return TableExecutionActionDTO(
-        source_system=source_system,
-        table_name=table_name,
-        action=action,
-        matched_existing_entity=matched_entity,
-        drift_findings=drift_findings,
+    return infer_deployed_table_action(
+        source_system, table_name, incoming_columns, incoming_types, contract
     )
 
 
@@ -437,54 +371,59 @@ def resolve_initial_blueprint_and_ontology(
             raw_bp = _load_yaml_or_json(bp_path)
             bp = VaultBlueprint.model_validate(raw_bp)
 
-    if bp is not None:
-        return bp, bp.ontology, bp.contract, None
-
     loaded_graph_a = None
-    ont = getattr(input_spec, "ontology", None)
-    if not ont and (
-        getattr(input_spec, "ontology_path", None)
-        or getattr(input_spec, "ontology_content", None)
-        or getattr(input_spec, "graph_a_ontology_path", None)
-        or getattr(input_spec, "graph_a_source", None)
-    ):
-        g_inp = (
-            input_spec.graph_a_source
-            if getattr(input_spec, "graph_a_source", None) is not None
-            else (
-                input_spec.graph_a_ontology_path
-                or input_spec.ontology_path
-                or input_spec.ontology_content
+    if bp is not None:
+        ont = bp.ontology
+        cnt = bp.contract
+    else:
+        ont = getattr(input_spec, "ontology", None)
+        if not ont and (
+            getattr(input_spec, "ontology_path", None)
+            or getattr(input_spec, "ontology_content", None)
+            or getattr(input_spec, "graph_a_ontology_path", None)
+            or getattr(input_spec, "graph_a_source", None)
+        ):
+            g_inp = (
+                input_spec.graph_a_source
+                if getattr(input_spec, "graph_a_source", None) is not None
+                else (
+                    input_spec.graph_a_ontology_path
+                    or input_spec.ontology_path
+                    or input_spec.ontology_content
+                )
             )
-        )
-        from opendv_sources import load_graph_a_source
+            from opendv_sources import load_graph_a_source
 
-        loaded = load_graph_a_source(g_inp, base_dir=base_dir, workspace_root=workspace_root)
-        loaded_graph_a = loaded
-        if cas_store is not None and getattr(loaded, "raw_bytes", None):
-            cas_store.put(loaded.raw_bytes)
-        ont = loaded.ontology
+            loaded = load_graph_a_source(g_inp, base_dir=base_dir, workspace_root=workspace_root)
+            loaded_graph_a = loaded
+            if cas_store is not None and getattr(loaded, "raw_bytes", None):
+                cas_store.put(loaded.raw_bytes)
+            ont = loaded.ontology
 
-    if ont is None:
-        ont = GraphAOntology(ontology_version="0.1.0")
+        if ont is None:
+            ont = GraphAOntology(ontology_version="0.1.0")
+        cnt = None
 
-    cnt = getattr(input_spec, "initial_contract", None)
-    if isinstance(cnt, str):
-        cnt = NoMistakeDataVault2ContractV5.model_validate(yaml.safe_load(cnt))
-    elif isinstance(cnt, dict):
-        cnt = NoMistakeDataVault2ContractV5.model_validate(cnt)
-    elif not cnt:
-        cnt_content = getattr(input_spec, "initial_contract_content", None)
-        cnt_path = getattr(input_spec, "initial_contract_path", None)
-        if cnt_content:
-            raw_cnt = yaml.safe_load(cnt_content) if isinstance(cnt_content, str) else cnt_content
-            if isinstance(raw_cnt, dict):
+    if cnt is None:
+        cnt = getattr(input_spec, "initial_contract", None)
+        if isinstance(cnt, str):
+            cnt = NoMistakeDataVault2ContractV5.model_validate(yaml.safe_load(cnt))
+        elif isinstance(cnt, dict):
+            cnt = NoMistakeDataVault2ContractV5.model_validate(cnt)
+        elif not cnt:
+            cnt_content = getattr(input_spec, "initial_contract_content", None)
+            cnt_path = getattr(input_spec, "initial_contract_path", None)
+            if cnt_content:
+                raw_cnt = (
+                    yaml.safe_load(cnt_content) if isinstance(cnt_content, str) else cnt_content
+                )
+                if isinstance(raw_cnt, dict):
+                    cnt = NoMistakeDataVault2ContractV5.model_validate(raw_cnt)
+            elif cnt_path:
+                raw_cnt = _load_yaml_or_json(cnt_path)
                 cnt = NoMistakeDataVault2ContractV5.model_validate(raw_cnt)
-        elif cnt_path:
-            raw_cnt = _load_yaml_or_json(cnt_path)
-            cnt = NoMistakeDataVault2ContractV5.model_validate(raw_cnt)
 
-    return None, ont, cnt, loaded_graph_a
+    return bp, ont, cnt, loaded_graph_a
 
 
 async def execute_stage_00_orchestration(
@@ -542,6 +481,7 @@ async def execute_stage_00_orchestration(
         runner.on_stream_event,
         runner.run_id,
         context=s00_ctx,
+        stage_output_policy=runner.harness_setup.stage_output_policy,
     )
     step_00 = PipelineStepReport(
         stage_index=0,

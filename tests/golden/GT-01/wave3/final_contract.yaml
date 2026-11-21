@@ -1,9 +1,9 @@
 column_triage_ledger:
 - bronze_table: crm_salesforce.crm_customers
   column_name: customer_tax_id
-  elm_classification: DESCRIPTIVE_PAYLOAD
+  elm_classification: BUSINESS_KEY
   source_sql_type: VARCHAR
-  target_dv_entity: sat_customer_core_ext_v2
+  target_dv_entity: hub_customer
 - bronze_table: crm_salesforce.crm_customers
   column_name: customer_row_seq
   elm_classification: DESCRIPTIVE_PAYLOAD
@@ -33,12 +33,12 @@ column_triage_ledger:
   column_name: contact_email
   elm_classification: DESCRIPTIVE_PAYLOAD
   source_sql_type: VARCHAR
-  target_dv_entity: sat_customer_core_ext_v2
+  target_dv_entity: sat_customer_pii
 - bronze_table: crm_salesforce.crm_customers
   column_name: tax_ssn_tin
   elm_classification: DESCRIPTIVE_PAYLOAD
   source_sql_type: VARCHAR
-  target_dv_entity: sat_customer_core_ext_v2
+  target_dv_entity: sat_customer_pii
 - bronze_table: erp_netsuite.erp_orders
   column_name: order_id
   elm_classification: BUSINESS_KEY
@@ -123,8 +123,7 @@ contract_version: '5.0'
 domain_namespace: global_commerce
 hubs:
 - business_key_sources:
-  - bkcc_column_expr: null
-    bkcc_prefix: CRM_SALESFORCE_CRM_CUSTOMERS
+  - bkcc_prefix: CRM_SALESFORCE_CRM_CUSTOMERS
     bronze_table: crm_salesforce.crm_customers
     key_authority_tier: TIER_3_LOCAL_SCOPED
     key_columns:
@@ -136,8 +135,7 @@ hubs:
   name: hub_customer
   ontology_concept_uri: urn:ontology:entity:customer
 - business_key_sources:
-  - bkcc_column_expr: null
-    bkcc_prefix: ERP_NETSUITE_ERP_ORDERS
+  - bkcc_prefix: ERP_NETSUITE_ERP_ORDERS
     bronze_table: erp_netsuite.erp_orders
     key_authority_tier: TIER_3_LOCAL_SCOPED
     key_columns:
@@ -149,8 +147,7 @@ hubs:
   name: hub_order
   ontology_concept_uri: urn:ontology:entity:order
 - business_key_sources:
-  - bkcc_column_expr: null
-    bkcc_prefix: ERP_NETSUITE
+  - bkcc_prefix: ERP_NETSUITE
     bronze_table: erp_netsuite.erp_orders
     key_authority_tier: TIER_3_LOCAL_SCOPED
     key_columns:
@@ -162,8 +159,7 @@ hubs:
   name: hub_promotion
   ontology_concept_uri: urn:ontology:entity:promotion
 - business_key_sources:
-  - bkcc_column_expr: null
-    bkcc_prefix: STRIPE_EU
+  - bkcc_prefix: STRIPE_EU
     bronze_table: billing_stripe.stripe_invoices
     key_authority_tier: TIER_3_LOCAL_SCOPED
     key_columns:
@@ -265,11 +261,8 @@ satellites:
   parent_entity: hub_customer
   payload_columns:
   - annual_spend_band
-  - contact_email
   - customer_row_seq
-  - customer_tax_id
   - loyalty_tier_code
-  - tax_ssn_tin
   satellite_type: STANDARD_SATELLITE
   security_classification: INTERNAL
   soft_deprecated_columns: []

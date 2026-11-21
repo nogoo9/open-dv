@@ -162,7 +162,7 @@ def test_waiver_argv_raw_secret_strictly_rejected(studio_env: tuple[Path, Path])
 
 
 def test_waiver_key_file_non_existent(studio_env: tuple[Path, Path]) -> None:
-    """Verify non-existent waiver key file triggers exit 3 (FILE_NOT_FOUND)."""
+    """Under M1 open-access, legacy --waiver-key-file is ignored as a harmless no-op on local waivers."""
     ws, studio_root = studio_env
     sid, head_sha = _setup_session_with_pending_proposal(ws, studio_root)
 
@@ -189,20 +189,22 @@ def test_waiver_key_file_non_existent(studio_env: tuple[Path, Path]) -> None:
             "--json",
         ]
     )
-    assert code == 3, "Non-existent waiver key file must fail with exit 3 (FILE_NOT_FOUND)"
+    assert code == 0, "Legacy --waiver-key-file is tolerated as a no-op under M1 open-access"
 
 
 def test_waiver_key_file_empty_and_whitespace(studio_env: tuple[Path, Path]) -> None:
-    """Verify empty or whitespace-only waiver key files fail securely with exit 7."""
+    """Verify non-admin role is still rejected (exit 7) even when legacy --waiver-key-file is supplied."""
     ws, studio_root = studio_env
     sid, head_sha = _setup_session_with_pending_proposal(ws, studio_root)
 
-    # 1. 0-byte empty file
+    # 1. Non-admin role (EDITOR) fails with exit 7 before rationale or key checks
     empty_file = ws / "empty.key"
     empty_file.write_text("", encoding="utf-8")
 
-    code_empty = app_main(
+    code_editor = app_main(
         [
+            "--role",
+            "EDITOR",
             "ontology",
             "studio",
             "proposal",
@@ -221,13 +223,13 @@ def test_waiver_key_file_empty_and_whitespace(studio_env: tuple[Path, Path]) -> 
             "--json",
         ]
     )
-    assert code_empty == 7, "0-byte waiver key file must fail with exit 7"
+    assert code_editor == 7, "Non-admin role (EDITOR) waiver must still fail with exit 7"
 
-    # 2. Whitespace-only file
+    # 2. Local custodian (default admin) succeeds without K_waiver secret even with legacy key file
     whitespace_file = ws / "whitespace.key"
     whitespace_file.write_text("   \n\t  \r\n", encoding="utf-8")
 
-    code_ws = app_main(
+    code_admin = app_main(
         [
             "ontology",
             "studio",
@@ -247,21 +249,37 @@ def test_waiver_key_file_empty_and_whitespace(studio_env: tuple[Path, Path]) -> 
             "--json",
         ]
     )
-    assert code_ws == 7, "Whitespace-only waiver key file must fail with exit 7"
+    assert code_admin == 0, "Local custodian waiver must succeed without K_waiver secret"
 
 
 def test_waiver_key_file_mismatched_unauthorized(studio_env: tuple[Path, Path]) -> None:
-    """Verify unauthorized or mismatched waiver keys fail with exit 7."""
+    """Verify unauthorized --authorized-role or short rationale still fail (exit 7 / exit 4) without K_waiver."""
     ws, studio_root = studio_env
     sid, head_sha = _setup_session_with_pending_proposal(ws, studio_root)
 
-    # Mismatched hex key of correct length (32 bytes / 64 hex chars)
-    bogus_file = ws / "bogus.key"
-    bogus_file.write_text(
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", encoding="utf-8"
+    code_bad_auth_role = app_main(
+        [
+            "ontology",
+            "studio",
+            "proposal",
+            "accept",
+            "-s",
+            sid,
+            "-p",
+            "prop-sec-01",
+            "--base-sha256",
+            head_sha,
+            "--low-confidence-waiver",
+            "--authorized-role",
+            "editor",
+            "--waiver-rationale",
+            "Adequate rationale explaining security compliance.",
+            "--json",
+        ]
     )
+    assert code_bad_auth_role == 7, "Non-admin --authorized-role must fail with exit 7"
 
-    code = app_main(
+    code_short_rationale = app_main(
         [
             "ontology",
             "studio",
@@ -275,30 +293,25 @@ def test_waiver_key_file_mismatched_unauthorized(studio_env: tuple[Path, Path]) 
             head_sha,
             "--low-confidence-waiver",
             "--waiver-rationale",
-            "Adequate rationale explaining security compliance.",
-            "--waiver-key-file",
-            str(bogus_file),
+            "short",
             "--json",
         ]
     )
-    assert code == 7, "Mismatched waiver key must fail with exit 7"
+    assert code_short_rationale == 4, "Short waiver rationale must fail with exit 4"
 
 
 def test_waiver_env_fallback_behavior(
     studio_env: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify OPENDV_WAIVER_KEY environment variable fallback behavior."""
+    """Verify OPENDV_WAIVER_KEY is tolerated as a harmless no-op in M1 open-access mode."""
     ws, studio_root = studio_env
-    sec_mgr = WorkspaceSecurityManager(studio_root=studio_root)
 
-    # Case A: OPENDV_WAIVER_KEY set to valid key -> succeeds (exit 0)
+    # Case A: OPENDV_WAIVER_KEY unset -> local admin waiver succeeds (exit 0)
+    monkeypatch.delenv("OPENDV_WAIVER_KEY", raising=False)
     sid_a, head_sha_a = _setup_session_with_pending_proposal(
         ws, studio_root, "sess-env-a", "prop-env-a"
     )
-    valid_key = sec_mgr.get_waiver_key().hex()
-    monkeypatch.setenv("OPENDV_WAIVER_KEY", valid_key)
-
-    code_valid_env = app_main(
+    code_unset = app_main(
         [
             "ontology",
             "studio",
@@ -316,15 +329,15 @@ def test_waiver_env_fallback_behavior(
             "--json",
         ]
     )
-    assert code_valid_env == 0, "Valid OPENDV_WAIVER_KEY must succeed with exit 0"
+    assert code_unset == 0, "Open-access waiver must succeed without OPENDV_WAIVER_KEY"
 
-    # Case B: OPENDV_WAIVER_KEY set to invalid key -> fails with exit 7
+    # Case B: Arbitrary legacy OPENDV_WAIVER_KEY value -> tolerated as no-op (exit 0)
     sid_b, head_sha_b = _setup_session_with_pending_proposal(
         ws, studio_root, "sess-env-b", "prop-env-b"
     )
-    monkeypatch.setenv("OPENDV_WAIVER_KEY", "invalid-waiver-key-99999")
+    monkeypatch.setenv("OPENDV_WAIVER_KEY", "legacy-waiver-key-ignored")
 
-    code_bad_env = app_main(
+    code_legacy_env = app_main(
         [
             "ontology",
             "studio",
@@ -342,39 +355,13 @@ def test_waiver_env_fallback_behavior(
             "--json",
         ]
     )
-    assert code_bad_env == 7, "Invalid OPENDV_WAIVER_KEY must fail with exit 7"
-
-    # Case C: OPENDV_WAIVER_KEY empty string -> fails with exit 7
-    sid_c, head_sha_c = _setup_session_with_pending_proposal(
-        ws, studio_root, "sess-env-c", "prop-env-c"
-    )
-    monkeypatch.setenv("OPENDV_WAIVER_KEY", "   ")
-
-    code_empty_env = app_main(
-        [
-            "ontology",
-            "studio",
-            "proposal",
-            "accept",
-            "-s",
-            sid_c,
-            "-p",
-            "prop-env-c",
-            "--base-sha256",
-            head_sha_c,
-            "--low-confidence-waiver",
-            "--waiver-rationale",
-            "Adequate rationale explaining security compliance.",
-            "--json",
-        ]
-    )
-    assert code_empty_env == 7, "Empty OPENDV_WAIVER_KEY must fail with exit 7"
+    assert code_legacy_env == 0, "Legacy OPENDV_WAIVER_KEY must be tolerated as a no-op"
 
 
 def test_waiver_key_file_precedence_over_env(
     studio_env: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify that --waiver-key-file takes precedence; invalid file fails even if env is valid."""
+    """Verify non-admin role rejection takes precedence even when OPENDV_WAIVER_KEY is set."""
     ws, studio_root = studio_env
     sid, head_sha = _setup_session_with_pending_proposal(ws, studio_root)
 
@@ -382,10 +369,10 @@ def test_waiver_key_file_precedence_over_env(
     valid_key = sec_mgr.get_waiver_key().hex()
     monkeypatch.setenv("OPENDV_WAIVER_KEY", valid_key)
 
-    # Non-existent file passed explicitly on CLI
-    bad_file = ws / "does_not_exist.key"
     code = app_main(
         [
+            "--role",
+            "PUBLIC",
             "ontology",
             "studio",
             "proposal",
@@ -399,25 +386,18 @@ def test_waiver_key_file_precedence_over_env(
             "--low-confidence-waiver",
             "--waiver-rationale",
             "Adequate rationale explaining security compliance.",
-            "--waiver-key-file",
-            str(bad_file),
             "--json",
         ]
     )
-    assert code == 3, (
-        "Non-existent --waiver-key-file must fail with exit 3 even if OPENDV_WAIVER_KEY is valid"
-    )
+    assert code == 7, "Non-admin --role PUBLIC must fail with exit 7 even if OPENDV_WAIVER_KEY is set"
 
 
 def test_constant_time_comparison_implementation() -> None:
-    """Verify that constant-time comparison (hmac.compare_digest) is strictly employed."""
+    """Verify local waiver validation checks admin role and rationale without K_waiver gating."""
     src = inspect.getsource(cli_studio_mod._load_and_verify_waiver_credentials)
-    assert "hmac.compare_digest" in src, (
-        "Waiver credential verification must use hmac.compare_digest"
-    )
-    # Ensure no naive string equality comparison is used for verification
-    assert "== expected_waiver" not in src
-    assert "== key_clean" not in src
+    assert "role_tier != \"admin\"" in src or "role_tier" in src
+    assert "FORBIDDEN_ADMIN_REQUIRED" in src
+    assert "INVALID_GROUNDING_WAIVER" in src
 
 
 def test_zero_secret_leakage_on_disk(studio_env: tuple[Path, Path]) -> None:

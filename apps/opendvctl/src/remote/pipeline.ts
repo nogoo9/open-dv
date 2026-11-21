@@ -7,6 +7,7 @@
 import type { OpenDVPlatformClient } from "@opendv/protocol-ts";
 import { CliDomainError } from "../error-handler";
 import { followEventStream } from "../sse-follower";
+import { handleDvSchema } from "./dv-schema";
 import type { RemoteHttpClient } from "./http-client";
 import { buildSingleRunPayload } from "./pipeline-payload";
 
@@ -149,6 +150,30 @@ export async function handleSandbox(
 	return await client.postJson("/api/v1/sandbox", body);
 }
 
+function buildStreamWriters(
+	client: RemoteHttpClient,
+	enrichedOptions: Record<string, unknown>,
+): {
+	writer: (line: string) => void;
+	tokenWriter?: (tok: string) => void;
+} {
+	const isJsonOut =
+		enrichedOptions.json === true || enrichedOptions.format === "json";
+	if (!isJsonOut) {
+		return { writer: client.writer };
+	}
+	return {
+		writer: client.errWriter,
+		tokenWriter: (tok: string) => {
+			if (typeof process !== "undefined" && process.stderr?.write) {
+				process.stderr.write(tok);
+			} else {
+				client.errWriter(tok);
+			}
+		},
+	};
+}
+
 export async function handlePipeline(
 	client: RemoteHttpClient,
 	subcommand: string | undefined,
@@ -243,12 +268,14 @@ export async function handlePipeline(
 					? rawStreamUrl
 					: `${client.baseUrl}${rawStreamUrl.startsWith("/") ? "" : "/"}${rawStreamUrl}`;
 
+				const streamWriters = buildStreamWriters(client, enrichedOptions);
 				const streamResult = await followEventStream({
 					streamUrl,
 					headers: client.getHeaders(),
 					streamEnabled: enrichedOptions.stream !== false,
 					tokensEnabled: Boolean(enrichedOptions.stream_tokens),
-					writer: client.writer,
+					writer: streamWriters.writer,
+					tokenWriter: streamWriters.tokenWriter,
 					fetchImpl: client.fetchImpl,
 				});
 
@@ -316,12 +343,14 @@ export async function handlePipeline(
 			? rawStreamUrl
 			: `${client.baseUrl}${rawStreamUrl.startsWith("/") ? "" : "/"}${rawStreamUrl}`;
 
+		const streamWriters = buildStreamWriters(client, enrichedOptions);
 		const streamResult = await followEventStream({
 			streamUrl,
 			headers: client.getHeaders(),
 			streamEnabled: enrichedOptions.stream !== false,
 			tokensEnabled: Boolean(enrichedOptions.stream_tokens),
-			writer: client.writer,
+			writer: streamWriters.writer,
+			tokenWriter: streamWriters.tokenWriter,
 			fetchImpl: client.fetchImpl,
 		});
 
@@ -421,6 +450,8 @@ export async function handleRun(
 		payload = await client.getJson(
 			`/api/v1/runs/${encodeURIComponent(runId)}/explorer`,
 		);
+	} else if (subcommand === "dv-schema") {
+		payload = await handleDvSchema(client, runId, enrichedOptions);
 	} else if (subcommand === "artifact") {
 		const artifactId = (enrichedOptions.sha256 ||
 			enrichedOptions.artifact_id) as string;
@@ -446,7 +477,7 @@ export async function handleHold(
 	if (subcommand === "list") {
 		if (!runId) throw new Error("Missing --run-id");
 		payload = await client.getJson(
-			`/api/v1/runs/${encodeURIComponent(runId)}/holds`,
+			`/api/v1/runs/${encodeURIComponent(runId)}/decisions`,
 		);
 	} else if (
 		subcommand === "approve" ||

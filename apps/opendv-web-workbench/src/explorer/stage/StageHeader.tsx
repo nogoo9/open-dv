@@ -40,12 +40,22 @@ export function StageHeader({
 			<div
 				style={{
 					display: "flex",
+					flexWrap: "wrap",
 					alignItems: "center",
 					justifyContent: "space-between",
 					gap: "12px",
 				}}
 			>
-				<div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+				<div
+					style={{
+						display: "flex",
+						flexWrap: "wrap",
+						alignItems: "center",
+						gap: "12px",
+						minWidth: 0,
+						maxWidth: "100%",
+					}}
+				>
 					<button
 						type="button"
 						data-testid="btn-stage-all-stages"
@@ -53,7 +63,13 @@ export function StageHeader({
 						aria-label="Back to all stages (Esc)"
 						title="Back to all stages (Esc)"
 						style={{
-							all: "unset",
+							background: "transparent",
+							border: "none",
+							margin: 0,
+							font: "inherit",
+							display: "inline-flex",
+							alignItems: "center",
+							justifyContent: "center",
 							cursor: "pointer",
 							fontSize: "12.5px",
 							fontWeight: 500,
@@ -69,6 +85,7 @@ export function StageHeader({
 						style={{
 							width: "34px",
 							height: "34px",
+							flexShrink: 0,
 							borderRadius: "999px",
 							border: "1.5px solid #16181D",
 							display: "flex",
@@ -81,10 +98,11 @@ export function StageHeader({
 					>
 						{numStr}
 					</div>
-					<div>
+					<div style={{ minWidth: 0, maxWidth: "100%" }}>
 						<div
 							style={{
 								display: "flex",
+								flexWrap: "wrap",
 								alignItems: "center",
 								gap: "10px",
 							}}
@@ -140,7 +158,10 @@ export function StageHeader({
 						onClick={onPrevStage}
 						aria-label="Previous stage"
 						style={{
-							all: "unset",
+							margin: 0,
+							display: "inline-flex",
+							alignItems: "center",
+							justifyContent: "center",
 							cursor: "pointer",
 							fontFamily: EXPLORER_FONTS.mono,
 							fontSize: "12px",
@@ -159,7 +180,10 @@ export function StageHeader({
 						onClick={onNextStage}
 						aria-label="Next stage"
 						style={{
-							all: "unset",
+							margin: 0,
+							display: "inline-flex",
+							alignItems: "center",
+							justifyContent: "center",
 							cursor: "pointer",
 							fontFamily: EXPLORER_FONTS.mono,
 							fontSize: "12px",

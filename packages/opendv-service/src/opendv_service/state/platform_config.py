@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import copy
-import importlib.util
 import json
 import logging
-import os
 import re
-import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -40,28 +37,17 @@ from opendv_service.settings import (
     DEFAULT_SERVER_HOST,
     DEFAULT_SERVER_PORT,
 )
+from opendv_service.state.platform_config_probe import (
+    _CANONICAL_PERSONAS,
+    is_web_ui_bundled,
+    probe_providers_readiness_list,
+)
+from opendv_service.state.platform_config_probe import (
+    deep_merge_harness_dict as _deep_merge_harness_dict,
+)
 
 if TYPE_CHECKING:
     from opendv_service.state.base import BaseStateContainer
-
-_REGISTERED_PROVIDERS: tuple[
-    Literal["agy", "agy-cli", "antigravity", "claude", "claude-cli", "claude-code"],
-    ...,
-] = (
-    "agy",
-    "agy-cli",
-    "antigravity",
-    "claude",
-    "claude-cli",
-    "claude-code",
-)
-
-_CANONICAL_PERSONAS: tuple[str, ...] = (
-    "vault-first-mate",
-    "scout-source",
-    "scout-unstructured",
-    "ship-vault",
-)
 
 _ALLOWED_ONTOLOGY_POLICIES: frozenset[str] = frozenset(
     {
@@ -75,40 +61,6 @@ _ALLOWED_ONTOLOGY_POLICIES: frozenset[str] = frozenset(
 )
 
 _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
-def _is_module_available(*module_names: str) -> bool:
-    """Return True if any of `module_names` can be located via `importlib.util.find_spec`."""
-    for mod_name in module_names:
-        try:
-            if importlib.util.find_spec(mod_name) is not None:
-                return True
-        except (ModuleNotFoundError, ValueError):
-            continue
-    return False
-
-
-def _deep_merge_harness_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Deep-merge `override` harness configuration dictionary onto `base`."""
-    merged = copy.deepcopy(base)
-    old_provider = merged.get("provider", "agy")
-    new_provider = override.get("provider", old_provider)
-
-    if new_provider != old_provider and "model_overrides" not in override:
-        merged.pop("model_overrides", None)
-
-    for key, val in override.items():
-        if (
-            key in {"auth", "budget", "sandbox", "extra_provider_options"}
-            and isinstance(val, dict)
-            and isinstance(merged.get(key), dict)
-        ):
-            merged[key] = _deep_merge_harness_dict(merged[key], val)
-        elif key in {"model_overrides", "agent_models"} and isinstance(val, dict):
-            merged[key] = dict(val)
-        else:
-            merged[key] = copy.deepcopy(val)
-    return merged
 
 
 def _validate_and_normalize_harness(
@@ -139,7 +91,6 @@ def _validate_and_normalize_harness(
     if extra_opts:
         setup_input["extra_provider_options"] = extra_opts
 
-    # Validate ontology_policy explicitly
     ont_pol = str(setup_input.get("ontology_policy", "off")).strip()
     if ont_pol not in _ALLOWED_ONTOLOGY_POLICIES and not ont_pol.startswith("auto_accept_above:"):
         raise ValueError(
@@ -147,7 +98,6 @@ def _validate_and_normalize_harness(
             f"{sorted(_ALLOWED_ONTOLOGY_POLICIES)}."
         )
 
-    # Validate api_key_env_var is an env var name, never a raw secret
     auth_raw = setup_input.get("auth")
     if isinstance(auth_raw, dict):
         env_var = auth_raw.get("api_key_env_var")
@@ -205,6 +155,12 @@ def _validate_and_normalize_harness(
         if setup_obj.ontology_policy.startswith("auto_accept")
         else ("off" if setup_obj.ontology_policy == "off" else "recommend")
     )
+    dto_stage_policy = (
+        "llm_only"
+        if setup_obj.stage_output_policy == "strict"
+        and "strict" not in str(HarnessConfigDTO.model_fields["stage_output_policy"].annotation)
+        else setup_obj.stage_output_policy
+    )
     harness_dto = HarnessConfigDTO(
         provider=setup_obj.provider,
         model_overrides=dict(setup_obj.model_overrides),
@@ -214,7 +170,7 @@ def _validate_and_normalize_harness(
         sandbox=sandbox_dto,
         steward_hold_policy=setup_obj.steward_hold_policy,
         ontology_policy=dto_ontology_policy,
-        stage_output_policy=setup_obj.stage_output_policy,
+        stage_output_policy=dto_stage_policy,  # type: ignore[arg-type]
         allow_cli_schema_omission_retry=allow_cli_retry,
     )
     return setup_obj, harness_dto
@@ -247,7 +203,6 @@ class PlatformConfigStateMixin:
             else list(_DEFAULT_CORS_ORIGINS)
         )
 
-        # 1. Discover opendv.config.yaml if present
         cfg_file: Path | None = None
         if settings is not None and getattr(settings, "config_file_path", None) is not None:
             cand = Path(settings.config_file_path)
@@ -277,7 +232,6 @@ class PlatformConfigStateMixin:
                     exc,
                 )
 
-        # 2. Merge persisted state_dir/platform_config.json if present
         persisted_path = self.state_dir / "platform_config.json"
         if persisted_path.is_file():
             try:
@@ -346,113 +300,11 @@ class PlatformConfigStateMixin:
         """Probe binary availability, Python SDK installation, and env var presence."""
         self._ensure_platform_config_loaded()
         setup = active_harness or self._active_harness_setup
-
-        providers_list: list[ProviderReadinessDTO] = []
-        for provider in _REGISTERED_PROVIDERS:
-            is_cli = provider in {"agy", "agy-cli", "claude-cli", "claude-code"}
-            execution_mode: Literal["cli", "sdk"] = "cli" if is_cli else "sdk"
-            is_claude_family = provider in {"claude", "claude-cli", "claude-code"}
-
-            binary_name: str | None = None
-            if provider in {"agy", "agy-cli"}:
-                binary_name = "agy"
-            elif provider in {"claude-cli", "claude-code"}:
-                binary_name = "claude"
-
-            binary_found = bool(shutil.which(binary_name)) if binary_name is not None else False
-
-            sdk_installed = False
-            if provider == "antigravity":
-                sdk_installed = _is_module_available("google.antigravity", "google.genai")
-            elif provider == "claude":
-                sdk_installed = _is_module_available("claude_agent_sdk", "anthropic")
-
-            active_is_same_family = (
-                setup.provider in {"claude", "claude-cli", "claude-code"}
-            ) == is_claude_family
-            configured_env_var = (
-                setup.auth.api_key_env_var
-                if (active_is_same_family and setup.auth.api_key_env_var)
-                else None
-            )
-            api_key_env_var = configured_env_var or (
-                "ANTHROPIC_API_KEY" if is_claude_family else "GEMINI_API_KEY"
-            )
-
-            env_key_present = bool(os.environ.get(api_key_env_var, "").strip())
-            credentials_present = env_key_present or (execution_mode == "cli" and binary_found)
-            available = (
-                binary_found if execution_mode == "cli" else (sdk_installed and env_key_present)
-            )
-
-            if setup.provider == provider and setup.auth.auth_mode != "none":
-                auth_mode = setup.auth.auth_mode
-            else:
-                auth_mode = "cli_session" if execution_mode == "cli" else "api_key"
-
-            default_reasoning = resolve_provider_model(provider, "reasoning")
-            default_fast = resolve_provider_model(provider, "fast")
-
-            if execution_mode == "cli":
-                status_message = (
-                    f"CLI binary '{binary_name}' found on PATH."
-                    if binary_found
-                    else f"CLI binary '{binary_name}' not found on PATH."
-                )
-            elif available:
-                status_message = (
-                    f"SDK installed and '{api_key_env_var}' credential environment variable set."
-                )
-            elif not sdk_installed:
-                status_message = f"Python SDK for '{provider}' is not installed."
-            else:
-                status_message = (
-                    f"SDK installed but '{api_key_env_var}' environment variable is not set."
-                )
-
-            providers_list.append(
-                ProviderReadinessDTO(
-                    provider=provider,
-                    execution_mode=execution_mode,
-                    available=available,
-                    binary_name=binary_name,
-                    binary_found=binary_found,
-                    sdk_installed=sdk_installed,
-                    auth_mode=auth_mode,
-                    api_key_env_var=api_key_env_var,
-                    credentials_present=credentials_present,
-                    default_reasoning_model=default_reasoning,
-                    default_fast_model=default_fast,
-                    status_message=status_message,
-                )
-            )
-        return providers_list
+        return probe_providers_readiness_list(setup)
 
     def _is_web_ui_bundled(self: BaseStateContainer | Any) -> bool:
         """Check whether the compiled static Web UI bundle (`index.html`) is available."""
-        env_static = os.environ.get("OPENDV_STATIC_DIR", "").strip()
-        if env_static and (Path(env_static) / "index.html").is_file():
-            return True
-        repo_static = (
-            self.repo_root
-            / "apps"
-            / "opendv-platform-api"
-            / "src"
-            / "opendv_platform_api"
-            / "static"
-            / "index.html"
-        )
-        if repo_static.is_file():
-            return True
-        try:
-            spec = importlib.util.find_spec("opendv_platform_api")
-            if spec is not None and spec.origin is not None:
-                pkg_static = Path(spec.origin).resolve().parent / "static" / "index.html"
-                if pkg_static.is_file():
-                    return True
-        except (ModuleNotFoundError, ValueError):
-            pass
-        return False
+        return is_web_ui_bundled(self.repo_root)
 
     def get_platform_config(self: BaseStateContainer | Any) -> dict[str, Any]:
         """Return serialized `PlatformConfigResponse` for the active workspace and harness."""
@@ -507,28 +359,24 @@ class PlatformConfigStateMixin:
         try:
             setup_obj, harness_dto = _validate_and_normalize_harness(raw_harness)
         except ValidationError as exc:
-            diagnostics: list[ConfigValidationDiagnosticDTO] = []
-            for err in exc.errors():
-                loc_parts = [str(p) for p in err.get("loc", ())]
-                target = ".".join(loc_parts) if loc_parts else "harness"
-                diagnostics.append(
-                    ConfigValidationDiagnosticDTO(
-                        code="HARNESS_CONFIG_INVALID",
-                        severity="ERROR",
-                        target=target,
-                        message=str(err.get("msg", "Invalid harness configuration")),
-                    )
+            diagnostics = [
+                ConfigValidationDiagnosticDTO(
+                    code="HARNESS_CONFIG_INVALID",
+                    severity="ERROR",
+                    target=".".join(str(p) for p in err.get("loc", ())) or "harness",
+                    message=str(err.get("msg", "Invalid harness configuration")),
                 )
-            val_resp = PlatformConfigValidationResponse(
+                for err in exc.errors()
+            ]
+            return PlatformConfigValidationResponse(
                 passed=False,
                 diagnostics=diagnostics,
                 harness=None,
                 resolved_persona_models={},
                 providers=self.probe_providers_readiness(self._active_harness_setup),
-            )
-            return val_resp.model_dump(mode="json")
+            ).model_dump(mode="json")
         except ValueError as exc:
-            val_resp = PlatformConfigValidationResponse(
+            return PlatformConfigValidationResponse(
                 passed=False,
                 diagnostics=[
                     ConfigValidationDiagnosticDTO(
@@ -541,17 +389,15 @@ class PlatformConfigStateMixin:
                 harness=None,
                 resolved_persona_models={},
                 providers=self.probe_providers_readiness(self._active_harness_setup),
-            )
-            return val_resp.model_dump(mode="json")
+            ).model_dump(mode="json")
 
-        val_resp = PlatformConfigValidationResponse(
+        return PlatformConfigValidationResponse(
             passed=True,
             diagnostics=[],
             harness=harness_dto,
             resolved_persona_models=self.compute_resolved_persona_models(setup_obj),
             providers=self.probe_providers_readiness(setup_obj),
-        )
-        return val_resp.model_dump(mode="json")
+        ).model_dump(mode="json")
 
     def update_platform_config(
         self: BaseStateContainer | Any,
@@ -605,4 +451,7 @@ class PlatformConfigStateMixin:
         return self.get_platform_config()
 
 
-__all__ = ["PlatformConfigStateMixin"]
+__all__ = [
+    "_CANONICAL_PERSONAS",
+    "PlatformConfigStateMixin",
+]

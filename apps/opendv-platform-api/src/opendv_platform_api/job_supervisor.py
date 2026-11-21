@@ -20,7 +20,7 @@ import os
 import re
 import threading
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -176,6 +176,41 @@ class JobSupervisor:
     def __init__(self) -> None:
         self._jobs: dict[str, JobContext] = {}
         self._lock = threading.Lock()
+        self._reserved_run_sessions: set[str] = set()
+
+    def _session_busy_locked(
+        self, session_id: str, active_run_check: Callable[[], bool] | None
+    ) -> bool:
+        return (
+            session_id in self._reserved_run_sessions
+            or any(
+                jctx.session_id == session_id and jctx.status.lower() in ("pending", "running")
+                for jctx in self._jobs.values()
+            )
+            or (active_run_check is not None and active_run_check())
+        )
+
+    @contextlib.contextmanager
+    def reserve_run_session(
+        self,
+        session_mgr: StudioSessionManager,
+        session_id: str,
+        active_run_check: Callable[[], bool],
+    ) -> Iterator[None]:
+        """Atomically claim `session_id` for a pipeline run until the body registers it (`D27`)."""
+        busy = self.count_active_jobs(session_mgr, session_id) > 0
+        with self._lock:
+            if busy or self._session_busy_locked(session_id, active_run_check):
+                raise OpenDVError(
+                    f"Session '{session_id}' already has an active running job.",
+                    error_code=ErrorCode.SESSION_JOB_ACTIVE,
+                )
+            self._reserved_run_sessions.add(session_id)
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._reserved_run_sessions.discard(session_id)
 
     def _evict_terminal_jobs_locked(self) -> None:
         """Evict oldest terminal JobContext entries when cache exceeds MAX_IN_MEMORY_JOBS."""
@@ -392,12 +427,20 @@ class JobSupervisor:
         runner_fn: Any,
         principal: str = "human:local_admin",
         role: str = "admin",
+        active_run_check: Callable[[], bool] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Create, register, and launch a new asynchronous studio job."""
         session_dir = session_mgr.get_session_dir(session_id)
         if not session_dir.is_dir() or not (session_dir / "session.json").is_file():
             raise StudioAPIError("SESSION_NOT_FOUND", f"Session '{session_id}' not found.")
+
+        if self.count_active_jobs(session_mgr, session_id) > 0:
+            raise StudioAPIError(
+                "SESSION_JOB_ACTIVE",
+                f"Session '{session_id}' already has an active running job.",
+                status_code=409,
+            )
 
         job_id = f"job-{uuid.uuid4().hex[:12]}"
         now_iso = datetime.now(UTC).isoformat()
@@ -417,6 +460,12 @@ class JobSupervisor:
         )
 
         with self._lock:
+            if self._session_busy_locked(session_id, active_run_check):
+                raise StudioAPIError(
+                    "SESSION_JOB_ACTIVE",
+                    f"Session '{session_id}' already has an active running job.",
+                    status_code=409,
+                )
             self._jobs[job_id] = ctx
             self._evict_terminal_jobs_locked()
 

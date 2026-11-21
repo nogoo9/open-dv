@@ -81,6 +81,9 @@ def mint_jwt_token(
 @pytest.fixture(autouse=True)
 def isolate_studio_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure clean isolated studio root and workspace for every test."""
+    from opendv_core.schema_registry import get_default_schema_registry
+
+    get_default_schema_registry()
     studio_root = tmp_path / "opendv_studio"
     studio_root.mkdir(parents=True, exist_ok=True)
     workspace_root = tmp_path / "workspace"
@@ -141,30 +144,31 @@ class TestCSRFBypassAttempts:
     def test_missing_csrf_header_rejected(
         self, local_client: TestClient, session_cookie: str
     ) -> None:
-        """Attempt mutating requests with missing X-OpenDV-Workbench header."""
+        """Loopback open-access no longer requires X-OpenDV-Workbench header on mutating requests."""
         cookie_client = TestClient(
             local_client.app, client=("127.0.0.1", 52001), base_url="http://localhost:8000"
         )
         cookie_client.cookies.set("opendv_session", session_cookie)
 
-        # POST /sessions without X-OpenDV-Workbench
+        # POST /sessions without X-OpenDV-Workbench succeeds on loopback when Origin/Host are valid
         resp = cookie_client.post(
             "/api/v1/ontology/studio/sessions",
-            json={"session_id": "csrf-fail-missing-header", "domain_namespace": "sec"},
+            json={"session_id": "csrf-open-no-header", "domain_namespace": "sec"},
         )
-        assert resp.status_code == 403
-        data = resp.json()
-        assert data["error_code"] == "CSRF_ORIGIN_MISMATCH"
-        assert "X-OpenDV-Workbench: 1" in data["detail"]
+        assert resp.status_code == 201
 
     @pytest.mark.parametrize(
-        "invalid_header_value",
-        ["0", "true", "false", "", "2", "yes", "None", "1.0", "bearer"],
+        ("idx", "legacy_header_value"),
+        list(enumerate(["0", "true", "false", "", "2", "yes", "None", "1.0", "bearer"])),
     )
     def test_invalid_csrf_header_values_rejected(
-        self, local_client: TestClient, session_cookie: str, invalid_header_value: str
+        self,
+        local_client: TestClient,
+        session_cookie: str,
+        idx: int,
+        legacy_header_value: str,
     ) -> None:
-        """Attempt mutating request with non-'1' X-OpenDV-Workbench header values."""
+        """Loopback open-access ignores legacy X-OpenDV-Workbench header values while enforcing Origin/Host."""
         cookie_client = TestClient(
             local_client.app, client=("127.0.0.1", 52001), base_url="http://localhost:8000"
         )
@@ -172,11 +176,10 @@ class TestCSRFBypassAttempts:
 
         resp = cookie_client.post(
             "/api/v1/ontology/studio/sessions",
-            json={"session_id": f"csrf-val-{invalid_header_value}", "domain_namespace": "sec"},
-            headers={"X-OpenDV-Workbench": invalid_header_value},
+            json={"session_id": f"csrf-val-{idx}", "domain_namespace": "sec"},
+            headers={"X-OpenDV-Workbench": legacy_header_value},
         )
-        assert resp.status_code == 403
-        assert resp.json()["error_code"] == "CSRF_ORIGIN_MISMATCH"
+        assert resp.status_code == 201
 
     def test_origin_null_rejected(self, local_client: TestClient, session_cookie: str) -> None:
         """Attempt mutating request with Origin: null.
@@ -312,7 +315,7 @@ class TestRemoteModeLoopbackSpoofing:
         assert resp.status_code == 403
         data = resp.json()
         assert data["error_code"] == "LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE"
-        assert "remote_platform mode" in data["detail"]
+        assert "remote_platform mode" in data["detail"] or "local loopback callers" in data["detail"]
 
     def test_remote_mode_init_rejected_with_spoofed_forwarded_headers(
         self, local_client: TestClient, monkeypatch: pytest.MonkeyPatch

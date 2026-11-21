@@ -12,6 +12,7 @@ from opendv_agent_harness.pipeline.discovery_unstructured import (
     _resolve_relationship_uri,
     _slugify,
 )
+from opendv_agent_harness.pipeline.ontology_coverage_helpers import _resolve_non_surrogate_bks
 from opendv_agent_harness.pipeline.ontology_evolution import (
     _bks,
     _make_entry,
@@ -21,54 +22,22 @@ from opendv_agent_harness.pipeline.spec import (
     PipelineSourceFeedInput,
     Stage01FeedDiscoveryItem,
 )
+from opendv_axi_verifier.codemods.alg_a4_sal_inference import (
+    detect_crosswalk_sal_spec,
+    extract_profile_col_stats,
+    infer_kat_bk_and_fks,
+    infer_natural_bk,
+    resolve_best_concept_by_columns,
+)
+from opendv_axi_verifier.codemods.alg_a4_sal_inference import (
+    infer_key_tier_from_ontology as _infer_key_tier,
+)
+from opendv_axi_verifier.codemods.alg_a4_sparse_sal_helpers import (
+    emit_crosswalk_sal_entities,
+)
 from opendv_contracts.errors import OpenDVError
 from opendv_core.config import get_core_modeling_config
 from opendv_core.models.graph_a import GraphAOntology
-
-
-def _infer_key_tier(
-    cand_cols: Sequence[str],
-    ontology: Any,
-    uri: str = "",
-    h_name: str = "",
-    eff_rec_src: str = "SRC",
-) -> tuple[str, str]:
-    cand_low = [c.lower() for c in cand_cols if c]
-    if any(
-        any(c.endswith(s) for s in ("lei", "isin", "cusip", "duns", "figi", "sedol", "lei_code"))
-        for c in cand_low
-    ):
-        return "TIER_1_GLOBAL_STANDARD", "GLOBAL"
-    if ontology:
-        for cbc in getattr(ontology, "canonical_business_concepts", []):
-            if (
-                (not uri and not h_name)
-                or (uri and cbc.concept_uri == uri)
-                or (h_name and (cbc.target_hub == h_name or cbc.concept_name in h_name))
-            ):
-                kat = getattr(cbc, "key_authority_tiers", None)
-                if not kat:
-                    continue
-                for attr, tier in (
-                    ("tier_1_global_standard", "TIER_1_GLOBAL_STANDARD"),
-                    ("tier_2_enterprise_sor", "TIER_2_ENTERPRISE_SOR"),
-                    ("tier_3_local_scoped", "TIER_3_LOCAL_SCOPED"),
-                ):
-                    t_obj = getattr(kat, attr, None)
-                    if t_obj and any(
-                        p.lower() in cand_low
-                        for p in (getattr(t_obj, "column_patterns", None) or [])
-                    ):
-                        pol = getattr(t_obj, "bkcc_policy", None)
-                        bkcc = (
-                            pol
-                            if pol
-                            and pol.upper()
-                            not in {"NONE", "GLOBAL", "SOURCE_SYSTEM_PREFIX_REQUIRED"}
-                            else (eff_rec_src if tier == "TIER_3_LOCAL_SCOPED" else "GLOBAL")
-                        )
-                        return tier, bkcc
-    return "TIER_3_LOCAL_SCOPED", eff_rec_src
 
 
 def _synth_unstructured(docs: Any, domain: str) -> dict[str, Any]:
@@ -206,6 +175,11 @@ def _synthesize_cumulative_contract(
             except (KeyError, ValueError, AttributeError, OpenDVError):
                 h_name = f"hub_{t_slug}"
                 uri = f"urn:ontology:entity:{t_slug}"
+            h_name, uri = resolve_best_concept_by_columns(t_base, col_descs, ontology, h_name, uri)
+
+        feed_col_stats = extract_profile_col_stats(
+            extra_kwargs.get("profile_summaries"), q_table, tname, t_base
+        )
 
         declared_tier = (
             feed.get("key_authority_tier")
@@ -245,63 +219,29 @@ def _synthesize_cumulative_contract(
         else:
             eff_bkcc = raw_bkcc or inferred_bkcc or "GLOBAL"
 
-        bk_cols = list(pks) if pks else []
-        if not bk_cols and ontology:
-            cnames = {cd.get("name") for cd in col_descs if cd.get("name")}
-            for cbc in getattr(ontology, "canonical_business_concepts", []):
-                kat = getattr(cbc, "key_authority_tiers", None)
-                if (cbc.concept_uri == uri or cbc.target_hub == h_name) and kat:
-                    tiers = (
-                        kat.tier_1_global_standard,
-                        kat.tier_2_enterprise_sor,
-                        kat.tier_3_local_scoped,
-                    )
-                    pats = [
-                        p for t in tiers if t for p in (getattr(t, "column_patterns", None) or [])
-                    ]
-                    m = next((p for p in pats if p in cnames), None)
-                    if m:
-                        bk_cols = [m]
-                        break
+        sal_spec = detect_crosswalk_sal_spec(col_descs, uri, h_name, ontology)
+        if sal_spec is not None:
+            bk_cols = [sal_spec["master_col"]]
+        else:
+            bk_cols = _resolve_non_surrogate_bks(pks, col_descs, fks, ontology, uri, h_name, t_slug)
+        bk_cols, fks = infer_kat_bk_and_fks(
+            col_descs,
+            bk_cols,
+            fks,
+            ontology,
+            uri,
+            h_name,
+            hubs_by_name,
+            skip_sal=sal_spec is not None,
+        )
         if not bk_cols:
-            bk_cols = [f"{t_slug}_id"]
-
-        if ontology:
-            for cd in col_descs:
-                cname = cd.get("name", "")
-                if cname in bk_cols or any(
-                    (f.get("fk_column") or f.get("source_column")) == cname for f in fks
-                ):
-                    continue
-                for cbc in getattr(ontology, "canonical_business_concepts", []):
-                    if (
-                        cbc.concept_uri == uri
-                        or cbc.target_hub == h_name
-                        or (cbc.target_hub == "hub_document" and cname != "doc_id")
-                    ):
-                        continue
-                    kat = getattr(cbc, "key_authority_tiers", None)
-                    if kat:
-                        tiers = (
-                            kat.tier_1_global_standard,
-                            kat.tier_2_enterprise_sor,
-                            kat.tier_3_local_scoped,
-                        )
-                        pats = [
-                            p
-                            for t in tiers
-                            if t
-                            for p in (getattr(t, "column_patterns", None) or [])
-                        ]
-                        if cname in pats:
-                            fks.append(
-                                {
-                                    "fk_column": cname,
-                                    "target_table": cbc.target_hub.removeprefix("hub_"),
-                                    "target_column": cname,
-                                }
-                            )
-                            break
+            bk_cols = infer_natural_bk(
+                col_descs, feed_col_stats, fks, ontology, uri, h_name, t_slug
+            ) or [f"{t_slug}_id"]
+            if ontology and sal_spec is None:
+                _, fks = infer_kat_bk_and_fks(
+                    col_descs, bk_cols, fks, ontology, uri, h_name, hubs_by_name
+                )
         is_tier3 = eff_tier == "TIER_3_LOCAL_SCOPED"
         primary_bks = _bks(q_table, bk_cols, eff_rec_src, eff_tier, is_tier3, eff_bkcc)
         if h_name not in hubs_by_name:
@@ -324,6 +264,12 @@ def _synthesize_cumulative_contract(
                     "VARCHAR(64)",
                 )
                 ledger.append(_make_entry(q_table, bk, "BUSINESS_KEY", h_name, stype))
+
+        if sal_spec is not None:
+            emit_crosswalk_sal_entities(
+                sal_spec, q_table, col_descs, links_by_name, sats_by_name, ledger
+            )
+            continue
 
         # 2. Split Satellites (Alg A.1 3-axis split: standard vs PII/MNPI)
         std_payload: list[str] = []
@@ -383,6 +329,11 @@ def _synthesize_cumulative_contract(
         for sname, sec, cols in sat_plan:
             if not cols:
                 continue
+            if (
+                sname in sats_by_name
+                and sats_by_name[sname].get("source_bronze_table") != q_table
+            ):
+                sname = f"{sname}_{t_slug}"
             if sname not in sats_by_name:
                 sats_by_name[sname] = {
                     "name": sname,
@@ -449,8 +400,8 @@ def _synthesize_cumulative_contract(
 
             hub_slug = h_name.removeprefix("hub_")
             tgt_hub_slug = tgt_hub.removeprefix("hub_")
-            lnk_name = f"lnk_{hub_slug}_{tgt_hub_slug}"
-            if ontology:
+            lnk_name = fk.get("target_link") or f"lnk_{hub_slug}_{tgt_hub_slug}"
+            if not fk.get("target_link") and ontology:
                 for rel in getattr(ontology, "canonical_relationships", []):
                     eps = set(rel.endpoints)
                     if (uri in eps and tgt_uri in eps) and rel.target_link:
@@ -458,11 +409,16 @@ def _synthesize_cumulative_contract(
                         break
             alias_map = dict(cfg.canonical_link_aliases)
             lnk_name = alias_map.get(lnk_name, lnk_name)
+            st_col = feed_col_stats.get(fk_col) or feed_col_stats.get(fk_col.lower()) or {}
+            nn_val = st_col.get("non_null_ratio")
+            is_sparse = nn_val is not None and float(nn_val) < cfg.sparse_fk_null_threshold
             if lnk_name not in links_by_name:
-                try:
-                    rel_uri = _resolve_relationship_uri(lnk_name, [h_name, tgt_hub], ontology)
-                except (KeyError, ValueError, AttributeError, OpenDVError):
-                    rel_uri = f"urn:ontology:relationship:{t_slug}_{tgt_slug}"
+                rel_uri = fk.get("relationship_uri")
+                if not rel_uri:
+                    try:
+                        rel_uri = _resolve_relationship_uri(lnk_name, [h_name, tgt_hub], ontology)
+                    except (KeyError, ValueError, AttributeError, OpenDVError):
+                        rel_uri = f"urn:ontology:relationship:{t_slug}_{tgt_slug}"
 
                 refs = [
                     {
@@ -472,7 +428,7 @@ def _synthesize_cumulative_contract(
                     }
                     for th, cs in ((h_name, bk_cols), (tgt_hub, [fk_col]))
                 ]
-                links_by_name[lnk_name] = {
+                lnk_obj: dict[str, Any] = {
                     "name": lnk_name,
                     "link_type": "STANDARD_LINK",
                     "ontology_concept_uri": rel_uri,
@@ -480,6 +436,11 @@ def _synthesize_cumulative_contract(
                     "hub_references": refs,
                     "degenerate_columns": [],
                 }
+                if is_sparse:
+                    lnk_obj["where_filter_condition"] = f"{fk_col} IS NOT NULL"
+                links_by_name[lnk_name] = lnk_obj
+            elif is_sparse and not links_by_name[lnk_name].get("where_filter_condition"):
+                links_by_name[lnk_name]["where_filter_condition"] = f"{fk_col} IS NOT NULL"
 
             if not any(
                 e.get("bronze_table") == q_table
@@ -491,7 +452,8 @@ def _synthesize_cumulative_contract(
                     (c.get("physical_type") for c in col_descs if c.get("name") == fk_col),
                     "VARCHAR(64)",
                 )
-                ledger.append(_make_entry(q_table, fk_col, "FOREIGN_KEY_REF", lnk_name, stype))
+                role = "OPTIONAL_FOREIGN_KEY_REF" if is_sparse else "FOREIGN_KEY_REF"
+                ledger.append(_make_entry(q_table, fk_col, role, lnk_name, stype))
 
     stage = "COLD_START_N1" if is_cold_start and not deployed_contract else "MULTI_SOURCE_EXPANSION"
     hsc: dict[str, int] = {}

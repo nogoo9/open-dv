@@ -22,10 +22,16 @@ from tests.parity.transports import (
 def test_scenario_parity(
     spec: ScenarioSpec,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     platform_api_client: TestClient,
     client_cli_transport: ClientCliTransport,
 ) -> None:
     """Verify cross-surface parity between Standalone CLI, Direct REST, and Client CLI transports."""
+    cli_state_dir = tmp_path / "cli_state"
+    cli_state_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("OPENDV_STATE_DIR", str(cli_state_dir))
+    monkeypatch.setenv("OPENDV_STORAGE_ROOT", str(cli_state_dir))
+
     cli_transport = StandaloneCliTransport(tmp_path / "cli_ws")
     rest_transport = DirectRestTransport(platform_api_client)
 

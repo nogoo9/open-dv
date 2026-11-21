@@ -8,6 +8,7 @@ providing typed defaults with transparent environment variable overrides.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from functools import lru_cache
 from typing import Any
@@ -32,6 +33,40 @@ from opendv_core.constants import (
 # Standard environment variable prefix for core modeling overrides
 ENV_PREFIX = "OPENDV_"
 
+CREDENTIALS_REF_RE = re.compile(r"^(env|secret):[A-Za-z0-9_-]+$")
+FORBIDDEN_SECRET_KEYS: frozenset[str] = frozenset(
+    {
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "access_token",
+        "refresh_token",
+        "bearer_token",
+        "auth",
+        "auth_token",
+        "access_key",
+        "private_key",
+        "connection_string",
+        "dsn",
+    }
+)
+
+
+def validate_credentials_ref(creds: str | None) -> str | None:
+    """Validate credentials_ref per REQ-CFG-01 (must be env:NAME or secret:NAME)."""
+    if creds is None:
+        return None
+    cleaned = creds.strip()
+    if not cleaned or not CREDENTIALS_REF_RE.match(cleaned):
+        raise ValueError(
+            f"Literal secret detected in credentials_ref '{creds}'. "
+            "Must start with 'env:' or 'secret:'."
+        )
+    return cleaned
+
 
 class CoreModelingConfig(BaseModel):
     """Declarative modeling thresholds and sentinels for Open-DV core algorithms."""
@@ -53,6 +88,23 @@ class CoreModelingConfig(BaseModel):
         ge=0.0,
         le=1.0,
         description="Minimum value sample Jaccard overlap to confirm column rename.",
+    )
+    structural_rename_similarity_threshold: float = Field(
+        default=0.70,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum combined type-compatible token/abbreviation similarity to classify "
+            "a column rename when value Jaccard samples match distribution or are absent."
+        ),
+    )
+    max_jaccard_profile_values_per_col: int = Field(
+        default=500,
+        ge=1,
+        description=(
+            "Maximum distinct non-PII sample values retained per column for cross-wave "
+            "Jaccard value profiling."
+        ),
     )
     companion_satellite_volatility_tier: str = Field(
         default="ADDITIVE_DRIFT_COMPANION",
@@ -169,6 +221,30 @@ class CoreModelingConfig(BaseModel):
     default_antigravity_fast_model: str = Field(
         default="gemini-3.8-flash-high",
         description="Default Antigravity/Gemini fast model ID for utility personas.",
+    )
+
+    # Agent prompt evidence budgeting thresholds
+    max_agent_prompt_chars: int = Field(
+        default=32_000,
+        ge=2_000,
+        description="Maximum total characters for build_safe_agent_prompt evidence payload.",
+    )
+    max_agent_prompt_chunks: int = Field(
+        default=48,
+        ge=1,
+        description="Maximum number of document evidence chunks packed into an agent prompt.",
+    )
+    max_agent_prompt_chunk_chars: int = Field(
+        default=850,
+        ge=100,
+        description="Maximum excerpt length in characters per chunk in an agent prompt.",
+    )
+    small_inline_note_max_chars: int = Field(
+        default=2_000,
+        ge=100,
+        description=(
+            "Total source char limit below which non-PDF inline notes are always preserved."
+        ),
     )
 
     # Algorithm A.5 hashing and Data Vault 2.0 sentinel defaults
@@ -295,7 +371,9 @@ def get_core_modeling_config() -> CoreModelingConfig:
 
 
 __all__ = [
+    "CREDENTIALS_REF_RE",
     "ENV_PREFIX",
     "CoreModelingConfig",
     "get_core_modeling_config",
+    "validate_credentials_ref",
 ]

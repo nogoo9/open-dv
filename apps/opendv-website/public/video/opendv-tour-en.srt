@@ -1,250 +1,69 @@
 1
-00:00:00,250 --> 00:00:03,370
-Data Vault 2.0 gives enterprises complete
+00:00:00,250 --> 00:00:08,500
+Data Vault 2.0 gives enterprises complete historical
+auditability and resilient multi-source integration.
 
 2
-00:00:03,370 --> 00:00:06,490
-historical auditability and resilient
-multi-source integration.
+00:00:08,500 --> 00:00:18,200
+Yet asking an LLM to write Data Vault SQL directly risks
+hash collisions, leaked surrogate keys, and destructive UPDATEs.
 
 3
-00:00:06,490 --> 00:00:11,259
-Yet if you ask an LLM to write Data Vault
-SQL directly, subtle mistakes,
+00:00:18,200 --> 00:00:27,850
+Open-DV pairs Agent-first discovery with the 6-gate axi-dv
+verifier before 5-Zone (Z0-Z4) SQL compiles.
 
 4
-00:00:11,259 --> 00:00:13,643
-delimiter hash collisions, leaked surrogate
-keys, or
+00:00:28,250 --> 00:00:39,500
+Launch locally on loopback 127.0.0.1:8420 with opendv serve --open,
+zero login friction, and fail-closed --allow-remote-unauthenticated guard.
 
 5
-00:00:13,643 --> 00:00:16,368
-destructive satellite updates, silently
-corrupt your audit trail.
+00:00:39,500 --> 00:00:51,500
+In Steps 1 to 3 of the Unified 6-Step Wizard, choose a baseline or
+6 starter packs, attach SQLite, Databricks UC, PDFs, and inline notes.
 
 6
-00:00:16,368 --> 00:00:19,258
-Open-DV solves this with a neuro-symbolic
-architecture:
+00:00:51,500 --> 00:01:01,500
+Preview up to 50 local rows and LiteParse spans with zero mention
+floor, or Fast-Forward to Step 6 when your schema is ready.
 
 7
-00:00:19,258 --> 00:00:22,148
-agents discover semantics and propose a
-declarative
+00:01:02,250 --> 00:01:15,500
+Step 4 enforces the 422 AGENT_NOT_CONFIGURED setup gate and live Cost
+Meter before single-pass synthesis across 6 harness providers.
 
 8
-00:00:22,148 --> 00:00:25,038
-VaultBlueprint, while a deterministic
-six-gate verifier and
+00:01:15,500 --> 00:01:28,500
+Cherry-pick Beyond-FIBO and 1x Semantic rules, inspect citations in
+the 716px drawer, and review the Step 5 elkjs diff graph or export YAML/TTL.
 
 9
-00:00:25,038 --> 00:00:27,850
-compiler prove every invariant before
-generating SQL.
+00:01:28,500 --> 00:01:37,500
+Step 6 auto-binds deployed_contract and runs the 7-pill 00-06 console
+with inline Steward Hold, Budget Hold, and Drift Sync back to Step 4.
 
 10
-00:00:28,250 --> 00:00:30,500
-Every model begins with business
+00:01:38,250 --> 00:01:51,500
+Gates G0 through G5 enforce SQLGlot AST rules, NetworkX bipartite
+proofs, and 4 adversarial DuckDB batches with @toon_v1 self-healing.
 
 11
-00:00:30,500 --> 00:00:33,200
-meaning in the Ontology Construction Studio.
+00:01:51,500 --> 00:02:04,850
+Switch to the 4-View DV Schema Explorer to inspect Hub-Link-Sat-PIT
+topology, 100% Column Triage, W1-W2-W3 diffs, and Safe Read-Only SQL.
 
 12
-00:00:33,200 --> 00:00:36,215
-Drop in regulatory filings, schemas, or
+00:02:05,250 --> 00:02:20,000
+Open Logs & Traces in SessionLogsInspector for live W3C EventSource
+telemetry, PII-masked prompts, LLM outputs, and 50 MB bundle export.
 
 13
-00:00:36,215 --> 00:00:39,733
-domain notes, even in Confidential
-air-gapped mode.
+00:02:20,000 --> 00:02:31,850
+Compile multi-dialect DuckDB and Databricks Delta 5-Zone (Z0-Z4) SQL
+spanning bronze, staging, raw_vault, business_vault, and information_mart.
 
 14
-00:00:39,733 --> 00:00:42,630
-Open-DV grounds candidate concepts against
-
-15
-00:00:42,630 --> 00:00:45,528
-EDM Council FIBO standards, surfaces
-
-16
-00:00:45,528 --> 00:00:48,425
-targeted clarification questions, and stages
-
-17
-00:00:48,425 --> 00:00:51,902
-a reviewable proposal in Content-Addressable
-Storage.
-
-18
-00:00:51,902 --> 00:00:54,152
-Once accepted, you can inspect the
-
-19
-00:00:54,152 --> 00:00:56,402
-interactive semantic graph, preview its seed
-
-20
-00:00:56,402 --> 00:00:58,652
-Data Vault DDL, and send the
-
-21
-00:00:58,652 --> 00:01:01,277
-signed VaultBlueprint straight into the
-Pipeline Builder.
-
-22
-00:01:02,250 --> 00:01:05,698
-Inside the four-step Pipeline Builder, there
-are no
-
-23
-00:01:05,698 --> 00:01:09,145
-manual wave types or baseline CSVs to
-configure.
-
-24
-00:01:09,145 --> 00:01:12,548
-Because our blueprint has no prior contract
-
-25
-00:01:12,548 --> 00:01:15,950
-yet, Open-DV automatically infers a
-Greenfield design.
-
-26
-00:01:15,950 --> 00:01:21,280
-In Step 2, we connect a multi-table Asset
-Management SQLite database.
-
-27
-00:01:21,280 --> 00:01:24,287
-Open-DV introspects every table, primary
-key,
-
-28
-00:01:24,287 --> 00:01:27,294
-and foreign key in read-only mode.
-
-29
-00:01:27,294 --> 00:01:31,268
-In Step 3, we set governance policies and
-select
-
-30
-00:01:31,268 --> 00:01:35,242
-both DuckDB and Databricks Delta as output
-SQL dialects.
-
-31
-00:01:38,250 --> 00:01:41,649
-Clicking Run Pipeline launches the
-eight-stage neuro-symbolic loop.
-
-32
-00:01:41,649 --> 00:01:44,230
-Scouts profile uniqueness and entropy;
-Ship-Vault
-
-33
-00:01:44,230 --> 00:01:47,241
-synthesizes 3-Tier Business Key Hubs, Links,
-and
-
-34
-00:01:47,241 --> 00:01:50,253
-PII-isolated Satellites; and Gate 0 through
-Gate
-
-35
-00:01:50,253 --> 00:01:53,264
-5 verify the contract with SQLGlot AST
-
-36
-00:01:53,264 --> 00:01:55,845
-checks, NetworkX bipartite graph proofs, and
-
-37
-00:01:55,845 --> 00:01:58,857
-four adversarial batches inside an in-memory
-DuckDB
-
-38
-00:01:58,857 --> 00:02:01,868
-four-zone shadow sandbox, auto-healing any
-violation via
-
-39
-00:02:01,868 --> 00:02:04,850
-compact TOON traces before sealing Revision
-1.
-
-40
-00:02:05,250 --> 00:02:07,901
-Now watch what happens on Day 2 when
-upstream data changes.
-
-41
-00:02:07,901 --> 00:02:10,330
-We pass Revision 1 back in alongside new
-
-42
-00:02:10,330 --> 00:02:13,062
-Databricks Unity Catalog tables carrying PII
-governance tags, a
-
-43
-00:02:13,062 --> 00:02:15,491
-drifted SQLite holdings table with new ESG
-columns,
-
-44
-00:02:15,491 --> 00:02:18,224
-and a regulatory filing, all in a single
-run.
-
-45
-00:02:18,224 --> 00:02:21,548
-Open-DV computes a Hybrid Per-Source plan:
-pushing aggregate profiling
-
-46
-00:02:21,548 --> 00:02:24,872
-down to Databricks, locking existing Hubs
-and Links under
-
-47
-00:02:24,872 --> 00:02:28,195
-Algorithm A.7, routing drifted columns into
-an additive companion
-
-48
-00:02:28,195 --> 00:02:30,042
-satellite without touching historical hash
-
-49
-00:02:30,042 --> 00:02:31,850
-diffs, and grounding document spans.
-
-50
-00:02:32,250 --> 00:02:34,583
-Export your cryptographically chained
-VaultBlueprint, Canonical IR,
-
-51
-00:02:34,583 --> 00:02:36,916
-and executable four-zone DuckDB and
-Databricks Delta
-
-52
-00:02:36,916 --> 00:02:39,248
-SQL, or run the exact same workflow
-
-53
-00:02:39,248 --> 00:02:41,581
-headlessly in CI with opendv and opendvctl.
-
-54
-00:02:41,581 --> 00:02:44,850
-Clone Open-DV on GitHub and build your first
-verified vault in five minutes.
+00:02:32,250 --> 00:02:44,850
+Run the same workflow headlessly with opendv and opendvctl parity
+subcommands: run dv-schema, attach-source, fibo-qa, and ontology studio logs.

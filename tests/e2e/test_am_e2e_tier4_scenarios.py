@@ -816,10 +816,8 @@ def test_scenario_06_adversarial_security_and_role_escalation(tmp_path: Path) ->
     )
     assert code_unauth == 7, "Unauthorized modeler waiver promotion must be rejected with exit 7"
 
-    # 2. Tampered waiver key attempt (forged credentials)
-    forged_key_file = ws / "forged_key.txt"
-    forged_key_file.write_text("badc0ffeedeadbeef0123456789abcdef", encoding="utf-8")
-    code_forged, _, _ = _invoke_cli(
+    # 2. Role escalation via --authorized-role under ADMIN must be rejected (FR-AUTH-02)
+    code_escalated, _, _ = _invoke_cli(
         "STANDALONE_INPROCESS",
         [
             "ontology",
@@ -834,19 +832,17 @@ def test_scenario_06_adversarial_security_and_role_escalation(tmp_path: Path) ->
             prop["base_sha256"],
             "--low-confidence-waiver",
             "--waiver-rationale",
-            "Attempting waiver with forged key.",
+            "Attempting waiver with non-admin authorized-role claim.",
             "--authorized-by",
             "admin:mallory",
             "--authorized-role",
-            "ADMIN",
-            "--waiver-key-file",
-            str(forged_key_file),
+            "INTERNAL_MODELER",
             "--json",
         ],
         ws,
         role="ADMIN",
     )
-    assert code_forged == 7, "Forged waiver credentials must be rejected with exit 7"
+    assert code_escalated == 7, "Non-admin --authorized-role waiver must be rejected with exit 7"
 
     # 3. Non-admin session deletion attempt
     code_del_unauth, _, _ = _invoke_cli(

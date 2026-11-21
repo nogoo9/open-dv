@@ -71,18 +71,21 @@ CREATE OR REPLACE VIEW bronze.billing_stripe_stripe_invoices AS SELECT * FROM br
 CREATE OR REPLACE TABLE bronze.src_lnk_order_customer_promotion (
     hk_order__bkcc VARCHAR,
     hk_order__order_id VARCHAR,
+    order_id VARCHAR,
     hk_customer__bkcc VARCHAR,
     hk_customer__customer_tax_id VARCHAR,
+    customer_tax_id VARCHAR,
     hk_promotion__bkcc VARCHAR,
     hk_promotion__promo_campaign_code VARCHAR,
+    promo_campaign_code VARCHAR,
     load_dts TIMESTAMP,
     rec_src VARCHAR
 );
 INSERT INTO bronze.src_lnk_order_customer_promotion VALUES
-    ('ERP_NETSUITE_ERP_ORDERS', 'ORDER-001', 'CRM_SALESFORCE_CRM_CUSTOMERS', 'CUSTOMER-001', 'ERP_NETSUITE', 'PROMOTION-001', TIMESTAMP '2026-10-01 06:00:00', 'ERP_NETSUITE_ERP_ORDERS'),
-    ('ERP_NETSUITE_ERP_ORDERS', 'ORDER-002', 'CRM_SALESFORCE_CRM_CUSTOMERS', NULL, 'ERP_NETSUITE', NULL, TIMESTAMP '2026-10-01 06:00:00', 'ERP_NETSUITE_ERP_ORDERS'),
-    ('ERP_NETSUITE_ERP_ORDERS', 'ORDER-001', 'CRM_SALESFORCE_CRM_CUSTOMERS', '-1', 'ERP_NETSUITE', '-1', TIMESTAMP '2026-10-01 06:00:00', 'ERP_NETSUITE_ERP_ORDERS'),
-    ('ERP_NETSUITE_ERP_ORDERS', 'ORDER-002', 'CRM_SALESFORCE_CRM_CUSTOMERS', '-2', 'ERP_NETSUITE', '-2', TIMESTAMP '2026-10-01 06:00:00', 'ERP_NETSUITE_ERP_ORDERS');
+    ('ERP_NETSUITE_ERP_ORDERS', 'ORDER-001', 'ORDER-001', 'CRM_SALESFORCE_CRM_CUSTOMERS', 'CUSTOMER-001', 'CUSTOMER-001', 'ERP_NETSUITE', 'PROMOTION-001', 'PROMOTION-001', TIMESTAMP '2026-10-01 06:00:00', 'ERP_NETSUITE_ERP_ORDERS'),
+    ('ERP_NETSUITE_ERP_ORDERS', 'ORDER-002', 'ORDER-002', 'CRM_SALESFORCE_CRM_CUSTOMERS', NULL, NULL, 'ERP_NETSUITE', NULL, NULL, TIMESTAMP '2026-10-01 06:00:00', 'ERP_NETSUITE_ERP_ORDERS'),
+    ('ERP_NETSUITE_ERP_ORDERS', 'ORDER-001', 'ORDER-001', 'CRM_SALESFORCE_CRM_CUSTOMERS', '-1', '-1', 'ERP_NETSUITE', '-1', '-1', TIMESTAMP '2026-10-01 06:00:00', 'ERP_NETSUITE_ERP_ORDERS'),
+    ('ERP_NETSUITE_ERP_ORDERS', 'ORDER-002', 'ORDER-002', 'CRM_SALESFORCE_CRM_CUSTOMERS', '-2', '-2', 'ERP_NETSUITE', '-2', '-2', TIMESTAMP '2026-10-01 06:00:00', 'ERP_NETSUITE_ERP_ORDERS');
 
 CREATE OR REPLACE TABLE bronze.src_lnk_order_customer (
     hk_order__bkcc VARCHAR,
@@ -132,15 +135,12 @@ CREATE OR REPLACE TABLE bronze.src_sat_customer_core_ext_v2 (
     load_dts TIMESTAMP,
     rec_src VARCHAR,
     annual_spend_band VARCHAR,
-    contact_email VARCHAR,
     customer_row_seq INTEGER,
-    customer_tax_id VARCHAR,
-    loyalty_tier_code VARCHAR,
-    tax_ssn_tin VARCHAR
+    loyalty_tier_code VARCHAR
 );
 INSERT INTO bronze.src_sat_customer_core_ext_v2 VALUES
-    ('CRM_SALESFORCE_CRM_CUSTOMERS', 'CUSTOMER-001', TIMESTAMP '2026-10-01 06:00:00', 'CRM_SALESFORCE_CRM_CUSTOMERS', 'annual_spend_band_val_1', 'contact_email_val_1', 100, 'customer_tax_id_val_1', 'loyalty_tier_code_val_1', 'tax_ssn_tin_val_1'),
-    ('CRM_SALESFORCE_CRM_CUSTOMERS', 'CUSTOMER-002', TIMESTAMP '2026-10-01 06:00:00', 'CRM_SALESFORCE_CRM_CUSTOMERS', 'annual_spend_band_val_2', 'contact_email_val_2', 200, 'customer_tax_id_val_2', 'loyalty_tier_code_val_2', 'tax_ssn_tin_val_2');
+    ('CRM_SALESFORCE_CRM_CUSTOMERS', 'CUSTOMER-001', TIMESTAMP '2026-10-01 06:00:00', 'CRM_SALESFORCE_CRM_CUSTOMERS', 'annual_spend_band_val_1', 100, 'loyalty_tier_code_val_1'),
+    ('CRM_SALESFORCE_CRM_CUSTOMERS', 'CUSTOMER-002', TIMESTAMP '2026-10-01 06:00:00', 'CRM_SALESFORCE_CRM_CUSTOMERS', 'annual_spend_band_val_2', 200, 'loyalty_tier_code_val_2');
 
 CREATE OR REPLACE TABLE bronze.src_sat_customer_pii (
     parent_bk__bkcc VARCHAR,
@@ -289,11 +289,8 @@ CREATE TABLE IF NOT EXISTS raw_vault.sat_customer_core_ext_v2 (
     rec_src VARCHAR NOT NULL,
     hash_diff CHAR(64) NOT NULL,
     annual_spend_band VARCHAR,
-    contact_email VARCHAR,
     customer_row_seq INTEGER,
-    customer_tax_id VARCHAR,
     loyalty_tier_code VARCHAR,
-    tax_ssn_tin VARCHAR,
     PRIMARY KEY (hk_customer, load_dts)
 );
 INSERT OR IGNORE INTO raw_vault.sat_customer_core_ext_v2 (hk_customer, load_dts, rec_src, hash_diff) VALUES
@@ -416,6 +413,7 @@ WITH fk_resolved AS (
         load_dts,
         rec_src
     FROM bronze.src_lnk_order_customer_promotion
+    WHERE promo_campaign_code IS NOT NULL
 )
 SELECT
     CASE WHEN (hk_order = REPEAT('f', 64) AND hk_customer = REPEAT('f', 64) AND hk_promotion = REPEAT('f', 64)) OR (TRIM(CAST(hk_order AS VARCHAR)) = '-2' OR TRIM(CAST(hk_customer AS VARCHAR)) = '-2' OR TRIM(CAST(hk_promotion AS VARCHAR)) = '-2') THEN REPEAT('f', 64) WHEN (hk_order = REPEAT('0', 64) AND hk_customer = REPEAT('0', 64) AND hk_promotion = REPEAT('0', 64)) OR ((NULLIF(TRIM(CAST(hk_order AS VARCHAR)), '') IS NULL OR TRIM(CAST(hk_order AS VARCHAR)) = '-1') OR (NULLIF(TRIM(CAST(hk_customer AS VARCHAR)), '') IS NULL OR TRIM(CAST(hk_customer AS VARCHAR)) = '-1') OR (NULLIF(TRIM(CAST(hk_promotion AS VARCHAR)), '') IS NULL OR TRIM(CAST(hk_promotion AS VARCHAR)) = '-1')) THEN REPEAT('0', 64) ELSE LOWER(SHA256(CASE WHEN NULLIF(UPPER(TRIM(CAST(hk_order AS VARCHAR))), '') IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(ENCODE(NULLIF(UPPER(TRIM(CAST(hk_order AS VARCHAR))), ''))) AS VARCHAR) || ':' || NULLIF(UPPER(TRIM(CAST(hk_order AS VARCHAR))), '') END || '||' || CASE WHEN NULLIF(UPPER(TRIM(CAST(hk_customer AS VARCHAR))), '') IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(ENCODE(NULLIF(UPPER(TRIM(CAST(hk_customer AS VARCHAR))), ''))) AS VARCHAR) || ':' || NULLIF(UPPER(TRIM(CAST(hk_customer AS VARCHAR))), '') END || '||' || CASE WHEN NULLIF(UPPER(TRIM(CAST(hk_promotion AS VARCHAR))), '') IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(ENCODE(NULLIF(UPPER(TRIM(CAST(hk_promotion AS VARCHAR))), ''))) AS VARCHAR) || ':' || NULLIF(UPPER(TRIM(CAST(hk_promotion AS VARCHAR))), '') END)) END AS hk_lnk_order_customer_promotion,
@@ -498,8 +496,8 @@ SELECT
     CASE WHEN TRIM(CAST(parent_bk__customer_tax_id AS VARCHAR)) = '-2' THEN REPEAT('f', 64) WHEN (NULLIF(TRIM(CAST(parent_bk__customer_tax_id AS VARCHAR)), '') IS NULL OR TRIM(CAST(parent_bk__customer_tax_id AS VARCHAR)) = '-1') THEN REPEAT('0', 64) ELSE LOWER(SHA256('28:CRM_SALESFORCE_CRM_CUSTOMERS' || '||' || CASE WHEN NULLIF(UPPER(TRIM(CAST(parent_bk__customer_tax_id AS VARCHAR))), '') IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(ENCODE(NULLIF(UPPER(TRIM(CAST(parent_bk__customer_tax_id AS VARCHAR))), ''))) AS VARCHAR) || ':' || NULLIF(UPPER(TRIM(CAST(parent_bk__customer_tax_id AS VARCHAR))), '') END)) END AS hk_customer,
     load_dts,
     rec_src,
-    LOWER(SHA256(CASE WHEN NULLIF(TRIM(CAST(annual_spend_band AS VARCHAR)), '') IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(ENCODE(NULLIF(TRIM(CAST(annual_spend_band AS VARCHAR)), ''))) AS VARCHAR) || ':' || NULLIF(TRIM(CAST(annual_spend_band AS VARCHAR)), '') END || '||' || CASE WHEN NULLIF(TRIM(CAST(contact_email AS VARCHAR)), '') IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(ENCODE(NULLIF(TRIM(CAST(contact_email AS VARCHAR)), ''))) AS VARCHAR) || ':' || NULLIF(TRIM(CAST(contact_email AS VARCHAR)), '') END || '||' || CASE WHEN NULLIF(TRIM(CAST(customer_row_seq AS VARCHAR)), '') IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(ENCODE(NULLIF(TRIM(CAST(customer_row_seq AS VARCHAR)), ''))) AS VARCHAR) || ':' || NULLIF(TRIM(CAST(customer_row_seq AS VARCHAR)), '') END || '||' || CASE WHEN NULLIF(TRIM(CAST(customer_tax_id AS VARCHAR)), '') IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(ENCODE(NULLIF(TRIM(CAST(customer_tax_id AS VARCHAR)), ''))) AS VARCHAR) || ':' || NULLIF(TRIM(CAST(customer_tax_id AS VARCHAR)), '') END || '||' || CASE WHEN NULLIF(TRIM(CAST(loyalty_tier_code AS VARCHAR)), '') IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(ENCODE(NULLIF(TRIM(CAST(loyalty_tier_code AS VARCHAR)), ''))) AS VARCHAR) || ':' || NULLIF(TRIM(CAST(loyalty_tier_code AS VARCHAR)), '') END || '||' || CASE WHEN NULLIF(TRIM(CAST(tax_ssn_tin AS VARCHAR)), '') IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(ENCODE(NULLIF(TRIM(CAST(tax_ssn_tin AS VARCHAR)), ''))) AS VARCHAR) || ':' || NULLIF(TRIM(CAST(tax_ssn_tin AS VARCHAR)), '') END)) AS hash_diff,
-    annual_spend_band, contact_email, customer_row_seq, customer_tax_id, loyalty_tier_code, tax_ssn_tin
+    LOWER(SHA256(CASE WHEN NULLIF(TRIM(CAST(annual_spend_band AS VARCHAR)), '') IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(ENCODE(NULLIF(TRIM(CAST(annual_spend_band AS VARCHAR)), ''))) AS VARCHAR) || ':' || NULLIF(TRIM(CAST(annual_spend_band AS VARCHAR)), '') END || '||' || CASE WHEN NULLIF(TRIM(CAST(customer_row_seq AS VARCHAR)), '') IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(ENCODE(NULLIF(TRIM(CAST(customer_row_seq AS VARCHAR)), ''))) AS VARCHAR) || ':' || NULLIF(TRIM(CAST(customer_row_seq AS VARCHAR)), '') END || '||' || CASE WHEN NULLIF(TRIM(CAST(loyalty_tier_code AS VARCHAR)), '') IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(ENCODE(NULLIF(TRIM(CAST(loyalty_tier_code AS VARCHAR)), ''))) AS VARCHAR) || ':' || NULLIF(TRIM(CAST(loyalty_tier_code AS VARCHAR)), '') END)) AS hash_diff,
+    annual_spend_band, customer_row_seq, loyalty_tier_code
 FROM bronze.src_sat_customer_core_ext_v2;
 
 CREATE OR REPLACE VIEW staging.stg_sat_customer_pii AS
@@ -695,14 +693,14 @@ WHERE src.hk_customer NOT IN ('0000000000000000000000000000000000000000000000000
   );
 
 INSERT INTO raw_vault.sat_customer_core_ext_v2 (
-    hk_customer, load_dts, rec_src, hash_diff, annual_spend_band, contact_email, customer_row_seq, customer_tax_id, loyalty_tier_code, tax_ssn_tin
+    hk_customer, load_dts, rec_src, hash_diff, annual_spend_band, customer_row_seq, loyalty_tier_code
 )
 SELECT
     src.hk_customer,
     src.load_dts,
     src.rec_src,
     src.hash_diff,
-    src.annual_spend_band, src.contact_email, src.customer_row_seq, src.customer_tax_id, src.loyalty_tier_code, src.tax_ssn_tin
+    src.annual_spend_band, src.customer_row_seq, src.loyalty_tier_code
 FROM staging.stg_sat_customer_core_ext_v2 src
 LEFT JOIN (
     SELECT hk_customer, load_dts, hash_diff
@@ -901,13 +899,10 @@ SELECT
     s0.credit_limit_usd AS credit_limit_usd,
     s0.legal_name AS legal_name,
     s1.annual_spend_band AS annual_spend_band,
-    s1.contact_email AS contact_email,
     s1.customer_row_seq AS customer_row_seq,
-    s1.customer_tax_id AS sat_customer_core_ext_v2__customer_tax_id,
     s1.loyalty_tier_code AS loyalty_tier_code,
-    s1.tax_ssn_tin AS tax_ssn_tin,
-    s2.contact_email AS sat_customer_pii__contact_email,
-    s2.tax_ssn_tin AS sat_customer_pii__tax_ssn_tin
+    s2.contact_email AS contact_email,
+    s2.tax_ssn_tin AS tax_ssn_tin
 FROM business_vault.pit_customer pit
 INNER JOIN raw_vault.hub_customer h ON h.hk_customer = pit.hk_customer
 INNER JOIN raw_vault.sat_customer_core s0

@@ -777,27 +777,28 @@ async def test_wp11_agy_cli_harness_adapter_subprocess_and_fallback(
 
     from opendv_agent_harness.adapters.agy_cli_adapter import (
         AgyCliHarnessAdapter,
-        _strip_internal_stage_context,
     )
 
-    # 1. Verify internal stage context marker stripping
-    prompt_with_ctx = 'Synthesize Pass 1 Triage\n__OPENDV_STAGE_CONTEXT_JSON__:{"secret": 123}'
-    assert _strip_internal_stage_context(prompt_with_ctx) == "Synthesize Pass 1 Triage"
+    # 1. Verify prompt preserves inline stage context and passes via stdin (no argv bloat)
+    prompt_with_ctx = 'Synthesize Pass 1 Triage\nInlineContext: {"secret": 123}'
 
     # 2. Verify subprocess invocation via custom agy_cli_runner
     fake_agy_exe = tmp_path / "fake_agy.exe"
     fake_agy_exe.write_text("echo fake", encoding="utf-8")
 
     captured_cmds: list[list[str]] = []
+    captured_inputs: list[str] = []
 
     def _fake_cli_runner(
         cmd: list[str],
         *,
         env: dict[str, str],
         timeout: float,
+        input_text: str = "",
     ) -> subprocess.CompletedProcess[str]:
         del env, timeout
         captured_cmds.append(list(cmd))
+        captured_inputs.append(input_text)
         out_payload = {
             "conversation_id": "conv-agy-cli-777",
             "status": "SUCCESS",
@@ -861,8 +862,10 @@ async def test_wp11_agy_cli_harness_adapter_subprocess_and_fallback(
     assert "--model" in captured_cmds[0]
     assert "gemini-4-argon-high" in captured_cmds[0]
     assert captured_cmds[0][captured_cmds[0].index("--output-format") + 1] == "stream-json"
-    assert "--json-schema" in captured_cmds[0]
-    assert "__OPENDV_STAGE_CONTEXT_JSON__" not in captured_cmds[0][2]
+    assert "--json-schema" not in captured_cmds[0]
+    assert "Return ONLY a valid JSON object conforming to this JSON Schema" in captured_inputs[0]
+    assert "Synthesize Pass 1 Triage" not in " ".join(captured_cmds[0])
+    assert 'InlineContext: {"secret": 123}' in captured_inputs[0]
 
     # 3. Verify real-time NDJSON stream-json parsing (TEXT_DELTA & THOUGHT_DELTA)
     stream_cmds: list[list[str]] = []
@@ -1035,15 +1038,18 @@ async def test_wp20_antigravity_and_agy_cli_agent_models_propagation_to_agents_a
     fake_agy_exe = tmp_path / "fake_agy_wp20.exe"
     fake_agy_exe.write_text("echo fake", encoding="utf-8")
     cli_cmds: list[list[str]] = []
+    cli_inputs: list[str] = []
 
     def _runner(
         cmd: list[str],
         *,
         env: dict[str, str],
         timeout: float,
+        input_text: str = "",
     ) -> subprocess.CompletedProcess[str]:
         del env, timeout
         cli_cmds.append(list(cmd))
+        cli_inputs.append(input_text)
         return subprocess.CompletedProcess(
             args=cmd,
             returncode=0,
@@ -1074,8 +1080,8 @@ async def test_wp20_antigravity_and_agy_cli_agent_models_propagation_to_agents_a
     }
     model_idx = cli_cmds[-1].index("--model")
     assert cli_cmds[-1][model_idx + 1] == "tier-reasoning-model"
-    assert "scout-unstructured: model=custom-unstructured-v1" in cli_cmds[-1][2]
-    assert "ship-vault: model=custom-ship-v1" in cli_cmds[-1][2]
+    assert "scout-unstructured: model=custom-unstructured-v1" in cli_inputs[-1]
+    assert "ship-vault: model=custom-ship-v1" in cli_inputs[-1]
 
     cli_su_res = await cli_adapter.run_task(su_spec)
     assert cli_su_res.model_used == "custom-unstructured-v1"
@@ -1113,12 +1119,15 @@ async def test_wp20_antigravity_and_agy_cli_agent_models_propagation_to_agents_a
             stderr="",
         )
 
-    # 5a. Default config: fails fast without opt-in
+    # 5a. Opt-in --json-schema flag with allow_cli_schema_omission_retry=False: fails fast
     agy_fb_default_cfg = cfg.model_copy(
         update={
             "provider": "agy-cli",
             "env": {"OPENDV_AGY_CLI_BIN": str(fake_agy_exe)},
-            "extra_provider_options": {"agy_cli_runner": _agy_fb_runner},
+            "extra_provider_options": {
+                "agy_cli_runner": _agy_fb_runner,
+                "agy_use_json_schema_flag": True,
+            },
             "allow_cli_schema_omission_retry": False,
         }
     )
@@ -1153,3 +1162,189 @@ async def test_wp20_antigravity_and_agy_cli_agent_models_propagation_to_agents_a
         agy_fb_events[0].observability_event.get("fallback_key")
         == "harness.cli.schema_omission_retry"
     )
+
+    # 5c. Default agy_use_json_schema_flag=False omits --json-schema and injects inline schema
+    agy_fb_cmds.clear()
+    agy_inline_cfg = cfg.model_copy(
+        update={
+            "provider": "agy-cli",
+            "env": {"OPENDV_AGY_CLI_BIN": str(fake_agy_exe)},
+            "extra_provider_options": {"agy_cli_runner": _agy_fb_runner},
+        }
+    )
+    agy_inline_res = await AgyCliHarnessAdapter(agy_inline_cfg).run_task(vfm_spec)
+    assert len(agy_fb_cmds) == 1
+    assert "--json-schema" not in agy_fb_cmds[0]
+    assert agy_inline_res.structured_output is not None
+
+
+@pytest.mark.asyncio
+async def test_agy_step_update_ndjson_streaming_and_empty_response_guard(tmp_path: Path) -> None:
+    """AgyCliHarnessAdapter parses agy step_update NDJSON & fails descriptively on empty output."""
+    import json
+    import os
+    import subprocess
+    import sys
+
+    from opendv_agent_harness.adapters.agy_cli_adapter import (
+        AgyCliHarnessAdapter,
+        ProviderConfigurationError,
+    )
+    from opendv_agent_harness.adapters.cli_subprocess_base import stream_cli_subprocess_lines
+
+    fake_agy_exe = tmp_path / "fake_agy_step.exe"
+    fake_agy_exe.write_text("echo fake", encoding="utf-8")
+
+    def _step_update_runner(
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        del env, timeout
+        raw_events = [
+            {"event": "init", "conversation_id": "conv-su-1", "init": {"model": "gemini-4"}},
+            {
+                "event": "step_update",
+                "step_update": {"step_index": 0, "state": "DONE", "step_type": "user_input"},
+            },
+            {
+                "event": "step_update",
+                "step_update": {
+                    "step_index": 1,
+                    "state": "ACTIVE",
+                    "step_type": "agent_response",
+                    "thought_delta": "Analyzing schema...",
+                },
+            },
+            {
+                "event": "step_update",
+                "step_update": {
+                    "step_index": 2,
+                    "state": "ACTIVE",
+                    "step_type": "tool",
+                    "tool_name": "read_file",
+                    "tool_info": {"name": "read_file", "parameters": {"Path": "doc.md"}},
+                },
+            },
+            {
+                "event": "step_update",
+                "step_update": {
+                    "step_index": 2,
+                    "state": "DONE",
+                    "step_type": "tool",
+                    "tool_name": "read_file",
+                    "duration_seconds": 0.1,
+                    "tool_info": {"name": "read_file", "output": "ok"},
+                },
+            },
+            {
+                "event": "step_update",
+                "step_update": {
+                    "step_index": 3,
+                    "state": "ACTIVE",
+                    "step_type": "agent_response",
+                    "text_delta": '{"contract_id":"dv_su_v1",',
+                },
+            },
+            {
+                "event": "step_update",
+                "step_update": {
+                    "step_index": 3,
+                    "state": "DONE",
+                    "step_type": "agent_response",
+                    "text_delta": '"hub_count":3,"verdict":"PASS"}',
+                    "usage": {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
+                },
+            },
+            {
+                "event": "result",
+                "result": {
+                    "conversation_id": "conv-su-1",
+                    "status": "SUCCESS",
+                    "response": "",
+                    "num_turns": 1,
+                    "usage": {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
+                },
+            },
+        ]
+        lines = [json.dumps(ev) for ev in raw_events]
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout="\n".join(lines), stderr=""
+        )
+
+    cfg = _make_config(
+        tmp_path,
+        provider="agy",
+        env={"OPENDV_AGY_CLI_BIN": str(fake_agy_exe)},
+        extra_provider_options={"agy_cli_runner": _step_update_runner},
+    )
+    adapter = AgyCliHarnessAdapter(cfg)
+    spec = build_vault_first_mate_task_spec(
+        prompt="Test step_update parsing",
+        run_id="run-su-01",
+        trace_id=SAMPLE_TRACE_ID,
+        output_schema=_SynthesisContractResult,
+    )
+    events = [ev async for ev in adapter.stream_task(spec)]
+    assert [e.delta_text for e in events if e.kind == HarnessEventKind.THOUGHT_DELTA] == [
+        "Analyzing schema..."
+    ]
+    assert [e.delta_text for e in events if e.kind == HarnessEventKind.TEXT_DELTA] == [
+        '{"contract_id":"dv_su_v1",',
+        '"hub_count":3,"verdict":"PASS"}',
+    ]
+    tool_starts = [e for e in events if e.kind == HarnessEventKind.TOOL_CALL_START]
+    tool_results = [e for e in events if e.kind == HarnessEventKind.TOOL_CALL_RESULT]
+    assert len(tool_starts) == 1 and tool_starts[0].tool_name == "read_file"
+    assert len(tool_results) == 1 and tool_results[0].tool_name == "read_file"
+
+    run_res = await adapter.run_task(spec)
+    assert isinstance(run_res.structured_output, _SynthesisContractResult)
+    assert run_res.structured_output.contract_id == "dv_su_v1"
+
+    # Empty response with denied_actions raises descriptive ProviderConfigurationError
+    def _empty_denied_runner(
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        del env, timeout
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "event": "result",
+                    "result": {
+                        "conversation_id": "conv-empty",
+                        "status": "SUCCESS",
+                        "response": "",
+                        "denied_actions": [{"action": "read_file", "display_name": "ReadFile"}],
+                    },
+                }
+            ),
+            stderr="",
+        )
+
+    empty_cfg = cfg.model_copy(
+        update={"extra_provider_options": {"agy_cli_runner": _empty_denied_runner}}
+    )
+    with pytest.raises(ProviderConfigurationError, match=r"empty response.*denied_actions"):
+        await AgyCliHarnessAdapter(empty_cfg).run_task(spec)
+
+    # Real subprocess timeout in stream_cli_subprocess_lines raises TimeoutError (for StewardHold)
+    state_out: dict[str, Any] = {}
+    with pytest.raises(TimeoutError):
+        async for _ in stream_cli_subprocess_lines(
+            [sys.executable, "-c", "import time; time.sleep(5)"],
+            input_text="",
+            env=dict(os.environ),
+            cwd=tmp_path,
+            timeout_seconds=0.15,
+            state_out=state_out,
+            cli_label="Antigravity CLI ('agy')",
+        ):
+            pass
+

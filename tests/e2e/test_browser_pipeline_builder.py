@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
 import subprocess
 from pathlib import Path
 
 import duckdb
 from tests.fixtures.public_am.fetch_public_datasets import PublicDataFetcher
-from datetime import UTC
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKBENCH_DIR = REPO_ROOT / "apps" / "opendv-web-workbench"
@@ -69,22 +69,23 @@ def _discover_chromium() -> Path:
 CHROMIUM_BINARY = _discover_chromium()
 
 EXPECTED_SCREENSHOTS = [
-    "01_ontology_studio_initial.png",
-    "02_ontology_bootstrapped.png",
-    "03_steering_proposal_applied.png",
-    "04_dv_blueprint_ddl_preview.png",
-    "05_pipeline_builder_prefilled.png",
-    "06_run1_step2_sqlite_configured.png",
-    "07_run1_step3_governance.png",
-    "08_run1_execution_diff_complete.png",
-    "09_run2_step1_evolution_mode.png",
-    "10_run2_step2_hybrid_sources_configured.png",
-    "11_run2_step3_governance.png",
-    "12_run2_hybrid_evolution_diff_complete.png",
-    "13_final_multi_dialect_ddl_exported.png",
+    "01_wizard_step1_baseline.png",
+    "02_wizard_step2_sources.png",
+    "03_wizard_step3_evidence.png",
+    "04_wizard_step4_discovery.png",
+    "05_wizard_step5_graph.png",
+    "06_wizard_step6_pipeline.png",
+    "07_dv_schema_explorer.png",
+    "08_settings_view.png",
 ]
 
 MIN_SCREENSHOT_BYTES = 10_000
+
+
+def _find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 def test_chromium_binary_present() -> None:
@@ -105,26 +106,41 @@ def test_public_dataset_staging(tmp_path: Path) -> None:
         assert path.stat().st_size > 0, f"Staged file {name} is empty"
 
 
-def test_browser_e2e_walkthrough() -> None:
-    """Execute genuine Playwright browser E2E walkthrough test and assert authentic artifacts."""
-    SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+def test_browser_e2e_walkthrough(tmp_path: Path) -> None:
+    """Execute Playwright E2E walkthrough for the unified 6-step wizard on isolated ports."""
+    e2e_screenshots_dir = WORKBENCH_DIR / "tests" / "e2e" / "screenshots"
+    e2e_screenshots_dir.mkdir(parents=True, exist_ok=True)
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Ensure public datasets are staged
     fetcher = PublicDataFetcher(output_dir=REPO_ROOT / "data" / "public_am", mode="fixture")
     fetcher.fetch_all()
 
-    # Playwright's test.beforeAll seeds the Studio session via Platform REST API.
-    # No disk mutation performed here.
-
-    # Execute genuine Playwright test via bun runner
+    # Execute genuine Playwright test via bun runner on isolated ephemeral ports & state dir
     bun_exe = shutil.which("bun")
     assert bun_exe is not None, "bun executable is required for browser E2E walkthrough"
     assert WORKBENCH_DIR.is_dir(), f"Workbench directory missing at {WORKBENCH_DIR}"
 
+    api_port = _find_free_port()
+    web_port = _find_free_port()
+    while web_port == api_port:
+        web_port = _find_free_port()
+
+    state_dir = tmp_path / "state"
+    studio_dir = tmp_path / "studio"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    studio_dir.mkdir(parents=True, exist_ok=True)
+
     env = {
         **os.environ,
         "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH": str(CHROMIUM_BINARY),
+        "OPENDV_E2E_API_PORT": str(api_port),
+        "OPENDV_E2E_WEB_PORT": str(web_port),
+        "OPENDV_BASE_URL": f"http://127.0.0.1:{web_port}",
+        "OPENDV_API_URL": f"http://127.0.0.1:{api_port}",
+        "OPENDV_STORAGE_ROOT": str(state_dir),
+        "OPENDV_STATE_DIR": str(state_dir),
+        "OPENDV_STUDIO_ROOT": str(studio_dir),
         "OPENDV_ALLOWED_HOSTS": os.environ.get(
             "OPENDV_ALLOWED_HOSTS", "127.0.0.1,localhost,am_prod,uc://am_prod"
         ),
@@ -143,7 +159,7 @@ def test_browser_e2e_walkthrough() -> None:
             env=env,
             capture_output=True,
             text=True,
-            timeout=720,
+            timeout=360,
             check=True,
         )
     except subprocess.CalledProcessError as exc:
@@ -153,8 +169,8 @@ def test_browser_e2e_walkthrough() -> None:
 
     # Assert genuine screenshots produced by Playwright (>10KB each)
     for sc in EXPECTED_SCREENSHOTS:
-        sc_path = SCREENSHOTS_DIR / sc
-        assert sc_path.exists(), f"Expected screenshot {sc} missing in {SCREENSHOTS_DIR}"
+        sc_path = e2e_screenshots_dir / sc
+        assert sc_path.exists(), f"Expected screenshot {sc} missing in {e2e_screenshots_dir}"
         assert sc_path.stat().st_size >= MIN_SCREENSHOT_BYTES, (
             f"Screenshot {sc} is too small ({sc_path.stat().st_size} bytes)"
         )

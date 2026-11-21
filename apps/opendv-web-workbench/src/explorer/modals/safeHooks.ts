@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { hasActiveReactDispatcher } from "../explorer-store";
 
 export function safeUseEffect(
@@ -33,5 +33,16 @@ export function safeUseState<T>(
 				? (initialValue as () => T)()
 				: initialValue;
 		return [val, () => {}];
+	}
+}
+
+export function safeUseRef<T>(initialValue: T): { current: T } {
+	if (!hasActiveReactDispatcher()) {
+		return { current: initialValue };
+	}
+	try {
+		return useRef(initialValue);
+	} catch {
+		return { current: initialValue };
 	}
 }

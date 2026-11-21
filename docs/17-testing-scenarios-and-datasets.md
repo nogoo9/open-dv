@@ -11,19 +11,19 @@ The Open-DV platform enforces a strict, mathematical **Parity Invariant** across
 ### 1. The Three Parity Transports
 
 1. **`STANDALONE_CLI`**: In-process Python CLI (`opendv`, located in `apps/opendv-cli`), invoking use cases in `packages/opendv-service` directly without an HTTP network hop.
-2. **`CLIENT_CLI`**: Bun-compiled standalone binary (`opendvctl`, located in `apps/opendvctl`), communicating over HTTP/SSE with the remote platform API (`--api-url http://localhost:8000`).
+2. **`CLIENT_CLI`**: Bun-compiled standalone binary (`opendvctl`, located in `apps/opendvctl`), communicating over HTTP/SSE with the remote platform API (`--api-url http://127.0.0.1:8420`).
 3. **`DIRECT_REST`**: Headless FastAPI HTTP + SSE platform server (`apps/opendv-platform-api`), invoked directly via REST endpoints (`/api/v1/*`).
 
 ### 2. The Parity Invariant
 
-For any valid operation $O \in \{\text{verify}, \text{profile}, \text{compile}, \text{sandbox}, \text{hold}, \text{ontology}, \text{pipeline}\}$ and test fixture input $I$:
+For any valid operation $O \in \{\text{verify}, \text{profile}, \text{compile}, \text{sandbox}, \text{run dv-schema}, \text{hold}, \text{ontology}, \text{ontology studio attach-source}, \text{ontology studio fibo-qa}, \text{ontology studio logs}, \text{pipeline}, \text{source}, \text{config}\}$ and test fixture input $I$:
 
 $$\text{JCS}(\text{Normalize}(T_{\text{STANDALONE}}(O, I))) \equiv \text{JCS}(\text{Normalize}(T_{\text{CLIENT}}(O, I))) \equiv \text{JCS}(\text{Normalize}(T_{\text{REST}}(O, I)))$$
 
 where:
 - **RFC 8785 JSON Canonicalization Scheme (JCS)** produces bit-for-bit identical serialization conforming strictly to RFC 8785 §3.2.2–3.2.3: object member keys sorted by UTF-16 code units (lexicographical UTF-16 order), IEEE 754 floating-point numbers formatted per ECMAScript specification without exponential notation where unneeded, rejection of NaN/Infinity, integer range bounded within $[-(2^{53}-1), 2^{53}-1]$, and zero insignificant whitespace (no inter-token whitespace or line breaks).
 - **Normalization** redacts volatile execution metadata (e.g. wall-clock timestamps, temporary CAS directory paths) while strictly verifying all deterministic outputs, gate scorecards, AST DDLs, hash pills, and DAG load orders.
-- **Exit Code Equality**: If $T_{\text{STANDALONE}}$ exits with code $C$, then $T_{\text{CLIENT}}$ must exit with code $C$, and $T_{\text{REST}}$ must return the corresponding HTTP status code mapping ($0 \implies 200$, $10 \implies 422$, $20 \implies 409$, $30 \implies 200 \text{ PAUSED}$, $40 \implies 400$).
+- **Exit Code Equality**: If $T_{\text{STANDALONE}}$ exits with code $C$, then $T_{\text{CLIENT}}$ must exit with code $C$, and $T_{\text{REST}}$ must return the corresponding HTTP status code mapping ($0 \implies 200$, $10 \implies 422$ including `422 AGENT_NOT_CONFIGURED`, $20 \implies 409$ including `409 SESSION_JOB_ACTIVE`, $30 \implies 200 \text{ PAUSED}$, $40 \implies 400$ and `opendv serve` non-loopback `--host` remote-guard refusal without `--allow-remote-unauthenticated`).
 - **Identical Error Diagnostics**: In failure modes, all three transports must emit matching error codes, field JSON paths, and `@toon_v1` remediation traces.
 
 ### 3. Scenario Registry & Meta-Test Verification
@@ -144,7 +144,7 @@ uv run opendv sandbox --local \
 - **Enforced DV 2.0 Rules & Invariants:** `Algorithm A.5` (6-Stage Length-Prefixed Canonical SHA-256 Hashing), `DV-COL-005` (`CHAR(64)` SHA-256 hex digest typing), `DV-AST-002` (length-prefixed `||` concatenation), `DV-AST-003` (positional null token `'-1:^^'`), `DV-DYN-003` (orphan-free Link-to-Hub joins), `DV-DYN-005` (boundary-shift collision immunity), `DV-DYN-007` (cross-source `BKCC` isolation)
 
 ### 2. Test Dataset & Vectors
-The Scenario S7 verification dataset exercises both the Private Equity reference contract (`examples/private_equity/dv_pe_model_contract.yaml`) and adversarial boundary/encoding vectors across Python (`opendv_core.hashing`), SQLGlot AST synthesis (`opendv_axi_verifier.codemods.alg_a5_sqlglot_hash`), and DuckDB 4-Zone SQL (`opendv_duckdb_sandbox.compiler_4zone`):
+The Scenario S7 verification dataset exercises both the Private Equity reference contract (`examples/private_equity/dv_pe_model_contract.yaml`) and adversarial boundary/encoding vectors across Python (`opendv_core.hashing`), SQLGlot AST synthesis (`opendv_axi_verifier.codemods.alg_a5_sqlglot_hash`), and DuckDB 5-Zone (`Z0–Z4`, `bronze`/`staging`/`raw_vault`/`business_vault`/`information_mart`) SQL (`opendv_duckdb_sandbox.compiler_4zone`):
 
 | Vector Category | Input Tokens / Columns | `is_business_key` | `bkcc_prefix` | Canonical Pre-Hash String (Stage 4) | Canonical Lowercase SHA-256 Digest (Stage 5, `[0-9a-f]{64}`) |
 | :--- | :--- | :---: | :---: | :--- | :--- |
@@ -791,7 +791,7 @@ uv run opendv verify --local \
   --json
 
 # 2. REST API execution (returns HTTP 200 with REJECT_WITH_TRACE and DV-G4-001 diagnostics)
-curl -X POST http://localhost:8000/api/v1/verify \
+curl -X POST http://127.0.0.1:8420/api/v1/verify \
   -H "Content-Type: application/json" \
   -d @examples/scenarios/s3_unmapped_feed/contract_s3.yaml
 ```
@@ -825,7 +825,7 @@ uv run opendv compile --local \
   --json
 
 # 2. REST API compilation
-curl -X POST http://localhost:8000/api/v1/compile \
+curl -X POST http://127.0.0.1:8420/api/v1/compile \
   -H "Content-Type: application/json" \
   -d @examples/scenarios/uf2_renamed_column/contract_uf2.yaml
 ```
@@ -866,7 +866,7 @@ uv run opendv compile --local \
   --json
 
 # 3. Direct REST verification
-curl -X POST http://localhost:8000/api/v1/verify \
+curl -X POST http://127.0.0.1:8420/api/v1/verify \
   -H "Content-Type: application/json" \
   -d @examples/scenarios/s9_multitenant/contract_s9.yaml
 ```
@@ -1002,30 +1002,30 @@ The table below is the single normative source of truth for Algorithm A.5 length
 | Golden ID | File | SHA-256 | Generated From | Last Justified Change |
 | :--- | :--- | :--- | :--- | :--- |
 | `GT-01` | `GT-01/wave0/events.jsonl` | `a3712ae0a0f92eb8c82c97a97cd730c20f3b6e6ec3d4058735b4ad023ee01921` | `PAR-S1-W0: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
-| `GT-01` | `GT-01/wave0/explorer_bundle.json` | `e4fe12ee708bb083f1a91add43681d9de0028ee9075ade2ee93646d753a974c4` | `PAR-S1-W0: opendv pipeline run` | `[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication` |
-| `GT-01` | `GT-01/wave0/final_canonical_ir.json` | `7325a729f57e08d1c6a6af678862cb80586ee3933b59f3eaca3be95cfc3ec249` | `PAR-S1-W0: opendv pipeline run` | `[#120] Update golden files for single-run contract purity and wave field removal` |
+| `GT-01` | `GT-01/wave0/explorer_bundle.json` | `1d6beaa7897cb8fef8062a239566bf43a9c7589ad7472e26ba1a71922dbae124` | `PAR-S1-W0: opendv pipeline run` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
+| `GT-01` | `GT-01/wave0/final_canonical_ir.json` | `f6856182678ce0399115e8ff8971ea20582b84c3d59e98807e2bf0f08ef36021` | `PAR-S1-W0: opendv pipeline run` | `[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL` |
 | `GT-01` | `GT-01/wave0/final_contract.yaml` | `d5f207b10f9f52abaafa8d53750d6f32cfcff6f80a34aac9fb4150dfb26011e0` | `PAR-S1-W0: opendv pipeline run` | `[#120] Update golden files for single-run contract purity and wave field removal` |
-| `GT-01` | `GT-01/wave0/final_four_zone.sql` | `9ee1f1f1d0d0470ff99a84dac5ec425c9bcc657a462f477aafe4004ae992f849` | `PAR-S1-W0: opendv pipeline run` | `[#120] Update golden files for single-run contract purity and wave field removal` |
-| `GT-01` | `GT-01/wave0/pipeline_report.json` | `5ee284e5fb806dda3ab1606f34b28e017806344ea5324859e84318afe83097b5` | `PAR-S1-W0: opendv pipeline run` | `[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism` |
+| `GT-01` | `GT-01/wave0/final_four_zone.sql` | `a3e318f6e90024912e107b6f75bf0efe1a29ef2e4c13685a53860ecf3e90d798` | `PAR-S1-W0: opendv pipeline run` | `[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL` |
+| `GT-01` | `GT-01/wave0/pipeline_report.json` | `d9d7f33276bdb814221b3b1c98c5dfc8163b105d376cbb3e61d85c9a3d6324d9` | `PAR-S1-W0: opendv pipeline run` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
 | `GT-01` | `GT-01/wave1/events.jsonl` | `a3712ae0a0f92eb8c82c97a97cd730c20f3b6e6ec3d4058735b4ad023ee01921` | `PAR-S1-W1: opendv pipeline run` | `[#120] Update golden files for single-run contract purity and wave field removal` |
-| `GT-01` | `GT-01/wave1/explorer_bundle.json` | `16e3cd3867dda169fd2400fb5f4bebb96dd96a42d4dea4c4ff8b3fd3ef8d5f78` | `PAR-S1-W1: opendv pipeline run` | `[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication` |
-| `GT-01` | `GT-01/wave1/final_canonical_ir.json` | `41c5404930223187d9f2f93a32e94993c61293da58eda30e01f046afb5ff5b96` | `PAR-S1-W1: opendv pipeline run` | `[#120] Update golden files for single-run contract purity and wave field removal` |
-| `GT-01` | `GT-01/wave1/final_contract.yaml` | `5529b53a2d753c85a897f18a2adc277e264b58449694977781bd3e241423989e` | `PAR-S1-W1: opendv pipeline run` | `[#120] Update golden files for single-run contract purity and wave field removal` |
-| `GT-01` | `GT-01/wave1/final_four_zone.sql` | `141630cf74e8cef0698952b4f2cbcb7f32a31d5a800ca473029158e4eda63c98` | `PAR-S1-W1: opendv pipeline run` | `[#120] Update golden files for single-run contract purity and wave field removal` |
-| `GT-01` | `GT-01/wave1/pipeline_report.json` | `b62650906f163fdee78ee8adf0aeed5db0294a677f9f0c79eadd68307e158259` | `PAR-S1-W1: opendv pipeline run` | `[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism` |
+| `GT-01` | `GT-01/wave1/explorer_bundle.json` | `9a9b32e05f5ac84e85325fabe0760e2046c8c95a401eae44ddd364e78633ba0a` | `PAR-S1-W1: opendv pipeline run` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
+| `GT-01` | `GT-01/wave1/final_canonical_ir.json` | `41181b8f84ea75d582c7ba402a48cdd896823c697279fdee338d546476503322` | `PAR-S1-W1: opendv pipeline run` | `[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL` |
+| `GT-01` | `GT-01/wave1/final_contract.yaml` | `ddcf72dab23671e19ce518803a4683a994d47d4c5912953bc0ecb59dc529f842` | `PAR-S1-W1: opendv pipeline run` | `[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL` |
+| `GT-01` | `GT-01/wave1/final_four_zone.sql` | `30ecc1ff48425944b76fb3d9e75c8de82353a715aff03bc3c9ffa8cacfae59cc` | `PAR-S1-W1: opendv pipeline run` | `[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL` |
+| `GT-01` | `GT-01/wave1/pipeline_report.json` | `c6826205589c406211213fecca13300458a05d18b07f451c4cde9fd88c0a56e2` | `PAR-S1-W1: opendv pipeline run` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
 | `GT-01` | `GT-01/wave2/events.jsonl` | `31e17c5cac96ddd9025d6fc72fa5b59dfdff3330666e60c071b99e733048d9c9` | `PAR-S1-W2: opendv pipeline run` | `[#120] Update golden files for single-run contract purity and wave field removal` |
-| `GT-01` | `GT-01/wave2/explorer_bundle.json` | `198aca472ac0dd211dbbd6a55012d003f746913ab67bbb7f662111c42cf61239` | `PAR-S1-W2: opendv pipeline run` | `[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication` |
-| `GT-01` | `GT-01/wave2/final_canonical_ir.json` | `484a1bdf41ce5e2ff6167f6e9e59930ea953ee2594ba0ce5f5e70bceac7b9baf` | `PAR-S1-W2: opendv pipeline run` | `[#120] Update golden files for single-run contract purity and wave field removal` |
-| `GT-01` | `GT-01/wave2/final_contract.yaml` | `ca6620ddf09fda2cf958e7d5c73587e489fb22097a969fe27ff8a0af67fa8b28` | `PAR-S1-W2: opendv pipeline run` | `[#120] Update golden files for single-run contract purity and wave field removal` |
-| `GT-01` | `GT-01/wave2/final_four_zone.sql` | `4aa69a558ce5a8a9d6f4b1c9e87f852afd7f06841fce4abb7947c59fc01b214d` | `PAR-S1-W2: opendv pipeline run` | `[#120] Update golden files for single-run contract purity and wave field removal` |
-| `GT-01` | `GT-01/wave2/pipeline_report.json` | `2edd647eee485947f64227ece598c491c229d43c726ef1cdaa98d2e6e2c894df` | `PAR-S1-W2: opendv pipeline run` | `[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism` |
+| `GT-01` | `GT-01/wave2/explorer_bundle.json` | `590b62e6574009686cc456f71e59dd7b1235cb1259136e99869c6124ad730646` | `PAR-S1-W2: opendv pipeline run` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
+| `GT-01` | `GT-01/wave2/final_canonical_ir.json` | `9f5bbe7b970c1ebac810712e28e00edfc9b7f1a327472982781e09de66084306` | `PAR-S1-W2: opendv pipeline run` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
+| `GT-01` | `GT-01/wave2/final_contract.yaml` | `8068d6469522f9c9be30397321c144e0fdc1dddcb6c4079f12ee32d43103f8b7` | `PAR-S1-W2: opendv pipeline run` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
+| `GT-01` | `GT-01/wave2/final_four_zone.sql` | `fb960daa3a4486f9f531c5f98ccf787a71bb2b4a417fefcbd0a1c4ab996cb92f` | `PAR-S1-W2: opendv pipeline run` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
+| `GT-01` | `GT-01/wave2/pipeline_report.json` | `e1f7d09dc65f5e857fdaa0afa7d7422321fa2e8bff7a74d33672d0dc4f113171` | `PAR-S1-W2: opendv pipeline run` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
 | `GT-01` | `GT-01/wave3/events.jsonl` | `31e17c5cac96ddd9025d6fc72fa5b59dfdff3330666e60c071b99e733048d9c9` | `PAR-S1-W3: opendv pipeline run` | `[#120] Update golden files for single-run contract purity and wave field removal` |
-| `GT-01` | `GT-01/wave3/explorer_bundle.json` | `3231b3d1e65ea3c24121446a70f1ab34d4d48d72bc4640c7176772a713419917` | `PAR-S1-W3: opendv pipeline run` | `[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication` |
-| `GT-01` | `GT-01/wave3/final_canonical_ir.json` | `2329b7d68c40ae9c06b31d4e6ab368c2986c6723e4cea1534d00fe4d8d44b09a` | `PAR-S1-W3: opendv pipeline run` | `[#120] Update golden files for single-run contract purity and wave field removal` |
-| `GT-01` | `GT-01/wave3/final_contract.yaml` | `d9bb6a6695dbd1f044eccb3e3a3ddb0b2dd69746e498541e609d56b889bfe3d8` | `PAR-S1-W3: opendv pipeline run` | `[#234] Update golden for Round 3 single-run pipeline report parity` |
-| `GT-01` | `GT-01/wave3/final_four_zone.sql` | `37240620599c186a7180c14d6e0dbe81a415e9943b49b8c219654dd0a4ad2037` | `PAR-S1-W3: opendv pipeline run` | `[#120] Update golden files for single-run contract purity and wave field removal` |
-| `GT-01` | `GT-01/wave3/hold_record.json` | `29c7ea69e46e8715e470f59d61a8ba3c23c747c86c3b902e878d244d58a8c4f1` | `PAR-S8-W3: opendv hold list` | `[#234] Update golden for Round 3 single-run pipeline report parity` |
-| `GT-01` | `GT-01/wave3/pipeline_report.json` | `ac893848916ea24c109e8ee56f0928427d74bfce970fb03ac517c7fbee8e93d2` | `PAR-S1-W3: opendv pipeline run` | `[#242] Normalize top-level report artifacts and enforce LF line endings for cross-OS golden determinism` |
+| `GT-01` | `GT-01/wave3/explorer_bundle.json` | `7182f733febeb8c094f6d54b29998b0c9b2681499eed4d6cf5b71b58ec335cfc` | `PAR-S1-W3: opendv pipeline run` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
+| `GT-01` | `GT-01/wave3/final_canonical_ir.json` | `0ec4a6c18eaa57789cf5d946cf6d8b43780f6b9b907ab4b61be61ab4827506c2` | `PAR-S1-W3: opendv pipeline run` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
+| `GT-01` | `GT-01/wave3/final_contract.yaml` | `b47ca35b237f89a1b0dd3bc34ee42b2807e0dc312cf3aec0c30e093767cd0a11` | `PAR-S1-W3: opendv pipeline run` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
+| `GT-01` | `GT-01/wave3/final_four_zone.sql` | `80e4ea57ac899267638ec69481db44d772501ea4d4834949873689060b33eae0` | `PAR-S1-W3: opendv pipeline run` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
+| `GT-01` | `GT-01/wave3/hold_record.json` | `4fcfebb408044695bf18a25c28b6e31c5184413f5e2c21223ed39ff2c3c5e717` | `PAR-S8-W3: opendv hold list` | `[#244] FR-DVM-07 lower where_filter_condition onto CanonicalIR and Zone 1 SQL` |
+| `GT-01` | `GT-01/wave3/pipeline_report.json` | `9ca00ab2f5d48166e45057fa1eb6800f66c8074dabf2d1453681caa51a5637bf` | `PAR-S1-W3: opendv pipeline run` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
 | `GT-02` | `GT-02/canonical_ir.json` | `a28e5bfb759d6837bee765b6089501f1075ccffde1d0c756c8d97ce5fa1f762a` | `PAR-PE-S5: opendv compile` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
 | `GT-02` | `GT-02/d10_2026-10-15.json` | `44b6fd8a5ea7310a374680a3737f22bdf2a25651bfb086a991ff1e939f5624d7` | `PAR-PE-S6: opendv sandbox --query-type QUERY_D10_PIT` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
 | `GT-02` | `GT-02/d10b_2026-11-15.json` | `d5cd79ebd2192892c031804553677f36a4c341be1cc55840f549ae42c26d7d2b` | `PAR-PE-S6: opendv sandbox --query-type QUERY_D10B_VALUATION` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
@@ -1041,7 +1041,7 @@ The table below is the single normative source of truth for Algorithm A.5 length
 | `GT-03` | `GT-03/04_satellite_group_by/trace.toon` | `beb31dcd52c380f1fe9b04350e7695d5aaede29e892a1741a9d5637d54707760` | `GT-03: opendv verify 04_satellite_group_by` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
 | `GT-03` | `GT-03/04_satellite_group_by/verdict.json` | `ab229aa0d6b577f589c5533be1b125c1bcc8d1a2ac3bee5ffdf67bf587009450` | `GT-03: opendv verify 04_satellite_group_by` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
 | `GT-03` | `GT-03/05_path_traversal/problem.json` | `f9e1d4327ee9075c092b5c361a5c5f4242544278242713e606b3a52454b088cf` | `GT-03: opendv verify 05_path_traversal` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
-| `GT-03` | `GT-03/06_schema_invalid/problem.json` | `326bc93f72b4585be711fc6c9b6bc720c13bebbdd8259623129c22689a04c472` | `GT-03: opendv verify 06_schema_invalid` | `[#120] Update golden files for single-run contract purity and wave field removal` |
+| `GT-03` | `GT-03/06_schema_invalid/problem.json` | `66bfd570e501c63085e6e0519dd15975cd6e4be3ade25bcd110bbc4fe64fa0f4` | `GT-03: opendv verify 06_schema_invalid` | `[#244] Sync GT-01/GT-03/GT-05 with M6 schema, evolution, and explorer artifact updates` |
 | `GT-05` | `GT-05/render_snapshot.txt` | `e89f2e332b5d5a838b6c36804b2d4a5b440a152e61819b9a24f07d80e71560ca` | `PAR-S8-W3: opendv explorer render snapshot` | `[#242] Refresh GT-01 and GT-05 golden baselines for data-driven inference_plan DTO and R4 delta deduplication` |
 | `GT-06` | `GT-06/accepted_ontology.yaml` | `63e0a8d9cf32c2c2cc92059f6882e79f5a87071321f01e8845dff865ec69b580` | `PAR-ONT-HOLD: apply_ontology_delta` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
 | `GT-06` | `GT-06/base_ontology.yaml` | `5f9b79c6e24556e52a8559f23583a459b252093023fbeb54075135cb166d7adf` | `PAR-ONT-HOLD: base ontology` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
@@ -1065,3 +1065,27 @@ The table below is the single normative source of truth for Algorithm A.5 length
 
 3. **Determinism Verification**:
    Before updating or asserting goldens, `GoldenManager` verifies compiler byte-stability across successive compiles, LF line-ending invariance, and floating-point precision formatting.
+
+---
+
+## Unified Wizard, DV Schema Explorer & Phase 1–4 Parity Verification
+
+End-to-end UAT scenarios (`SCN-01`..`SCN-13`) and output-validated user acceptance checks (`UAT-01`..`UAT-30`) for the unified 6-step Wizard, 4-view DV Schema Explorer (`Z0–Z4` including `information_mart`), and live-streaming `SessionLogsInspector` are specified in [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](27-unified-ontology-pipeline-requirements-and-uat.md) and [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md).
+
+### 1. Phase 1–4 3-Transport CLI Subcommands (`D13`)
+
+All four Phase 2 subcommands registered in `schemas/v1/cli-spec.json` (`tests/architecture/test_schema_sync.py`) enforce `opendv` == `opendvctl` == `DIRECT_REST` RFC 8785 JCS parity:
+
+| Command | Service / Core Backing Module | Primary Parity & Security Assertions |
+| :--- | :--- | :--- |
+| `run dv-schema` | `packages/opendv-service/src/opendv_service/use_cases/dv_schema_explorer.py` | Projects `CanonicalIR` + `NoMistakeDataVault2ContractV5` + wave diffs (`--compare`), fetches persisted DuckDB table rows (`--table`, `--limit`, `--offset`), and executes read-only `--sql` guarded by `validate_safe_sql()`. |
+| `ontology studio attach-source` | `packages/opendv-service/src/opendv_service/use_cases/sources_inspect.py` | Attaches and profiles connector sources (`--session`, `--adapter`, `--uri`, `--table`, `--namespace`, `--credentials-ref`, `--do-not-send-to-agent`); rejects plaintext credential keys and enforces path containment. |
+| `ontology studio fibo-qa` | `packages/opendv-service/src/opendv_service/studio/fibo_qa_service.py` | Answers natural-language FIBO and evidence questions (`--session`, `--question`, `--source-id`, `--concept-uri`) with verifiable citations and `SuggestedDeltaAction`s. |
+| `ontology studio logs` | `packages/opendv-service/src/opendv_service/studio/session_logs_service.py` | Queries or SSE-streams (`--follow`) PII-masked session and compiler telemetry filtered by `--stage` (`STAGE_00..07` or Step 6 pill aliases `00..06`), `--step`, `--category`, and `--persona`. |
+
+### 2. Mandatory Runtime, Concurrency & Security Invariants (`D11`, `D18`, `D27`)
+
+- **Fail-Closed Agent Gate (`422 AGENT_NOT_CONFIGURED`)**: Agent-first execution (`mode="agent"`, `stage_output_policy="strict"`) returns HTTP `422` (`AGENT_NOT_CONFIGURED`) whenever no live LLM provider is configured and ready—zero silent deterministic fallback in UI workflows.
+- **Per-Session Job Lock (`409 SESSION_JOB_ACTIVE`, `D27`)**: Concurrent job submission on the same Studio session fails closed with HTTP `409` (`SESSION_JOB_ACTIVE`, CLI exit code `20`) while independent sessions execute concurrently.
+- **Safe Read-Only SQL Allowlist (`D11`)**: `POST /api/v1/runs/{run_id}/dv-schema/query` and `opendv run dv-schema --sql` enforce `validate_safe_sql()` in `packages/opendv-duckdb-sandbox/src/opendv_duckdb_sandbox/sql_guard.py` (allowlisted `SELECT`/`WITH`/`UNION` AST nodes and safe scalar/aggregate functions only, rejecting DML/DDL, file/metadata scans such as `read_csv`/`read_parquet`/`glob`/`pragma_*`, and string-literal table references, alongside `enable_external_access=False`).
+- **Loopback Open-Access & Remote Guard (`D18`, Exit Code `40`)**: Loopback requests (`127.0.0.1:8420`) operate without login tokens; `opendv serve` and `opendv-platform-api` refuse non-loopback `--host` binds without `--allow-remote-unauthenticated` with exit code `40` while keeping DNS-rebinding `Host`/`Origin` checks active.

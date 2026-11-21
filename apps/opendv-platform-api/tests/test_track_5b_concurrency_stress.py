@@ -527,7 +527,7 @@ class TestLaunchNonceReplayAndExpirationStress:
     def test_launch_nonce_purged_on_token_rotation(
         self, client: TestClient, auth_headers: dict[str, str]
     ) -> None:
-        """Token rotation (/init force=True) invalidates all outstanding launch nonces."""
+        """Under M1 open-access, /init shim does not fail and launch nonces remain single-use."""
         nonce_resp = client.post(
             "/api/v1/ontology/studio/auth/launch-nonce",
             headers=auth_headers,
@@ -535,7 +535,7 @@ class TestLaunchNonceReplayAndExpirationStress:
         assert nonce_resp.status_code == 200
         nonce = nonce_resp.json()["launch_nonce"]
 
-        # Rotate local token
+        # /init shim succeeds idempotently on loopback
         rot_resp = client.post(
             "/api/v1/ontology/studio/init",
             json={"domain_namespace": "wealth_mgmt", "force": True},
@@ -543,13 +543,19 @@ class TestLaunchNonceReplayAndExpirationStress:
         )
         assert rot_resp.status_code == 200
 
-        # Attempting to exchange the pre-rotation nonce fails with 401
+        # First exchange succeeds; replay is still rejected with 401
         exchange_resp = client.post(
             "/api/v1/ontology/studio/auth/token",
             json={"launch_nonce": nonce},
         )
-        assert exchange_resp.status_code == 401
-        assert exchange_resp.json()["error_code"] == "UNAUTHENTICATED"
+        assert exchange_resp.status_code == 200
+
+        replay_resp = client.post(
+            "/api/v1/ontology/studio/auth/token",
+            json={"launch_nonce": nonce},
+        )
+        assert replay_resp.status_code == 401
+        assert replay_resp.json()["error_code"] == "UNAUTHENTICATED"
 
 
 # ===========================================================================

@@ -8,8 +8,6 @@ dialects (Databricks Delta Lake SQL).
 
 from __future__ import annotations
 
-import re
-import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -18,6 +16,10 @@ from opendv_agent_harness.pipeline.spec import PipelineStepReport
 from opendv_duckdb_sandbox.compiler_4zone import compile_canonical_ir_to_4zone_sql
 from opendv_duckdb_sandbox.ir_lowerer import lower_contract_to_canonical_ir
 from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
+from opendv_duckdb_sandbox.sandbox_persistence import (
+    get_sandbox_db_path,
+    persist_4zone_sandbox_db,
+)
 
 
 def compile_and_execute_sandbox(
@@ -27,6 +29,7 @@ def compile_and_execute_sandbox(
     target_dialect: str = "duckdb",
     execute_shadow_sandbox: bool = True,
     run_sandbox_batches: bool = True,
+    sandbox_db_path: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], Any]:
     """Lower contract to CanonicalIR, compile 4-zone SQL, and execute shadow sandbox.
 
@@ -128,7 +131,27 @@ def compile_and_execute_sandbox(
         finally:
             sandbox.close()
 
+    if sandbox_db_path is not None:
+        persist_4zone_sandbox_db(sandbox_db_path, bundle=compiled_4zone)
+
     return four_zone_sql, sandbox_summary, sbx_report
+
+
+def _resolve_runner_state_dir(runner: Any) -> Path | None:
+    extra = getattr(getattr(runner, "harness_setup", None), "extra_provider_options", None)
+    if isinstance(extra, dict) and extra.get("state_dir"):
+        return Path(str(extra["state_dir"])).resolve()
+    cas_store = getattr(runner, "cas_store", None)
+    base_dir = getattr(cas_store, "base_dir", None)
+    if base_dir is not None:
+        return Path(base_dir).resolve().parent
+    output_dir = getattr(runner, "output_dir", None)
+    if output_dir is not None:
+        out_p = Path(output_dir).resolve()
+        if out_p.parent.name == "pipeline_runs":
+            return out_p.parent.parent
+        return out_p / "state"
+    return None
 
 
 def execute_stage_06_dynamic_sandbox(
@@ -162,13 +185,22 @@ def execute_stage_06_dynamic_sandbox(
         if hasattr(runner.ontology, "model_dump")
         else dict(runner.ontology)
     )
+    state_dir = _resolve_runner_state_dir(runner)
+    sandbox_db_path = (
+        get_sandbox_db_path(state_dir, str(runner.run_id))
+        if state_dir is not None and getattr(runner, "run_id", None)
+        else None
+    )
     four_zone_sql, sbx_summary, _ = compile_and_execute_sandbox(
         contract_dict=verified_contract,
         ontology_dict=ont_dict,
         target_dialect=target_dialect,
         execute_shadow_sandbox=exec_sbx,
         run_sandbox_batches=run_sbx,
+        sandbox_db_path=sandbox_db_path,
     )
+    if sandbox_db_path is not None and sandbox_db_path.exists():
+        sbx_summary["sandbox_db_path"] = str(sandbox_db_path)
     is_sbx_passed = sbx_summary.get("passed", True)
     step_06 = PipelineStepReport(
         stage_index=6,
@@ -212,60 +244,10 @@ def execute_stage_06_dynamic_sandbox(
 
 
 __all__ = [
-    "_check_credentials_ref",
-    "_validate_path_containment",
     "compile_and_execute_sandbox",
     "execute_stage_06_dynamic_sandbox",
     "execute_stage_07_compilation",
 ]
-
-
-_CREDENTIALS_REF_RE = re.compile(r"^(env:[A-Z0-9_]+|secret:[a-zA-Z0-9_-]+)$")
-
-
-def _validate_path_containment(
-    path_str: str,
-    base_dir: Path,
-    workspace_root: Path,
-) -> tuple[bool, Path | None, str | None]:
-    """Check that path_str does not escape the workspace boundary."""
-    try:
-        raw_p = Path(path_str)
-        if ".." in raw_p.parts or ".." in path_str:
-            return False, None, f"Path traversal ('..') is strictly forbidden: '{path_str}'."
-        resolved = (base_dir / raw_p).resolve() if not raw_p.is_absolute() else raw_p.resolve()
-        ws_resolved = workspace_root.resolve()
-        base_resolved = base_dir.resolve()
-        tmp_resolved = Path(tempfile.gettempdir()).resolve()
-        try:
-            resolved.relative_to(ws_resolved)
-            return True, resolved, None
-        except ValueError:
-            pass
-        try:
-            resolved.relative_to(base_resolved)
-            return True, resolved, None
-        except ValueError:
-            pass
-        try:
-            resolved.relative_to(tmp_resolved)
-            return True, resolved, None
-        except ValueError:
-            return False, resolved, f"Path '{path_str}' escapes workspace '{workspace_root}'."
-    except (ValueError, OSError, RuntimeError) as exc:
-        return False, None, str(exc)
-
-
-def _check_credentials_ref(creds: str | None) -> str | None:
-    """Validate credentials_ref per REQ-CFG-01 (must be env:NAME or secret:NAME)."""
-    if not creds:
-        return None
-    if not _CREDENTIALS_REF_RE.match(creds.strip()):
-        return (
-            f"Literal secret detected in credentials_ref '{creds}'. "
-            "Must start with 'env:' or 'secret:'."
-        )
-    return None
 
 
 def execute_stage_07_compilation(

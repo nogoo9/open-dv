@@ -39,9 +39,7 @@ export function ArtifactCardItem({
 			? EXPLORER_GLYPHS.setting
 			: EXPLORER_GLYPHS.data;
 	const borderColor = isSelected ? "#1D4ED8" : "#E3E5E8";
-	const previewLines = showPreviewLines
-		? buildCardPreviewLines(artifact)
-		: "";
+	const previewLines = showPreviewLines ? buildCardPreviewLines(artifact) : "";
 
 	return (
 		<div
@@ -139,7 +137,13 @@ export function ArtifactCardItem({
 						onExpand();
 					}}
 					style={{
-						all: "unset",
+						background: "transparent",
+						border: "none",
+						margin: 0,
+						font: "inherit",
+						display: "inline-flex",
+						alignItems: "center",
+						justifyContent: "center",
 						cursor: "pointer",
 						fontSize: "11px",
 						color: "#545A66",

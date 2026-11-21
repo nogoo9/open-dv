@@ -29,14 +29,15 @@ from opendv_core.hashing import compute_dv2_length_prefixed_sha256
 from opendv_core.models.canonical_ir import CanonicalIR
 from opendv_duckdb_sandbox.compiler_4zone import (
     Compiled4ZoneBundle,
+    _bitemporal_restatement_sql_literal,
     _compile_generic_zone_2_raw_vault_dml,
     _compile_generic_zone_3_business_vault_sql,
+    _compile_satellite_parent_hk_expr,
     _effective_pit_tables,
     _find_bitemporal_satellite,
     _hub_slug,
     _satellite_all_data_columns,
     _satellite_schema,
-    _satellite_seed_sql_literal,
     _validate_ident,
     build_algorithm_a5_sha256_sql,
     build_length_prefixed_token_sql,
@@ -345,7 +346,8 @@ def run_batch_3_delta_and_boundary_shift(
     payload_csv = ", ".join(payload_cols)
     src_payload_csv = ", ".join(f"src.{c}" for c in payload_cols)
     mutated_selects = ",\n            ".join(
-        f"{_satellite_seed_sql_literal(c, 3)} AS {_validate_ident(c.name)}" for c in data_cols
+        f"{_bitemporal_restatement_sql_literal(target_sat, c, 3)} AS {_validate_ident(c.name)}"
+        for c in data_cols
     )
     app_col = "applied_dts, " if has_applied else ""
     src_app_col = "src.applied_dts, " if has_applied else ""
@@ -528,22 +530,14 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
 
     payload_cols = [_validate_ident(c.name) for c in bitemp_data_cols]
     payload_csv = ", ".join(payload_cols)
-    restated_vals = ", ".join(_satellite_seed_sql_literal(c, 4) for c in bitemp_data_cols)
+    restated_vals = ", ".join(
+        _bitemporal_restatement_sql_literal(bitemp_sat, c, 4) for c in bitemp_data_cols
+    )
     app_col = "applied_dts, " if has_applied else ""
     app_val = "TIMESTAMP '2026-09-30 00:00:00', " if has_applied else ""
 
     if has_applied:
-        hub_by_name = {h.name: h for h in ir.hubs}
-        link_by_name = {lnk.name: lnk for lnk in ir.links}
-        if bitemp_sat.parent_entity in hub_by_name:
-            p_hub = hub_by_name[bitemp_sat.parent_entity]
-            p_cols = [f"parent_bk__{_validate_ident(bk.name)}" for bk in p_hub.business_keys]
-        else:
-            p_lnk = link_by_name[bitemp_sat.parent_entity]
-            p_cols = [
-                f"parent_fk__{_validate_ident(ref.fk_column_name)}" for ref in p_lnk.hub_references
-            ]
-        parent_hk_expr = build_algorithm_a5_sha256_sql(p_cols, is_business_key=True)
+        p_cols, parent_hk_expr = _compile_satellite_parent_hk_expr(ir, bitemp_sat)
         p_cols_csv = ", ".join(p_cols)
         pay_col_tail = f", {payload_csv}" if payload_csv else ""
         restated_tail = f", {restated_vals}" if restated_vals else ""

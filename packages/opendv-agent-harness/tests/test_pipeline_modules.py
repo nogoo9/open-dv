@@ -279,3 +279,281 @@ def test_axi_repair_loop_expands_studio_placeholder_grain_and_reject_wave_name(
     assert rej is not None
     assert len(wave_reports) == 1
     assert wave_reports[0].wave_name == "Wave 0"
+
+
+def test_discover_tabular_feeds_preserves_logical_name_for_cas_and_extensionless_paths(
+    tmp_path,
+) -> None:
+    """Bug 2a: CAS URIs and sharded CAS blobs must not leak 64-hex digests as table_name."""
+    import hashlib
+    import sqlite3
+
+    import duckdb
+
+    from opendv_agent_harness.pipeline.discovery_tabular import discover_tabular_feeds
+    from opendv_agent_harness.pipeline.spec import PipelineSourceFeedInput
+    from opendv_telemetry import ContentAddressableStore
+
+    cas_dir = tmp_path / "cas_store"
+    cas = ContentAddressableStore(cas_dir)
+    csv_bytes = b"settlement_id,account_id,amount\nS1,A1,100.50\nS2,A2,250.00\n"
+    csv_sha = hashlib.sha256(csv_bytes).hexdigest().lower()
+    cas.put(csv_bytes)
+
+    # Sharded extensionless CAS blob path (Studio layout)
+    sharded_blob = tmp_path / "inputs" / "cas" / csv_sha[:2] / csv_sha[2:]
+    sharded_blob.parent.mkdir(parents=True, exist_ok=True)
+    sharded_blob.write_bytes(csv_bytes)
+
+    # SQLite CAS source
+    db_file = tmp_path / "src.sqlite"
+    with sqlite3.connect(db_file) as sconn:
+        sconn.execute("CREATE TABLE treasury_trades (trade_id TEXT PRIMARY KEY, notional REAL)")
+        sconn.execute("INSERT INTO treasury_trades VALUES ('T1', 500.0)")
+        sconn.commit()
+    db_sha = hashlib.sha256(db_file.read_bytes()).hexdigest().lower()
+    cas.put(db_file.read_bytes())
+
+    conn = duckdb.connect(":memory:")
+    try:
+        out = discover_tabular_feeds(
+            [
+                PipelineSourceFeedInput(
+                    feed_id="src-csv-cas",
+                    source_system="ds02_w2_custody_csv",
+                    uri=f"cas://{csv_sha}",
+                    options={
+                        "table_name": "ds02_w2_custody",
+                        "source_name": "ds02_w2_custody.csv",
+                        "source_format": "csv",
+                    },
+                ),
+                PipelineSourceFeedInput(
+                    feed_id="src-csv-sharded",
+                    source_system="ds02_account_crosswalk_csv",
+                    uri=str(sharded_blob),
+                ),
+                PipelineSourceFeedInput(
+                    feed_id="src-sqlite-cas",
+                    source_system="ds01_sec_treasury",
+                    uri=f"cas://{db_sha}",
+                    adapter="sqlite",
+                ),
+            ],
+            conn,
+            workspace_root=tmp_path,
+            base_dir=tmp_path,
+            cas_store=cas,
+        )
+    finally:
+        conn.close()
+
+    by_sys = {f.source_system: f for f in out.discovered_feeds}
+    assert by_sys["ds02_w2_custody_csv"].table_name == "ds02_w2_custody"
+    assert by_sys["ds02_w2_custody_csv"].row_count == 2
+    assert len(by_sys["ds02_account_crosswalk_csv"].table_name) != 64
+    assert by_sys["ds02_account_crosswalk_csv"].table_name != csv_sha
+    assert by_sys["ds02_account_crosswalk_csv"].row_count == 2
+    assert any(f.table_name == "treasury_trades" for f in out.discovered_feeds)
+
+
+def test_stage05_ask_user_respects_hold_policy_and_prioritizes_ask_user_violation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Bug 3a: Stage 05 ASK_USER honors hold policy and ignores AUTO-FIX ALG-A2 in diag_msg."""
+    import datetime
+    from types import SimpleNamespace
+
+    import opendv_agent_harness.pipeline.axi_repair_loop as axi_mod
+    from opendv_agent_harness.hold_manager import StewardHoldManager
+    from opendv_agent_harness.pipeline.spec import DeterministicValidationReport
+    from opendv_axi_verifier.alg_a8_orchestrator import AxiDvPipelineResult
+    from opendv_axi_verifier.toon_codec import ToonTrace, ToonViolation
+    from opendv_core.models.graph_a import GraphAOntology
+
+    fake_axi_res = AxiDvPipelineResult(
+        status="ASK_USER",
+        transformed_contract={
+            "hubs": [],
+            "links": [],
+            "satellites": [],
+            "column_triage_ledger": [],
+        },
+        diagnostics=["ASK_USER [Gate 1 - DV-G4-001]: Hub 'hub_orphan' references unknown URI."],
+        toon_trace=ToonTrace(
+            run_id="run-s05",
+            attempt="1/3",
+            status="ASK-USER",
+            violations=[
+                ToonViolation(
+                    gate="G1",
+                    rule="ALG-A2",
+                    action="AUTO-FIX",
+                    target="reference_tables",
+                    fix="Demoted static low-cardinality enum Hub(s) to ref_* tables",
+                ),
+                ToonViolation(
+                    gate="G1",
+                    rule="DV-G4-001",
+                    action="ASK-USER",
+                    target="hub_orphan",
+                    fix="Hub 'hub_orphan' references unknown ontology_concept_uri",
+                ),
+            ],
+        ),
+        toon_text="@toon_v1",
+        applied_codemods=["ALG_A2_ENUM_DEMOTION"],
+    )
+    monkeypatch.setattr(
+        axi_mod,
+        "execute_axi_repair_loop",
+        lambda **_kw: (fake_axi_res.transformed_contract, fake_axi_res, False),
+    )
+
+    def _make_runner(policy: str):
+        return SimpleNamespace(
+            run_id=f"run-s05-{policy}",
+            ontology=GraphAOntology(
+                ontology_version="0.1.0",
+                domain_namespace="wealth_mgmt",
+                enterprise_owner="Wealth Ops",
+            ),
+            graph_a_sha256="a" * 64,
+            input_spec=SimpleNamespace(
+                waves=[],
+                project_id="default-project",
+                domain_namespace="wealth_mgmt",
+                pipeline_id="pl_test",
+            ),
+            harness_setup=SimpleNamespace(
+                max_repair_retries=1,
+                provider="agy",
+                steward_hold_policy=policy,
+            ),
+            hold_manager=StewardHoldManager(state_dir=tmp_path / f"state-{policy}"),
+            base_dir=tmp_path,
+            workspace_root=tmp_path,
+            output_dir=tmp_path / f"out-{policy}",
+            cas_store=None,
+            observability_events=[],
+            fallbacks_applied=[],
+            _notify_stage_complete=lambda *_a, **_kw: None,
+            _last_axi_res=None,
+        )
+
+    # 1. auto_approve_top_candidate must NOT pause in PAUSED_HOLD
+    auto_runner = _make_runner("auto_approve_top_candidate")
+    step_reports_auto = []
+    verified_c, rep_auto = axi_mod.execute_stage_05_static_gates(
+        runner=auto_runner,
+        w_idx=0,
+        w_type="INCREMENTAL_SOURCE",
+        contract_dict={"hubs": []},
+        curr_contract=None,
+        s1_profiles={},
+        s05_id="STAGE_05_AXI_DV_STATIC_GATES",
+        s05_persona="axi-dv",
+        s05_model="symbolic",
+        is_fault_injected=False,
+        codemods=[],
+        drift_findings=[],
+        wave_steps=[],
+        step_reports=step_reports_auto,
+        wave_reports=[],
+        artifacts=[],
+        t0=datetime.datetime.now(datetime.UTC),
+        preflight=DeterministicValidationReport(stage="INPUT_VALIDATION", passed=True),
+    )
+    assert rep_auto is None, (
+        "Expected Stage 05 ASK_USER to auto-approve under auto_approve_top_candidate"
+    )
+    assert verified_c == fake_axi_res.transformed_contract
+    assert step_reports_auto[-1].verdict == "PASS"
+
+    # 2. pause policy pauses with the ASK-USER violation (not ALG-A2 AUTO-FIX)
+    pause_runner = _make_runner("pause")
+    pause_runner.output_dir.mkdir(parents=True, exist_ok=True)
+    _, rep_pause = axi_mod.execute_stage_05_static_gates(
+        runner=pause_runner,
+        w_idx=0,
+        w_type="INCREMENTAL_SOURCE",
+        contract_dict={"hubs": []},
+        curr_contract=None,
+        s1_profiles={},
+        s05_id="STAGE_05_AXI_DV_STATIC_GATES",
+        s05_persona="axi-dv",
+        s05_model="symbolic",
+        is_fault_injected=False,
+        codemods=[],
+        drift_findings=[],
+        wave_steps=[],
+        step_reports=[],
+        wave_reports=[],
+        artifacts=[],
+        t0=datetime.datetime.now(datetime.UTC),
+        preflight=DeterministicValidationReport(stage="INPUT_VALIDATION", passed=True),
+    )
+    assert rep_pause is not None
+    assert rep_pause.status == "PAUSED_HOLD"
+    assert len(rep_pause.active_holds) == 1
+    assert "DV-G4-001" in rep_pause.summary_markdown
+    assert "ALG-A2" not in rep_pause.summary_markdown
+
+
+def test_build_paused_pipeline_report_never_returns_empty_active_holds(tmp_path) -> None:
+    """Bug 3b: build_paused_pipeline_report records a hold if none is pending yet."""
+    import datetime
+    from types import SimpleNamespace
+
+    from opendv_agent_harness.hold_manager import StewardHoldManager
+    from opendv_agent_harness.pipeline.spec import (
+        DeterministicValidationReport,
+        PipelineStepReport,
+    )
+    from opendv_agent_harness.pipeline.validation_postflight import build_paused_pipeline_report
+    from opendv_core.models.graph_a import GraphAOntology
+
+    runner = SimpleNamespace(
+        run_id="run-paused-no-hold",
+        ontology=GraphAOntology(
+            ontology_version="0.1.0",
+            domain_namespace="wealth_mgmt",
+            enterprise_owner="Wealth Ops",
+        ),
+        graph_a_sha256="b" * 64,
+        input_spec=SimpleNamespace(
+            waves=[],
+            project_id="default-project",
+            domain_namespace="wealth_mgmt",
+            pipeline_id="pl_test",
+        ),
+        harness_setup=SimpleNamespace(provider="agy"),
+        hold_manager=StewardHoldManager(state_dir=tmp_path / "state"),
+        base_dir=tmp_path,
+        workspace_root=tmp_path,
+        output_dir=tmp_path / "out",
+        cas_store=None,
+        observability_events=[],
+        fallbacks_applied=[],
+    )
+    runner.output_dir.mkdir(parents=True, exist_ok=True)
+    rep = build_paused_pipeline_report(
+        runner=runner,
+        t0=datetime.datetime.now(datetime.UTC),
+        preflight=DeterministicValidationReport(stage="INPUT_VALIDATION", passed=True),
+        step_reports=[
+            PipelineStepReport(
+                stage_index=4,
+                stage_id="STAGE_04_SHIP_VAULT_PASS2",
+                persona="ship-vault",
+                status="ASK-USER",
+                verdict="HOLD",
+            )
+        ],
+        artifacts=[],
+        reason="KEY_DRIFT",
+    )
+    assert rep.status == "PAUSED_HOLD"
+    assert len(rep.active_holds) >= 1
+    assert len(runner.hold_manager.list_pending_holds()) >= 1

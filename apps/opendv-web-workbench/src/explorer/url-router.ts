@@ -3,18 +3,29 @@
  */
 
 import type { WaveFilterId } from "@opendv/protocol-ts";
-import type { ArtifactFullTab, ExplorerViewLevel } from "./types";
+import type {
+	ArtifactFullTab,
+	ExplorerViewLevel,
+	OntologySubView,
+} from "./types";
 
 export interface ExplorerUrlState {
 	view: ExplorerViewLevel;
+	ontologySubView?: OntologySubView | undefined;
 	stageIdx: number;
 	fullId: string | null;
 	fullTab: ArtifactFullTab;
 	activeWave: WaveFilterId;
-	builderSessionId?: string | null;
-	builderSource?: string | null;
-	builderDomain?: string | null;
-	builderPipelineId?: string | null;
+	run?: string | null | undefined;
+	compare?: string | null | undefined;
+	session?: string | null | undefined;
+	runId?: string | null | undefined;
+	compareRunId?: string | null | undefined;
+	sessionId?: string | null | undefined;
+	builderSessionId?: string | null | undefined;
+	builderSource?: string | null | undefined;
+	builderDomain?: string | null | undefined;
+	builderPipelineId?: string | null | undefined;
 }
 
 export const VALID_WAVES: readonly WaveFilterId[] = [
@@ -39,17 +50,26 @@ export function parseExplorerUrlState(
 	search = "",
 	validArtifactIds?: ReadonlySet<string>,
 ): ExplorerUrlState {
-	let view: ExplorerViewLevel = "pipeline";
+	let view: ExplorerViewLevel = "ontology";
+	let ontologySubView: OntologySubView = "studio";
 	let stageIdx = 5;
 
-	const stageMatch = pathname.match(/\/stages\/0?([0-7])(?:\/|$)/);
+	const stageMatch = pathname.match(/^\/stages\/0?([0-7])(?:\/|$)/);
 	if (stageMatch?.[1] !== undefined) {
 		view = "stage";
 		stageIdx = Math.max(0, Math.min(7, Number.parseInt(stageMatch[1], 10)));
-	} else if (pathname === "/builder" || pathname.startsWith("/builder/")) {
-		view = "builder";
+	} else if (pathname === "/dv-schema" || pathname.startsWith("/dv-schema/")) {
+		view = "dv_schema";
+	} else if (pathname === "/explorer" || pathname.startsWith("/explorer/")) {
+		view = "pipeline";
 	} else if (pathname === "/settings" || pathname.startsWith("/settings/")) {
 		view = "settings";
+	} else if (pathname === "/builder" || pathname.startsWith("/builder/")) {
+		view = "ontology";
+		ontologySubView = "builder";
+	} else {
+		view = "ontology";
+		ontologySubView = "studio";
 	}
 
 	const params = new URLSearchParams(
@@ -72,6 +92,9 @@ export function parseExplorerUrlState(
 		? rawWave
 		: "all";
 
+	const run = params.get("run")?.trim() || undefined;
+	const compare = params.get("compare")?.trim() || undefined;
+	const session = params.get("session")?.trim() || undefined;
 	const builderSessionId = params.get("session_id")?.trim() || undefined;
 	const builderSource = params.get("source")?.trim() || undefined;
 	const builderDomain = params.get("domain_namespace")?.trim() || undefined;
@@ -79,10 +102,14 @@ export function parseExplorerUrlState(
 
 	return {
 		view,
+		...(ontologySubView === "builder" ? { ontologySubView } : {}),
 		stageIdx,
 		fullId,
 		fullTab,
 		activeWave,
+		...(run ? { run, runId: run } : {}),
+		...(compare ? { compare, compareRunId: compare } : {}),
+		...(session ? { session, sessionId: session } : {}),
 		...(builderSessionId ? { builderSessionId } : {}),
 		...(builderSource ? { builderSource } : {}),
 		...(builderDomain ? { builderDomain } : {}),
@@ -95,10 +122,17 @@ export function parseExplorerUrlState(
  */
 export function buildExplorerUrl(state: {
 	view: ExplorerViewLevel;
+	ontologySubView?: OntologySubView | undefined;
 	stageIdx: number;
 	fullId: string | null;
 	fullTab: ArtifactFullTab;
 	activeWave: WaveFilterId;
+	run?: string | null | undefined;
+	compare?: string | null | undefined;
+	session?: string | null | undefined;
+	runId?: string | null | undefined;
+	compareRunId?: string | null | undefined;
+	sessionId?: string | null | undefined;
 	builderSessionId?: string | null | undefined;
 	builderSource?: string | null | undefined;
 	builderDomain?: string | null | undefined;
@@ -107,25 +141,28 @@ export function buildExplorerUrl(state: {
 	const path =
 		state.view === "stage"
 			? `/stages/${String(state.stageIdx).padStart(2, "0")}`
-			: state.view === "builder"
-				? "/builder"
-				: state.view === "settings"
-					? "/settings"
-					: "/";
+			: state.view === "dv_schema"
+				? "/dv-schema"
+				: state.view === "pipeline"
+					? "/explorer"
+					: state.view === "settings"
+						? "/settings"
+						: state.view === "builder" || state.ontologySubView === "builder"
+							? "/builder"
+							: "/";
+
 	const params = new URLSearchParams();
-	if (state.view === "builder") {
-		if (state.builderSessionId) {
-			params.set("session_id", state.builderSessionId);
-		}
-		if (state.builderSource) {
-			params.set("source", state.builderSource);
-		}
-		if (state.builderDomain) {
-			params.set("domain_namespace", state.builderDomain);
-		}
-		if (state.builderPipelineId) {
-			params.set("pipeline_id", state.builderPipelineId);
-		}
+	const runVal = state.run ?? state.runId;
+	const compareVal = state.compare ?? state.compareRunId;
+	const sessionVal = state.session ?? state.sessionId;
+	if (runVal) {
+		params.set("run", runVal);
+	}
+	if (compareVal) {
+		params.set("compare", compareVal);
+	}
+	if (sessionVal) {
+		params.set("session", sessionVal);
 	}
 	if (state.fullId) {
 		params.set("artifact", state.fullId);
@@ -136,6 +173,43 @@ export function buildExplorerUrl(state: {
 	if (state.activeWave !== "all") {
 		params.set("wave", state.activeWave);
 	}
+	if (state.builderSessionId) {
+		params.set("session_id", state.builderSessionId);
+	}
+	if (state.builderSource) {
+		params.set("source", state.builderSource);
+	}
+	if (state.builderDomain) {
+		params.set("domain_namespace", state.builderDomain);
+	}
+	if (state.builderPipelineId) {
+		params.set("pipeline_id", state.builderPipelineId);
+	}
 	const qs = params.toString();
 	return qs ? `${path}?${qs}` : path;
+}
+
+/**
+ * Strip trailing `/` characters in O(n) time without backtracking regexes.
+ */
+export function stripTrailingSlashes(value: string): string {
+	let end = value.length;
+	while (end > 0 && value.charCodeAt(end - 1) === 47 /* '/' */) {
+		end -= 1;
+	}
+	return end === value.length ? value : value.slice(0, end);
+}
+
+/**
+ * Normalize an optional API base URL by stripping trailing `/api/v1` (or `/api/v1/`)
+ * and trailing `/` characters in strict O(n) linear time.
+ */
+export function normalizeApiBaseUrl(apiUrl?: string): string {
+	let raw = apiUrl ?? "";
+	if (raw.endsWith("/api/v1/")) {
+		raw = raw.slice(0, -8);
+	} else if (raw.endsWith("/api/v1")) {
+		raw = raw.slice(0, -7);
+	}
+	return stripTrailingSlashes(raw);
 }

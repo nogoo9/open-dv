@@ -218,11 +218,11 @@ export class RemoteHttpClient {
 		}
 
 		const baseHeaders = this.getHeaders(undefined, { isStudioRequest: true });
-		const hasRemoteBearerAuth =
-			!this.isLoopback() &&
+		const hasAuthOrLoopback =
+			this.isLoopback() ||
 			Boolean(baseHeaders.Authorization || baseHeaders.authorization);
 
-		if (!waiverKey && !hasRemoteBearerAuth) {
+		if (!waiverKey && !hasAuthOrLoopback) {
 			throw new CliDomainError(
 				"FORBIDDEN_ADMIN_REQUIRED",
 				"Low-confidence waiver requires steward credentials via --waiver-key-file, OPENDV_WAIVER_KEY, or remote admin Authorization token.",

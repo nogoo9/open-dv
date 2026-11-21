@@ -9,7 +9,7 @@ export function EcosystemCliSection(): React.JSX.Element {
 	return (
 		<section
 			id="ecosystem"
-			className="band"
+			className="band band-soft"
 			tabIndex={-1}
 			aria-labelledby="ecosystem-heading"
 		>
@@ -17,27 +17,27 @@ export function EcosystemCliSection(): React.JSX.Element {
 				<div className="section-head">
 					<div className="section-head-copy">
 						<p className="eyebrow">
-							CONNECTORS, MULTI-DIALECT SQL &amp; CONTRACT-IDENTICAL CLIS
+							CONNECTORS, 5-ZONE SQL &amp; CONTRACT-IDENTICAL CLIS
 						</p>
 						<h2 id="ecosystem-heading">
-							Universal connectors, vendor-neutral IR, and dual-CLI parity.
+							Universal connectors, 5-Zone IR, and Dual-CLI parity.
 						</h2>
 					</div>
 					<p className="section-intro">
-						Profile relational catalogs locally or push aggregates to remote
-						warehouses, inspect generated SQL across dialects, and invoke the
-						same contract specification from Python or standalone Bun binaries.
+						Profile catalogs locally or push aggregates to remote warehouses,
+						compile 5-Zone (Z0–Z4) <code>information_mart</code> SQL, and invoke
+						every subcommand from Python or standalone Bun binaries.
 					</p>
 				</div>
 
 				<div
-					className="grid-5"
-					style={{ marginBlockEnd: "2rem" }}
+					className="grid-6"
+					style={{ marginBlockEnd: "2.25rem" }}
 					aria-label="Supported source connectors"
 				>
 					{CONNECTORS.map((connector) => (
 						<article key={connector.id} className="card">
-							<h3 style={{ marginBlockEnd: "0.4rem" }}>{connector.name}</h3>
+							<h3 style={{ marginBlockEnd: "0.45rem" }}>{connector.name}</h3>
 							<div className="badge-row" style={{ marginBlockEnd: "0.65rem" }}>
 								<code className="badge badge-hub">
 									{connector.executionClass}
@@ -52,7 +52,7 @@ export function EcosystemCliSection(): React.JSX.Element {
 
 				<div className="feature-split">
 					<div data-tabs-group="dialects">
-						<div role="tablist" aria-label="Output dialects and blueprints">
+						<div role="tablist" aria-label="Output dialects, CLIs, and guards">
 							{DIALECT_SNIPPETS.map((snippet, idx) => (
 								<button
 									key={snippet.id}
@@ -113,30 +113,35 @@ export function EcosystemCliSection(): React.JSX.Element {
 					<aside className="card">
 						<div className="badge-row" style={{ marginBlockEnd: "0.55rem" }}>
 							<span className="badge badge-gold">
-								DUAL-CLI &amp; HARNESS PARITY
+								DUAL-CLI &amp; 6 HARNESS ADAPTERS
 							</span>
 						</div>
 						<h3>
 							<code>opendv</code> (Python) &amp; <code>opendvctl</code> (Bun)
 						</h3>
 						<p className="prose" style={{ fontSize: "0.92rem" }}>
-							Both binaries are generated from{" "}
-							<code>schemas/cli-spec.json</code> with matching subcommands, exit
-							codes, and RFC 8785 canonical JSON outputs.
+							Both binaries generate from <code>schemas/v1/cli-spec.json</code>{" "}
+							with 3-transport RFC 8785 JCS parity across{" "}
+							<code>run dv-schema</code>,{" "}
+							<code>ontology studio attach-source</code>,{" "}
+							<code>ontology studio fibo-qa</code>, and{" "}
+							<code>ontology studio logs</code>.
 						</p>
 						<dl className="scenario-readout" style={{ marginBlock: "1rem" }}>
 							<div>
 								<dt>opendv (Python In-Process)</dt>
 								<dd>
 									Runs directly against <code>opendv_service</code> with zero
-									HTTP server for air-gapped CI/CD verification.
+									HTTP server; <code>serve --open</code> defaults to loopback
+									open access.
 								</dd>
 							</div>
 							<div>
 								<dt>opendvctl (Bun Platform Binary)</dt>
 								<dd>
-									Streams SSE progress and runs remote workflows against{" "}
-									<code>http://127.0.0.1:8420</code>.
+									Streams SSE progress and session logs from{" "}
+									<code>http://127.0.0.1:8420</code> with{" "}
+									<code>Logs &amp; Traces</code> 50 MB retention.
 								</dd>
 							</div>
 						</dl>
@@ -146,7 +151,7 @@ export function EcosystemCliSection(): React.JSX.Element {
 								className="eyebrow"
 								style={{ marginBlockEnd: "0.45rem", fontSize: "0.7rem" }}
 							>
-								Agent Harness Adapters
+								6 Supported Agent Harness Providers
 							</p>
 							<ul
 								className="badge-row"

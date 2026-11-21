@@ -270,6 +270,31 @@ def run_gt01_lifecycle_waves(
             raw_bundle["inference_plan"]["plan_id"] = "<PLAN_ID>"
         if w_idx == 3:
             wave3_bundle_dict = raw_bundle
+        arts = raw_bundle.get("artifacts")
+        if isinstance(arts, dict):
+            for art_key, use_report_norm in (("grounding", False), ("report", True)):
+                art_entry = arts.get(art_key)
+                if isinstance(art_entry, dict) and isinstance(art_entry.get("raw"), str):
+                    try:
+                        parsed_raw = json.loads(art_entry["raw"])
+                    except json.JSONDecodeError:
+                        parsed_raw = None
+                    if isinstance(parsed_raw, dict):
+                        if (
+                            "inference_plan" in parsed_raw
+                            and isinstance(parsed_raw["inference_plan"], dict)
+                            and "plan_id" in parsed_raw["inference_plan"]
+                        ):
+                            parsed_raw["inference_plan"]["plan_id"] = "<PLAN_ID>"
+                        if "plan_id" in parsed_raw:
+                            parsed_raw["plan_id"] = "<PLAN_ID>"
+                        norm_raw = (
+                            normalize_pipeline_report(parsed_raw, path_root=str(repo_root))
+                            if use_report_norm
+                            else normalize_for_parity(parsed_raw, path_root=str(repo_root))
+                        )
+                        art_entry["raw"] = json.dumps(norm_raw, indent=2, sort_keys=True)
+                        art_entry["sha256"] = "<VOLATILE_SHA256>"
         norm_bundle = normalize_for_parity(raw_bundle, path_root=str(repo_root))
         bundle_bytes = (json.dumps(norm_bundle, indent=2, sort_keys=True) + "\n").encode("utf-8")
         golden_manager.assert_golden_byte_equality(

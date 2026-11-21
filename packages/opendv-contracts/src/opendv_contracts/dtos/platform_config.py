@@ -207,6 +207,12 @@ class PlatformConfigResponse(BaseContractModel):
         default=False,
         description="True when the compiled static Web Explorer UI bundle is present",
     )
+    remote_unauthenticated_mode: bool = Field(
+        default=False,
+        description=(
+            "True when the platform server was launched with --allow-remote-unauthenticated"
+        ),
+    )
     harness: HarnessConfigDTO = Field(
         ..., description="Active platform-default Agent Harness & Governance configuration"
     )

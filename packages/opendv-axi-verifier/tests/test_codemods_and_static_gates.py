@@ -2043,3 +2043,286 @@ def test_issue_31_alg_a4_and_gate2_sparse_binary_link(tmp_path: Path) -> None:
         assert all(r[1] != ZERO_KEY_UNKNOWN for r in rows)
     finally:
         conn.close()
+
+
+def test_bug_a_gate1_passes_with_opendv_concept_urns() -> None:
+    """Bug A TDD: verify_gate1_contract_and_grain passes DV-G1-001 and DV-G4-001
+    when GraphAOntology and contract hubs use urn:opendv:concept:* URNs.
+    """
+    ontology_graph = {
+        "ontology_version": "1.0.0",
+        "domain_namespace": "wealth_mgmt",
+        "enterprise_owner": "Enterprise",
+        "canonical_business_concepts": [
+            {
+                "concept_uri": "urn:opendv:concept:issuer",
+                "concept_name": "Issuer",
+                "target_hub": "hub_issuer",
+                "elm_archetype": "CORE_BUSINESS_CONCEPT",
+            }
+        ],
+    }
+    contract = {
+        "contract_version": "5.0",
+        "domain_namespace": "wealth_mgmt",
+        "lifecycle_stage": "COLD_START_N1",
+        "column_triage_ledger": [
+            {
+                "bronze_table": "issuers",
+                "column_name": "cik",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_issuer",
+                "source_sql_type": "TEXT",
+            },
+            {
+                "bronze_table": "issuers",
+                "column_name": "company_name",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_issuers",
+                "source_sql_type": "TEXT",
+            },
+        ],
+        "hubs": [
+            {
+                "name": "hub_issuer",
+                "ontology_concept_uri": "urn:opendv:concept:issuer",
+                "business_key_sources": [
+                    {
+                        "bronze_table": "issuers",
+                        "key_columns": ["cik"],
+                        "record_source_code": "ISSUERS",
+                        "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                        "require_src_qualifier": False,
+                        "bkcc_prefix": "GLOBAL",
+                    }
+                ],
+            }
+        ],
+        "links": [],
+        "satellites": [
+            {
+                "name": "sat_issuers",
+                "satellite_type": "STANDARD_SATELLITE",
+                "parent_entity": "hub_issuer",
+                "source_bronze_table": "issuers",
+                "payload_columns": ["company_name"],
+            }
+        ],
+        "reference_tables": [],
+        "unmapped_escalations": [],
+    }
+    diags = verify_gate1_contract_and_grain(
+        contract,
+        ontology_graph=ontology_graph,
+        strict_schema=True,
+    )
+    assert diags == []
+
+
+def test_bug_b_stage01_to_alg_a2_and_gate1_ds01_e2e(tmp_path: Path) -> None:
+    """Bug B TDD: End-to-end STAGE_01 -> _synthesize_cumulative_contract ->
+    run_axi_dv_verification_pipeline on DS-01-shaped SQLite:
+    - currency_code (8 rows) demotes to Zone 0 ref_currency_code and links dissolve
+    - hub_issuer, hub_position, hub_security, hub_treasury_rate remain Hubs
+    - positions.row_seq_sk (surrogate PK) is quarantined as SYSTEM_SURROGATE_DROPPED
+      and position_id is selected as hub_position's BK
+    - Gate 1 returns PASS.
+    """
+    import sqlite3
+
+    import duckdb
+
+    from opendv_agent_harness.pipeline.contract_synthesizer import (
+        _synthesize_cumulative_contract,
+    )
+    from opendv_agent_harness.pipeline.discovery_tabular import discover_tabular_feeds
+    from opendv_agent_harness.pipeline.spec import PipelineSourceFeedInput
+    from opendv_core.models.graph_a import GraphAOntology
+
+    db_path = tmp_path / "ds01_sample.sqlite"
+    sconn = sqlite3.connect(db_path)
+    sconn.executescript(
+        """
+        CREATE TABLE currency_code (
+            currency_code TEXT PRIMARY KEY,
+            currency_name TEXT,
+            iso_numeric TEXT,
+            minor_unit INTEGER
+        );
+        CREATE TABLE issuers (
+            cik TEXT PRIMARY KEY,
+            ticker TEXT,
+            company_name TEXT
+        );
+        CREATE TABLE securities (
+            isin_code TEXT PRIMARY KEY,
+            cik TEXT REFERENCES issuers(cik),
+            currency_code TEXT REFERENCES currency_code(currency_code),
+            security_name TEXT
+        );
+        CREATE TABLE treasury_rates (
+            observation_date TEXT,
+            series_id TEXT,
+            yield_pct REAL,
+            currency_code TEXT REFERENCES currency_code(currency_code),
+            PRIMARY KEY (observation_date, series_id)
+        );
+        CREATE TABLE positions (
+            row_seq_sk INTEGER PRIMARY KEY,
+            position_id TEXT NOT NULL,
+            cik TEXT REFERENCES issuers(cik),
+            isin_code TEXT REFERENCES securities(isin_code),
+            currency_code TEXT REFERENCES currency_code(currency_code),
+            shares INTEGER,
+            market_value REAL
+        );
+        """
+    )
+    for idx in range(8):
+        sconn.execute(
+            "INSERT INTO currency_code VALUES (?, ?, ?, ?)",
+            (f"C{idx}", f"Currency {idx}", f"00{idx}", 2),
+        )
+    for idx in range(10):
+        sconn.execute(
+            "INSERT INTO issuers VALUES (?, ?, ?)",
+            (f"CIK{idx:04d}", f"TK{idx}", f"Issuer {idx}"),
+        )
+        sconn.execute(
+            "INSERT INTO securities VALUES (?, ?, ?, ?)",
+            (f"US00000000{idx:02d}", f"CIK{idx:04d}", f"C{idx % 8}", f"Security {idx}"),
+        )
+        sconn.execute(
+            "INSERT INTO treasury_rates VALUES (?, ?, ?, ?)",
+            (f"2026-01-{idx + 1:02d}", "DGS10", 4.1 + idx * 0.01, "C0"),
+        )
+        sconn.execute(
+            "INSERT INTO positions VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (idx + 1, f"POS-{idx:04d}", f"CIK{idx:04d}", f"US00000000{idx:02d}", "C0", 100, 1000.0),
+        )
+    sconn.commit()
+    sconn.close()
+
+    ont_dict = {
+        "ontology_version": "1.0.0",
+        "domain_namespace": "wealth_mgmt",
+        "enterprise_owner": "Enterprise",
+        "canonical_business_concepts": [
+            {
+                "concept_uri": "urn:opendv:concept:issuer",
+                "concept_name": "Issuer",
+                "target_hub": "hub_issuer",
+                "elm_archetype": "CORE_BUSINESS_CONCEPT",
+                "attributes": [{"attribute_name": "cik"}, {"attribute_name": "company_name"}],
+            },
+            {
+                "concept_uri": "urn:opendv:concept:position",
+                "concept_name": "Position",
+                "target_hub": "hub_position",
+                "elm_archetype": "CORE_BUSINESS_CONCEPT",
+                "attributes": [
+                    {"attribute_name": "position_id"},
+                    {"attribute_name": "currency_code"},
+                ],
+            },
+            {
+                "concept_uri": "urn:opendv:concept:security",
+                "concept_name": "Security",
+                "target_hub": "hub_security",
+                "elm_archetype": "CORE_BUSINESS_CONCEPT",
+                "attributes": [
+                    {"attribute_name": "isin_code"},
+                    {"attribute_name": "currency_code"},
+                ],
+            },
+            {
+                "concept_uri": "urn:opendv:concept:treasury_rate",
+                "concept_name": "Treasury Rate",
+                "target_hub": "hub_treasury_rate",
+                "elm_archetype": "CORE_BUSINESS_CONCEPT",
+                "attributes": [
+                    {"attribute_name": "series_id"},
+                    {"attribute_name": "currency_code"},
+                ],
+            },
+        ],
+        "canonical_relationships": [
+            {
+                "relationship_uri": "urn:ontology:relationship:position_issuer",
+                "relationship_name": "position_issuer",
+                "target_link": "lnk_position_issuer",
+                "endpoints": ["urn:opendv:concept:position", "urn:opendv:concept:issuer"],
+                "grain_semantics": "One institutional position held for an issuing legal entity.",
+            },
+            {
+                "relationship_uri": "urn:ontology:relationship:position_security",
+                "relationship_name": "position_security",
+                "target_link": "lnk_position_security",
+                "endpoints": ["urn:opendv:concept:position", "urn:opendv:concept:security"],
+                "grain_semantics": (
+                    "One institutional position holding a specific financial security."
+                ),
+            },
+            {
+                "relationship_uri": "urn:ontology:relationship:security_issuer",
+                "relationship_name": "security_issuer",
+                "target_link": "lnk_security_issuer",
+                "endpoints": ["urn:opendv:concept:security", "urn:opendv:concept:issuer"],
+                "grain_semantics": "One tradable financial security issued by a corporate issuer.",
+            },
+        ],
+    }
+    ontology = GraphAOntology.model_validate(ont_dict)
+
+    dconn = duckdb.connect(":memory:")
+    try:
+        s1 = discover_tabular_feeds(
+            [
+                PipelineSourceFeedInput(
+                    source_system="ds01",
+                    table_name="ds01",
+                    adapter="sqlite",
+                    uri=str(db_path),
+                )
+            ],
+            dconn,
+            workspace_root=tmp_path,
+            base_dir=tmp_path,
+        )
+    finally:
+        dconn.close()
+
+    contract = _synthesize_cumulative_contract(
+        ontology=ontology,
+        discovered_feeds=s1.discovered_feeds,
+        domain_namespace="wealth_mgmt",
+        is_cold_start=True,
+    )
+    res = run_axi_dv_verification_pipeline(
+        candidate_contract=contract,
+        ontology_graph=ont_dict,
+        bronze_profile=s1.profile_summaries,
+        apply_codemods=True,
+        strict_schema=True,
+    )
+    assert res.status == "PASS", f"Expected PASS, got {res.status}: {res.diagnostics}"
+
+    hub_names = {h["name"] for h in res.transformed_contract["hubs"]}
+    assert hub_names == {"hub_issuer", "hub_position", "hub_security", "hub_treasury_rate"}
+
+    ref_names = {r["name"] for r in res.transformed_contract["reference_tables"]}
+    assert "ref_currency_code" in ref_names
+
+    link_names = {lnk["name"] for lnk in res.transformed_contract["links"]}
+    assert not any("currency_code" in ln for ln in link_names)
+
+    pos_hub = next(h for h in res.transformed_contract["hubs"] if h["name"] == "hub_position")
+    assert pos_hub["business_key_sources"][0]["key_columns"] == ["position_id"]
+
+    pos_surr = [
+        e
+        for e in res.transformed_contract["column_triage_ledger"]
+        if str(e.get("bronze_table", "")).endswith("positions")
+        and e.get("column_name") == "row_seq_sk"
+    ]
+    assert pos_surr and pos_surr[0]["elm_classification"] == "SYSTEM_SURROGATE_DROPPED"

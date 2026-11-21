@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from collections.abc import Generator
@@ -497,83 +498,100 @@ def test_opendv_pipeline_cli_incremental_initial_contract_flag(
             **{**kwargs, "sdk_module": build_deterministic_agy_sdk_shim()},
         )
 
-    set_pipeline_runner_override(shim_runner)
-    wave0_spec = "examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml"
-    wave1_spec = "examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml"
-    sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
+    import os
 
-    # 1. Run Wave 0 Cold Start
-    w0_out_dir = tmp_path / "wave0_out"
-    rc_w0 = app_main(
-        [
-            "pipeline",
-            "run",
-            "--input",
-            wave0_spec,
-            "--harness-config",
-            sample_harness,
-            "--output-dir",
-            str(w0_out_dir),
-            "--provider",
-            "agy",
-            "--json",
-        ]
-    )
-    assert rc_w0 == 0
-    out_w0 = json.loads(capsys.readouterr().out)
-    assert out_w0["status"] == "COMPLETED"
-    assert out_w0["overall_passed"] is True
-    w0_contract = w0_out_dir / "final_contract.yaml"
-    assert w0_contract.is_file()
+    saved_env = {k: os.environ.get(k) for k in ("OPENDV_STATE_DIR", "OPENDV_STORAGE_ROOT")}
+    isolated_state = tmp_path / "cli_state_w01"
+    isolated_state.mkdir(parents=True, exist_ok=True)
+    os.environ["OPENDV_STATE_DIR"] = str(isolated_state)
+    os.environ["OPENDV_STORAGE_ROOT"] = str(isolated_state)
+    try:
+        set_pipeline_runner_override(shim_runner)
+        wave0_spec = "examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml"
+        wave1_spec = (
+            "examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml"
+        )
+        sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
 
-    # 2. Validate Wave 1 Incremental Billing with --initial-contract
-    rc_w1_val = app_main(
-        [
-            "pipeline",
-            "validate",
-            "--input",
-            wave1_spec,
-            "--harness-config",
-            sample_harness,
-            "--initial-contract",
-            str(w0_contract),
-            "--provider",
-            "agy",
-            "--json",
-        ]
-    )
-    assert rc_w1_val == 0
-    out_w1_val = json.loads(capsys.readouterr().out)
-    assert out_w1_val["passed"] is True
+        # 1. Run Wave 0 Cold Start
+        w0_out_dir = tmp_path / "wave0_out"
+        rc_w0 = app_main(
+            [
+                "pipeline",
+                "run",
+                "--input",
+                wave0_spec,
+                "--harness-config",
+                sample_harness,
+                "--output-dir",
+                str(w0_out_dir),
+                "--provider",
+                "agy",
+                "--json",
+            ]
+        )
+        assert rc_w0 == 0
+        out_w0 = json.loads(capsys.readouterr().out)
+        assert out_w0["status"] == "COMPLETED"
+        assert out_w0["overall_passed"] is True
+        w0_contract = w0_out_dir / "final_contract.yaml"
+        assert w0_contract.is_file()
 
-    # 3. Run Wave 1 Incremental Billing with --initial-contract
-    w1_out_dir = tmp_path / "wave1_out"
-    rc_w1_run = app_main(
-        [
-            "pipeline",
-            "run",
-            "--input",
-            wave1_spec,
-            "--harness-config",
-            sample_harness,
-            "--initial-contract",
-            str(w0_contract),
-            "--output-dir",
-            str(w1_out_dir),
-            "--provider",
-            "agy",
-            "--json",
-        ]
-    )
-    assert rc_w1_run == 0
-    out_w1_run = json.loads(capsys.readouterr().out)
-    assert out_w1_run["status"] == "COMPLETED"
-    assert out_w1_run["overall_passed"] is True
-    w1_contract = w1_out_dir / "final_contract.yaml"
-    assert w1_contract.is_file()
-    w1_contract_doc = yaml.safe_load(w1_contract.read_text(encoding="utf-8"))
-    hub_names = {h["name"] for h in w1_contract_doc["hubs"]}
-    assert {"hub_customer", "hub_order", "hub_invoice"}.issubset(hub_names)
+        # 2. Validate Wave 1 Incremental Billing with --initial-contract
+        rc_w1_val = app_main(
+            [
+                "pipeline",
+                "validate",
+                "--input",
+                wave1_spec,
+                "--harness-config",
+                sample_harness,
+                "--initial-contract",
+                str(w0_contract),
+                "--provider",
+                "agy",
+                "--json",
+            ]
+        )
+        assert rc_w1_val == 0
+        out_w1_val = json.loads(capsys.readouterr().out)
+        assert out_w1_val["passed"] is True
+
+        # 3. Run Wave 1 Incremental Billing with --initial-contract
+        w1_out_dir = tmp_path / "wave1_out"
+        rc_w1_run = app_main(
+            [
+                "pipeline",
+                "run",
+                "--input",
+                wave1_spec,
+                "--harness-config",
+                sample_harness,
+                "--initial-contract",
+                str(w0_contract),
+                "--output-dir",
+                str(w1_out_dir),
+                "--provider",
+                "agy",
+                "--json",
+            ]
+        )
+        assert rc_w1_run == 0
+        out_w1_run = json.loads(capsys.readouterr().out)
+        assert out_w1_run["status"] == "COMPLETED"
+        assert out_w1_run["overall_passed"] is True
+        w1_contract = w1_out_dir / "final_contract.yaml"
+        assert w1_contract.is_file()
+        w1_contract_doc = yaml.safe_load(w1_contract.read_text(encoding="utf-8"))
+        hub_names = {h["name"] for h in w1_contract_doc["hubs"]}
+        assert {"hub_customer", "hub_order", "hub_invoice"}.issubset(hub_names)
+    finally:
+        set_pipeline_runner_override(None)
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 def test_wp24_opendv_pipeline_run_live_stage_progress_and_token_streaming(
@@ -591,57 +609,71 @@ def test_wp24_opendv_pipeline_run_live_stage_progress_and_token_streaming(
             **{**kwargs, "sdk_module": build_deterministic_agy_sdk_shim()},
         )
 
-    set_pipeline_runner_override(shim_runner)
-    wave0_spec = "examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml"
-    sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
+    saved_env = {
+        k: os.environ.get(k)
+        for k in ("OPENDV_STATE_DIR", "OPENDV_STORAGE_ROOT")
+    }
+    os.environ["OPENDV_STATE_DIR"] = str(tmp_path / "cli_state")
+    os.environ["OPENDV_STORAGE_ROOT"] = str(tmp_path / "cli_storage")
+    try:
+        set_pipeline_runner_override(shim_runner)
+        wave0_spec = "examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml"
+        sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
 
-    # 1. Human mode (no --json): live [Wave 0] progress lines
-    out_human_dir = tmp_path / "wp24_human_out"
-    rc_human = app_main(
-        [
-            "pipeline",
-            "run",
-            "--input",
-            wave0_spec,
-            "--harness-config",
-            sample_harness,
-            "--output-dir",
-            str(out_human_dir),
-            "--provider",
-            "agy",
-        ]
-    )
-    assert rc_human == 0
-    captured_human = capsys.readouterr()
-    assert "[STAGE 00]" in captured_human.out
-    assert "[STAGE 07]" in captured_human.out
-    assert "[opendv pipeline] status=COMPLETED" in captured_human.out
+        # 1. Human mode (no --json): live [Wave 0] progress lines
+        out_human_dir = tmp_path / "wp24_human_out"
+        rc_human = app_main(
+            [
+                "pipeline",
+                "run",
+                "--input",
+                wave0_spec,
+                "--harness-config",
+                sample_harness,
+                "--output-dir",
+                str(out_human_dir),
+                "--provider",
+                "agy",
+            ]
+        )
+        assert rc_human == 0
+        captured_human = capsys.readouterr()
+        assert "[STAGE 00]" in captured_human.out
+        assert "[STAGE 07]" in captured_human.out
+        assert "[opendv pipeline] status=COMPLETED" in captured_human.out
 
-    # 2. JSON mode (--json): stdout is pure JSON while stage progress streams to stderr
-    out_json_dir = tmp_path / "wp24_json_out"
-    rc_json = app_main(
-        [
-            "pipeline",
-            "run",
-            "--input",
-            wave0_spec,
-            "--harness-config",
-            sample_harness,
-            "--output-dir",
-            str(out_json_dir),
-            "--provider",
-            "agy",
-            "--stream-tokens",
-            "--json",
-        ]
-    )
-    assert rc_json == 0
-    captured_json = capsys.readouterr()
-    parsed_json = json.loads(captured_json.out)
-    assert parsed_json["status"] == "COMPLETED"
-    assert parsed_json["overall_passed"] is True
-    assert "[STAGE 00]" in captured_json.err
-    assert "[STAGE 07]" in captured_json.err
+        # 2. JSON mode (--json): stdout is pure JSON while stage progress streams to stderr
+        out_json_dir = tmp_path / "wp24_json_out"
+        rc_json = app_main(
+            [
+                "pipeline",
+                "run",
+                "--input",
+                wave0_spec,
+                "--harness-config",
+                sample_harness,
+                "--output-dir",
+                str(out_json_dir),
+                "--provider",
+                "agy",
+                "--stream-tokens",
+                "--json",
+            ]
+        )
+        assert rc_json == 0
+        captured_json = capsys.readouterr()
+        parsed_json = json.loads(captured_json.out)
+        assert parsed_json["status"] == "COMPLETED"
+        assert parsed_json["overall_passed"] is True
+        assert "[STAGE 00]" in captured_json.err
+        assert "[STAGE 07]" in captured_json.err
+    finally:
+        set_pipeline_runner_override(None)
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 def test_opendv_cli_run_explorer_artifact_and_hold_decide(
@@ -761,3 +793,70 @@ def test_verbose_flag_with_default_verify(capsys: pytest.CaptureFixture[str]) ->
     out_long = json.loads(capsys.readouterr().out)
     assert out_long["mode"] == "local"
     assert out_long["overall_passed"] is True
+
+
+def test_pipeline_validate_without_provider_respects_persisted_platform_config(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Omitting --provider in `pipeline validate` honors persisted platform_config.json."""
+    import sqlite3
+
+    ws_root = tmp_path / "ws"
+    state_dir = ws_root / ".opendv" / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    db_path = ws_root / "crm.sqlite"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE customers (customer_id INTEGER PRIMARY KEY, email TEXT)")
+    conn.execute("INSERT INTO customers VALUES (1, 'a@example.com')")
+    conn.commit()
+    conn.close()
+
+    cfg = {
+        "harness": {
+            "provider": "agy",
+            "auth": {"auth_mode": "cli_session", "mode": "cli_session"},
+        }
+    }
+    (state_dir / "platform_config.json").write_text(json.dumps(cfg), encoding="utf-8")
+
+    env_keys = ("OPENDV_WORKSPACE_ROOT", "OPENDV_STATE_DIR", "OPENDV_STORAGE_ROOT")
+    saved_env = {k: os.environ.get(k) for k in env_keys}
+    os.environ["OPENDV_WORKSPACE_ROOT"] = str(ws_root)
+    os.environ["OPENDV_STATE_DIR"] = str(state_dir)
+    os.environ["OPENDV_STORAGE_ROOT"] = str(state_dir)
+
+    ont_path = (
+        REPO_ROOT
+        / "examples"
+        / "pipeline_samples"
+        / "global_commerce_vault"
+        / "ontology"
+        / "commerce_graph_a_ontology.yaml"
+    )
+    try:
+        rc = app_main(
+            [
+                "pipeline",
+                "validate",
+                "--source",
+                f"sqlite:///{db_path.as_posix()}",
+                "--ontology",
+                str(ont_path),
+                "--dialect",
+                "duckdb",
+                "--json",
+            ]
+        )
+        out = json.loads(capsys.readouterr().out)
+        assert rc == 0, f"Expected exit 0, got {rc}: {out}"
+        assert out["passed"] is True
+        assert not [
+            d for d in out.get("diagnostics", []) if d.get("code") == "HARNESS_AUTH_MISSING"
+        ]
+    finally:
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v

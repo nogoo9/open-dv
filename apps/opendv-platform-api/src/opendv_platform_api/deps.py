@@ -6,7 +6,12 @@ from typing import Annotated
 
 from fastapi import Header, Request
 
-from opendv_platform_api.security.studio_auth import is_authenticated_request
+from opendv_platform_api.security.studio_auth import (
+    SERVER_MODE_REMOTE,
+    get_server_mode,
+    is_authenticated_request,
+    resolve_remote_rbac_role,
+)
 from opendv_service import (
     OpenDVService,
     OpenDVSettings,
@@ -56,11 +61,9 @@ def get_rbac_role(
     """
     header_val = x_opendv_role or request.headers.get("x-opendv-role")
     is_auth = is_authenticated_request(request)
-    default_role = (
-        RbacRole.INTERNAL_MODELER
-        if (is_auth and request.method not in ("GET", "HEAD"))
-        else RbacRole.PUBLIC
-    )
+    if get_server_mode(request) == SERVER_MODE_REMOTE:
+        return resolve_remote_rbac_role(request, header_val, authenticated=is_auth)
+    default_role = RbacRole.PRIVILEGED_CUSTODIAN if is_auth else RbacRole.PUBLIC
     return normalize_rbac_role(header_val, default=default_role, authenticated=is_auth)
 
 
