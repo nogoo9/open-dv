@@ -61,6 +61,7 @@ Provided all Immutable Outcomes and verification gates pass, contributors may fr
 
 | Priority | Document | Purpose |
 | :---: | :--- | :--- |
+| **P0** | [`docs/designs/SITEMAP.md`](docs/designs/SITEMAP.md) | Canonical EGM design sitemap indexing architecture docs, V2 specs, approved `docs/designs/` docs, and `.dev/docs` scratch routing. |
 | **P0** | [`docs/00-mission-vision-and-functional-requirements.md`](docs/00-mission-vision-and-functional-requirements.md) | Mission, Functional Requirements (`FR-DOM-*`, `FR-VER-*`, `FR-INT-*`), Conformance Rubric & Traceability Matrix (`S1`–`S10`, `#30`–`#44`). |
 | **P0** | [`docs/16-human-and-agent-usage-guide.md`](docs/16-human-and-agent-usage-guide.md) | Operational Playbook: `opendv` vs `opendvctl`, sources, `Mode A/B/C`, periodic waves, Steward Holds, and downstream `CanonicalIR` usage. |
 | **P0** | [`docs/17-testing-scenarios-and-datasets.md`](docs/17-testing-scenarios-and-datasets.md) | Normative Test Ledger: datasets, scenarios (`S1`–`S10`), unmatched cases (`UF-1`–`UF-5`), 3-transport parity, and Goldens (`GT-01`..`GT-06`). |
@@ -179,3 +180,15 @@ All contributors and AI agents must also follow [`.agents/rules/ponytail.md`](.a
 - **Reply Footer:** End implementation replies with 1–2 lines stating what was skipped/not checked and any risk the user must know.
 
 > **Attribution:** Ponytail rules and skills are vendored from [`@dietrichgebert/ponytail`](https://github.com/DietrichGebert/ponytail) v5.3.3 by **Dietrich Gebert**, licensed under the **MIT License**.
+
+---
+
+## 9. Elephant-Goldfish Model (EGM) Spec-Driven Workflow (Apache-2.0)
+
+`open-dv` adopts Google's **Elephant-Goldfish Model (EGM)** (`/egm-brainstorm`, `/egm-draft`, `/egm-review`, `/egm-review-loop`, `/egm-bootstrap`, `/egm-drift-report`) with fresh-context Goldfish verification:
+
+- **Context Loader & Sitemap:** Invoke the [`open-dv-elephant`](.agents/skills/open-dv-elephant/SKILL.md) skill and read [`docs/designs/SITEMAP.md`](docs/designs/SITEMAP.md) before drafting or reviewing new specs.
+- **Scratch vs. Approved Artifacts:** Keep unapproved brainstorm briefs, WIP drafts, and review/drift reports out of Git under `.dev/docs` (gitignored); promote human-approved EGM specs into `docs/designs/` and index them in [`docs/designs/SITEMAP.md`](docs/designs/SITEMAP.md).
+- **Bootstrap Convention:** When running `/egm-bootstrap` on packages or subtrees that already carry curated human `README.md` docs, pass `target_filename="EGM.md"` unless intentionally updating `README.md`.
+
+EGM artifact directory: .dev/docs

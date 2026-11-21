@@ -19,6 +19,7 @@ worktrees/
 !.agents/skills/**
 .env
 .critique/
+.dev/docs/
 reports/*.json
 playwright-report/
 test-results/
