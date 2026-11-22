@@ -3,41 +3,49 @@
 > Canonical Elephant-Goldfish Model (EGM) design index for `open-dv`.
 >
 > - **Scratch artifacts (unapproved briefs, WIP drafts, review & drift reports):** Written to `.dev/docs` (`EGM artifact directory: .dev/docs`, gitignored) and never committed prior to human sign-off.
-> - **New approved EGM feature specs:** Committed under `docs/designs/<feature>.md` and indexed in this file.
-> - **Core `open-dv` numbered specs & UI blueprints:** Maintained in `docs/` (`00`–`33`) and `docs/design/` and indexed below.
+> - **Approved EGM design specifications:** Promoted into `docs/designs/<feature>.md` and indexed in Section 1 below.
 > - **Project Elephant context skill:** [`.agents/skills/open-dv-elephant/SKILL.md`](../../.agents/skills/open-dv-elephant/SKILL.md)
 
-## Active Architecture, Constitution & UI System
+## 1. Active V2 Specifications & UI Design System (Normative in V2)
 
 | Document | Role |
 | :--- | :--- |
-| [`AGENTS.md`](../../AGENTS.md) | Root agent & contributor constitution: 14 non-negotiable DV 2.0 invariants, monorepo DAG ownership, and verification gates. |
-| [`CLAUDE.md`](../../CLAUDE.md) | CLI/Claude Code entrypoint summarizing immutable invariants, token caps, parity rules, and doc order. |
-| [`DESIGN.md`](../../DESIGN.md) | Canonical Claude-aligned UI design system (`#faf9f5` cream, `#cc785c` coral, `#181715` dark chrome, `5-Zone` `Z0–Z4` + `information_mart`). |
-| [`docs/00-mission-vision-and-functional-requirements.md`](../00-mission-vision-and-functional-requirements.md) | Normative mission, functional requirements (`FR-DOM-*`, `FR-VER-*`, `FR-INT-*`), and traceability rubric. |
+| [`AGENTS.md`](../../AGENTS.md) | Root constitution: 14 Data Vault 2.0 invariants, monorepo boundaries, Ponytail & EGM rules *(with V2 clean-sheet supersession notice)*. |
+| [`CLAUDE.md`](../../CLAUDE.md) | CLI/Claude Code entrypoint summarizing immutable invariants, token caps, parity rules, and V2 doc scope. |
+| [`DESIGN.md`](../../DESIGN.md) | Canonical Claude-aligned UI design system (`#faf9f5` cream, `#cc785c` coral, `#181715` dark chrome, `5-Zone Z0–Z4` + `information_mart`). |
+| [`.agents/rules/discovery-and-grounding-scenarios.md`](../../.agents/rules/discovery-and-grounding-scenarios.md) | Canonical V2 9-scenario grounding, PII masking & `sat_*_pii` rules (`SCEN-01..09`; `LOCAL_ONLY` retired). |
+| [`docs/29-discovery-grounding-and-evolution-scenarios.md`](../29-discovery-grounding-and-evolution-scenarios.md) | Canonical 9-scenario discovery, grounding & multi-wave evolution matrix (`SCEN-01..09`), PII redaction & parity rules (`LOCAL_ONLY` retired). |
+| [`docs/30-enterprise-dv2-modeling-and-loop-engineering.md`](../30-enterprise-dv2-modeling-and-loop-engineering.md) | V2 strategy blueprint: `BKCC` + `sal_*`, 3-Loop CEGAR, zero-SQL `UniversalVaultSchemaIR v2.0` *(superseded in [`v2-clean-sheet-architecture.md`](v2-clean-sheet-architecture.md) by `VaultSchemaIR v2.0`)*, decoupled `v7`, `V8` Horizon Critic, `.opendv.zip`. |
+| [`docs/31-v2-e2e-requirements-gaps-and-uat-spec.md`](../31-v2-e2e-requirements-gaps-and-uat-spec.md) | Consolidated E2E V2 architecture, `OBS-01..48`, `REQ-01..68`, `§1.4` clean-sheet V1 shim retirements, and `89`-item UAT expected-output checklist. |
+| [`docs/32-v2-user-experience-and-scenario-guide.md`](../32-v2-user-experience-and-scenario-guide.md) | Complete Steps 1–7 UX guide (`Core Project State` default `.opendv.zip`, `Guided` vs. `Architect`) and `20`-scenario playbook. |
+| [`docs/designs/v2-clean-sheet-architecture.md`](v2-clean-sheet-architecture.md) | **Clean-Sheet V2 Architecture & Target Blueprint (2026-11-22):** Unified `opendv` package (`src/opendv/`), React 19 `web/`, `34` closed `ErrorCode`s (`33` negative paths), Steps 1–7 UX, `dispatch_scout` isolated Step 4 `JobMcpBroker`/`ExternalMcpGateway` proxy, `Z0–Z4` CEGAR + `DuckDbProverAdapter` (`V6`: `15/15` `DV-DYN`) + `V7`/`V8` critics, `11`-target `TargetEvalGate` (`8` SQL + `3` formats), `17`-tool `stdio` MCP, on-demand bundle/file exports from 5-table SQLite WAL, out-of-repo `<OS_USER_STATE>`, and `V2-1..V2-9` cutover plan (`VaultSchemaIR v2.0`). |
 
-## Platform Parity & Ontology Studio Baseline
+## 2. Active Domain Mathematics, Hardening Guardrails & Active ADRs
 
-| Document | Role |
+| Document | Scope Preserved vs. Retired V1 References |
 | :--- | :--- |
-| [`docs/18-implementation-plan-platform-parity-and-architecture.md`](../18-implementation-plan-platform-parity-and-architecture.md) | Shared `opendv-service` core, 3-transport parity (`opendv`, `opendvctl`, FastAPI), and architectural requirements. |
-| [`docs/19-ontology-studio-architecture.md`](../19-ontology-studio-architecture.md) | Ontology Studio CAS, locking, SSE runtime, governance, and workspace model. |
-| [`docs/20-ontology-studio-spec.md`](../20-ontology-studio-spec.md) | Normative API, DTO, CLI, and Studio conformance specification. |
-| [`docs/24-ontology-studio-engineering-learnings.md`](../24-ontology-studio-engineering-learnings.md) | Hardening learnings (RFC 8785 JCS, Windows/POSIX locks, async SSE, fail-closed governance). |
-| [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](../27-unified-ontology-pipeline-requirements-and-uat.md) | Unified 6-step Wizard + 4-View DV Schema Explorer V1 requirements (`D1`–`D28`). |
-| [`docs/28-unified-ontology-pipeline-design-and-plan.md`](../28-unified-ontology-pipeline-design-and-plan.md) | Unified Wizard V1 phased architecture (`< 5,000`-token decomposition `D16`). |
+| [`docs/00-mission-vision-and-functional-requirements.md`](../00-mission-vision-and-functional-requirements.md) | Keep Mission & `FR-DOM-*` / `FR-VER-*` / `FR-INT-*`; V1 `final_canonical_ir.json` / `final_four_zone.sql` references superseded by `VaultSchemaIR v2.0` + Step 7. |
+| [`docs/01-core-modelling-spec.md`](../01-core-modelling-spec.md) | Active Data Vault 2.0 entity definitions (`hub_*`, `lnk_*`, `t_lnk_*`, `sat_*`, `mas_*`, `esat_*`, `sal_*`, `ref_*`, `pit_*`, `brg_*`, Zero/Ghost records). |
+| [`docs/02-schema-stability-and-evolution.md`](../02-schema-stability-and-evolution.md) | Active schema stability invariants (`INV-01..06`), additive evolution (`EVO-01..08`), and anti-patterns (`AP-01..15`). |
+| [`docs/04-unstructured-and-multimodal-dv2.md`](../04-unstructured-and-multimodal-dv2.md) | Keep `Rules U1–U4` and `Tier-U1..U3` gating; `chunk_id` spans and V1 `AI_PROVENANCE_SATELLITE` columns superseded by Flow B `(doc_id, page_number, char_start, char_end)` and V2 provenance schema. |
+| [`docs/05-elm-calculus-and-reference-algorithms.md`](../05-elm-calculus-and-reference-algorithms.md) | Active `Algorithms A.1–A.9b` and `Algorithm A.5` length-prefixed UTF-8 SHA-256 spec. |
+| [`docs/14-end-to-end-consistency-and-scenarios-audit.md`](../14-end-to-end-consistency-and-scenarios-audit.md) | Keep `BUG-01..08` hash/FK/span/temporal invariants; closed V1 issue numbers `#30–#44` historical. |
+| [`docs/DV2_AGENT_REFERENCE_GUIDE.md`](../DV2_AGENT_REFERENCE_GUIDE.md) | Active DV 2.0 math & anti-pattern reference consumed by agent skills. |
+| [`docs/24-ontology-studio-engineering-learnings.md`](../24-ontology-studio-engineering-learnings.md) & [`.agents/rules/ontology-studio-learnings.md`](../../.agents/rules/ontology-studio-learnings.md) | Keep concurrency, lock ordering, Win32 ACL, JCS, gapless SSE, `< 5,000`-token caps, and PII taint guardrails; V1 `.odvstudio.zip`, `studio_auth`, and frozen V1 SHA-256 pins superseded. |
+| Active ADRs (`docs/design/ontology-studio/`) | [`ADR-003`](../design/ontology-studio/ADR-003.md) (FIBO pack), [`ADR-004`](../design/ontology-studio/ADR-004.md) *(Superseded by static JSON FIBO pack)*, [`ADR-006`](../design/ontology-studio/ADR-006.md) (`OntologyDelta`), [`ADR-007`](../design/ontology-studio/ADR-007.md) (`ONT-EVO`), [`ADR-008`](../design/ontology-studio/ADR-008.md) (BM25 SPI), [`ADR-011`](../design/ontology-studio/ADR-011.md) (React Flow + ELK), [`ADR-012`](../design/ontology-studio/ADR-012.md) (Dual-CLI parity), [`ADR-013`](../design/ontology-studio/ADR-013.md) (`Last-Event-ID` SSE), [`ADR-016`](../design/ontology-studio/ADR-016.md) (Redaction & archive security). |
 
-## Active V2 Specifications (Enterprise Vault, Guided Studio & Real-Data UAT)
+## 3. Retired V1 Decisions Summary (Superseded by Clean-Sheet V2)
 
-| Document | Role |
-| :--- | :--- |
-| [`docs/29-discovery-grounding-and-evolution-scenarios.md`](../29-discovery-grounding-and-evolution-scenarios.md) | Canonical 9-scenario discovery, grounding & multi-wave evolution matrix (`SCEN-01..09`), `Local Only` & parity rules. |
-| [`docs/30-enterprise-dv2-modeling-and-loop-engineering.md`](../30-enterprise-dv2-modeling-and-loop-engineering.md) | V2 blueprint: `BKCC` + `sal_*`, 3-Loop CEGAR, zero-SQL `UniversalVaultSchemaIR v2.0`, decoupled `v7`, `V8` Horizon Critic, `.opendv.zip`. |
-| [`docs/31-v2-e2e-requirements-gaps-and-uat-spec.md`](../31-v2-e2e-requirements-gaps-and-uat-spec.md) | Consolidated E2E V2 architecture (`Phases 0–9`), `OBS-01..48`, `REQ-01..68`, and `89`-item UAT expected-output checklist. |
-| [`docs/32-v2-user-experience-and-scenario-guide.md`](../32-v2-user-experience-and-scenario-guide.md) | Complete Steps 1–7 UX guide (`Core Project State` default `.opendv.zip`, `Guided` vs `Architect`) and `20`-scenario playbook. |
-| [`docs/33-v2-phased-implementation-and-real-data-uat-plan.md`](../33-v2-phased-implementation-and-real-data-uat-plan.md) | Master V2 phased TDD implementation & real-data browser UAT plan (`Phases V2-1..V2-9`). |
-| [`docs/design/ontology-studio/uat-v2-feedback-and-triage-log.md`](../design/ontology-studio/uat-v2-feedback-and-triage-log.md) | Manual UAT feedback triage ledger driving V2 scope and requirements. |
+| Decision Set | Retired / Superseded Items | Clean-Sheet V2 Replacement |
+| :--- | :--- | :--- |
+| **Ontology Studio ADRs** | `ADR-001` (Wave 1–3 lifecycle), `ADR-002` (`--mode deterministic` heuristic synthesis), `ADR-005` (V1 `pe_graph_a` hash freeze), `ADR-009` (`.opendv/ontology_studio/<session_id>/`), `ADR-010` (chunked `/parse`), `ADR-014` (`.odvstudio.zip`), `ADR-015` (V1 Opus PR gate) | EGM + V2 phased delivery; one AI discovery/synthesis pipeline; `.opendv/projects/<id>/`; Flow B `document_map` (`project.sqlite`, exported on-demand as `document_map.json`) + MCP; `.opendv.zip` (`core_project_state` default); V2 JCS hashes. |
+| **Unified Wizard `D1..D28` (`docs/27`)** | `D1` (single-pass stdin draft), `D10..D14` (6-step wizard, `00..06` console projection, `D12` raw baseline upload, `D13` frozen 45-subcommand V1 CLI, `D14` raw Hold modal), `D16` (V1 leave-old-engines-untouched clause), `D19..D20`, `D23`, `D24` (`.odvstudio.zip`), `D25` (`legacy_session_count`) | 7-step Project workflow, Flow B MCP scout fan-out, native V2 stages (`00..07` + `06b`), `GuidedDecisionCard`, V2 `schemas/v2/cli-spec.json`, `< 5,000`-token ceiling across all new V2 modules, and `.opendv.zip`. *(Plus `D28` expanded to retire CLI `--mode deterministic`.)* |
+| **V2 Triage & Shims (`docs/31`, `docs/33`)** | `Q-07, Q-08, Q-10`; `REQ-17, REQ-18, REQ-24`; stale `docs/31` Phase 0 `launch-nonce`/`verify_csrf`/`K_waiver`; **all 5 V1 shims**: `--session`/`/sessions` aliases, `CanonicalIR` v1/`final_four_zone.sql`, 8-enum `PipelineStageId` + `00..06` log aliases, `graph_a.lock` promote, and V1 frozen SHA-256 digests; **per-file `LOCAL_ONLY` / `do_not_send_to_agent`** (`opendv.term_extractors`, `ExcludedSourceTombstone`, `CONFIDENTIAL_SOURCE_EXPORT_UNACKNOWLEDGED`) | Pure `--project <id>` & `/api/v1/projects/{project_id}/...`, single zero-SQL `VaultSchemaIR v2.0` (`CertifiedVaultIR` in `project.sqlite`), native V2 stage IDs, direct Step 5 -> Step 6 handoff, fresh V2 JCS digests, and `<MASKED_PII>` + `sat_*_pii` + workspace-scoped `KeyringSecretStore` (out-of-repo `<OS_USER_STATE>`). |
 
-## EGM Feature Designs (`docs/designs/`)
+## 4. Superseded / Historical V1 & MVP Documents (Archived — Do Not Implement Against)
 
-> New EGM `/egm-draft` specifications promoted from `.dev/docs` will be listed here upon approval.
+> Every file below carries a top-of-file supersession notice (except auto-generated `docs/16-cli-reference.md`, marked here until regenerated from the V2 `cli-spec.json`).
+
+*   **V1 Pipeline, MVP & CLI Architecture:** [`docs/03`](../03-verification-and-agentic-architecture.md) · [`docs/06`](../06-explainability-and-observability-spec.md) · [`docs/07`](../07-end-to-end-private-equity-demo.md) · [`docs/08`](../08-platform-mvp-monorepo-and-api-spec.md) · [`docs/09`](../09-agnostic-agent-harness-and-sdk-spec.md) · [`docs/11`](../11-agent-worker-implementation-plan.md) · [`docs/12-agentic-pipeline-inputs-and-harness-guide.md`](../12-agentic-pipeline-inputs-and-harness-guide.md) · [`docs/12-unified-platform-web-and-cli-setup.md`](../12-unified-platform-web-and-cli-setup.md) · [`docs/13`](../13-real-agentic-pipeline-remediation-spec.md) · [`docs/15`](../15-end-to-end-pipeline-execution-and-interactive-spec.md) · [`docs/16-cli-reference.md`](../16-cli-reference.md) · [`docs/16-human-and-agent-usage-guide.md`](../16-human-and-agent-usage-guide.md) · [`docs/17`](../17-testing-scenarios-and-datasets.md) · [`docs/18`](../18-implementation-plan-platform-parity-and-architecture.md) · [`docs/references/dv2-architectural-consistency-evaluation.md`](../references/dv2-architectural-consistency-evaluation.md)
+*   **V1 Ontology Studio & PR `#245` 6-Step Wizard:** [`docs/19`](../19-ontology-studio-architecture.md) · [`docs/20`](../20-ontology-studio-spec.md) · [`docs/21`](../21-ontology-studio-implementation-plan.md) · [`docs/22`](../22-ontology-studio-user-guide.md) · [`docs/23`](../23-ontology-studio-extension-guide.md) · [`docs/25`](../25-data-driven-single-run-pipeline-design.md) · [`docs/26`](../26-data-driven-pipeline-team-implementation-plan.md) · [`docs/27`](../27-unified-ontology-pipeline-requirements-and-uat.md) · [`docs/28`](../28-unified-ontology-pipeline-design-and-plan.md) · [`docs/33`](../33-v2-phased-implementation-and-real-data-uat-plan.md) *(compatibility shims retired; clean-sheet EGM V2 design replaces)*
+*   **Historical Design Handoffs, Triage Log & Superseded ADRs:** [`open-dv-workbench/HANDOFF.md`](../design/open-dv-workbench/HANDOFF.md) · [`ontology-studio/HANDOFF.md`](../design/ontology-studio/HANDOFF.md) · [`ontology-studio/master-plan.md`](../design/ontology-studio/master-plan.md) · [`ontology-studio/RELEASE_PR_BODY.md`](../design/ontology-studio/RELEASE_PR_BODY.md) · [`ontology-studio/research.md`](../design/ontology-studio/research.md) · [`uat-v2-feedback-and-triage-log.md`](../design/ontology-studio/uat-v2-feedback-and-triage-log.md) · [`ADR-001`](../design/ontology-studio/ADR-001.md) · [`ADR-002`](../design/ontology-studio/ADR-002.md) · [`ADR-005`](../design/ontology-studio/ADR-005.md) · [`ADR-009`](../design/ontology-studio/ADR-009.md) · [`ADR-010`](../design/ontology-studio/ADR-010.md) · [`ADR-014`](../design/ontology-studio/ADR-014.md) · [`ADR-015`](../design/ontology-studio/ADR-015.md)
