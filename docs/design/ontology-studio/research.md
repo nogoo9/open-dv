@@ -1,4 +1,7 @@
 # Technical Research: Open-DV Ontology Construction Studio
+
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** Historical V1 research note; superseded by Open-DV V2. See [`docs/designs/SITEMAP.md`](../../designs/SITEMAP.md).
 **Status**: Proposed (Under M1 Review) | **Ref**: `master-plan.md`, `PROJECT.md`, ADR-001..016
 
 ## 1. Executive Summary

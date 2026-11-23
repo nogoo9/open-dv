@@ -1,5 +1,8 @@
 # 26 — Team Implementation Plan: Data-Driven Single-Run Pipeline & Multi-Connector Catalog
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** Historical team plan is superseded by clean-sheet V2 design specs. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Module:** `docs/26-data-driven-pipeline-team-implementation-plan.md` · **Revision:** v1.0 (2026-11-15)  
 > **Status:** Historical Implementation Plan (`WS-1`–`WS-6` Completed; `/builder` UI Superseded by `D19` Unified 6-Step Wizard + DV Schema Explorer)  
 > **Governing Docs:** [`docs/25`](25-data-driven-single-run-pipeline-design.md) (`ADR-017`–`ADR-021`) · [`docs/19`](19-ontology-studio-architecture.md) · [`docs/20`](20-ontology-studio-spec.md) · [`docs/21`](21-ontology-studio-implementation-plan.md) · [`docs/22`](22-ontology-studio-user-guide.md) · [`docs/27`](27-unified-ontology-pipeline-requirements-and-uat.md) · [`docs/28`](28-unified-ontology-pipeline-design-and-plan.md)  

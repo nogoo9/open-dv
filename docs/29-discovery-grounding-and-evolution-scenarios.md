@@ -2,6 +2,8 @@
 
 > **Module:** `docs/29-discovery-grounding-and-evolution-scenarios.md` · **Revision:** v2.0 (2026-11-21)
 
+> [!NOTE] **Clean-Sheet V2 Update (2026-11-21):** Per-file `LOCAL_ONLY` (`do_not_send_to_agent`, `opendv.term_extractors`) is **retired** in clean-sheet Open-DV V2; `SCEN-08` verifies `<MASKED_PII>` sample-value masking in prompts/MCP logs, `sat_*_pii` satellite isolation, selective `view_page_image` on scanned pages (`is_scanned_or_low_density=True`), and zero plaintext secrets in exports.
+
 > **Purpose:** Single canonical reference for how Open-DV detects, infers, types, grounds, governs, and evolves business concepts across **Structured Databases**, **Unstructured Policy Documents / Notes**, **FIBO Reference Standards**, and **Multi-Wave Releases**.  
 > **Intended Consumers:** Repository documentation (`docs/`), product website (`apps/opendv-website`), walkthrough video & WebVTT captions ([`tour-data.ts`](../apps/opendv-website/src/data/tour-data.ts)), automated tests (`pytest` + `Playwright`), and final UAT sign-off.
 

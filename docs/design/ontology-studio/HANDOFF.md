@@ -1,4 +1,7 @@
 # Open-DV Ontology Construction Studio: Design Handoff (HANDOFF.md)
+
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** Historical V1 Ontology Studio handoff; superseded by Open-DV V2. See [`docs/designs/SITEMAP.md`](../../designs/SITEMAP.md).
 **Status:** Proposed Baseline (Under M1 Review) | **Branch:** `dev/ontology-studio` | **Ref:** `master-plan.md`, `research.md`, ADR-001..016
 
 ## 1. Executive Summary & Binding Matrix

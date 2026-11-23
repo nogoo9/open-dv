@@ -1,5 +1,8 @@
 # 27 — Unified Ontology & Data Vault 2.0 Pipeline Wizard: Requirements & Output-Validated UAT
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** PR `#245` V1 6-step Wizard specification is superseded by Open-DV V2 (`docs/29..32` and `docs/designs/`). Specifically retired: `D1, D10..D14, D16 (leave-old-engines-untouched), D19..D20, D23, D24 (.odvstudio.zip), D25`, and CLI `--mode deterministic` (`D28` expanded). See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Module:** `docs/27-unified-ontology-pipeline-requirements-and-uat.md` · **Revision:** v1.0 (2026-11-19)  
 > **Status:** Normative Requirements & UAT Specification (Phase 0 Deliverable)  
 > **Target Repository:** `open-dv` (`packages/opendv-core`, `packages/opendv-duckdb-sandbox`, `packages/opendv-agent-harness`, `packages/opendv-service`, `packages/opendv-protocol-ts`, `apps/opendv-platform-api`, `apps/opendv-cli`, `apps/opendvctl`, `apps/opendv-web-workbench`, `apps/opendv-website`)  

@@ -1,5 +1,8 @@
 # 09 — Harness-Agnostic Agent Runtime & Dual-SDK Adapter Specification (`packages/opendv-agent-harness`)
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** V1 harness spec is superseded by V2 portable `<agent-id>/{agent.yaml, SKILL.md}` packs, `ModelTier.FRONTIER_CRITIC`, `PromptRenderer`, and `opendv mcp serve` (single AI pipeline; `--mode deterministic` retired). See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Module:** `docs/09-agnostic-agent-harness-and-sdk-spec.md`  
 > **Parent Specification:** [`DV2_AGENT_REFERENCE_GUIDE.md`](DV2_AGENT_REFERENCE_GUIDE.md) (`v6.0.0`)  
 > **Companion Platform Specs:** [`08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md) · [`11-agent-worker-implementation-plan.md`](11-agent-worker-implementation-plan.md)  

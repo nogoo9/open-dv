@@ -1,5 +1,7 @@
 # Ontology Studio & Platform Hardening Guardrails
 
+> [!NOTE] **OPEN-DV V2 CLEAN-SHEET ALIGNMENT NOTICE (2026-11-21):** Concurrency, lock-ordering, Win32 binary-SID ACL, RFC 8785 JCS serialization, gapless `Last-Event-ID` SSE, `extra="forbid"` DTO validation, `< 5,000`-token module caps, and `<MASKED_PII>` redaction rules remain active in V2. References below to V1 `.odvstudio.zip`, `StudioSession` (`sessions/`), V1 frozen SHA-256 hash literals (`1916a5c6...`, `1c100409...`), `studio_auth.py`, `X-OpenDV-Workbench` / token headers, `/parse`, and per-file `LOCAL_ONLY` (`do_not_send_to_agent`) are superseded and retired by the clean-sheet V2 design ([`docs/designs/SITEMAP.md`](../../docs/designs/SITEMAP.md)).
+
 Mandatory engineering checklist distilled from building and dual-model auditing (`docs/24-ontology-studio-engineering-learnings.md`) the `open-dv` Ontology Construction Studio. Apply these invariants whenever modifying CAS/hashing, locks, FastAPI/SSE, CLIs, Web Workbench, or documentation.
 
 ## 1. Cryptographic Digests & RFC 8785 JCS

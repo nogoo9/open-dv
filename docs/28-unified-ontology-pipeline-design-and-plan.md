@@ -1,5 +1,8 @@
 # 28 — Unified Ontology & Data Vault 2.0 Pipeline Wizard + DV Schema Explorer: Architecture Design & Phased Plan
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** PR `#245` V1 6-step Wizard architecture plan (`00..06` pill projection, Step 6 SQL lowering) is superseded by Open-DV V2 7-step architecture (`UniversalVaultSchemaIR v2.0`, native `00..07` + `06b`, Step 7 `v7`). See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Module:** `docs/28-unified-ontology-pipeline-design-and-plan.md` · **Revision:** v1.0 (2026-11-19)  
 > **Status:** Execution-Ready Architecture & Phased Plan (Phase 0 Deliverable)  
 > **Target Repository:** `open-dv` (`packages/*`, `apps/*`, `schemas/*`, `tests/*`, `docs/*`)  

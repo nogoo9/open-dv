@@ -1,5 +1,8 @@
 # Document 07: End-to-End Private Equity Asset Management Data Vault 2.0 Modelling & Verification Demo
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** Single-domain Private Equity walkthrough coupled to V1 `CanonicalIR` and `final_four_zone.sql` is superseded by the V2 4-dataset UAT suite (`DS-AM-REAL`, `DS-CEGAR-12TRAP`, `DS-ERP-REAL`, `DS-HORIZON-SEC`). See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > ** Quick-Navigation Index**
 > - **[Repository Root (`README.md`)](../README.md)** | **[Agent Reference Guide (`DV2_AGENT_REFERENCE_GUIDE.md`)](./DV2_AGENT_REFERENCE_GUIDE.md)**
 > - **[Doc 01: Core Modelling Specification](./01-core-modelling-spec.md)**

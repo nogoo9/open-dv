@@ -1,5 +1,8 @@
 # 08 — Platform MVP Monorepo Toolchain (`proto` + `moon` + `uv` + `bun`) & Headless Platform API Specification
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** Early MVP workbench routes (`WB-00..11`) and V1 session layout are superseded by the V2 Project-scoped `:8420` platform and Web Workbench. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Module:** `docs/08-platform-mvp-monorepo-and-api-spec.md`  
 > **Parent Specification:** [`DV2_AGENT_REFERENCE_GUIDE.md`](DV2_AGENT_REFERENCE_GUIDE.md) (`v6.0.0`)  
 > **Companion Platform Specs:** [`09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md) · [`11-agent-worker-implementation-plan.md`](11-agent-worker-implementation-plan.md)  

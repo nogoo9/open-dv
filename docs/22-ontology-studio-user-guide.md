@@ -1,5 +1,8 @@
 # 22 — Open-DV Ontology Construction Studio: Comprehensive End-User Guide
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** V1 6-step user guide (`/parse`, `.odvstudio.zip`) is superseded by `docs/32-v2-user-experience-and-scenario-guide.md`. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 **Document Status:** Normative User & Operational Guide (Updated for Phases 1–4 Unified Workbench)  
 **Design System & Active Specs:** [`DESIGN.md`](../DESIGN.md), [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](27-unified-ontology-pipeline-requirements-and-uat.md), [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md)  
 **Governing Documents:** [`docs/19-ontology-studio-architecture.md`](19-ontology-studio-architecture.md), [`docs/20-ontology-studio-spec.md`](20-ontology-studio-spec.md)  

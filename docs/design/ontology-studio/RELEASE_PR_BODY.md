@@ -1,5 +1,8 @@
 # Open-DV Ontology Construction Studio (Wave 1, Wave 2, Wave 3 Release)
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** Historical V1 release note; superseded by Open-DV V2. See [`docs/designs/SITEMAP.md`](../../designs/SITEMAP.md).
+
 ## Executive Summary
 This Pull Request delivers the complete, production-ready **Open-DV Ontology Construction Studio** to `main`, concluding autonomous delivery across Phases 0 through 6 (Milestones M0–M6) per `docs/21-ontology-studio-implementation-plan.md` and the Master Plan.
 

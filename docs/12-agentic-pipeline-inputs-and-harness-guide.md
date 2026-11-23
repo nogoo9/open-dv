@@ -1,5 +1,8 @@
 # 12 — Agentic Pipeline Inputs, Harness Configuration & Authentication Reference Guide (`Claude` vs `Antigravity`)
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** V1 `pipeline_input.yaml` wave config is superseded by V2 `ProjectState`, 3-Tab Settings, `HttpOnly` cookie secrets, and `CegarPolicyDTO`. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 This document is the authoritative, field-by-field reference guide for configuring and executing the **Open-DV 8-Stage Neuro-Symbolic Agentic Data Vault 2.0 Pipeline** (`packages/opendv-agent-harness`). It covers:
 
 > **Phase 2–4 Alignment Notes (`D10`, `D21`, `D28`, `docs/25`, `docs/27`, `docs/28`):**

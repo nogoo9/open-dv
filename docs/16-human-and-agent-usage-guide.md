@@ -1,5 +1,8 @@
 # 16 — Human & Autonomous Agent Usage & Integration Guide (`open-dv`)
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** V1 CLI usage guide (`ontology studio parse`, `.odvstudio.zip`, `Mode A/B/C`, `--mode deterministic`, `--session`, `final_canonical_ir.json`) is superseded by clean-sheet V2 Project-first commands (`--project`, `.opendv.zip`, `export-storage`, `storage`, `mcp`, `agents`); auto-generated `docs/16-cli-reference.md` will be regenerated in V2. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Practical Playbook for Data Vault 2.0 Modelling, Periodic Source Onboarding, Downstream Warehouse Integration (`dbt` / `AutomateDV` / `Snowflake` / `Databricks` / `BigQuery` / `SQLMesh`), and Role-Specific Workflows**  
 > **Target Audience:** Data Architects, Analytics Engineers, Data Stewards, Orchestration Agents, Downstream Translation Agents, and Core Contributors  
 > **Companion Specifications:** [`DESIGN.md`](../DESIGN.md), [`AGENTS.md`](../AGENTS.md), [`README.md`](../README.md), [`docs/00-mission-vision-and-functional-requirements.md`](00-mission-vision-and-functional-requirements.md), [`docs/12-agentic-pipeline-inputs-and-harness-guide.md`](12-agentic-pipeline-inputs-and-harness-guide.md), [`docs/14-end-to-end-consistency-and-scenarios-audit.md`](14-end-to-end-consistency-and-scenarios-audit.md), [`docs/15-end-to-end-pipeline-execution-and-interactive-spec.md`](15-end-to-end-pipeline-execution-and-interactive-spec.md), [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](27-unified-ontology-pipeline-requirements-and-uat.md), [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md)

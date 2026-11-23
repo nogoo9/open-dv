@@ -1,5 +1,8 @@
 # 04 — Unstructured Data & Multi-Modal Integration in Data Vault 2.0
 
+> [!NOTE]
+> **OPEN-DV V2 CLEAN-SHEET — ALIGNMENT NOTICE (2026-11-21):** `Rules U1–U4` and `Tier-U1..U3` gating remain active in V2; V1 `chunk_id` / `/parse` chunking references are superseded by Flow B `(doc_id, page_number, char_start, char_end)` spans. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Part of the [`open-dv` Reference Guide Suite](DV2_AGENT_REFERENCE_GUIDE.md)**  
 > **Domain:** Unstructured & Multi-Modal Data Vault 2.0 Architecture (Rules U1–U4), `hub_document` & Chunk/Vector Table Topology, 3-Tier Entity Resolution Protocol (`Tier-U1`/`Tier-U2`/`Tier-U3`), Cryptographic Span-Grounded Extraction, Gate 5 Verifier (`Algorithm A.9b`), and Bitemporal Multimodal Point-in-Time (PIT) + GraphRAG Retrieval (`D.10`)  
 > **Companion Specifications:**

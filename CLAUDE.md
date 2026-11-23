@@ -1,5 +1,8 @@
 # Claude Code & CLI Agent Instructions (`CLAUDE.md`)
 
+> [!IMPORTANT]
+> **Clean-Sheet V2 Supersession Scope (2026-11-21):** Check [`docs/designs/SITEMAP.md`](docs/designs/SITEMAP.md) before reading historical docs. Under the clean-sheet Open-DV V2 rewrite, V1 `--mode deterministic` heuristic synthesis (`ADR-002`), `--session` / `/sessions` aliases, V1 `CanonicalIR` (`final_canonical_ir.json`) / `final_four_zone.sql`, V1's 8-enum `PipelineStageId` lock + `00..06` log aliases, `graph_a.lock` promote, `.odvstudio.zip`, 800-char `/parse` chunking, and V1 frozen SHA-256 hash pins are **superseded and retired**.
+
 Welcome to the `open-dv` monorepo. Before planning, editing, reviewing, or running commands in this repository, read and enforce the following mandatory project documents in order:
 
 1. **[`AGENTS.md`](AGENTS.md)** — Root Agent & Contributor Constitution: mission, target-agnostic DV 2.0 vs. DuckDB verification boundaries, the 14 non-negotiable engineering invariants (`OBJ-01`, `FR-DOM-*`, `FR-VER-*`, `REQ-CORE-01`, `REQ-CLI-01/02`, `REQ-ONT-01/02`), monorepo package DAG boundaries, and verification gates.

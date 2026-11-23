@@ -1,5 +1,8 @@
 # 18 — Implementation Plan (v3.9): Platform Parity & Architecture — Shared Core, Two Consistent CLIs, Pluggable Source Adapters, Hardening, Ontology-Recommender Seams, Legacy Workbench Removal & 3-Level Explorer Integration
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** Historical Issue `#63` P0–P10 execution plan (`platform_state.json`, 3-Level Explorer) is superseded; core architectural guardrails (`REQ-CORE-01`, `REQ-MOCK-01`, `REQ-FAIL-01`, `REQ-CLI-01/02`, `REQ-SRC-01/02`, `REQ-ONT-01/02`) remain in `AGENTS.md` and V2 specs. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Module:** `docs/18-implementation-plan-platform-parity-and-architecture.md` · **Revision:** v3.9 (2026-11-04)
 > **Status:** Implementation completed across all phases P0–P10. Tracked in the master tracker [#63](https://github.com/nogoo9/open-dv/issues/63), with phase sub-issues #64, #70, #76, #82, #89, #96, #101, #109, #114 and #120, and all task sub-issues (#65–#123) merged and verified.
 > **Governing docs:** [`docs/00`](00-mission-vision-and-functional-requirements.md) (mission & FRs) · [`docs/17`](17-testing-scenarios-and-datasets.md) (test ledger) · [`docs/design/open-dv-workbench/HANDOFF.md`](design/open-dv-workbench/HANDOFF.md) (on PR #60) · [`AGENTS.md`](../AGENTS.md)

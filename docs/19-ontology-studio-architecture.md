@@ -1,5 +1,8 @@
 # 19 — Open-DV Ontology Construction Studio: System Architecture & Subsystem Specification
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** V1 `StudioSession`, 800-char `/parse` chunking, `.odvstudio.zip`, `graph_a.lock` promote, and 6-step architecture are superseded by clean-sheet V2 (`ProjectState`, Flow B `document_map.json` + MCP, `.opendv.zip`, and Step 5->6 handoff). See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 **Status:** Normative Architecture Reference (Updated for Unified Phases 1–4)  
 **Target Repository:** `open-dv` (`packages/opendv-core`, `packages/opendv-contracts`, `packages/opendv-sources`, `packages/opendv-agent-harness`, `packages/opendv-service`, `apps/opendv-platform-api`, `apps/opendv-cli`, `apps/opendvctl`, `apps/opendv-web-workbench`)  
 **Specification Dialect:** OpenDV Architecture v1 / Data Vault 2.0 Modeling Standard  

@@ -1,5 +1,8 @@
 # 25 — Data-Driven Single-Run Pipeline, VaultBlueprint & Universal Multi-Connector Architecture Design
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** Historical V1 pipeline design is superseded by V2 `ProjectState` and 7-step CEGAR + `v7` architecture. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 **Status:** Normative Architecture & Technical Design Specification  
 **Target Repository:** `open-dv` (`packages/opendv-core`, `packages/opendv-contracts`, `packages/opendv-sources`, `packages/opendv-axi-verifier`, `packages/opendv-duckdb-sandbox`, `packages/opendv-agent-harness`, `packages/opendv-service`, `packages/opendv-testkit`, `apps/opendv-platform-api`, `apps/opendv-cli`, `apps/opendvctl`, `apps/opendv-web-workbench`)  
 **Specification Dialect:** OpenDV Architecture v2 / Data Vault 2.0 Modeling Standard / `VaultBlueprint` v1.0  

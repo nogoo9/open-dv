@@ -1,5 +1,8 @@
 # `open-dv` Testing Scenarios, Datasets & Verification Ledger (`docs/17-testing-scenarios-and-datasets.md`)
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** V1 `GT-01..06` / `final_canonical_ir.json` / `final_four_zone.sql` test ledger is superseded by the V2 `SCEN-01..09`, `MOD-01..07`, `OPS-01..04`, `TRAP-01..12`, and `89`-item UAT matrix (`docs/31-v2-e2e-requirements-gaps-and-uat-spec.md`, `docs/32-v2-user-experience-and-scenario-guide.md`). See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > Normative catalog of end-to-end and unit test datasets, scenarios (`S1`–`S10`), unmatched ontology field routing cases (`UF-1`–`UF-5`), canonical test vectors, and zero-mock verification commands.
 
 ---

@@ -1,5 +1,8 @@
 # Document 06: Explainability, Observability & Visualization Architecture (`open-dv`)
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** V1 observability & visualization layout is superseded by V2 Step 6 `Guided ⇄ Architect` UX, the 4-Zone CEGAR Observatory, and 6 typed SSE streams (`docs/30`, `docs/32`). See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > ** Quick-Navigation Index**
 > - **[Repository Root (`README.md`)](../README.md)** | **[Agent Reference Guide (`DV2_AGENT_REFERENCE_GUIDE.md`)](./DV2_AGENT_REFERENCE_GUIDE.md)**
 > - **[Doc 01: Core Modelling Specification](./01-core-modelling-spec.md)**

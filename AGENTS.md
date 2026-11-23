@@ -3,6 +3,9 @@
 > **Mandatory Orientation for Autonomous AI Agents, Multi-Agent Swarms & Human Contributors**  
 > Read this file first before planning, modifying, verifying, or extending any package in the `open-dv` monorepo.
 
+> [!IMPORTANT]
+> **Clean-Sheet V2 Supersession Scope (2026-11-21):** See [`docs/designs/SITEMAP.md`](docs/designs/SITEMAP.md) for the active-vs-superseded index across all specs. Under the clean-sheet Open-DV V2 architecture, V1 `--mode deterministic` heuristic synthesis (`ADR-002`), `--session` / `/sessions` aliases, V1 `CanonicalIR` (`final_canonical_ir.json`) and `compiler_4zone.py` (`final_four_zone.sql`), V1's 8-enum `PipelineStageId` lock + `00..06` log aliases, `opendv ontology studio promote` (`graph_a.lock`), `.odvstudio.zip` (`ADR-014`), 800-char `/parse` chunking (`ADR-010`), and V1 frozen SHA-256 hash pins (`ADR-005`) are **superseded and retired** in favor of Project-scoped `.opendv/projects/<id>/`, `UniversalVaultSchemaIR v2.0`, Step 7 (`v7`) emitters, and `.opendv.zip` (`Core` default).
+
 ---
 
 ## 1. Mission Statement

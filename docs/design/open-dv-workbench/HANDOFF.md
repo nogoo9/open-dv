@@ -1,5 +1,8 @@
 # open-dv Workbench — design handoff
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** Historical PR `#60` 3-Level Explorer handoff; superseded by Open-DV V2 (`docs/designs/SITEMAP.md`). See [`docs/designs/SITEMAP.md`](../../designs/SITEMAP.md).
+
 Implementation brief for a coding agent. The design is a minimalist, three-level explorer for the open-dv 8-stage pipeline: **Pipeline → Stage → Artifact**.
 
 ## Files in this bundle
