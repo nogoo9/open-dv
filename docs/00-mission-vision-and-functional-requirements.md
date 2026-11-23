@@ -1,5 +1,8 @@
 # 00 — Mission Statement, Product Vision, Strategic Objectives, and Non-Prescriptive Functional Requirements
 
+> [!NOTE]
+> **OPEN-DV V2 CLEAN-SHEET — ALIGNMENT NOTICE (2026-11-21):** Mission and `FR-DOM-*` / `FR-VER-*` / `FR-INT-*` remain active in V2; references to V1 `final_canonical_ir.json` (`CanonicalIR` v1) and `final_four_zone.sql` are superseded by `UniversalVaultSchemaIR v2.0` and Step 7 (`v7`) storage emitters. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Part of the [`open-dv` Reference Guide Suite](DV2_AGENT_REFERENCE_GUIDE.md)**  
 > **Domain:** Product Charter, Architectural Philosophy ("What, Not How"), Portable Deliverable Boundaries (`contract.yaml` & `canonical_ir.json` vs. Internal Proof Sandbox), Normative Functional Requirements (`FR-DOM-*`, `FR-VER-*`, `FR-INT-*`), and Enhancement Conformance Rubric  
 > **Companion Specifications:**

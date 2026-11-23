@@ -1,5 +1,8 @@
 # 24 — Ontology Studio Engineering Learnings & Audit Post-Mortem
 
+> [!NOTE]
+> **OPEN-DV V2 CLEAN-SHEET — ALIGNMENT NOTICE (2026-11-21):** Concurrency, lock-ordering, Win32 ACL, JCS serialization, gapless SSE, and PII taint learnings remain active; V1 auth/token, chunker, `.odvstudio.zip`, and frozen V1 SHA-256 history are superseded. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 **Status:** Normative Engineering Reference  
 **Scope:** Cross-package engineering invariants distilled from building and dual-model auditing (**Gemini 4 Carbon** + **Claude CLI Opus 5.5**) the Ontology Construction Studio (`dev/ontology-studio`) across `opendv-core`, `opendv-contracts`, `opendv-sources`, `opendv-service`, `opendv-agent-harness`, `opendv-platform-api`, `opendv-cli`, `opendvctl`, and `opendv-web-workbench`.
 

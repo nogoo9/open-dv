@@ -1,5 +1,8 @@
 # 12 — Unified Platform Server, Static Web Workbench & CLI Configuration Guide (`v7.0`)
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** V1 6-step setup & CLI guide is superseded by the V2 7-step Project workflow, Settings Hub, and `.opendv.zip` bundle flow (`docs/32`). See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 This guide explains how `open-dv` packages its FastAPI REST/SSE backend (`apps/opendv-platform-api`) and Claude [`DESIGN.md`](../DESIGN.md)-aligned React 19 Web Workbench (`apps/opendv-web-workbench`) into a **single auth-free (loopback-only) unified application served on port `:8420`**, exposing the **4-tab shell** (`Ontology & Pipeline`, `DV Schema Explorer`, `Run Explorer`, `Settings`), the **Unified 6-Step Wizard**, the **4-View DV Schema Explorer** (`/dv-schema`), **`SessionLogsInspector`**, and CLI configuration commands (`opendv config`, `opendv serve`, and `opendvctl config`).
 
 > **Related Specifications:**

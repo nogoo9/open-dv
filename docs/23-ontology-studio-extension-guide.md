@@ -1,5 +1,8 @@
 # 23 — Open-DV Ontology Construction Studio: Developer Extension Guide
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** V1 Studio extension guide is superseded by V2 `opendv.source_adapters`, `document_parsers`, `storage_emitters`, and `AgentPackageRegistry` (`Agent` packs). See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 **Document Status:** Normative Developer & Extension Guide  
 **Milestone:** Phase 6 Wave 3 Integration & Release (Task 6C.2 / Issue #234)  
 **Governing Documents:** `docs/19-ontology-studio-architecture.md`, `docs/20-ontology-studio-spec.md`, `docs/21-ontology-studio-implementation-plan.md`  

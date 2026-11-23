@@ -1,5 +1,8 @@
 # Open-DV Real Agentic Pipeline Remediation Specification (`docs/13`)
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** Historical V1 remediation specification; superseded by V2 CEGAR and Flow B architecture. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 **Status:** Engineering Remediation Blueprint  
 **Target Repository:** `open-dv` (`packages/*`, `apps/*`, `examples/*`)  
 **Objective:** Convert `open-dv` from a deterministic/simulated agentic facade into a **100% genuine, discovery-first, closed-loop LLM-driven neuro-symbolic Data Vault 2.0 application**.

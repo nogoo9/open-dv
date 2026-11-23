@@ -1,4 +1,7 @@
 # Master Plan: Open-DV Ontology Construction Studio
+
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** Historical V1 Wave 1–3 master plan; superseded by Open-DV V2. See [`docs/designs/SITEMAP.md`](../../designs/SITEMAP.md).
 Governs design, spec, planning, and delivery of the Ontology Studio across Phases 0–6.
 
 ## 1. Goal

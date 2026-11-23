@@ -1,5 +1,8 @@
 # 21 — Implementation Plan: Open-DV Ontology Construction Studio (Wave 1, Wave 2, Wave 3)
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** Historical Wave 1–3 implementation plan is superseded by clean-sheet V2 specs. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Module:** `docs/21-ontology-studio-implementation-plan.md` · **Revision:** v1.1 (2026-11-09)  
 > **Status:** **Historical Archive (M0–M6 Baseline — Superseded by `docs/27` & `docs/28`)**  
 > **Active Specifications:** [`DESIGN.md`](../DESIGN.md) · [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](27-unified-ontology-pipeline-requirements-and-uat.md) · [`docs/28-unified-ontology-pipeline-design-and-plan.md`](28-unified-ontology-pipeline-design-and-plan.md)  

@@ -1,5 +1,8 @@
 # 14 — End-to-End Consistency Review, Scenarios Audit, and Data Vault 2.0 Invariant Analysis
 
+> [!NOTE]
+> **OPEN-DV V2 CLEAN-SHEET — ALIGNMENT NOTICE (2026-11-21):** `BUG-01..08` hash, sparse-FK `IS_NOT_NULL`, `APPROVED` filter, CRLF->LF span, and bi-temporal `applied_dts` invariants remain active in V2; historical V1 issue numbers `#30–#44` and `final_four_zone.sql` filenames are superseded. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Target Repository:** `open-dv` (`main` branch, commit `b2f7f0f`)  
 > **Audited Subsystems:**
 > - `opendv-agent-harness` (8-stage pipeline, `AgyCliHarnessAdapter`, `ClaudeCliHarnessAdapter`, `StewardHoldManager`)

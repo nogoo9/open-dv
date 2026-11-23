@@ -2,6 +2,8 @@
 
 > **Module:** `docs/32-v2-user-experience-and-scenario-guide.md` · **Revision:** v2.0 (2026-11-21)
 
+> [!NOTE] **Clean-Sheet V2 Update (2026-11-21):** Per-file `LOCAL_ONLY` (`do_not_send_to_agent`, `opendv.term_extractors`, `ExcludedSourceTombstone`) is **retired** in clean-sheet Open-DV V2; privacy enforcement centers on `<MASKED_PII>` sample-value masking in prompts/logs, `sat_*_pii` satellite isolation, selective `view_page_image` on scanned pages only, and `HttpOnly` secret stripping in `.opendv.zip`.
+
 > **Audience:** Business Data Stewards, Domain Analysts, Enterprise Data Architects, Platform Engineers, and QA/UAT Teams.  
 > **Companion Engineering Spec:** [31-v2-e2e-requirements-gaps-and-uat-spec.md](31-v2-e2e-requirements-gaps-and-uat-spec.md) · **Strategy Reference:** [30-enterprise-dv2-modeling-and-loop-engineering.md](30-enterprise-dv2-modeling-and-loop-engineering.md)
 

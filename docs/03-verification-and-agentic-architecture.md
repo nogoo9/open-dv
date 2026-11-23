@@ -1,5 +1,8 @@
 # 03 — Automated Verification Gates and Multi-Agent System Architecture for `open-dv`
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** V1 4-agent single-pass architecture is superseded by V2 3-Loop CEGAR, `V6b` smells, `V7` semantic critic, `V8` horizon critic, and `UniversalVaultSchemaIR v2.0`. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Part of the [`open-dv` Reference Guide Suite](DV2_AGENT_REFERENCE_GUIDE.md)**  
 > **Domain:** Mathematical Bipartite Graph Formulation, Static Rule Catalogs (`DV-STR-*`, `DV-COL-*`, `DV-EVO-*`), Dynamic Runtime SQL Verification Templates (`DV-DYN-001`–`DV-DYN-015`), 4 Adversarial Shadow Sandbox Batches, `dv-firstmate` Multi-Agent Swarm (`Vault First Mate`, `scout-source`, `scout-unstructured`, `ship-vault`), and the 6-Gate `axi-dv` & TOON Compiler Pipeline  
 > **Companion Specifications:**

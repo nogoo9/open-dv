@@ -1,5 +1,8 @@
 # Open-DV Consistency Review: Data Vault 2.0 Architectural Evaluation
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** Historical consistency evaluation; normative DV 2.0 invariants remain in `docs/01`, `docs/02`, `docs/05`, and `docs/30`. See [`docs/designs/SITEMAP.md`](../designs/SITEMAP.md).
+
 **Author:** DV 2.0 Consistency Specialist, Open-DV Consistency Review Team  
 **Review Target:** Open-DV Multi-Agent System (`opendv-agent-harness`, `opendv-axi-verifier`, `opendv-duckdb-sandbox`, `opendv-core`, and Documentation Specifications)  
 **Standard of Reference:** Dan Linstedt's Data Vault 2.0 Standard, Enterprise Data Warehousing (EDW) Principles, and Open-DV Core Principles (Zero-Hallucination Semantic Grounding, Deterministic Dynamic Verification, Idempotent 4-Zone SQL, and Human Steward Governance).

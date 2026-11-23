@@ -1,4 +1,7 @@
 # Open-DV Architecture & End-to-End Pipeline Technical Specification
+
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** V1 pipeline execution spec is superseded by V2 Steps 1–7, 3-Loop CEGAR, `V8` Horizon Critic, and decoupled `v7` storage emitters. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
 *Authoritative Reference for Interactive Visualizations, Architecture Walkthroughs, and System Inspectors*
 
 ---

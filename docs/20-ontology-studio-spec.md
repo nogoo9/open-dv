@@ -1,5 +1,8 @@
 # 20 — Open-DV Ontology Construction Studio: Functional Specification & Interface Reference
 
+> [!WARNING]
+> **OPEN-DV V2 CLEAN-SHEET — SUPERSEDED / HISTORICAL (2026-11-21):** V1 Studio spec (`--mode deterministic` Journey 3, `/parse`, `.odvstudio.zip`, `promote`) is superseded by clean-sheet V2 Project-first API/CLI and `docs/31`. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 **Status:** Normative Functional Specification (Updated for Unified Phases 1–4)  
 **Target Repository:** `open-dv` (`packages/opendv-contracts`, `packages/opendv-sources`, `packages/opendv-agent-harness`, `packages/opendv-service`, `apps/opendv-platform-api`, `apps/opendv-cli`, `apps/opendvctl`, `apps/opendv-web-workbench`)  
 **Interface Dialects:** OpenAPI 3.1.0 (`schemas/v1/openapi.json` & `schemas/openapi-v1.json`), CLI Specification v1 (`schemas/v1/cli-spec.json`), W3C Server-Sent Events, RFC 8785 JCS, RFC 9457 Problem Details  
