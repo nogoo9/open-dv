@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opendv.dev/schemas/v2/bm25_fibo_v1.schema.json",
+  "matcher_id": "bm25_fibo_v1",
+  "version": "1.0.0",
+  "k1": "1.5",
+  "b": "0.75",
+  "weights": {
+    "w_name": "2.5",
+    "w_syn": "2.0",
+    "w_def": "1.0"
+  },
+  "hit_gate_cap": "0.6400",
+  "grounding_threshold": "0.6500"
+}

@@ -26,7 +26,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import rdflib
 
-from opendv_contracts.jcs import dumps_jcs_bytes
+from opendv.models.json_hasher import dumps_jcs_bytes
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
@@ -446,16 +446,9 @@ def test_ensure_fibo_source_git_rev_parse_failure(tmp_path: Path) -> None:
 
 
 def test_real_pack_verification_if_present() -> None:
-    """Assert real compiled pack in packages/opendv-sources satisfies all budgets (MAJ-02)."""
-    pack_dir = DEFAULT_OUTPUT_DIR
-    pack_candidates = sorted(
-        [p for p in pack_dir.glob("fibo-core-*.json") if p.name != "fibo-core-pack.json"]
-    )
-    if not pack_candidates:
-        pytest.skip("Real FIBO pack not compiled in default directory.")
-
-    assert len(pack_candidates) == 1, f"Expected 1 real pack, found: {pack_candidates}"
-    target_pack = pack_candidates[0]
+    """Assert canonical compiled pack in src/opendv/sources/fibo satisfies all budgets (0 skips)."""
+    target_pack = DEFAULT_OUTPUT_DIR / "fibo-core-pack.json"
+    assert target_pack.is_file(), f"Missing canonical V2 FIBO pack: {target_pack}"
     result = verify_pack(target_pack, allow_fixture=False, require_production_counts=True)
     assert result.is_valid is True, f"Real pack validation failed: {result.error_message}"
     assert result.disk_size_bytes < MAX_DISK_SIZE_BYTES

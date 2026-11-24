@@ -1,4 +1,8 @@
 # /pyproject.toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "opendv-workspace"
 version = "0.1.0"
@@ -6,7 +10,43 @@ description = "Open-DV (v6.0): Neuro-Symbolic Agentic Data Vault 2.0 Modeller, 6
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
-dependencies = []
+dependencies = [
+    "mcp>=1.6.0",
+    "duckdb>=1.2.0",
+    "pyarrow>=18.0.0",
+    "sqlglot>=26.0.0",
+    "pydantic>=2.10.0",
+    "pyyaml>=6.0.2",
+    "jsonschema>=4.23.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "python-multipart>=0.0.9",
+    "pypdf>=5.0.0",
+    "networkx>=3.4.0",
+    "httpx>=0.28.0",
+    "openpyxl>=3.1.0",
+    "tiktoken>=0.8.0",
+    "jinja2>=3.1.0",
+    "keyring>=25.0.0",
+    "typer>=0.15.0",
+    "python-docx>=1.1.0",
+    "pypdfium2>=4.30.0",
+]
+
+[project.optional-dependencies]
+databricks = ["databricks-sql-connector>=3.0.0"]
+sdk = ["anthropic>=0.40.0", "google-genai>=1.0.0"]
+ocr = ["pytesseract>=0.3.13", "Pillow>=10.0.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/opendv"]
+artifacts = [
+    "src/opendv/api/static/**",
+    "src/opendv/sources/fibo/fibo-core-pack.json",
+]
+
+[tool.hatch.build.targets.wheel.force-include]
+"schemas/v2" = "opendv/schemas/v2"
 
 [tool.uv.workspace]
 members = [
@@ -62,7 +102,7 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-src = ["packages/*/src", "apps/*/src"]
+src = ["src", "packages/*/src", "apps/*/src"]
 
 [tool.ruff.lint]
 select = [
@@ -119,6 +159,14 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+mypy_path = ["src"]
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = ["opendv.*"]
+strict = true
+disallow_untyped_defs = true
+warn_return_any = true
 
 [[tool.mypy.overrides]]
 module = [
@@ -148,6 +196,7 @@ markers = [
     "architecture: Architecture, import contract, and no-duplication tests",
 ]
 pythonpath = [
+    "src",
     "packages/opendv-contracts/src",
     "packages/opendv-cli-common/src",
     "packages/opendv-service/src",

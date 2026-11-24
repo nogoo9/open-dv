@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opendv.dev/schemas/v2/error-codes.schema.json",
+  "title": "Open-DV V2 Error Codes Catalog Schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "catalog_version",
+    "title",
+    "total_error_codes",
+    "error_codes"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "catalog_version": { "type": "string", "pattern": "^2\\.\\d+\\.\\d+$" },
+    "title": { "type": "string", "minLength": 1 },
+    "total_error_codes": { "type": "integer", "const": 34 },
+    "error_codes": {
+      "type": "array",
+      "minItems": 34,
+      "maxItems": 34,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "category",
+          "http_status",
+          "exit_code",
+          "problem_title",
+          "problem_type_uri",
+          "waivable",
+          "rationale_required",
+          "description"
+        ],
+        "properties": {
+          "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]+$" },
+          "category": {
+            "type": "string",
+            "enum": ["Syntax", "Preconditions", "Resolution", "Verification", "Execution"]
+          },
+          "http_status": {
+            "type": ["integer", "null"],
+            "minimum": 200,
+            "maximum": 599
+          },
+          "exit_code": {
+            "type": "integer",
+            "enum": [0, 1, 2, 3, 4, 5, 40, 50]
+          },
+          "problem_title": { "type": "string", "minLength": 1 },
+          "problem_type_uri": {
+            "type": "string",
+            "pattern": "^urn:opendv:(ok|error:[a-z0-9-]+)$"
+          },
+          "waivable": { "type": "boolean" },
+          "rationale_required": { "type": "boolean" },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

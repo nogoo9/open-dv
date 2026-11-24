@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opendv.dev/schemas/v2/baseline-digests.schema.json",
+  "title": "Open-DV V2 Baseline Digests Schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["catalog_version", "fibo_core_pack", "starter_packs"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "catalog_version": { "type": "string", "pattern": "^2\\.\\d+\\.\\d+$" },
+    "fibo_core_pack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "concept_count"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "concept_count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "starter_packs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["domain_namespace", "sha256", "hub_count"],
+        "properties": {
+          "domain_namespace": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "hub_count": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  }
+}

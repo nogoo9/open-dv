@@ -260,14 +260,21 @@ def test_dynamic_git_diff_token_budget() -> None:
     violations: list[str] = []
     for f in code_diff:
         p = Path(f)
-        # Exclude tests and fixtures
-        if any(part in ("tests", "fixtures") for part in p.parts):
+        norm_f = f.replace("\\", "/")
+        # Exclude tests, fixtures, and e2e specs per D16
+        if any(part in ("tests", "fixtures", "e2e") for part in p.parts):
             continue
-        # Exclude generated OpenAPI artifacts and schemas
-        if "schemas" in p.parts or f.endswith("openapi.ts") or p.name == "playwright.config.ts":
+        # Exclude generated OpenAPI/TS artifacts, bundled static SPA assets, and schemas per D16
+        if (
+            "schemas" in p.parts
+            or f.endswith("openapi.ts")
+            or norm_f == "web/src/api/types.generated.ts"
+            or norm_f.startswith("src/opendv/api/static/")
+            or p.name == "playwright.config.ts"
+        ):
             continue
         # Exclude legacy pre-existing files that already exceeded budget prior to ADR-020
-        if f.replace("\\", "/") in baseline_exceeding_prior_to_adr020:
+        if norm_f in baseline_exceeding_prior_to_adr020:
             continue
 
         file_path = REPO_ROOT / f
@@ -280,5 +287,60 @@ def test_dynamic_git_diff_token_budget() -> None:
 
     assert not violations, (
         f"Dynamic git diff token budget violations (>= {TOKEN_LIMIT} tokens):\n"
+        + "\n".join(violations)
+    )
+
+
+@pytest.mark.architecture
+@pytest.mark.parametrize(
+    "surface",
+    ["src_opendv", "tests_conftest", "tests_helpers", "web_src"],
+)
+def test_v2_module_token_budget(surface: str) -> None:
+    """Enforce strictly < 5,000 cl100k_base tokens across V2 Python and TS modules (D16)."""
+    enc = tiktoken.get_encoding(ENCODING_NAME)
+    targets: list[Path] = []
+
+    if surface == "src_opendv":
+        src_dir = REPO_ROOT / "src" / "opendv"
+        assert src_dir.is_dir(), f"V2 source directory missing: {src_dir}"
+        targets = [
+            p
+            for p in sorted(src_dir.rglob("*.py"))
+            if not p.relative_to(REPO_ROOT).as_posix().startswith("src/opendv/api/static/")
+        ]
+        assert targets, f"No Python modules found under {src_dir}"
+    elif surface == "tests_conftest":
+        conftest = REPO_ROOT / "tests" / "conftest.py"
+        assert conftest.is_file(), f"Missing {conftest}"
+        targets = [conftest]
+    elif surface == "tests_helpers":
+        helpers_dir = REPO_ROOT / "tests" / "helpers"
+        if not helpers_dir.is_dir():
+            return
+        targets = sorted(helpers_dir.rglob("*.py"))
+    elif surface == "web_src":
+        web_src_dir = REPO_ROOT / "web" / "src"
+        if not web_src_dir.is_dir():
+            return
+        targets = [
+            p
+            for p in sorted(web_src_dir.rglob("*"))
+            if p.is_file()
+            and p.suffix in (".ts", ".tsx")
+            and "e2e" not in p.parts
+            and p.relative_to(REPO_ROOT).as_posix() != "web/src/api/types.generated.ts"
+        ]
+
+    violations: list[str] = []
+    for mod in targets:
+        tokens = _count_tokens(mod, enc)
+        if tokens >= TOKEN_LIMIT:
+            violations.append(
+                f"{mod.relative_to(REPO_ROOT).as_posix()}: {tokens} tokens (exceeds {TOKEN_LIMIT})"
+            )
+
+    assert not violations, (
+        f"V2 module token budget violations in '{surface}' (>= {TOKEN_LIMIT} tokens):\n"
         + "\n".join(violations)
     )
