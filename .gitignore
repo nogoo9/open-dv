@@ -29,6 +29,7 @@ playwright-report/
 test-results/
 apps/opendv-web-workbench/tests/e2e/screenshots/
 data/public_am/*.sqlite
+!data/public_am/ds_cegar_12trap.duckdb
 **/.odv_workspace_secret
 
 

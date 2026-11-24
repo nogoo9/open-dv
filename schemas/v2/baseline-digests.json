@@ -1,0 +1,51 @@
+{
+  "$schema": "https://opendv.dev/schemas/v2/baseline-digests.schema.json",
+  "catalog_version": "2.0.0",
+  "fibo_core_pack": {
+    "path": "src/opendv/sources/fibo/fibo-core-pack.json",
+    "sha256": "bebd6ae87dfa4eaee523fdeac730f0fe652761004f24e5d15ab36d5225a0acb5",
+    "concept_count": 2206
+  },
+  "starter_packs": {
+    "core_spine": {
+      "domain_namespace": "core_spine",
+      "sha256": "992212cc6a3be1e26ec43042da3b86afb375abd1bbf1963229dfbb46aeef4163",
+      "hub_count": 6
+    },
+    "public_equities_oms": {
+      "domain_namespace": "public_equities_oms",
+      "sha256": "046c394b1710a1675fe041e40b30e387b51733f3ff5b4686088eb92497a5469e",
+      "hub_count": 10
+    },
+    "fixed_income_rates": {
+      "domain_namespace": "fixed_income_rates",
+      "sha256": "4f0df26b54e5133ebde6a60b21c690d1bc0533f9dbc198c972d43c392a1ba492",
+      "hub_count": 10
+    },
+    "multi_asset_ibor": {
+      "domain_namespace": "multi_asset_ibor",
+      "sha256": "8e5b6d8b02941267d65559ef77c84feb3628c52b4d362fe97cc1426a5c933f62",
+      "hub_count": 10
+    },
+    "private_equity_buyout": {
+      "domain_namespace": "private_equity_buyout",
+      "sha256": "2fdfd9fc0ff260aed26cabbf0f7754a0c36dc9ca1b1da2bbf49df107d25e1b95",
+      "hub_count": 11
+    },
+    "private_credit_direct_lending": {
+      "domain_namespace": "private_credit_direct_lending",
+      "sha256": "63bf67a8691cd9ac3c9460eaf1d652727eaf95bdf06a2abdb14df5b454a4bbdf",
+      "hub_count": 10
+    },
+    "custody_clearing": {
+      "domain_namespace": "custody_clearing",
+      "sha256": "5efb588172f4905669db16a17c28f5e2c41ec0a81dec9ef4a1749b6577fd79d4",
+      "hub_count": 10
+    },
+    "all_domains": {
+      "domain_namespace": "asset_management",
+      "sha256": "848d0647bcb40e86722969213cfe939cfd30d7d0a2d8ef8aff1c16816248cfa5",
+      "hub_count": 31
+    }
+  }
+}

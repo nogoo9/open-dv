@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opendv.dev/schemas/v2/bm25_fibo_v1.schema.json",
+  "title": "Open-DV V2 BM25 FIBO Matcher Configuration Schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "matcher_id",
+    "version",
+    "k1",
+    "b",
+    "weights",
+    "hit_gate_cap",
+    "grounding_threshold"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "matcher_id": { "type": "string", "const": "bm25_fibo_v1" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "k1": { "type": "string", "pattern": "^\\d+(\\.\\d+)?$" },
+    "b": { "type": "string", "pattern": "^\\d+(\\.\\d+)?$" },
+    "weights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["w_name", "w_syn", "w_def"],
+      "properties": {
+        "w_name": { "type": "string", "pattern": "^\\d+(\\.\\d+)?$" },
+        "w_syn": { "type": "string", "pattern": "^\\d+(\\.\\d+)?$" },
+        "w_def": { "type": "string", "pattern": "^\\d+(\\.\\d+)?$" }
+      }
+    },
+    "hit_gate_cap": { "type": "string", "pattern": "^0\\.\\d{4}$" },
+    "grounding_threshold": { "type": "string", "pattern": "^0\\.\\d{4}$" }
+  }
+}
