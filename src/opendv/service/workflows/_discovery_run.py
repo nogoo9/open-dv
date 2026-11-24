@@ -6,9 +6,12 @@ import json
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import Field, TypeAdapter, ValidationError
+
+if TYPE_CHECKING:
+    from opendv.service.mcp_broker import JobMcpBroker
 
 from opendv.agents import (
     AgentHarnessPort,
@@ -30,8 +33,6 @@ from opendv.models.wire_dtos_discovery import (
 )
 from opendv.service._mcp_tools import coord_propose_ontology_delta
 from opendv.service.bm25_matcher import Bm25ConceptMatcher
-from opendv.service.external_mcp import ExternalMcpGateway
-from opendv.service.mcp_broker import JobMcpBroker
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.settings_store import SettingsStore
 from opendv.service.state_store import ProjectStateManager
@@ -153,6 +154,19 @@ class DiscoveryRunHelper:
         req: RunControlReq,
     ) -> RunStateResp:
         """Enqueue a mid-run Step 4 control signal and return updated run state."""
+        if req.action in ("accept-best", "horizon-review"):
+            raise OpenDVError(
+                f"Control action '{req.action}' is only valid for Step 6 runs.",
+                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+                run_id=run_id,
+            )
+        current = load_latest_run_state(self._state, project_id, run_id)
+        if current.step != "step4":
+            raise OpenDVError(
+                f"Step 4 run '{run_id}' not found in project '{project_id}'.",
+                error_code=ErrorCode.RESOURCE_NOT_FOUND,
+                run_id=run_id,
+            )
         enqueue_control_signal(self._state, project_id, run_id, req)
         current = load_latest_run_state(self._state, project_id, run_id)
         if req.action == "pause" and current.status == "RUNNING":
@@ -215,6 +229,9 @@ class DiscoveryRunHelper:
             fp = compute_profiles_fp(profiles)
             sink = ServiceRunEventSink(self._state, project_id)
             ckpt_store = ServiceRunCheckpointStore(self._state, project_id)
+            from opendv.service.external_mcp import ExternalMcpGateway
+            from opendv.service.mcp_broker import JobMcpBroker
+
             ext_gateway = ExternalMcpGateway(
                 state_store=self._state,
                 secret_store=self._secrets,

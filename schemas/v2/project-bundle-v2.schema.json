@@ -1,0 +1,77 @@
+{
+  "$defs": {
+    "BundleEntryDigest": {
+      "additionalProperties": false,
+      "description": "SHA-256 and uncompressed byte size for a single .opendv.zip member.",
+      "properties": {
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "uncompressed_bytes": {
+          "minimum": 0,
+          "title": "Uncompressed Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sha256",
+        "uncompressed_bytes"
+      ],
+      "title": "BundleEntryDigest",
+      "type": "object"
+    }
+  },
+  "$id": "https://opendv.dev/schemas/v2/project-bundle-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Top-level manifest.json inside a portable .opendv.zip archive.",
+  "properties": {
+    "bundle_version": {
+      "const": "2.0",
+      "default": "2.0",
+      "title": "Bundle Version",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "entries": {
+      "additionalProperties": {
+        "$ref": "#/$defs/BundleEntryDigest"
+      },
+      "title": "Entries",
+      "type": "object"
+    },
+    "mode": {
+      "enum": [
+        "core_project_state",
+        "full_demo"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "source_os": {
+      "enum": [
+        "posix",
+        "nt"
+      ],
+      "title": "Source Os",
+      "type": "string"
+    }
+  },
+  "required": [
+    "mode",
+    "project_id",
+    "created_at",
+    "source_os",
+    "entries"
+  ],
+  "title": "Open-DV V2 Project Bundle Manifest",
+  "type": "object"
+}

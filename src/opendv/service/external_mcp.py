@@ -10,9 +10,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx2
-from mcp.client.session import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
-from mcp.client.streamable_http import streamable_http_client
 
 from opendv.agents.cli_subprocess_base import IsolatedTempCwd
 from opendv.models.errors import ErrorCode, OpenDVError
@@ -139,6 +136,9 @@ class ExternalMcpGateway(ExternalMcpGatewayPort):
             first_secret = secret_values[server.secret_refs[0]]
             headers["Authorization"] = f"Bearer {first_secret}"
 
+        from mcp.client.session import ClientSession
+        from mcp.client.streamable_http import streamable_http_client
+
         async with (
             httpx2.AsyncClient(
                 headers=headers,
@@ -165,6 +165,9 @@ class ExternalMcpGateway(ExternalMcpGatewayPort):
                 f"External MCP stdio server '{server.server_id}' has no command configured.",
                 error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
             )
+        from mcp.client.session import ClientSession
+        from mcp.client.stdio import StdioServerParameters, stdio_client
+
         child_env = build_external_mcp_stdio_env(secret_values)
         with IsolatedTempCwd(prefix="opendv_ext_mcp_") as temp_cwd:
             params = StdioServerParameters(

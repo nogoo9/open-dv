@@ -22,6 +22,7 @@ from opendv.models.errors import (
     ProblemDetails,
     create_problem_details,
 )
+from opendv.service.secrets import scoped_env_first
 
 MAX_REQUEST_BODY_BYTES: int = 262_144_000
 _LOOPBACK_HOSTS: frozenset[str] = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -381,7 +382,10 @@ class LoopbackAndContentTypeMiddleware:
                         raise _StreamUnsupportedMediaTypeError
                 return msg
 
-            await self.app(scope, bounded_receive, guarded_send)
+            env_first_hdr = headers_multi.get("x-opendv-env-first", [])
+            use_env_first = bool(env_first_hdr and env_first_hdr[-1].strip() == "1")
+            with scoped_env_first(use_env_first):
+                await self.app(scope, bounded_receive, guarded_send)
         except _StreamLimitExceededError:
             if not response_started:
                 await _send_problem(

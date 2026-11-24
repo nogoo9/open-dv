@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import hashlib
 import json
 import os
 import sys
 import threading
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -82,6 +84,24 @@ def _read_env_secret(env: Mapping[str, str], key: str) -> str | None:
     return raw
 
 
+_CLI_ENV_FIRST: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "opendv_cli_env_first", default=False
+)
+
+
+@contextlib.contextmanager
+def scoped_env_first(enabled: bool) -> Iterator[None]:
+    """Scope `--env-first` secret precedence across async tasks without mutating `os.environ`."""
+    if not enabled:
+        yield
+        return
+    token = _CLI_ENV_FIRST.set(True)
+    try:
+        yield
+    finally:
+        _CLI_ENV_FIRST.reset(token)
+
+
 class KeyringSecretStore:
     """Workspace-isolated credential store supporting OS keyring, user_state_file, & precedence."""
 
@@ -140,7 +160,7 @@ class KeyringSecretStore:
         cli_env_first: bool = False,
     ) -> SecretPrecedence:
         """Resolve precedence: --env-first > OPENDV_SECRET_PRECEDENCE > Project > Workspace."""
-        if cli_env_first:
+        if cli_env_first or _CLI_ENV_FIRST.get():
             return "env_first"
         env_raw = self._env().get("OPENDV_SECRET_PRECEDENCE", "").strip()
         if env_raw:
@@ -437,4 +457,5 @@ __all__ = [
     "KeyringSecretStore",
     "probe_keyring_available",
     "resolve_workspace_namespace",
+    "scoped_env_first",
 ]
