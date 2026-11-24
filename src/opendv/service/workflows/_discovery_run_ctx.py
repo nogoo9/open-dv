@@ -39,6 +39,35 @@ _LOGICAL_TYPE_ALIASES: dict[str, Any] = {
 }
 
 
+_KEY_TIER_ALIASES: dict[str, str] = {
+    "TIER_3_ENTERPRISE_STANDARD": "TIER_3_LOCAL_SCOPED",
+    "TIER_2_INDUSTRY_CONSORTIUM": "TIER_2_ENTERPRISE_SOR",
+}
+
+
+def _normalize_relationship_dict(rel: dict[str, Any], *, fallback_desc: str = "") -> dict[str, Any]:
+    name = str(rel.get("relationship_name") or "relates_to")
+    uri = str(rel.get("relationship_uri") or f"urn:opendv:rel:{name}")
+    src_uri = str(rel.get("source_concept_uri") or rel.get("from_concept_uri") or "")
+    dst_uri = str(rel.get("target_concept_uri") or rel.get("to_concept_uri") or "")
+    desc = str(rel.get("description") if rel.get("description") is not None else fallback_desc)
+    slug = "".join(ch if ch.isalnum() else "_" for ch in name.lower()).strip("_") or "rel"
+    target_link = str(rel.get("target_link") or f"lnk_{slug}")
+    if not target_link.startswith(("lnk_", "t_lnk_", "sal_")):
+        target_link = f"lnk_{target_link}"
+    grain = str(rel.get("grain_semantics") or desc or "Per source-target link grain")
+    return {
+        "relationship_uri": uri,
+        "relationship_name": name,
+        "source_concept_uri": src_uri,
+        "target_concept_uri": dst_uri,
+        "cardinality": str(rel.get("cardinality") or "ONE_TO_MANY"),
+        "target_link": target_link,
+        "grain_semantics": grain,
+        "description": desc,
+    }
+
+
 def normalize_logical_type(raw_val: Any) -> Any:
     """Map common SQL/LLM type shorthands onto PortableLogicalType."""
     if isinstance(raw_val, str):
@@ -117,6 +146,30 @@ def normalize_step4_raw_op(raw: dict[str, Any]) -> dict[str, Any]:
         if "logical_type" in attr_dict:
             attr_dict["logical_type"] = normalize_logical_type(attr_dict["logical_type"])
         op["attribute"] = attr_dict
+    elif op.get("op_type") == "AddRelationship" and "relationship" not in op:
+        rel_fields = {
+            k: op.pop(k)
+            for k in (
+                "relationship_uri",
+                "relationship_name",
+                "source_concept_uri",
+                "from_concept_uri",
+                "target_concept_uri",
+                "to_concept_uri",
+                "cardinality",
+                "target_link",
+                "grain_semantics",
+            )
+            if k in op
+        }
+        desc_fallback = str(op.pop("description", "") or "")
+        op["relationship"] = _normalize_relationship_dict(rel_fields, fallback_desc=desc_fallback)
+    elif op.get("op_type") == "AddRelationship" and isinstance(op.get("relationship"), dict):
+        op["relationship"] = _normalize_relationship_dict(dict(op["relationship"]))
+    if isinstance(op.get("key_authority_tier"), str):
+        tier_up = op["key_authority_tier"].strip().upper()
+        if tier_up in _KEY_TIER_ALIASES:
+            op["key_authority_tier"] = _KEY_TIER_ALIASES[tier_up]
     return op
 
 
@@ -237,9 +290,14 @@ def format_step4_prompt(
         "otherwise propose additive Graph A deltas directly inside JSON matching "
         "Step4CoordinatorOutput (`proposed_ops`, `clarification_questions`, `summary`) "
         "and finish immediately without committing Graph A. Every item in `proposed_ops` MUST "
-        'include `"op_type"` (`AddConcept` with inline `attributes`/`table_bindings`, '
-        '`AddAttribute` with nested `"attribute": {"name", "logical_type", "sql_type_hint", '
-        '"nullable", "is_business_key", "is_pii"}`, `AddRelationship`, `AddTableBinding`) — '
+        'include `"op_type"` (`AddConcept` with inline `attributes`/`table_bindings` and valid '
+        '`key_authority_tier` in `TIER_1_GLOBAL_STANDARD | TIER_2_ENTERPRISE_SOR | '
+        'TIER_3_LOCAL_SCOPED`, `AddAttribute` with nested `"attribute": {"name", "logical_type", '
+        '"sql_type_hint", "nullable", "is_business_key", "is_pii"}`, `AddRelationship` with nested '
+        '`"relationship": {"relationship_uri": "urn:...", "relationship_name": "...", '
+        '"source_concept_uri": "urn:...", "target_concept_uri": "urn:...", "cardinality": '
+        '"ONE_TO_ONE|ONE_TO_MANY|MANY_TO_ONE|MANY_TO_MANY", "target_link": "lnk_...", '
+        '"grain_semantics": "...", "description": "..."}`, `AddTableBinding`) — '
         'example: `{"op_type": "AddConcept", "concept_uri": "urn:ns:Name", "concept_name": "Name", '
         '"description": "...", "key_authority_tier": "TIER_1_GLOBAL_STANDARD", '
         '"table_bindings": [{"source_id": "...", "table_id": "...", "col_name": "..."}]}`.',

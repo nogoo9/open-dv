@@ -1,0 +1,1964 @@
+{
+  "cli_version": "2.0.0",
+  "global_options": [
+    {
+      "default": null,
+      "flag": "--api-url",
+      "help": "Route commands to a running `:8420` server instead of in-process mode.",
+      "name": "api_url",
+      "required": false,
+      "short": null,
+      "type": "string"
+    },
+    {
+      "default": false,
+      "flag": "--json",
+      "help": "Emit structured `CliEnvelope` JSON payloads.",
+      "name": "json_mode",
+      "required": false,
+      "short": null,
+      "type": "boolean"
+    },
+    {
+      "default": false,
+      "flag": "--env-first",
+      "help": "Prefer process environment variables ahead of keyring/headless secrets.",
+      "name": "env_first",
+      "required": false,
+      "short": null,
+      "type": "boolean"
+    }
+  ],
+  "root_command": "opendv",
+  "subcommands": [
+    {
+      "help": "Show full agent prompt metadata and workspace trust state.",
+      "http_method": "GET",
+      "http_route": "/api/v1/agents/{agent_id}",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--agent-id",
+          "help": "Agent identifier to inspect.",
+          "name": "agent_id",
+          "required": true,
+          "short": null,
+          "type": "argument:string"
+        }
+      ],
+      "path": [
+        "agents",
+        "inspect"
+      ]
+    },
+    {
+      "help": "List built-in and workspace agent packs.",
+      "http_method": "GET",
+      "http_route": "/api/v1/agents",
+      "options": [],
+      "path": [
+        "agents",
+        "list"
+      ]
+    },
+    {
+      "help": "Run Layer-4 diagnostic checks across service health, agent harnesses, and MCP servers.",
+      "http_method": "GET",
+      "http_route": "/api/v1/health",
+      "options": [
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--check-agents",
+          "help": "Probe CLI harness binaries, packs, and secrets.",
+          "name": "check_agents",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--check-mcp",
+          "help": "Inspect registered external MCP endpoints and secrets.",
+          "name": "check_mcp",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "doctor"
+      ]
+    },
+    {
+      "help": "List registered external MCP servers.",
+      "http_method": "GET",
+      "http_route": "/api/v1/mcp/servers",
+      "options": [],
+      "path": [
+        "mcp",
+        "list"
+      ]
+    },
+    {
+      "help": "Register or update a bounded external MCP server.",
+      "http_method": "POST",
+      "http_route": "/api/v1/mcp/servers",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--id",
+          "help": "Unique server identifier.",
+          "name": "server_id",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--transport",
+          "help": "stdio or streamable_http.",
+          "name": "transport",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--command",
+          "help": "JSON argv list for stdio transport.",
+          "name": "command",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--url",
+          "help": "HTTPS URL for streamable_http transport.",
+          "name": "url",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--secret-ref",
+          "help": "Secret key referenced by connector or MCP server.",
+          "name": "secret_ref",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--allow-scout-calls",
+          "help": "",
+          "name": "allow_scout_calls",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--allow-document-pages",
+          "help": "",
+          "name": "allow_document_pages",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "mcp",
+        "register"
+      ]
+    },
+    {
+      "help": "Unregister an external MCP server.",
+      "http_method": "DELETE",
+      "http_route": "/api/v1/mcp/servers/{server_id}",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--id",
+          "help": "Server identifier to delete.",
+          "name": "server_id",
+          "required": true,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "mcp",
+        "remove"
+      ]
+    },
+    {
+      "help": "Serve the 17-tool Open-DV lifecycle MCP server over stdio.",
+      "http_method": null,
+      "http_route": null,
+      "options": [
+        {
+          "choices": null,
+          "default": "stdio",
+          "flag": "--transport",
+          "help": "MCP transport (stdio).",
+          "name": "transport",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": "",
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": false,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "mcp",
+        "serve"
+      ]
+    },
+    {
+      "help": "Submit clarification answers for a Step 4 HOLD_CHECKPOINTED run.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/ontology/runs/{rid}/answers",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--run",
+          "help": "Run identifier.",
+          "name": "run",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--answers-json",
+          "help": "Clarification answers JSON string or file path.",
+          "name": "answers_json",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--wait",
+          "help": "Poll until run finishes or pauses.",
+          "name": "wait",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "ontology",
+        "answer"
+      ]
+    },
+    {
+      "help": "Commit validated Graph A YAML revision with optimistic concurrency guard.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/ontology/commit",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--yaml",
+          "help": "Path to Graph A YAML file.",
+          "name": "yaml",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--base-revision",
+          "help": "",
+          "name": "base_revision",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--rationale",
+          "help": "",
+          "name": "rationale",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--waive-quarantine",
+          "help": "",
+          "name": "waive_quarantine",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "ontology",
+        "commit"
+      ]
+    },
+    {
+      "help": "Start Step 4 ontology construction discovery run.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/ontology/construct",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": "incremental_new",
+          "flag": "--discovery-mode",
+          "help": "incremental_new, incremental_reverify, or full_rebuild.",
+          "name": "discovery_mode",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--hint",
+          "help": "Optional steering hint.",
+          "name": "hint",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--wait",
+          "help": "Poll until run finishes or pauses.",
+          "name": "wait",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "ontology",
+        "construct"
+      ]
+    },
+    {
+      "help": "Send live pause, hint, or raise-budget control signal to a Step 4 run.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/ontology/runs/{rid}/controls",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--run",
+          "help": "Run identifier.",
+          "name": "run",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--action",
+          "help": "Control action name.",
+          "name": "action",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--hint",
+          "help": "Optional steering hint.",
+          "name": "hint",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--extra-turns",
+          "help": "",
+          "name": "extra_turns",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--extra-tokens",
+          "help": "",
+          "name": "extra_tokens",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--extra-timeout",
+          "help": "",
+          "name": "extra_timeout",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        }
+      ],
+      "path": [
+        "ontology",
+        "control"
+      ]
+    },
+    {
+      "help": "Export active Graph A ontology (optionally including staged candidates).",
+      "http_method": "GET",
+      "http_route": "/api/v1/projects/{project_id}/ontology/export",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": "yaml",
+          "flag": "--format",
+          "help": "yaml, json, or ttl.",
+          "name": "fmt",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--include-staged",
+          "help": "",
+          "name": "include_staged",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "ontology",
+        "export"
+      ]
+    },
+    {
+      "help": "Query vendored FIBO-core reference pack using deterministic `bm25_fibo_v1`.",
+      "http_method": "POST",
+      "http_route": "/api/v1/ontology/fibo-qa",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--query",
+          "help": "Natural-language or concept query.",
+          "name": "query",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Optional project context.",
+          "name": "project",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--namespace",
+          "help": "",
+          "name": "namespace",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": 10,
+          "flag": "--top-k",
+          "help": "",
+          "name": "top_k",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        }
+      ],
+      "path": [
+        "ontology",
+        "fibo-qa"
+      ]
+    },
+    {
+      "help": "Dry-run ontology YAML validation against invariants and vault evolution locks.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/ontology/validate",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--yaml",
+          "help": "Path to Graph A YAML file.",
+          "name": "yaml",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--base-revision",
+          "help": "",
+          "name": "base_revision",
+          "required": false,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "ontology",
+        "validate"
+      ]
+    },
+    {
+      "help": "Delete a project cleanly.",
+      "http_method": "DELETE",
+      "http_route": "/api/v1/projects/{project_id}",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "project",
+        "delete"
+      ]
+    },
+    {
+      "help": "Export a project bundle (`core_project_state` by default).",
+      "http_method": "GET",
+      "http_route": "/api/v1/projects/{project_id}/bundle",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--out",
+          "help": "Output `.opendv.zip` bundle path.",
+          "name": "out",
+          "required": true,
+          "short": null,
+          "type": "path"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--full-demo",
+          "help": "Include raw sources in export bundle.",
+          "name": "full_demo",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "project",
+        "export"
+      ]
+    },
+    {
+      "help": "Import a signed `.opendv.zip` project bundle.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/import",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--bundle-zip",
+          "help": "Path to `.opendv.zip` archive.",
+          "name": "bundle_zip",
+          "required": true,
+          "short": null,
+          "type": "argument:path"
+        },
+        {
+          "choices": null,
+          "default": "fail",
+          "flag": "--conflict",
+          "help": "fail, rename, or replace.",
+          "name": "conflict",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--trust-workspace",
+          "help": "Opt-in to trust embedded workspace agents.",
+          "name": "trust_workspace",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "project",
+        "import"
+      ]
+    },
+    {
+      "help": "Initialize a new Open-DV project.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--namespace",
+          "help": "Domain namespace URI/slug.",
+          "name": "namespace",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--starter-pack",
+          "help": "",
+          "name": "starter_pack",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--workspace-seed",
+          "help": "",
+          "name": "workspace_seed",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--baseline",
+          "help": "Baseline ontology file.",
+          "name": "baseline",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": "yaml",
+          "flag": "--baseline-format",
+          "help": "",
+          "name": "baseline_format",
+          "required": false,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "project",
+        "init"
+      ]
+    },
+    {
+      "help": "List all projects in the workspace.",
+      "http_method": "GET",
+      "http_route": "/api/v1/projects",
+      "options": [],
+      "path": [
+        "project",
+        "list"
+      ]
+    },
+    {
+      "help": "Show full metadata for one project.",
+      "http_method": "GET",
+      "http_route": "/api/v1/projects/{project_id}",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "project",
+        "show"
+      ]
+    },
+    {
+      "help": "Delete a stored secret key.",
+      "http_method": "DELETE",
+      "http_route": "/api/v1/secrets/{key}",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--key",
+          "help": "Secret key to delete.",
+          "name": "key",
+          "required": true,
+          "short": null,
+          "type": "argument:string"
+        }
+      ],
+      "path": [
+        "secrets",
+        "delete"
+      ]
+    },
+    {
+      "help": "List secret presence and backend metadata (never exposes values).",
+      "http_method": "GET",
+      "http_route": "/api/v1/secrets",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--keys",
+          "help": "Optional comma-separated secret keys to probe.",
+          "name": "keys",
+          "required": false,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "secrets",
+        "list"
+      ]
+    },
+    {
+      "help": "Store a secret value safely without echoing plaintext to stdout or argv.",
+      "http_method": "POST",
+      "http_route": "/api/v1/secrets",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--key",
+          "help": "Secret key name.",
+          "name": "key",
+          "required": true,
+          "short": null,
+          "type": "argument:string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--stdin",
+          "help": "Read secret from stdin.",
+          "name": "from_stdin",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--prompt",
+          "help": "Prompt interactively with masked input.",
+          "name": "prompt_val",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "secrets",
+        "set"
+      ]
+    },
+    {
+      "help": "Launch the local `:8420` FastAPI Open-DV Workbench server (fail closed on remote bind).",
+      "http_method": null,
+      "http_route": null,
+      "options": [
+        {
+          "choices": null,
+          "default": "127.0.0.1",
+          "flag": "--host",
+          "help": "Bind host (loopback by default).",
+          "name": "host",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": 8420,
+          "flag": "--port",
+          "help": "HTTP listen port.",
+          "name": "port",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--allow-remote-unauthenticated",
+          "help": "Explicit opt-in required before binding a non-loopback host.",
+          "name": "allow_remote_unauthenticated",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--trust-workspace",
+          "help": "Trust workspace agent overrides before serving.",
+          "name": "trust_workspace",
+          "required": false,
+          "short": null,
+          "type": "path"
+        }
+      ],
+      "path": [
+        "serve"
+      ]
+    },
+    {
+      "help": "Update workspace-level defaults with strict schema validation.",
+      "http_method": "PUT",
+      "http_route": "/api/v1/settings",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--harness-provider",
+          "help": "",
+          "name": "harness_provider",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--cegar-policy",
+          "help": "",
+          "name": "cegar_policy",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--secret-precedence",
+          "help": "",
+          "name": "secret_precedence",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--secret-backend",
+          "help": "",
+          "name": "secret_backend",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--v7-critic-tier",
+          "help": "",
+          "name": "v7_critic_tier",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--dbt-sql-dialect",
+          "help": "",
+          "name": "dbt_sql_dialect",
+          "required": false,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "settings",
+        "set"
+      ]
+    },
+    {
+      "help": "Show persisted workspace settings.",
+      "http_method": "GET",
+      "http_route": "/api/v1/settings",
+      "options": [],
+      "path": [
+        "settings",
+        "show"
+      ]
+    },
+    {
+      "help": "Approve SHA-256 hashes for `.opendv/agents/*/SKILL.md` workspace overrides.",
+      "http_method": "PUT",
+      "http_route": "/api/v1/settings",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--path",
+          "help": "Workspace directory path to trust.",
+          "name": "path",
+          "required": true,
+          "short": null,
+          "type": "path"
+        }
+      ],
+      "path": [
+        "settings",
+        "trust-workspace"
+      ]
+    },
+    {
+      "help": "List supported data and document source adapters.",
+      "http_method": "GET",
+      "http_route": "/api/v1/sources/adapters",
+      "options": [],
+      "path": [
+        "source",
+        "adapters"
+      ]
+    },
+    {
+      "help": "Approve scanned PDF pages for vision/OCR extraction.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/evidence/documents/{did}/approve-scan",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--doc",
+          "help": "Document source identifier.",
+          "name": "doc",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--pages",
+          "help": "Comma-separated 1-based page numbers.",
+          "name": "pages",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--rationale",
+          "help": "Audit rationale for approval.",
+          "name": "rationale",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--allow-unredacted-external-ocr",
+          "help": "Explicit opt-in if external vision/OCR is enabled on redacted scans.",
+          "name": "allow_unredacted_external_ocr",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "source",
+        "approve-scan"
+      ]
+    },
+    {
+      "help": "Attach and profile a data/document source for a project.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/sources",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--kind",
+          "help": "Connector adapter kind.",
+          "name": "kind",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--uri",
+          "help": "Source URI or local path.",
+          "name": "uri",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--selected-tables",
+          "help": "Comma-separated table subset.",
+          "name": "selected_tables",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": 30,
+          "flag": "--profile-timeout",
+          "help": "",
+          "name": "profile_timeout",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--options-json",
+          "help": "Connector options JSON object or file path.",
+          "name": "options_json",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--secret-ref",
+          "help": "Secret key referenced by connector or MCP server.",
+          "name": "secret_ref",
+          "required": false,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "source",
+        "attach"
+      ]
+    },
+    {
+      "help": "Detach an uncommitted source from a project.",
+      "http_method": "DELETE",
+      "http_route": "/api/v1/projects/{project_id}/sources/{sid}",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--source",
+          "help": "Source identifier.",
+          "name": "source",
+          "required": true,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "source",
+        "detach"
+      ]
+    },
+    {
+      "help": "Preview tables and redaction profile for a candidate source.",
+      "http_method": "POST",
+      "http_route": "/api/v1/sources/inspect",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--kind",
+          "help": "Connector adapter kind.",
+          "name": "kind",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--uri",
+          "help": "Source URI or local path.",
+          "name": "uri",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--options-json",
+          "help": "Connector options JSON object or file path.",
+          "name": "options_json",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--secret-ref",
+          "help": "Secret key referenced by connector or MCP server.",
+          "name": "secret_ref",
+          "required": false,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "source",
+        "inspect"
+      ]
+    },
+    {
+      "help": "List sources attached to a project.",
+      "http_method": "GET",
+      "http_route": "/api/v1/projects/{project_id}/sources",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "source",
+        "list"
+      ]
+    },
+    {
+      "help": "Attach a domain note document from a local file or inline `--text`.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/sources/upload",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--path",
+          "help": "Markdown/text note file.",
+          "name": "path",
+          "required": false,
+          "short": null,
+          "type": "path"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--text",
+          "help": "Inline domain note text.",
+          "name": "text",
+          "required": false,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "source",
+        "note"
+      ]
+    },
+    {
+      "help": "Reattach or narrow selected tables on an existing source.",
+      "http_method": "PATCH",
+      "http_route": "/api/v1/projects/{project_id}/sources/{sid}",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--source",
+          "help": "Source identifier.",
+          "name": "source",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--uri",
+          "help": "",
+          "name": "uri",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--selected-tables",
+          "help": "",
+          "name": "selected_tables",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--options-json",
+          "help": "Connector options JSON object or file path.",
+          "name": "options_json",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--secret-ref",
+          "help": "Secret key referenced by connector or MCP server.",
+          "name": "secret_ref",
+          "required": false,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "source",
+        "reattach"
+      ]
+    },
+    {
+      "help": "Compile CertifiedVaultIR into target SQL/dbt/Databricks/Iceberg bundles.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/storage/compile",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--target",
+          "help": "Target id or 'all'.",
+          "name": "target",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": "duckdb",
+          "flag": "--dbt-dialect",
+          "help": "",
+          "name": "dbt_dialect",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--verify-runtime",
+          "help": "",
+          "name": "verify_runtime",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "storage",
+        "compile"
+      ]
+    },
+    {
+      "help": "Apply certified storage schema DDL and bronze/DV2 load into local DuckDB or Parquet.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/storage/migrate",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--target",
+          "help": "duckdb_local or parquet.",
+          "name": "target",
+          "required": true,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "storage",
+        "migrate"
+      ]
+    },
+    {
+      "help": "Execute a read-only SQL query against local DuckDB/Parquet views.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/storage/query",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--sql",
+          "help": "Read-only SELECT/WITH SQL statement.",
+          "name": "sql",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": 1000,
+          "flag": "--limit",
+          "help": "",
+          "name": "limit",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        }
+      ],
+      "path": [
+        "storage",
+        "query"
+      ]
+    },
+    {
+      "help": "Re-verify and regenerate local storage artifacts against CertifiedVaultIR.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/storage/regenerate",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--target",
+          "help": "Target id or 'all'.",
+          "name": "target",
+          "required": true,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "storage",
+        "regenerate"
+      ]
+    },
+    {
+      "help": "Launch Step 6 Data Vault 2.0 synthesis (`VaultBuildReq` carries only `policy`).",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/runs",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": "balanced",
+          "flag": "--policy",
+          "help": "balanced, strict, fast, or symbolic_only.",
+          "name": "policy",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--wait",
+          "help": "Poll until run finishes or pauses.",
+          "name": "wait",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "vault",
+        "build"
+      ]
+    },
+    {
+      "help": "Send live pause, hint, accept-best, raise-budget, or horizon-review control.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/runs/{rid}/controls",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--run",
+          "help": "Run identifier.",
+          "name": "run",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--action",
+          "help": "Control action name.",
+          "name": "action",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--hint",
+          "help": "Optional steering hint.",
+          "name": "hint",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--extra-turns",
+          "help": "",
+          "name": "extra_turns",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--extra-tokens",
+          "help": "",
+          "name": "extra_tokens",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--extra-timeout",
+          "help": "",
+          "name": "extra_timeout",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        }
+      ],
+      "path": [
+        "vault",
+        "control"
+      ]
+    },
+    {
+      "help": "Submit decision answers on a Step 6 HOLD_CHECKPOINTED run.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/runs/{rid}/decisions",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--run",
+          "help": "Run identifier.",
+          "name": "run",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--answers-json",
+          "help": "Clarification answers JSON string or file path.",
+          "name": "answers_json",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--wait",
+          "help": "Poll until run finishes or pauses.",
+          "name": "wait",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "vault",
+        "hold"
+      ]
+    },
+    {
+      "help": "Accept or steer provisional horizon assumptions for a Step 6 run.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/runs/{rid}/horizon",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--run",
+          "help": "Run identifier.",
+          "name": "run",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--action",
+          "help": "accept or steer.",
+          "name": "action",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--assumptions-json",
+          "help": "JSON object (or file) with horizon assumption answers or steering payload.",
+          "name": "assumptions_json",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": "",
+          "flag": "--notes",
+          "help": "",
+          "name": "notes",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--added-fields",
+          "help": "",
+          "name": "added_fields",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--wait",
+          "help": "Poll until run finishes or pauses.",
+          "name": "wait",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "vault",
+        "horizon"
+      ]
+    },
+    {
+      "help": "Fetch persisted JSONL run observability events.",
+      "http_method": "GET",
+      "http_route": "/api/v1/projects/{project_id}/runs/{rid}/logs",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--run",
+          "help": "Run id (defaults to latest).",
+          "name": "run",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "flag": "--since-seq",
+          "help": "",
+          "name": "since_seq",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--limit",
+          "help": "",
+          "name": "limit",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        }
+      ],
+      "path": [
+        "vault",
+        "logs"
+      ]
+    },
+    {
+      "help": "Verify Draft/Certified Vault IR deterministically (exits 2 on gate failure).",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/vault/verify",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "vault",
+        "verify"
+      ]
+    },
+    {
+      "help": "Record a typed anti-pattern waiver rationale.",
+      "http_method": "POST",
+      "http_route": "/api/v1/projects/{project_id}/vault/waivers",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--rule",
+          "help": "Anti-pattern rule identifier.",
+          "name": "rule",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--entity",
+          "help": "Target DV2 entity name.",
+          "name": "entity",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--rationale",
+          "help": "Audit justification.",
+          "name": "rationale",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--waiver-id",
+          "help": "",
+          "name": "waiver_id",
+          "required": false,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "vault",
+        "waive"
+      ]
+    }
+  ]
+}

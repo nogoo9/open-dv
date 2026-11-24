@@ -11,12 +11,12 @@ import secrets
 import socket
 from collections.abc import Callable, Iterator, Sequence
 from types import TracebackType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-import uvicorn
-from mcp.server.mcpserver import MCPServer
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.server.transport_security import TransportSecuritySettings
+if TYPE_CHECKING:
+    import uvicorn
+    from mcp.server.mcpserver import MCPServer
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 from opendv.agents.ports import (
     AgentHarnessPort,
@@ -73,10 +73,15 @@ _SCOUT_INSTRUCTIONS: dict[Literal["table_cluster", "page_range"], str] = {
 }
 
 
-class _NoSignalUvicornServer(uvicorn.Server):
-    @contextlib.contextmanager
-    def capture_signals(self) -> Iterator[None]:
-        yield
+def _make_no_signal_server(cfg: uvicorn.Config) -> uvicorn.Server:
+    import uvicorn
+
+    class _NoSignalUvicornServer(uvicorn.Server):
+        @contextlib.contextmanager
+        def capture_signals(self) -> Iterator[None]:
+            yield
+
+    return _NoSignalUvicornServer(cfg)
 
 
 class ServiceScoutToolDispatcher(ScoutToolDispatcher):
@@ -149,6 +154,8 @@ class ServiceScoutToolDispatcher(ScoutToolDispatcher):
 
 
 def _build_coord_server(ctx: BrokerToolContext) -> MCPServer:
+    from mcp.server.mcpserver import MCPServer
+
     srv = MCPServer(name="opendv-step4-coord")
 
     @srv.tool()
@@ -184,6 +191,8 @@ def _build_coord_server(ctx: BrokerToolContext) -> MCPServer:
 
 
 def _build_scout_server(ctx: BrokerToolContext) -> MCPServer:
+    from mcp.server.mcpserver import MCPServer
+
     srv = MCPServer(name="opendv-step4-scout")
 
     @srv.tool()
@@ -380,6 +389,10 @@ class JobMcpBroker:
         self._socket = sock
         self.port = int(sock.getsockname()[1])
 
+        import uvicorn
+        from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+        from mcp.server.transport_security import TransportSecuritySettings
+
         sec = TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
             allowed_hosts=[f"{self._url_host}:{self.port}", self._url_host],
@@ -409,7 +422,7 @@ class JobMcpBroker:
             access_log=False,
             interface="asgi3",
         )
-        server = _NoSignalUvicornServer(cfg)
+        server = _make_no_signal_server(cfg)
         self._server = server
         self._serve_task = asyncio.create_task(server.serve(sockets=[sock]))
         while not server.started:

@@ -1,0 +1,1792 @@
+{
+  "$defs": {
+    "AntiPatternJustification": {
+      "additionalProperties": false,
+      "description": "Audited Steward or V7-accepted justification for a waivable V6b rule.",
+      "properties": {
+        "actor": {
+          "enum": [
+            "human",
+            "agent"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "entity_name": {
+          "title": "Entity Name",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "reviewed_by_v7": {
+          "default": false,
+          "title": "Reviewed By V7",
+          "type": "boolean"
+        },
+        "rule_id": {
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "waiver_id": {
+          "title": "Waiver Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "waiver_id",
+        "rule_id",
+        "entity_name",
+        "rationale",
+        "actor"
+      ],
+      "title": "AntiPatternJustification",
+      "type": "object"
+    },
+    "ArrayType": {
+      "additionalProperties": false,
+      "description": "Ordered array logical type.",
+      "properties": {
+        "element_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "FIXED_BINARY_32",
+                "UTF8_STRING",
+                "INT32",
+                "INT64",
+                "DATE32",
+                "TIMESTAMP_UTC_US",
+                "BOOLEAN",
+                "JSON_DOCUMENT"
+              ],
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/DecimalType"
+            },
+            {
+              "$ref": "#/$defs/ArrayType"
+            },
+            {
+              "$ref": "#/$defs/MapType"
+            }
+          ],
+          "title": "Element Type"
+        },
+        "kind": {
+          "const": "ARRAY",
+          "default": "ARRAY",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "element_type"
+      ],
+      "title": "ArrayType",
+      "type": "object"
+    },
+    "BronzeTableSpec": {
+      "additionalProperties": false,
+      "description": "Zone Z0 raw bronze table specification.",
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/IRField"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_table_id": {
+          "title": "Source Table Id",
+          "type": "string"
+        },
+        "table_name": {
+          "minLength": 1,
+          "title": "Table Name",
+          "type": "string"
+        },
+        "zone_id": {
+          "const": "Z0",
+          "default": "Z0",
+          "title": "Zone Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "table_name",
+        "source_id",
+        "source_table_id"
+      ],
+      "title": "BronzeTableSpec",
+      "type": "object"
+    },
+    "BusinessKeyPart": {
+      "additionalProperties": false,
+      "description": "Source column contributing to a Hub business key and its BKCC tier.",
+      "properties": {
+        "bkcc_col": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bkcc Col"
+        },
+        "bkcc_value": {
+          "title": "Bkcc Value",
+          "type": "string"
+        },
+        "col_name": {
+          "title": "Col Name",
+          "type": "string"
+        },
+        "key_tier": {
+          "enum": [
+            "TIER_1_GLOBAL_STANDARD",
+            "TIER_2_ENTERPRISE_SOR",
+            "TIER_3_LOCAL_SCOPED"
+          ],
+          "title": "Key Tier",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "table_id": {
+          "title": "Table Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "table_id",
+        "col_name",
+        "source_id",
+        "key_tier",
+        "bkcc_value"
+      ],
+      "title": "BusinessKeyPart",
+      "type": "object"
+    },
+    "CertifiedHubSpec": {
+      "additionalProperties": false,
+      "description": "Certified Zone Z2 Hub specification.",
+      "properties": {
+        "attributes": {
+          "items": {
+            "$ref": "#/$defs/DraftField"
+          },
+          "title": "Attributes",
+          "type": "array"
+        },
+        "business_keys": {
+          "items": {
+            "$ref": "#/$defs/BusinessKeyPart"
+          },
+          "title": "Business Keys",
+          "type": "array"
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/IRField"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "hash_recipe": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HashRecipeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "hub_name": {
+          "minLength": 1,
+          "title": "Hub Name",
+          "type": "string"
+        },
+        "is_planned_concept": {
+          "default": false,
+          "title": "Is Planned Concept",
+          "type": "boolean"
+        },
+        "key_tier": {
+          "enum": [
+            "TIER_1_GLOBAL_STANDARD",
+            "TIER_2_ENTERPRISE_SOR",
+            "TIER_3_LOCAL_SCOPED"
+          ],
+          "title": "Key Tier",
+          "type": "string"
+        },
+        "load_semantics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LoadSemanticsSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "physical_hints": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PhysicalLayoutHints"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "source_bindings": {
+          "items": {
+            "$ref": "#/$defs/SourceBindingSpec"
+          },
+          "title": "Source Bindings",
+          "type": "array"
+        },
+        "zone_id": {
+          "default": "Z2",
+          "enum": [
+            "Z0",
+            "Z1",
+            "Z2",
+            "Z3",
+            "Z4"
+          ],
+          "title": "Zone Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hub_name",
+        "key_tier"
+      ],
+      "title": "CertifiedHubSpec",
+      "type": "object"
+    },
+    "CertifiedLinkSpec": {
+      "additionalProperties": false,
+      "description": "Certified Zone Z2 Link specification.",
+      "properties": {
+        "attributes": {
+          "items": {
+            "$ref": "#/$defs/DraftField"
+          },
+          "title": "Attributes",
+          "type": "array"
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/IRField"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "degenerate_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Degenerate Keys",
+          "type": "array"
+        },
+        "driving_hub": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Driving Hub"
+        },
+        "hash_recipe": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HashRecipeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "link_kind": {
+          "enum": [
+            "STANDARD",
+            "TRANSACTIONAL",
+            "SAME_AS",
+            "HIERARCHICAL",
+            "UNSTRUCTURED_EXTRACTION_LINK"
+          ],
+          "title": "Link Kind",
+          "type": "string"
+        },
+        "link_name": {
+          "minLength": 1,
+          "title": "Link Name",
+          "type": "string"
+        },
+        "load_semantics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LoadSemanticsSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "participants": {
+          "items": {
+            "$ref": "#/$defs/LinkParticipantSpec"
+          },
+          "title": "Participants",
+          "type": "array"
+        },
+        "physical_hints": {
+          "$ref": "#/$defs/PhysicalLayoutHints"
+        },
+        "source_bindings": {
+          "items": {
+            "$ref": "#/$defs/SourceBindingSpec"
+          },
+          "title": "Source Bindings",
+          "type": "array"
+        },
+        "zone_id": {
+          "default": "Z2",
+          "enum": [
+            "Z0",
+            "Z1",
+            "Z2",
+            "Z3",
+            "Z4"
+          ],
+          "title": "Zone Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "link_name",
+        "link_kind",
+        "participants",
+        "physical_hints"
+      ],
+      "title": "CertifiedLinkSpec",
+      "type": "object"
+    },
+    "CertifiedSatelliteSpec": {
+      "additionalProperties": false,
+      "description": "Certified Zone Z2 Satellite specification.",
+      "properties": {
+        "applied_dts_col": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applied Dts Col"
+        },
+        "attributes": {
+          "items": {
+            "$ref": "#/$defs/DraftField"
+          },
+          "title": "Attributes",
+          "type": "array"
+        },
+        "child_dependent_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Child Dependent Keys",
+          "type": "array"
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/IRField"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "companion_epoch": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Companion Epoch"
+        },
+        "driving_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Driving Keys",
+          "type": "array"
+        },
+        "extends_sat_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extends Sat Name"
+        },
+        "hash_recipe": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HashRecipeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "immutable_payload_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Immutable Payload Fields",
+          "type": "array"
+        },
+        "is_bitemporal": {
+          "default": false,
+          "title": "Is Bitemporal",
+          "type": "boolean"
+        },
+        "load_mode": {
+          "default": "INSERT_ONLY_DELTA",
+          "enum": [
+            "INSERT_ONLY_DELTA",
+            "SNAPSHOT_DIFF",
+            "APPEND_WITH_EFFECTIVITY"
+          ],
+          "title": "Load Mode",
+          "type": "string"
+        },
+        "load_semantics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LoadSemanticsSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "parent_name": {
+          "minLength": 1,
+          "title": "Parent Name",
+          "type": "string"
+        },
+        "physical_hints": {
+          "$ref": "#/$defs/PhysicalLayoutHints"
+        },
+        "sat_kind": {
+          "enum": [
+            "STANDARD",
+            "MAS",
+            "ESAT",
+            "PII",
+            "AI_PROVENANCE_SATELLITE",
+            "EXT"
+          ],
+          "title": "Sat Kind",
+          "type": "string"
+        },
+        "sat_name": {
+          "minLength": 1,
+          "title": "Sat Name",
+          "type": "string"
+        },
+        "source_bindings": {
+          "items": {
+            "$ref": "#/$defs/SourceBindingSpec"
+          },
+          "title": "Source Bindings",
+          "type": "array"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_table_id": {
+          "title": "Source Table Id",
+          "type": "string"
+        },
+        "zone_id": {
+          "default": "Z2",
+          "enum": [
+            "Z0",
+            "Z1",
+            "Z2",
+            "Z3",
+            "Z4"
+          ],
+          "title": "Zone Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sat_name",
+        "sat_kind",
+        "parent_name",
+        "source_id",
+        "source_table_id",
+        "physical_hints"
+      ],
+      "title": "CertifiedSatelliteSpec",
+      "type": "object"
+    },
+    "ColumnTriageEntry": {
+      "additionalProperties": false,
+      "description": "100% column triage ledger entry.",
+      "properties": {
+        "col_name": {
+          "title": "Col Name",
+          "type": "string"
+        },
+        "disposition": {
+          "enum": [
+            "UNRESOLVED",
+            "MODELED",
+            "SYSTEM_METADATA",
+            "SYSTEM_SURROGATE_DROPPED",
+            "OMITTED_INTENTIONALLY"
+          ],
+          "title": "Disposition",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "table_id": {
+          "title": "Table Id",
+          "type": "string"
+        },
+        "target_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Ref"
+        }
+      },
+      "required": [
+        "table_id",
+        "col_name",
+        "disposition"
+      ],
+      "title": "ColumnTriageEntry",
+      "type": "object"
+    },
+    "DecimalType": {
+      "additionalProperties": false,
+      "description": "Fixed-precision decimal logical type.",
+      "properties": {
+        "kind": {
+          "const": "DECIMAL",
+          "default": "DECIMAL",
+          "title": "Kind",
+          "type": "string"
+        },
+        "precision": {
+          "maximum": 38,
+          "minimum": 1,
+          "title": "Precision",
+          "type": "integer"
+        },
+        "scale": {
+          "maximum": 38,
+          "minimum": 0,
+          "title": "Scale",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "precision",
+        "scale"
+      ],
+      "title": "DecimalType",
+      "type": "object"
+    },
+    "DocumentCitationRef": {
+      "additionalProperties": false,
+      "description": "Exact page and character-span citation into an unstructured source.",
+      "properties": {
+        "char_end": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Char End"
+        },
+        "char_start": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Char Start"
+        },
+        "content_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Sha256"
+        },
+        "doc_id": {
+          "title": "Doc Id",
+          "type": "string"
+        },
+        "occurrence": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Occurrence",
+          "type": "integer"
+        },
+        "page_number": {
+          "minimum": 1,
+          "title": "Page Number",
+          "type": "integer"
+        },
+        "verbatim_quote": {
+          "title": "Verbatim Quote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "doc_id",
+        "page_number",
+        "verbatim_quote"
+      ],
+      "title": "DocumentCitationRef",
+      "type": "object"
+    },
+    "DraftField": {
+      "additionalProperties": false,
+      "description": "Descriptive attribute column on a DraftVaultIR entity.",
+      "properties": {
+        "classification_tag": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classification Tag"
+        },
+        "is_pii": {
+          "title": "Is Pii",
+          "type": "boolean"
+        },
+        "logical_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "FIXED_BINARY_32",
+                "UTF8_STRING",
+                "INT32",
+                "INT64",
+                "DATE32",
+                "TIMESTAMP_UTC_US",
+                "BOOLEAN",
+                "JSON_DOCUMENT"
+              ],
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/DecimalType"
+            },
+            {
+              "$ref": "#/$defs/ArrayType"
+            },
+            {
+              "$ref": "#/$defs/MapType"
+            }
+          ],
+          "title": "Logical Type"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "nullable": {
+          "title": "Nullable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "logical_type",
+        "nullable",
+        "is_pii"
+      ],
+      "title": "DraftField",
+      "type": "object"
+    },
+    "ExternalMcpEvidenceRef": {
+      "additionalProperties": false,
+      "description": "Tamper-evident receipt reference for an external MCP tool invocation.",
+      "properties": {
+        "content_sha256": {
+          "title": "Content Sha256",
+          "type": "string"
+        },
+        "masked_excerpt": {
+          "title": "Masked Excerpt",
+          "type": "string"
+        },
+        "receipt_id": {
+          "title": "Receipt Id",
+          "type": "string"
+        },
+        "server_id": {
+          "title": "Server Id",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "receipt_id",
+        "server_id",
+        "tool_name",
+        "content_sha256",
+        "masked_excerpt"
+      ],
+      "title": "ExternalMcpEvidenceRef",
+      "type": "object"
+    },
+    "HashRecipeSpec": {
+      "additionalProperties": false,
+      "description": "Storage-neutral Algorithm A.5 hash recipe lowered by target compilers.",
+      "properties": {
+        "bkcc_col": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bkcc Col"
+        },
+        "bkcc_literal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bkcc Literal"
+        },
+        "error_predicate": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "AND": "#/$defs/PredicateBranch",
+                  "EQ": "#/$defs/PredicateLeaf",
+                  "IS_NOT_NULL": "#/$defs/PredicateLeaf",
+                  "OR": "#/$defs/PredicateBranch"
+                },
+                "propertyName": "op"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/PredicateBranch"
+                },
+                {
+                  "$ref": "#/$defs/PredicateLeaf"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Predicate"
+        },
+        "is_optional_inapplicable": {
+          "default": false,
+          "title": "Is Optional Inapplicable",
+          "type": "boolean"
+        },
+        "key_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Key Columns",
+          "type": "array"
+        },
+        "recipe_kind": {
+          "enum": [
+            "HUB_HK",
+            "LINK_HK",
+            "SAT_HASH_DIFF"
+          ],
+          "title": "Recipe Kind",
+          "type": "string"
+        },
+        "sort_alphabetically": {
+          "title": "Sort Alphabetically",
+          "type": "boolean"
+        },
+        "source_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Columns",
+          "type": "array"
+        },
+        "target_col": {
+          "minLength": 1,
+          "title": "Target Col",
+          "type": "string"
+        },
+        "unknown_predicate": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "AND": "#/$defs/PredicateBranch",
+                  "EQ": "#/$defs/PredicateLeaf",
+                  "IS_NOT_NULL": "#/$defs/PredicateLeaf",
+                  "OR": "#/$defs/PredicateBranch"
+                },
+                "propertyName": "op"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/PredicateBranch"
+                },
+                {
+                  "$ref": "#/$defs/PredicateLeaf"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unknown Predicate"
+        }
+      },
+      "required": [
+        "target_col",
+        "recipe_kind",
+        "source_columns",
+        "sort_alphabetically"
+      ],
+      "title": "HashRecipeSpec",
+      "type": "object"
+    },
+    "IRField": {
+      "additionalProperties": false,
+      "description": "Physical column definition with monotonic field_id for Iceberg/DDL stability.",
+      "properties": {
+        "classification_tag": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classification Tag"
+        },
+        "field_id": {
+          "minimum": 1,
+          "title": "Field Id",
+          "type": "integer"
+        },
+        "is_pii": {
+          "title": "Is Pii",
+          "type": "boolean"
+        },
+        "logical_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "FIXED_BINARY_32",
+                "UTF8_STRING",
+                "INT32",
+                "INT64",
+                "DATE32",
+                "TIMESTAMP_UTC_US",
+                "BOOLEAN",
+                "JSON_DOCUMENT"
+              ],
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/DecimalType"
+            },
+            {
+              "$ref": "#/$defs/ArrayType"
+            },
+            {
+              "$ref": "#/$defs/MapType"
+            }
+          ],
+          "title": "Logical Type"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "nullable": {
+          "title": "Nullable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "field_id",
+        "name",
+        "logical_type",
+        "nullable",
+        "is_pii"
+      ],
+      "title": "IRField",
+      "type": "object"
+    },
+    "LinkParticipantSpec": {
+      "additionalProperties": false,
+      "description": "Hub role participant inside a Data Vault Link.",
+      "properties": {
+        "fk_col_name": {
+          "title": "Fk Col Name",
+          "type": "string"
+        },
+        "hub_name": {
+          "title": "Hub Name",
+          "type": "string"
+        },
+        "role_name": {
+          "title": "Role Name",
+          "type": "string"
+        },
+        "source_col_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Col Names",
+          "type": "array"
+        }
+      },
+      "required": [
+        "hub_name",
+        "role_name",
+        "fk_col_name",
+        "source_col_names"
+      ],
+      "title": "LinkParticipantSpec",
+      "type": "object"
+    },
+    "LoadSemanticsSpec": {
+      "additionalProperties": false,
+      "description": "Storage-neutral ingestion filter and intra-batch deduplication specification.",
+      "properties": {
+        "dedup_order_cols": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dedup Order Cols",
+          "type": "array"
+        },
+        "filter_ast": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "AND": "#/$defs/PredicateBranch",
+                  "EQ": "#/$defs/PredicateLeaf",
+                  "IS_NOT_NULL": "#/$defs/PredicateLeaf",
+                  "OR": "#/$defs/PredicateBranch"
+                },
+                "propertyName": "op"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/PredicateBranch"
+                },
+                {
+                  "$ref": "#/$defs/PredicateLeaf"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filter Ast"
+        },
+        "require_review_status": {
+          "anyOf": [
+            {
+              "const": "APPROVED",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Require Review Status"
+        },
+        "source_table_id": {
+          "title": "Source Table Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_table_id"
+      ],
+      "title": "LoadSemanticsSpec",
+      "type": "object"
+    },
+    "MapType": {
+      "additionalProperties": false,
+      "description": "Key-value map logical type.",
+      "properties": {
+        "key_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "FIXED_BINARY_32",
+                "UTF8_STRING",
+                "INT32",
+                "INT64",
+                "DATE32",
+                "TIMESTAMP_UTC_US",
+                "BOOLEAN",
+                "JSON_DOCUMENT"
+              ],
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/DecimalType"
+            },
+            {
+              "$ref": "#/$defs/ArrayType"
+            },
+            {
+              "$ref": "#/$defs/MapType"
+            }
+          ],
+          "title": "Key Type"
+        },
+        "kind": {
+          "const": "MAP",
+          "default": "MAP",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "FIXED_BINARY_32",
+                "UTF8_STRING",
+                "INT32",
+                "INT64",
+                "DATE32",
+                "TIMESTAMP_UTC_US",
+                "BOOLEAN",
+                "JSON_DOCUMENT"
+              ],
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/DecimalType"
+            },
+            {
+              "$ref": "#/$defs/ArrayType"
+            },
+            {
+              "$ref": "#/$defs/MapType"
+            }
+          ],
+          "title": "Value Type"
+        }
+      },
+      "required": [
+        "key_type",
+        "value_type"
+      ],
+      "title": "MapType",
+      "type": "object"
+    },
+    "MartViewSpec": {
+      "additionalProperties": false,
+      "description": "Zone Z4 Information Mart view specification.",
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/IRField"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "joined_entities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Joined Entities",
+          "type": "array"
+        },
+        "root_entity": {
+          "title": "Root Entity",
+          "type": "string"
+        },
+        "select_exprs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Select Exprs",
+          "type": "object"
+        },
+        "view_name": {
+          "minLength": 1,
+          "title": "View Name",
+          "type": "string"
+        },
+        "zone_id": {
+          "const": "Z4",
+          "default": "Z4",
+          "title": "Zone Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "view_name",
+        "root_entity",
+        "joined_entities",
+        "select_exprs"
+      ],
+      "title": "MartViewSpec",
+      "type": "object"
+    },
+    "PhysicalLayoutHints": {
+      "additionalProperties": false,
+      "description": "Optional clustering, partitioning, and Iceberg tagging metadata.",
+      "properties": {
+        "cluster_by_cols": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Cluster By Cols",
+          "type": "array"
+        },
+        "iceberg_tags": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Iceberg Tags",
+          "type": "object"
+        },
+        "partition_grain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Partition Grain"
+        }
+      },
+      "title": "PhysicalLayoutHints",
+      "type": "object"
+    },
+    "PitBridgeSpec": {
+      "additionalProperties": false,
+      "description": "Zone Z3 Business Vault PIT or Bridge specification.",
+      "properties": {
+        "grain_cols": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Grain Cols",
+          "type": "array"
+        },
+        "object_kind": {
+          "enum": [
+            "PIT",
+            "BRIDGE"
+          ],
+          "title": "Object Kind",
+          "type": "string"
+        },
+        "object_name": {
+          "minLength": 1,
+          "title": "Object Name",
+          "type": "string"
+        },
+        "root_hub": {
+          "title": "Root Hub",
+          "type": "string"
+        },
+        "target_satellites_or_links": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Target Satellites Or Links",
+          "type": "array"
+        },
+        "zone_id": {
+          "const": "Z3",
+          "default": "Z3",
+          "title": "Zone Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "object_name",
+        "object_kind",
+        "root_hub",
+        "target_satellites_or_links",
+        "grain_cols"
+      ],
+      "title": "PitBridgeSpec",
+      "type": "object"
+    },
+    "PredicateBranch": {
+      "additionalProperties": false,
+      "description": "Boolean conjunction or disjunction over PredicateNode children.",
+      "properties": {
+        "children": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "AND": "#/$defs/PredicateBranch",
+                "EQ": "#/$defs/PredicateLeaf",
+                "IS_NOT_NULL": "#/$defs/PredicateLeaf",
+                "OR": "#/$defs/PredicateBranch"
+              },
+              "propertyName": "op"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/PredicateBranch"
+              },
+              {
+                "$ref": "#/$defs/PredicateLeaf"
+              }
+            ]
+          },
+          "title": "Children",
+          "type": "array"
+        },
+        "op": {
+          "enum": [
+            "AND",
+            "OR"
+          ],
+          "title": "Op",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "children"
+      ],
+      "title": "PredicateBranch",
+      "type": "object"
+    },
+    "PredicateLeaf": {
+      "additionalProperties": false,
+      "description": "Atomic filter/sentinel predicate leaf node.",
+      "properties": {
+        "column": {
+          "minLength": 1,
+          "title": "Column",
+          "type": "string"
+        },
+        "literal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Literal"
+        },
+        "op": {
+          "enum": [
+            "EQ",
+            "IS_NOT_NULL"
+          ],
+          "title": "Op",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "column"
+      ],
+      "title": "PredicateLeaf",
+      "type": "object"
+    },
+    "RefTableSpec": {
+      "additionalProperties": false,
+      "description": "Zone Z0 reference enumeration table specification.",
+      "properties": {
+        "code_col": {
+          "title": "Code Col",
+          "type": "string"
+        },
+        "codes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Codes",
+          "type": "object"
+        },
+        "enum_uri": {
+          "title": "Enum Uri",
+          "type": "string"
+        },
+        "label_col": {
+          "title": "Label Col",
+          "type": "string"
+        },
+        "ref_name": {
+          "minLength": 1,
+          "title": "Ref Name",
+          "type": "string"
+        },
+        "zone_id": {
+          "const": "Z0",
+          "default": "Z0",
+          "title": "Zone Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref_name",
+        "enum_uri",
+        "code_col",
+        "label_col",
+        "codes"
+      ],
+      "title": "RefTableSpec",
+      "type": "object"
+    },
+    "SchemaWaveDelta": {
+      "additionalProperties": false,
+      "description": "Wave-to-wave structural delta summary across CertifiedVaultIR revisions.",
+      "properties": {
+        "added_entities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Added Entities",
+          "type": "array"
+        },
+        "added_sat_extensions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Added Sat Extensions",
+          "type": "array"
+        },
+        "from_wave": {
+          "minimum": 1,
+          "title": "From Wave",
+          "type": "integer"
+        },
+        "locked_entities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Locked Entities",
+          "type": "array"
+        },
+        "to_wave": {
+          "minimum": 2,
+          "title": "To Wave",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from_wave",
+        "to_wave"
+      ],
+      "title": "SchemaWaveDelta",
+      "type": "object"
+    },
+    "SeedRecordsSpec": {
+      "additionalProperties": false,
+      "description": "Canonical Zero-Key (-1 Unknown, -2 Error) and Ghost record specification.",
+      "properties": {
+        "default_hash_input": {
+          "default": "0",
+          "title": "Default Hash Input",
+          "type": "string"
+        },
+        "default_num": {
+          "default": -1,
+          "title": "Default Num",
+          "type": "integer"
+        },
+        "default_string": {
+          "default": "UNKNOWN",
+          "title": "Default String",
+          "type": "string"
+        },
+        "error_hk_hex": {
+          "default": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "title": "Error Hk Hex",
+          "type": "string"
+        },
+        "ghost_hash_diff_hex": {
+          "default": "0000000000000000000000000000000000000000000000000000000000000000",
+          "title": "Ghost Hash Diff Hex",
+          "type": "string"
+        },
+        "ghost_load_dts": {
+          "default": "1900-01-01T00:00:00Z",
+          "title": "Ghost Load Dts",
+          "type": "string"
+        },
+        "ghost_rec_src": {
+          "default": "SYSTEM_SEED",
+          "title": "Ghost Rec Src",
+          "type": "string"
+        },
+        "unknown_hk_hex": {
+          "default": "0000000000000000000000000000000000000000000000000000000000000000",
+          "title": "Unknown Hk Hex",
+          "type": "string"
+        }
+      },
+      "title": "SeedRecordsSpec",
+      "type": "object"
+    },
+    "SourceBindingSpec": {
+      "additionalProperties": false,
+      "description": "Enriched source lineage binding on a CertifiedVaultIR entity.",
+      "properties": {
+        "col_mappings": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Col Mappings",
+          "type": "object"
+        },
+        "doc_citations": {
+          "items": {
+            "$ref": "#/$defs/DocumentCitationRef"
+          },
+          "title": "Doc Citations",
+          "type": "array"
+        },
+        "hash_recipe": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HashRecipeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "load_semantics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LoadSemanticsSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mcp_evidence": {
+          "items": {
+            "$ref": "#/$defs/ExternalMcpEvidenceRef"
+          },
+          "title": "Mcp Evidence",
+          "type": "array"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "table_id": {
+          "title": "Table Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "table_id",
+        "col_mappings"
+      ],
+      "title": "SourceBindingSpec",
+      "type": "object"
+    },
+    "StagingViewSpec": {
+      "additionalProperties": false,
+      "description": "Zone Z1 staging view specification carrying Alg A.5 hash recipes.",
+      "properties": {
+        "col_lineage_mappings": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Col Lineage Mappings",
+          "type": "object"
+        },
+        "hash_recipes": {
+          "items": {
+            "$ref": "#/$defs/HashRecipeSpec"
+          },
+          "title": "Hash Recipes",
+          "type": "array"
+        },
+        "projected_fields": {
+          "items": {
+            "$ref": "#/$defs/IRField"
+          },
+          "title": "Projected Fields",
+          "type": "array"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_table_id": {
+          "title": "Source Table Id",
+          "type": "string"
+        },
+        "view_name": {
+          "minLength": 1,
+          "title": "View Name",
+          "type": "string"
+        },
+        "zone_id": {
+          "const": "Z1",
+          "default": "Z1",
+          "title": "Zone Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "view_name",
+        "source_id",
+        "source_table_id",
+        "col_lineage_mappings"
+      ],
+      "title": "StagingViewSpec",
+      "type": "object"
+    }
+  },
+  "$id": "https://opendv.dev/schemas/v2/vault-schema-ir-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Zero-SQL certified UniversalVaultSchemaIR v2.0 across Zones Z0-Z4.",
+  "properties": {
+    "bronze_tables": {
+      "items": {
+        "$ref": "#/$defs/BronzeTableSpec"
+      },
+      "title": "Bronze Tables",
+      "type": "array"
+    },
+    "column_triage": {
+      "items": {
+        "$ref": "#/$defs/ColumnTriageEntry"
+      },
+      "title": "Column Triage",
+      "type": "array"
+    },
+    "hubs": {
+      "items": {
+        "$ref": "#/$defs/CertifiedHubSpec"
+      },
+      "title": "Hubs",
+      "type": "array"
+    },
+    "information_marts": {
+      "items": {
+        "$ref": "#/$defs/MartViewSpec"
+      },
+      "title": "Information Marts",
+      "type": "array"
+    },
+    "ir_version": {
+      "const": "2.0",
+      "default": "2.0",
+      "title": "Ir Version",
+      "type": "string"
+    },
+    "justifications": {
+      "items": {
+        "$ref": "#/$defs/AntiPatternJustification"
+      },
+      "title": "Justifications",
+      "type": "array"
+    },
+    "links": {
+      "items": {
+        "$ref": "#/$defs/CertifiedLinkSpec"
+      },
+      "title": "Links",
+      "type": "array"
+    },
+    "ontology_version": {
+      "title": "Ontology Version",
+      "type": "string"
+    },
+    "pit_bridges": {
+      "items": {
+        "$ref": "#/$defs/PitBridgeSpec"
+      },
+      "title": "Pit Bridges",
+      "type": "array"
+    },
+    "project_id": {
+      "minLength": 1,
+      "title": "Project Id",
+      "type": "string"
+    },
+    "reference_tables": {
+      "items": {
+        "$ref": "#/$defs/RefTableSpec"
+      },
+      "title": "Reference Tables",
+      "type": "array"
+    },
+    "satellites": {
+      "items": {
+        "$ref": "#/$defs/CertifiedSatelliteSpec"
+      },
+      "title": "Satellites",
+      "type": "array"
+    },
+    "seed_records": {
+      "$ref": "#/$defs/SeedRecordsSpec"
+    },
+    "staging_views": {
+      "items": {
+        "$ref": "#/$defs/StagingViewSpec"
+      },
+      "title": "Staging Views",
+      "type": "array"
+    },
+    "wave_delta": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SchemaWaveDelta"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "wave_number": {
+      "minimum": 1,
+      "title": "Wave Number",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "project_id",
+    "ontology_version",
+    "wave_number"
+  ],
+  "title": "VaultSchemaIR v2.0",
+  "type": "object"
+}

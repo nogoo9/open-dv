@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from opendv.service.app_service import OpenDVService
 from opendv.service.bm25_matcher import Bm25ConceptMatcher, Bm25ScoredHit
 from opendv.service.bundles import (
@@ -25,13 +27,11 @@ from opendv.service.citations import (
     ensure_no_redacted_placeholder,
     resolve_citation,
 )
-from opendv.service.external_mcp import ExternalMcpGateway
 from opendv.service.guided_translator import (
     CertificationLabel,
     GuidedUxTranslator,
     build_guided_run_view,
 )
-from opendv.service.mcp_broker import JobMcpBroker, ServiceScoutToolDispatcher
 from opendv.service.os_platform import (
     atomic_write_bytes,
     atomic_write_text,
@@ -51,6 +51,7 @@ from opendv.service.secrets import (
     KeyringSecretStore,
     probe_keyring_available,
     resolve_workspace_namespace,
+    scoped_env_first,
 )
 from opendv.service.settings_store import SettingsStore
 from opendv.service.state_store import (
@@ -66,6 +67,28 @@ from opendv.service.workflows import (
     StorageService,
     VaultService,
 )
+
+if TYPE_CHECKING:
+    from opendv.service.external_mcp import ExternalMcpGateway
+    from opendv.service.mcp_broker import JobMcpBroker, ServiceScoutToolDispatcher
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy-load MCP/uvicorn transport helpers to preserve Layer-4 subprocess isolation."""
+    if name == "ExternalMcpGateway":
+        from opendv.service.external_mcp import ExternalMcpGateway
+
+        return ExternalMcpGateway
+    if name == "JobMcpBroker":
+        from opendv.service.mcp_broker import JobMcpBroker
+
+        return JobMcpBroker
+    if name == "ServiceScoutToolDispatcher":
+        from opendv.service.mcp_broker import ServiceScoutToolDispatcher
+
+        return ServiceScoutToolDispatcher
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "MAX_BUNDLE_ENTRIES",
@@ -115,6 +138,7 @@ __all__ = [
     "resolve_workspace_namespace",
     "safe_extract_binary_entries",
     "safe_open_no_follow",
+    "scoped_env_first",
     "set_owner_only_permissions",
     "validate_archive_member",
     "validate_containment",
