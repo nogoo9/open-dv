@@ -22,13 +22,14 @@ export function VideoTourSection({
 					<div className="section-head-copy">
 						<p className="eyebrow">VIDEO WALKTHROUGH · 2:45 END-TO-END</p>
 						<h2 id="tour-heading">
-							See the 6-Step Wizard, DV Schema Explorer, and Session Logs in
+							See the 7-Step Workbench, DV Schema Explorer, and Run Explorer in
 							action.
 						</h2>
 					</div>
 					<p className="section-intro">
-						Jump directly to any of the six chapters across 5-Zone (Z0–Z4) SQL
-						compilation or open the full searchable transcript page with
+						Jump directly to any of the six chapters across 5-Zone (Z0–Z4)
+						compilation, Budget Meter controls, and unified <code>opendv</code>{" "}
+						CLI workflows—or open the full searchable transcript page with
 						downloadable MP4 and WebVTT captions.
 					</p>
 				</div>

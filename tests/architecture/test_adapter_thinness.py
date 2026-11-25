@@ -1,4 +1,4 @@
-"""Verification that API routers and CLI commands are thin adapters over OpenDVService (T13)."""
+"""Verification that V2 API routers are thin adapters delegating to OpenDVService (T13)."""
 
 from __future__ import annotations
 
@@ -8,31 +8,29 @@ import pytest
 
 from tests.architecture.conftest import REPO_ROOT
 
-ROUTERS_DIR = REPO_ROOT / "apps" / "opendv-platform-api" / "src" / "opendv_platform_api" / "routers"
+ROUTERS_DIR = REPO_ROOT / "src" / "opendv" / "api"
 
-# Engine symbols that must never be called directly in API router adapter modules
+# Engine / domain symbols that must never be called directly inside API route handlers
 BANNED_ENGINE_CALLS = {
-    "run_axi_dv_verification_pipeline",
-    "run_agentic_vault_pipeline",
-    "build_gate_scorecard_from_axi_result",
+    "DuckDbProverAdapter",
+    "SqlGlotVaultCompiler",
+    "run_cegar_vault_build",
 }
 
 
 @pytest.mark.architecture
 def test_router_adapter_thinness() -> None:
-    """Assert that API router files contain zero direct engine calls
-    and delegate directly to OpenDVService.
-    """
-    assert ROUTERS_DIR.is_dir(), f"Routers directory not found: {ROUTERS_DIR}"
+    """Assert V2 API route modules contain zero direct engine calls and use OpenDVService."""
+    assert ROUTERS_DIR.is_dir(), f"API directory not found: {ROUTERS_DIR}"
 
-    router_files = [f for f in ROUTERS_DIR.glob("*.py") if f.name != "__init__.py"]
-    assert len(router_files) >= 7, f"Expected at least 7 router modules, found {len(router_files)}"
+    router_files = sorted(ROUTERS_DIR.glob("*routes*.py"))
+    assert len(router_files) >= 5, f"Expected at least 5 route modules, found {len(router_files)}"
 
     violations: list[str] = []
     for r_file in router_files:
-        tree = ast.parse(r_file.read_text(encoding="utf-8"), filename=str(r_file))
+        text = r_file.read_text(encoding="utf-8")
+        tree = ast.parse(text, filename=str(r_file))
 
-        # 1. Assert no direct engine calls
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 func_name = None
@@ -40,19 +38,12 @@ def test_router_adapter_thinness() -> None:
                     func_name = node.func.id
                 elif isinstance(node.func, ast.Attribute):
                     func_name = node.func.attr
-
                 if func_name in BANNED_ENGINE_CALLS:
                     rel_path = r_file.relative_to(REPO_ROOT)
                     violations.append(f"{rel_path}:{node.lineno}: direct engine call '{func_name}'")
 
-        # 2. Assert router depends on OpenDVService or StudioSessionManager
-        text = r_file.read_text(encoding="utf-8")
-        assert (
-            "OpenDVService" in text
-            or "get_opendv_service" in text
-            or "StudioSessionManager" in text
-        ), (
-            f"Router '{r_file.name}' does not inject or reference OpenDVService or StudioSessionManager"
+        assert "get_service" in text or "OpenDVService" in text, (
+            f"Router '{r_file.name}' does not inject or reference get_service / OpenDVService"
         )
 
     assert not violations, "Adapter thinness violations detected:\n" + "\n".join(violations)

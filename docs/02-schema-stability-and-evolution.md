@@ -1,5 +1,8 @@
 # 02 — Data Vault 2.0 Schema Stability Rules, Invariants, Evolution Mechanics, and Anti-Patterns
 
+> [!NOTE]
+> **OPEN-DV V2 CLEAN-SHEET — ALIGNMENT NOTICE (2026-11-25):** Schema stability invariants (`INV-01..06`), additive evolution mechanics (`EVO-01..08`), key/bi-temporal rules (`KEY-01..05`, `TMP-01..04`), and anti-pattern catalogs (`AP-01..15`) remain normative in Open-DV V2; V1 contract/IR schema paths are superseded by `VaultSchemaIR v2.0` (`src/opendv/models/`, `src/opendv/verifier/`). See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Part of the [`open-dv` Reference Guide Suite](DV2_AGENT_REFERENCE_GUIDE.md)**  
 > **Domain:** Fundamental Stability Invariants (`INV-01`–`INV-06`), Source Schema Drift Playbooks (`EVO-01`–`EVO-08`), Key & Bi-Temporal Rules (`KEY-01`–`KEY-05`, `TMP-01`–`TMP-04`), Early-Arriving Fact Stubbing, Anti-Pattern Catalog (`AP-01`–`AP-15`), and Pragmatic Cold-Start ($N=1$) to Multi-Source ($N+1$) Evolution  
 > **Companion Specifications:**

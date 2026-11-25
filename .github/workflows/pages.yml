@@ -29,11 +29,11 @@ jobs:
         with:
           bun-version: "1.3.13"
 
-      - name: Install workspace dependencies
-        run: bun install --frozen-lockfile
+      - name: Install website dependencies
+        run: bun install --cwd apps/opendv-website --frozen-lockfile
 
-      - name: Typecheck TypeScript project references
-        run: bun x tsc -b --pretty
+      - name: Typecheck website TypeScript sources
+        run: bun run --cwd apps/opendv-website typecheck
 
       - name: Lint website sources with Biome
         run: bun run --cwd apps/opendv-website lint

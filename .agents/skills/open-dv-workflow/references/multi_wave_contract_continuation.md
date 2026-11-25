@@ -1,51 +1,39 @@
-# Multi-Wave Schema Evolution & `deployed_contract` Continuation Guide
+# Multi-Wave Schema Evolution & Project Continuation Guide (V2)
 
-Open-DV supports **continuous non-destructive evolution** of an existing Data Vault 2.0 model across Waves (`W1 -> W2 -> W3 -> ...`) by explicitly carrying forward any certified `final_contract.yaml` (`deployed_contract`) as the baseline for the next run (`D12`, `Algorithms A.7 & A.9a`).
+Open-DV V2 enforces **continuous, additive, non-destructive Data Vault 2.0 evolution** across waves (`Wave 1 -> Wave 2 -> ...`) scoped strictly to a project's SQLite WAL history (`.opendv/projects/<project_id>/project.sqlite`).
 
 ---
 
-## 1. Choosing Which Contract Baseline to Continue From
+## 1. Per-Project Evolution Lock & Baseline Continuity
 
-In **Step 6** (`Deployed Contract Baseline (D12)`) or via `opendv_workflow.py evolve-vault --baseline-mode ...`, you have **4 explicit baseline modes**:
+Unlike V1's global run registry, V2 isolates every ontology revision, evidence fingerprint, `VaultSchemaIR v2.0` (`head_ir`), and wave evolution lock strictly inside its **Project**:
 
-| Mode | UI Control (`Step 6`) | CLI Helper (`evolve-vault`) | When to Use |
+| Workflow Stage | Web Workbench (`Step 1..7`) | Unified `uv run opendv` CLI | Evolution Guarantee |
 | :--- | :--- | :--- | :--- |
-| **`latest-session`** *(Default in Wizard)* | Automatically selects `<run_id> (Latest Certified)` in **Deployed Contract Baseline (D12)** | `--baseline-mode latest-session` | Standard Wave 1 ➔ Wave 2 ➔ Wave 3 continuation inside the active Studio session (`INV-03/04` & `EVO-01..08` auto-enforced). |
-| **`run-id`** *(Pick any prior run)* | Open the **Deployed Contract Baseline (D12)** dropdown and pick any certified `run_id` across the workspace | `list-contracts --limit 20` ➔ pick `run_id` ➔ `--baseline-mode run-id --baseline-run-id <run_id>` | Branching evolution from an earlier certified snapshot or continuing from another session's certified vault. |
-| **`contract-file`** *(External YAML/JSON)* | Choose file under **Upload baseline deployed_contract.yaml** | `--baseline-mode contract-file --deployed-contract-file <path/to/final_contract.yaml>` | Feeding new sources/schemas against a contract exported from CI, Git, or another environment. |
-| **`cold-start`** *(Reset)* | Select **`Fresh Cold-Start Vault`** in the dropdown | `--baseline-mode cold-start` | Intentionally generating a brand-new greenfield Data Vault without prior grain/hash locks. |
-
-> [!IMPORTANT]
-> When running `opendv pipeline run` directly without the helper script, pass `--initial-contract <path/to/final_contract.yaml>` (`initial_contract_content` in `POST /api/v1/pipelines/runs`) to bind the prior contract.
-
----
-
-## 2. Continuous Wave Loop (Adding More Data & Schemas Safely)
-
-1. **Attach New Wave Sources (Step 2)**: Return to **Step 2** in the same session (or create a session from your updated ontology export) and attach new tables/feeds, updated CSV schemas (with added/renamed/dropped columns), or unstructured policy PDFs/notes.
-2. **Parse & Model Drift (`Steps 3–5`)**:
-   - **Option A — Model First**: Parse sources, run **Agent Discovery** (`Step 4`) so `@ontology-architect` proposes additive `MINOR` concepts/attributes (while isolating destructive drops into unchecked `MAJOR · Opt-In`), review in **Step 5**, and commit `v1.1.0` / `v1.2.0`.
-   - **Option B — Fast-Forward (`D8`) + Reactive Drift Sync (`D10`)**: If your baseline ontology already covers the concepts or you want Stage 02 (`Alg A.9a`) to inspect new columns automatically, jump to **Step 6** and run. If Stage 02 surfaces unmodeled columns/feeds (`UF-1..UF-5`), click **`↺ Sync Drift to Step 4`** to pre-populate Step 4 proposals cleanly.
-3. **Run Step 6 Against the Picked Baseline (`evolve-vault`)**:
-   - Verify **Deployed Contract Baseline** points to your intended `run_id` or uploaded `final_contract.yaml`.
-   - Pick target dialects (**DuckDB** and/or **Databricks Delta**).
-   - Monitor the 7 pills (`00..06`, projecting `STAGE_00..07`) and click any pill to stream stage-scoped logs live.
-4. **Enforced Non-Destructive Invariants (`EVO-01..08`, `DV-DYN-014`)**:
-   - **Zero `DROP COLUMN` / Zero Hub/Link Grain Mutation (`INV-03/04`)**: Existing Hub PKs, Link grains, and prior Satellite `hash_diff` column sets stay frozen.
-   - **Added Columns (`EVO-01`)**: Lower into a companion drift Satellite (e.g., `sat_<entity>_ext_v2`).
-   - **Renamed Columns (`EVO-03`)**: Resolved through Zone 1 `stg_*` projection aliases without mutating Zone 2 physical history.
-   - **Deprecated Columns (`EVO-02`)**: Projected as `CAST(NULL AS <type>)` in Zone 1 with zero Zone 2 drops.
-   - **PII Columns (`EVO-07`)**: Isolated into `sat_<entity>_pii` (`<MASKED_PII>` in agent prompts).
-   - **Cross-System Aliases (`EVO-08`)**: Converged via Business Vault `sal_*` + `esat_sal_*`.
-   - **Sparse Optional FKs (`Alg A.4`)**: Split into companion `lnk_*` with `WHERE <fk> IS NOT NULL`.
-5. **Verify Diff in DV Schema Explorer (`/dv-schema?run=<new_id>&compare=<base_id>`)**:
-   - Switch to **`100% Triage & Wave Diff`** (`View 2`) to certify `100%` column triage coverage and inspect `+Hub`, `+Sparse FK Link`, `+PII Sat`, `+Companion Drift Sat`, and `0 DROP / 0 hash_diff Mutation`.
-   - Open **`Vault Rows & Safe SQL`** (`View 3`) to query populated Hub/Link/Satellite/PIT rows with read-only `SELECT` / `UNION`.
+| **1. Scope & Seeds** | Create new project, seed starter pack (`core_spine`, `multi_asset_ibor`, etc.), or import `.opendv.zip` | `uv run opendv project init --project <id> --namespace <ns> [--starter-pack <pack>]` | Initializes isolated SQLite WAL `project.sqlite` with zero cross-project leakage (`409 PROJECT_JOB_ACTIVE` lock). |
+| **2. Sources & Secrets** | Attach/reattach/upload new CSV, Parquet, SQLite, DuckDB, Postgres, PDF, or Markdown notes and bind keyring credentials | `uv run opendv source attach --project <id> --kind <kind> --uri <path>` | Synchronous schema profiling, PII masking (`<MASKED_PII>`), and Flow B `document_map` indexing (`0s` LLM wait). |
+| **3. Preview & Clusters** | Inspect lazy deterministic table profiles, schema term cloud, and Flow B page outlines (`✦ NEW` vs. `↻ UPDATED` vs. `✓ Modeled`) | *(Lazy Workbench evidence views / `sources inspect`)* | Flags new and modified wave evidence deterministically against prior committed ontology snapshots (`0` LLM tokens). |
+| **4. Discovery** | Step 4 **`Discovery`** selector: `incremental_new`, `incremental_reverify`, `full_rebuild` | `uv run opendv ontology construct --project <id> --discovery-mode incremental_new --wait` | Preserves existing committed hubs (`✦ NEW` vs. `⊕ EXTENDS`) and surfaces FIBO citations + clarification holds. |
+| **5. Ontology Explorer** | Step 5 **`Ontology Explorer`**: inspect bipartite graph, anti-patterns, deployed locks, edit YAML, and commit | `uv run opendv ontology validate --project <id> --delta-json <file>` · `ontology commit` | Enforces CAS `base_revision_id` OCC (`409 REVISION_CONFLICT`) and blocks breaking deletes against deployed vaults. |
+| **6. Vault Synthesis** | Step 6 **`Vault Synthesis`** (`Guided ⇄ Observatory` + **`Budget Meter`**) + **`Run Explorer`** | `uv run opendv vault build --project <id> --policy balanced --wait` · `vault verify` · `vault hold` · `vault horizon` | Auto-binds prior project `VaultSchemaIR` locks; splits added fields to `sat_<base>_ext_*`, PII to `sat_*_pii`, sparse FKs to companion links, and aliases to `sal_*`; pauses cleanly for Steward decisions (`--answers-json`) or budget extension (`+turns` / `+tokens`). |
+| **7. Storage & Targets** | Step 7 **`Storage & Targets`**: **Incremental Migration** vs. **Full Regeneration** across `11` targets | `uv run opendv storage compile --project <id> --target duckdb_local --verify-runtime` · `storage migrate` · `storage regenerate` | Incremental migrations leave deployed Raw Vault history untouched while Full Regeneration reproduces an identical catalog cleanly from `VaultSchemaIR v2.0`. |
 
 ---
 
-## 3. Handling Holds & Locks Mid-Evolution
+## 2. Enforced Non-Destructive Invariants (`INV-01..06`, `EVO-01..08`)
 
-- **`PAUSED_HOLD` (`StewardHold`, `D14`)**: Triggered by Ontology Firewall unmapped feeds (`S3`) or `Tier-U2` unstructured span verification. Review inline in Step 6 (`StewardHoldModal`), `Run Explorer`, `uv run opendv hold decide`, or `evolve-vault --run-id <rid> --hold-id <hid> --hold-action APPROVE|REJECT|ANSWER` (never bypass unverified holds silently).
-- **`BudgetHold` (`D21`)**: If `max_turns`, `max_input_tokens`, `max_output_tokens`, `max_cost_usd`, or `timeout_seconds` trips, Step 6 / Step 4 surfaces **Raise budget & resume** vs **Abort**.
-- **`409 SESSION_JOB_ACTIVE` (`D27`)**: Only one active job or pipeline run executes per session at a time; watch live SSE logs or explicitly click **Cancel** before starting another job in the same session.
+- **Zero `DROP COLUMN` / Zero Historical Hash Mutation (`INV-03/04`):** Existing Hub business keys, Link grains, and Satellite `hash_diff` column sets remain immutable across waves.
+- **Additive Evolution Routing:**
+  - **Added Columns (`EVO-01`):** Emitted into companion extension Satellites (`sat_<entity>_ext_*`).
+  - **Deprecated Columns (`EVO-02`):** Projected as `CAST(NULL AS <type>)` in staging views (`Z1`) without dropping physical Raw Vault columns (`Z2`).
+  - **Renamed Columns (`EVO-03`):** Mapped cleanly in `Z1` staging views while preserving historical `_hk` / `hash_diff`.
+  - **PII Columns (`EVO-07`):** Segregated into `sat_<entity>_pii` with `<MASKED_PII>` agent telemetry redaction.
+  - **Cross-System Aliases (`EVO-08`):** Converged via Business Vault `sal_*` + `esat_sal_*`.
+  - **Sparse Optional FKs (`Alg A.4`):** Isolated into companion links filtered cleanly by structured `PredicateAST` (`IS_NOT_NULL`).
+
+---
+
+## 3. Portable Bundles & Concurrency Locks
+
+- **Default Bundle (`core_project_state`):** `uv run opendv project export --project <id> --out <id>.core.opendv.zip` exports project metadata, ontology revisions, `VaultSchemaIR v2.0`, and audit hashes without leaking OS keyring secrets. Pass `--full-demo` to embed runtime fixtures/DuckDB outputs (`ZIP_STORED`).
+- **Active Run Guard (`409 PROJECT_JOB_ACTIVE`):** Only one mutating job (`ontology construct` or `vault build`) runs per project at a time. Inspect live progress in **Run Explorer** (`uv run opendv vault logs --project <id> --run <rid>`) or issue `vault control --action pause|cancel` before starting another run.

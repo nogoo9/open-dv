@@ -1,11 +1,9 @@
-"""Documentation code snippet verification test harness (Track 6C / Milestone M6).
+"""V2 documentation code snippet verification harness.
 
-Validates all fenced Python, Bash/CLI, JSON, and YAML code blocks across:
-- docs/22-ontology-studio-user-guide.md
-- docs/23-ontology-studio-extension-guide.md
-
-Conforms to ADR-001..016, docs/19, docs/20, docs/21 (Tasks 6C.1 & 6C.2),
-and schemas/v1/cli-spec.json.
+Validates fenced CLI (`bash`/`sh`/`powershell`), Python, JSON, and YAML snippets
+across active V2 guides (`README.md`, `AGENTS.md`, `CLAUDE.md`, `docs/29..32`,
+`examples/v2_asset_management/README.md`, `.agents/skills/open-dv-workflow/`)
+against `schemas/v2/cli-spec.json` and V2 Pydantic models.
 """
 
 from __future__ import annotations
@@ -14,549 +12,211 @@ import ast
 import json
 import re
 import shlex
-import sys
-import types
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
-from opendv_contracts.spi.reference_ontology import ReferenceOntologyAdapter
-from opendv_service.ontology.matching.bm25 import ConceptMatcher
-from opendv_sources.ingestion.adapter import DocumentAdapter
+from opendv.models import GraphAOntology, sha256_jcs
+from opendv.sources.adapters import SOURCE_ADAPTERS
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CLI_SPEC_PATH = REPO_ROOT / "schemas" / "v2" / "cli-spec.json"
+GENESIS_VECTOR_PATH = REPO_ROOT / "vectors" / "genesis.json"
+BM25_MATCHER_PATH = REPO_ROOT / "schemas" / "v2" / "matchers" / "bm25_fibo_v1.json"
 
-
-def _find_repo_root() -> Path:
-    curr = Path(__file__).resolve().parent
-    for p in [curr, curr.parent, curr.parent.parent]:
-        if (p / "schemas" / "v1" / "cli-spec.json").is_file():
-            return p
-    return REPO_ROOT
-
-
-ROOT_DIR = _find_repo_root()
-DOCS_22_PATH = ROOT_DIR / "docs" / "22-ontology-studio-user-guide.md"
-DOCS_23_PATH = ROOT_DIR / "docs" / "23-ontology-studio-extension-guide.md"
-CLI_SPEC_PATH = ROOT_DIR / "schemas" / "v1" / "cli-spec.json"
-
-_FLAG_ALIASES: dict[str, list[str]] = {
-    "--cutoff": ["--assertion-cutoff-ts"],
-    "--query-type": ["--query-id"],
-    "--candidate-id": ["--candidate"],
-    "--input": ["--input-spec"],
-    "--json": ["--json-output"],
-    "--grounding-rationale": ["--waiver-rationale"],
-    "--project-id": ["--project"],
-}
+ACTIVE_SNIPPET_DOCS = [
+    REPO_ROOT / "README.md",
+    REPO_ROOT / "AGENTS.md",
+    REPO_ROOT / "CLAUDE.md",
+    REPO_ROOT / "examples" / "v2_asset_management" / "README.md",
+    REPO_ROOT / "docs" / "29-discovery-grounding-and-evolution-scenarios.md",
+    REPO_ROOT / "docs" / "30-enterprise-dv2-modeling-and-loop-engineering.md",
+    REPO_ROOT / "docs" / "31-v2-e2e-requirements-gaps-and-uat-spec.md",
+    REPO_ROOT / "docs" / "32-v2-user-experience-and-scenario-guide.md",
+    REPO_ROOT / ".agents" / "skills" / "open-dv-workflow" / "SKILL.md",
+    REPO_ROOT / ".agents" / "skills" / "open-dv-workflow" / "references" / "ui_and_dual_cli_playbook.md",
+]
 
 
-def _extract_fenced_blocks(filepath: Path, lang: str) -> list[str]:
-    """Extract code blocks matching ```lang ... ``` from a markdown file."""
+def _extract_fenced_blocks(filepath: Path, langs: tuple[str, ...]) -> list[str]:
     if not filepath.is_file():
         return []
     text = filepath.read_text(encoding="utf-8")
-    return re.findall(rf"```{lang}\n(.*?)```", text, flags=re.DOTALL)
+    pattern = r"```(?:" + "|".join(re.escape(lang) for lang in langs) + r")\r?\n(.*?)```"
+    return re.findall(pattern, text, flags=re.DOTALL)
 
 
-def _load_cli_spec() -> dict[str, Any]:
-    """Load canonical CLI specification tree from schemas/v1/cli-spec.json."""
-    assert CLI_SPEC_PATH.is_file(), f"Missing CLI spec at {CLI_SPEC_PATH}"
-    return json.loads(CLI_SPEC_PATH.read_text(encoding="utf-8"))
+def _load_v2_cli_spec() -> tuple[
+    set[str],
+    dict[tuple[str, ...], set[str]],
+    dict[tuple[str, ...], dict[str, list[str]]],
+]:
+    assert CLI_SPEC_PATH.is_file(), f"Missing V2 CLI spec at {CLI_SPEC_PATH}"
+    spec = json.loads(CLI_SPEC_PATH.read_text(encoding="utf-8"))
+    global_flags = {opt["flag"] for opt in spec.get("global_options", [])} | {"--help", "-h"}
 
-
-def _extract_command_tree(
-    cli_spec: dict[str, Any],
-) -> tuple[dict[tuple[str, ...], set[str]], dict[tuple[str, ...], dict[str, list[str]]]]:
-    """Flatten cli-spec command hierarchy into maps of allowed flags and option choices."""
-    tree: dict[tuple[str, ...], set[str]] = {}
+    cmd_flags: dict[tuple[str, ...], set[str]] = {}
     opt_choices: dict[tuple[str, ...], dict[str, list[str]]] = {}
+    for cmd in spec.get("subcommands", []):
+        path = tuple(cmd["path"])
+        flags: set[str] = {"--help", "-h"}
+        choices: dict[str, list[str]] = {}
+        for opt in cmd.get("options", []):
+            flag = opt["flag"]
+            flags.add(flag)
+            if opt.get("short"):
+                flags.add(opt["short"])
+            if opt.get("choices"):
+                choices[flag] = [str(c) for c in opt["choices"]]
+        cmd_flags[path] = flags
+        opt_choices[path] = choices
+    return global_flags, cmd_flags, opt_choices
 
-    def _traverse(node: dict[str, Any], path: tuple[str, ...]) -> None:
-        opts: set[str] = set()
-        choices_map: dict[str, list[str]] = {}
 
-        for opt in node.get("options", []):
-            flag = opt.get("flag")
-            short = opt.get("short")
-            choices = [str(c) for c in opt["choices"]] if opt.get("choices") is not None else None
+def _parse_opendv_line(
+    tokens: list[str],
+    global_flags: set[str],
+    cmd_flags: dict[tuple[str, ...], set[str]],
+    opt_choices: dict[tuple[str, ...], dict[str, list[str]]],
+    source_label: str,
+    line: str,
+) -> bool:
+    """Validate one `opendv ...` or `uv run opendv ...` command invocation."""
+    if tokens[:3] == ["uv", "run", "opendv"]:
+        idx = 3
+    elif tokens[:1] == ["opendv"]:
+        idx = 1
+    else:
+        return False
 
-            flags_to_register: list[str] = []
-            if flag:
-                flags_to_register.append(flag)
-                for alias in _FLAG_ALIASES.get(flag, []):
-                    flags_to_register.append(alias)
-            if short:
-                flags_to_register.append(short)
+    # Consume global flags preceding the command/subcommand path
+    while idx < len(tokens) and tokens[idx].startswith("-"):
+        flag = tokens[idx].split("=", 1)[0]
+        assert flag in global_flags, f"{source_label}: unknown global flag '{flag}' in '{line}'"
+        if flag == "--api-url" and "=" not in tokens[idx] and idx + 1 < len(tokens):
+            idx += 1
+        idx += 1
 
-            for f in flags_to_register:
-                opts.add(f)
-                if choices is not None:
-                    choices_map[f] = choices
+    if idx >= len(tokens) or tokens[idx] in {"...", "<cmd>"}:
+        return False
 
-        # Standard global/client options
-        opts.update(
-            {
-                "--help",
-                "-h",
-                "--json",
-                "--api-url",
-                "--verbose",
-                "-v",
-                "--quiet",
-                "-q",
-            }
+    path_parts: list[str] = []
+    while idx < len(tokens) and not tokens[idx].startswith("-"):
+        candidate = (*path_parts, tokens[idx])
+        if candidate in cmd_flags or any(
+            k[: len(candidate)] == candidate for k in cmd_flags
+        ):
+            path_parts.append(tokens[idx])
+            idx += 1
+        else:
+            break
+
+    if not path_parts:
+        return False
+
+    path_tuple = tuple(path_parts)
+    if path_tuple not in cmd_flags:
+        # Parent group help invocation (e.g. `opendv source --help`)
+        assert any(k[: len(path_tuple)] == path_tuple for k in cmd_flags), (
+            f"{source_label}: unknown opendv command '{' '.join(path_tuple)}' in '{line}'"
         )
+        return True
 
-        subs = node.get("subcommands", [])
-        tree[path] = opts
-        opt_choices[path] = choices_map
-        if subs:
-            for sub in subs:
-                sub_path = (*path, sub["name"])
-                _traverse(sub, sub_path)
-
-    for cmd in cli_spec.get("commands", []):
-        _traverse(cmd, (cmd["name"],))
-
-    return tree, opt_choices
-
-
-# -----------------------------------------------------------------------------
-# Track 6C.1: User Guide (docs/22) Tests
-# -----------------------------------------------------------------------------
-
-
-def test_docs_22_file_exists() -> None:
-    """Verify docs/22-ontology-studio-user-guide.md exists and is non-empty."""
-    assert DOCS_22_PATH.is_file(), f"Expected {DOCS_22_PATH} to exist."
-    text = DOCS_22_PATH.read_text(encoding="utf-8")
-    line_count = len(text.strip().splitlines())
-    assert line_count >= 400, (
-        f"User guide should be comprehensive (>= 400 lines, got {line_count})."
-    )
-
-
-def test_docs_22_python_snippets() -> None:
-    """Extract and syntax-validate all Python code blocks in docs/22."""
-    blocks = _extract_fenced_blocks(DOCS_22_PATH, "python")
-    for idx, block in enumerate(blocks, 1):
-        try:
-            ast.parse(block)
-        except SyntaxError as err:
-            pytest.fail(f"Syntax error in docs/22 python block #{idx}: {err}\nBlock:\n{block}")
-
-
-def test_docs_22_cli_snippets() -> None:
-    """Validate all CLI invocations in docs/22 against schemas/v1/cli-spec.json."""
-    spec = _load_cli_spec()
-    cmd_tree, opt_choices = _extract_command_tree(spec)
-
-    blocks = _extract_fenced_blocks(DOCS_22_PATH, "bash") + _extract_fenced_blocks(
-        DOCS_22_PATH, "sh"
-    )
-    assert blocks, "Expected bash/sh CLI snippets in docs/22."
-
-    tested_commands_count = 0
-    for block in blocks:
-        # Normalize line continuations
-        normalized = block.replace("\\\n", " ")
-        for raw_line in normalized.splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#") or line.startswith("export "):
-                continue
-
-            # Strip leading prompt if present
-            if line.startswith("$ "):
-                line = line[2:].strip()
-
-            if not (line.startswith("opendv ") or line.startswith("opendvctl ")):
-                continue
-
-            try:
-                tokens = shlex.split(line)
-            except ValueError as err:
-                pytest.fail(f"Invalid shell syntax in docs/22: {line} ({err})")
-
-            if len(tokens) < 2:
-                continue
-
-            # Resolve command path (e.g. ('ontology', 'studio', 'create'))
-            cmd_root = tokens[1]
-            if cmd_root not in ("ontology", "serve", "config", "pipeline", "auth"):
-                continue
-
-            path_tokens: list[str] = [cmd_root]
-            flag_tokens: list[str] = []
-            i = 2
-            while i < len(tokens):
-                tok = tokens[i]
-                if tok.startswith("-"):
-                    flag_tokens.append(tok)
-                elif tuple((*path_tokens, tok)) in cmd_tree or any(
-                    k[: len(path_tokens) + 1] == tuple((*path_tokens, tok)) for k in cmd_tree
-                ):
-                    path_tokens.append(tok)
-                else:
-                    flag_tokens.append(tok)
-                i += 1
-
-            path_tuple = tuple(path_tokens)
-            cmd_str = " ".join(path_tokens)
-            assert path_tuple in cmd_tree, (
-                f"Command '{cmd_str}' in line '{line}' not recognized in cli-spec.json."
+    allowed = cmd_flags[path_tuple] | global_flags
+    choices = opt_choices.get(path_tuple, {})
+    while idx < len(tokens):
+        tok = tokens[idx]
+        if tok.startswith("-"):
+            flag = tok.split("=", 1)[0]
+            assert flag in allowed, (
+                f"{source_label}: flag '{flag}' not valid for 'opendv {' '.join(path_tuple)}'. "
+                f"Allowed: {sorted(allowed)}"
             )
-
-            allowed_flags = cmd_tree[path_tuple]
-            cmd_choices = opt_choices.get(path_tuple, {})
-
-            idx = 0
-            while idx < len(flag_tokens):
-                tok = flag_tokens[idx]
-                if tok.startswith("-"):
-                    if "=" in tok:
-                        flag_clean, val = tok.split("=", 1)
-                    else:
-                        flag_clean = tok
-                        if flag_clean in cmd_choices:
-                            if idx + 1 < len(flag_tokens) and not flag_tokens[
-                                idx + 1
-                            ].startswith("-"):
-                                val = flag_tokens[idx + 1]
-                                idx += 1
-                            else:
-                                val = None
-                        else:
-                            val = None
-
-                    assert flag_clean in allowed_flags, (
-                        f"Flag '{flag_clean}' in line '{line}' not recognized for command "
-                        f"'{cmd_str}'. Allowed: {sorted(allowed_flags)}"
+            if flag in choices:
+                val = tok.split("=", 1)[1] if "=" in tok else (
+                    tokens[idx + 1] if idx + 1 < len(tokens) and not tokens[idx + 1].startswith("-") else None
+                )
+                if val is not None and not val.startswith("<") and "|" not in val:
+                    assert val in choices[flag], (
+                        f"{source_label}: invalid choice '{val}' for '{flag}' ({choices[flag]})"
                     )
+        idx += 1
+    return True
 
-                    if flag_clean in cmd_choices:
-                        valid_choices = cmd_choices[flag_clean]
-                        assert val is not None, (
-                            f"Flag '{flag_clean}' in line '{line}' requires a value. "
-                            f"Allowed choices: {valid_choices}"
-                        )
-                        assert val in valid_choices, (
-                            f"Invalid choice '{val}' for flag '{flag_clean}' in line '{line}' "
-                            f"for command '{cmd_str}'. Allowed choices: {valid_choices}"
-                        )
-                idx += 1
 
-            tested_commands_count += 1
+def test_active_v2_docs_exist_and_genesis_vector_validates() -> None:
+    """Verify active V2 docs, genesis vector GraphAOntology validation, and matcher config."""
+    for path in ACTIVE_SNIPPET_DOCS:
+        assert path.is_file(), f"Missing active V2 doc: {path}"
 
-    assert tested_commands_count >= 15, (
-        f"Expected at least 15 verified CLI commands, found {tested_commands_count}."
+    genesis = json.loads(GENESIS_VECTOR_PATH.read_text(encoding="utf-8"))
+    validated = GraphAOntology.model_validate(genesis)
+    assert (
+        sha256_jcs(validated)
+        == "0ae856bf9fdba74e83e793ea9f74106a0c14d21d73756e1e3a12abd426d0083a"
     )
 
+    bm25_cfg = json.loads(BM25_MATCHER_PATH.read_text(encoding="utf-8"))
+    assert float(bm25_cfg["grounding_threshold"]) == 0.65
+    assert len(SOURCE_ADAPTERS) >= 6
 
-def test_docs_22_json_yaml_snippets() -> None:
-    """Validate all JSON and YAML code blocks in docs/22 parse cleanly and validate operations."""
-    from pydantic import ValidationError
 
-    from opendv_cli.commands.ontology_studio import _normalize_delta_operation
+def test_active_v2_cli_snippets_match_v2_cli_spec() -> None:
+    """Validate all fenced bash/sh/powershell `opendv` CLI invocations against schemas/v2/cli-spec.json."""
+    global_flags, cmd_flags, opt_choices = _load_v2_cli_spec()
+    validated_count = 0
 
-    json_blocks = _extract_fenced_blocks(DOCS_22_PATH, "json")
-    for idx, block in enumerate(json_blocks, 1):
-        try:
-            parsed = json.loads(block)
-            assert isinstance(parsed, (dict, list)), f"Block #{idx} must parse as dict or list."
-            if isinstance(parsed, dict) and "operations" in parsed:
-                for op_idx, op in enumerate(parsed["operations"]):
+    for doc_path in ACTIVE_SNIPPET_DOCS:
+        rel = doc_path.relative_to(REPO_ROOT).as_posix()
+        for block in _extract_fenced_blocks(doc_path, ("bash", "sh", "powershell")):
+            normalized = block.replace("\\\r\n", " ").replace("\\\n", " ")
+            for raw_line in normalized.splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("$ "):
+                    line = line[2:].strip()
+                if not (line.startswith("opendv ") or line.startswith("uv run opendv ")):
+                    continue
+                # Split chained commands on `&&` / `;` cleanly
+                for segment in re.split(r"\s*(?:&&|;)\s*", line):
+                    seg = segment.strip()
+                    if not (seg.startswith("opendv ") or seg.startswith("uv run opendv ")):
+                        continue
                     try:
-                        _normalize_delta_operation(op)
-                    except (ValueError, TypeError, KeyError, ValidationError) as err:
-                        pytest.fail(
-                            f"Invalid operation #{op_idx} in docs/22 JSON block #{idx}: {err}\n"
-                            f"Operation: {op}"
-                        )
-        except json.JSONDecodeError as err:
-            pytest.fail(f"Invalid JSON syntax in docs/22 block #{idx}: {err}\nBlock:\n{block}")
+                        tokens = shlex.split(seg)
+                    except ValueError as err:
+                        pytest.fail(f"{rel}: invalid shell syntax '{seg}': {err}")
+                    if _parse_opendv_line(
+                        tokens, global_flags, cmd_flags, opt_choices, rel, seg
+                    ):
+                        validated_count += 1
 
-    yaml_blocks = _extract_fenced_blocks(DOCS_22_PATH, "yaml") + _extract_fenced_blocks(
-        DOCS_22_PATH, "yml"
-    )
-    for idx, block in enumerate(yaml_blocks, 1):
-        try:
-            parsed = yaml.safe_load(block)
-            assert isinstance(parsed, (dict, list)), f"Block #{idx} must parse as dict or list."
-            if isinstance(parsed, dict) and "operations" in parsed:
-                for op_idx, op in enumerate(parsed["operations"]):
-                    try:
-                        _normalize_delta_operation(op)
-                    except (ValueError, TypeError, KeyError, ValidationError) as err:
-                        pytest.fail(
-                            f"Invalid operation #{op_idx} in docs/22 YAML block #{idx}: {err}\n"
-                            f"Operation: {op}"
-                        )
-        except yaml.YAMLError as err:
-            pytest.fail(f"Invalid YAML syntax in docs/22 block #{idx}: {err}\nBlock:\n{block}")
-
-
-def test_docs_22_content_coverage() -> None:
-    """Verify docs/22 covers all required architectural concepts, journeys, and error precedence."""
-    text = DOCS_22_PATH.read_text(encoding="utf-8")
-
-    # Architecture & Core Concepts
-    assert "Dual-Mode Engine" in text or "dual-mode" in text
-    assert "Content-Addressable Storage" in text or "CAS" in text
-    assert "1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9" in text
-    assert "1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81" in text
-
-    # 4 User Journeys
-    assert "Journey 1" in text
-    assert "Journey 2" in text
-    assert "Journey 3" in text
-    assert "Journey 4" in text
-
-    # Web Workbench Walkthrough
-    assert "/ontology" in text
-    assert "Sources" in text
-    assert "Clarification" in text
-    assert "React Flow" in text or "elkjs" in text
-    assert "Level-of-Detail" in text or "LOD" in text
-    assert "Diff Overlay" in text or "diff" in text
-
-    # 11-step Error Precedence & RFC 9457
-    assert "11-step" in text or "Error Precedence" in text
-    assert "RFC 9457" in text
-    assert "problem_type_uri" in text or "urn:opendv:error:" in text
-
-    # Asset Management Studio & Pipeline Capabilities
-    assert "Journey 5" in text
-    assert "all_domains" in text or "starter-pack" in text
-    assert "StudioAgentRunner" in text
-    assert "DV 2.0 Blueprint" in text or "BlueprintView" in text
-    assert "Pipeline Builder" in text
-    assert "unstructured-only" in text or "unstructured_only" in text
-    assert "staged" in text or "held-back" in text
-    assert "steering" in text or "refine" in text
-
-
-# -----------------------------------------------------------------------------
-# Track 6C.2: Extension Guide (docs/23) Tests
-# -----------------------------------------------------------------------------
-
-
-def test_docs_23_file_exists() -> None:
-    """Verify docs/23-ontology-studio-extension-guide.md exists and is non-empty."""
-    assert DOCS_23_PATH.is_file(), f"Expected {DOCS_23_PATH} to exist."
-    text = DOCS_23_PATH.read_text(encoding="utf-8")
-    line_count = len(text.strip().splitlines())
-    assert line_count >= 350, (
-        f"Extension guide should be comprehensive (>= 350 lines, got {line_count})."
+    assert validated_count >= 18, (
+        f"Expected at least 18 validated V2 CLI commands across docs, got {validated_count}"
     )
 
 
-def test_docs_23_python_spi_implementations() -> None:
-    """Extract and execute all Python SPI implementations in docs/23, asserting conformance."""
-    blocks = _extract_fenced_blocks(DOCS_23_PATH, "python")
-    assert blocks, "Expected Python SPI code blocks in docs/23."
-
-    # Verify AST parses cleanly on every block
-    for idx, block in enumerate(blocks, 1):
-        try:
-            ast.parse(block)
-        except SyntaxError as err:
-            pytest.fail(f"Syntax error in docs/23 python block #{idx}: {err}\nBlock:\n{block}")
-
-    # Execute all blocks sequentially in an isolated module
-    mod_name = "doc23_extension_snippets_runtime"
-    mod = types.ModuleType(mod_name)
-    sys.modules[mod_name] = mod
-
-    for idx, block in enumerate(blocks, 1):
-        try:
-            exec(compile(block, f"docs_23_block_{idx}.py", "exec"), mod.__dict__)
-        except (RuntimeError, TypeError, ValueError, AttributeError, NameError, ImportError) as err:
-            pytest.fail(f"Execution failed for docs/23 python block #{idx}: {err}\nBlock:\n{block}")
-
-    # Extension Point 1: Custom DocumentAdapter subclass
-    assert hasattr(mod, "XmlSchemaDocumentAdapter"), "Expected XmlSchemaDocumentAdapter in docs/23."
-    xml_adapter_cls = mod.XmlSchemaDocumentAdapter
-    assert issubclass(xml_adapter_cls, DocumentAdapter), (
-        "XmlSchemaDocumentAdapter must subclass DocumentAdapter."
-    )
-    xml_adapter = xml_adapter_cls()
-    assert xml_adapter.supports_extension(".xsd")
-    assert xml_adapter.supports_mime_type("application/xml")
-
-    # Extension Point 2: Custom ReferenceOntologyAdapter implementation
-    assert hasattr(mod, "HealthcareReferenceOntologyLoader"), (
-        "Expected HealthcareReferenceOntologyLoader in docs/23."
-    )
-    hc_loader_cls = mod.HealthcareReferenceOntologyLoader
-    hc_loader = hc_loader_cls()
-    assert isinstance(hc_loader, ReferenceOntologyAdapter), (
-        "HealthcareReferenceOntologyLoader must implement ReferenceOntologyAdapter SPI."
-    )
-    assert hasattr(hc_loader, "lookup_by_uri")
-    assert hasattr(hc_loader, "search_candidates")
-
-    # Extension Point 3: Custom ConceptMatcher subclass
-    assert hasattr(mod, "DomainAwareConceptMatcher"), (
-        "Expected DomainAwareConceptMatcher in docs/23."
-    )
-    matcher_cls = mod.DomainAwareConceptMatcher
-    assert issubclass(matcher_cls, ConceptMatcher), (
-        "DomainAwareConceptMatcher must subclass ConceptMatcher SPI."
-    )
-    matcher = matcher_cls()
-    assert hasattr(matcher, "index_concepts")
-    assert hasattr(matcher, "lookup_concept")
-    assert hasattr(matcher, "match")
-    assert hasattr(matcher, "score")
-
-    # Extension Point 4: Custom Persona & Agent Harness Spec Builder
-    assert hasattr(mod, "build_compliance_scout_task_spec"), (
-        "Expected build_compliance_scout_task_spec in docs/23."
-    )
-    build_persona_fn = mod.build_compliance_scout_task_spec
-    task_spec = build_persona_fn(focus_domains=["GDPR", "HIPAA"])
-    assert task_spec.task_id.startswith("task-compliance-")
-    assert task_spec.persona == "term-scout" or "scout" in task_spec.persona
-
-    # Extension Point 5: Custom Export Serializer
-    assert hasattr(mod, "CypherDDLExporter"), "Expected CypherDDLExporter in docs/23."
-    exporter_cls = mod.CypherDDLExporter
-    exporter = exporter_cls()
-    assert hasattr(exporter, "export_cypher"), "CypherDDLExporter must provide export_cypher."
-
-    # Extension Point 6: Custom CatalogSourceAdapter implementation (WS-1 SPI)
-    from opendv_sources.spi.catalog import CatalogSourceAdapter
-
-    assert hasattr(mod, "CustomRdbmsCatalogAdapter"), (
-        "Expected CustomRdbmsCatalogAdapter in docs/23."
-    )
-    rdbms_adapter_cls = mod.CustomRdbmsCatalogAdapter
-    assert issubclass(rdbms_adapter_cls, CatalogSourceAdapter), (
-        "CustomRdbmsCatalogAdapter must subclass CatalogSourceAdapter SPI."
-    )
-    rdbms_adapter = rdbms_adapter_cls()
-    assert hasattr(rdbms_adapter, "adapter_name")
-    assert hasattr(rdbms_adapter, "list_namespaces")
-    assert hasattr(rdbms_adapter, "list_tables")
-    assert hasattr(rdbms_adapter, "inspect_table")
-    assert hasattr(rdbms_adapter, "expand_feed")
-    assert hasattr(rdbms_adapter, "profile_pushdown")
-
-
-def test_docs_23_json_yaml_snippets() -> None:
-    """Validate all JSON and YAML code blocks in docs/23 parse cleanly."""
-    json_blocks = _extract_fenced_blocks(DOCS_23_PATH, "json")
-    for idx, block in enumerate(json_blocks, 1):
-        try:
-            parsed = json.loads(block)
-            assert isinstance(parsed, (dict, list)), f"Block #{idx} must parse as dict or list."
-        except json.JSONDecodeError as err:
-            pytest.fail(f"Invalid JSON syntax in docs/23 block #{idx}: {err}\nBlock:\n{block}")
-
-    yaml_blocks = _extract_fenced_blocks(DOCS_23_PATH, "yaml") + _extract_fenced_blocks(
-        DOCS_23_PATH, "yml"
-    )
-    for idx, block in enumerate(yaml_blocks, 1):
-        try:
-            parsed = yaml.safe_load(block)
-            assert isinstance(parsed, (dict, list)), f"Block #{idx} must parse as dict or list."
-        except yaml.YAMLError as err:
-            pytest.fail(f"Invalid YAML syntax in docs/23 block #{idx}: {err}\nBlock:\n{block}")
-
-
-def test_docs_23_structural_coverage() -> None:
-    """Verify docs/23 covers all 5 extension SPIs and architectural guidelines."""
-    text = DOCS_23_PATH.read_text(encoding="utf-8")
-
-    assert "DocumentAdapter" in text
-    assert "ReferenceOntologyAdapter" in text
-    assert "ConceptMatcher" in text
-    assert "BasePersona" in text or "AgentPersona" in text or "persona" in text
-    assert "RDFExporter" in text or "export" in text
-
-
-def test_docs_23_cypher_exporter_injection_guard() -> None:
-    """Verify CypherDDLExporter in docs/23 neutralizes newline/comment/identifier injection."""
-    blocks = _extract_fenced_blocks(DOCS_23_PATH, "python")
-    mod = types.ModuleType("doc23_cypher_injection_guard")
-    sys.modules[mod.__name__] = mod
-    for idx, block in enumerate(blocks, 1):
-        exec(compile(block, f"docs_23_cypher_{idx}.py", "exec"), mod.__dict__)
-
-    exporter = mod.CypherDDLExporter()
-
-    # 1. Multi-line description & grain_semantics attempting '//' comment breakout and '*/' closure
-    malicious_comment_ontology = {
-        "ontology_version": "1.0.0",
-        "domain_namespace": "wealth_mgmt",
-        "enterprise_owner": "Security Audit",
-        "description": "Legit header\r\nMATCH (n) DETACH DELETE n; */\nCREATE (:Pwned)",
-        "canonical_business_concepts": [
-            {
-                "concept_uri": "urn:ontology:entity:fund",
-                "concept_name": "Fund",
-                "definition": "Investment fund.",
-                "target_hub": "hub_fund",
-                "elm_archetype": "CORE_BUSINESS_CONCEPT",
-                "attributes": [
-                    {
-                        "attribute_name": "fund_code",
-                        "data_type": "string",
-                    }
-                ],
-            },
-            {
-                "concept_uri": "urn:ontology:entity:investor",
-                "concept_name": "Investor",
-                "definition": "Limited partner investor.",
-                "target_hub": "hub_investor",
-                "elm_archetype": "CORE_BUSINESS_CONCEPT",
-            },
-        ],
-        "canonical_relationships": [
-            {
-                "relationship_uri": "urn:ontology:relationship:fund_investor",
-                "relationship_name": "Fund Investor",
-                "target_link": "lnk_fund_investor",
-                "endpoints": [
-                    "urn:ontology:entity:fund",
-                    "urn:ontology:entity:investor",
-                ],
-                "grain_semantics": "1:N\nMATCH (x) DETACH DELETE x; */",
-            }
-        ],
-    }
-
-    ddl = exporter.export_cypher(malicious_comment_ontology)
-    assert "*/" not in ddl, "Unescaped block-comment terminator must be sanitized."
-    executable_lines = [
-        line.strip()
-        for line in ddl.splitlines()
-        if line.strip() and not line.strip().startswith("//")
-    ]
-    assert len(executable_lines) == 2
-    for stmt in executable_lines:
-        assert stmt.startswith("CREATE CONSTRAINT IF NOT EXISTS FOR (n:`hub_")
-        assert "DETACH DELETE" not in stmt
-        assert "Pwned" not in stmt
-
-    # 2. Malicious identifier injection in concept_name (without target_hub) fails closed
-    malicious_ident_ontology = {
-        "ontology_version": "1.0.0",
-        "domain_namespace": "wealth_mgmt",
-        "enterprise_owner": "Security Audit",
-        "canonical_business_concepts": [
-            {
-                "concept_uri": "urn:ontology:entity:bad_actor",
-                "concept_name": "Bad`) CREATE (:Injected) //",
-                "definition": "Attempted label breakout.",
-                "elm_archetype": "CORE_BUSINESS_CONCEPT",
-            }
-        ],
-        "canonical_relationships": [],
-    }
-    with pytest.raises(ValueError, match="Unsafe Cypher"):
-        exporter.export_cypher(malicious_ident_ontology)
+def test_active_v2_docs_python_json_yaml_snippets_valid() -> None:
+    """Verify Python, JSON, and YAML fenced code blocks in active V2 docs parse cleanly."""
+    for doc_path in ACTIVE_SNIPPET_DOCS:
+        rel = doc_path.relative_to(REPO_ROOT).as_posix()
+        for idx, block in enumerate(_extract_fenced_blocks(doc_path, ("python",)), 1):
+            try:
+                ast.parse(block)
+            except SyntaxError as err:
+                pytest.fail(f"Python syntax error in {rel} block #{idx}: {err}")
+        for idx, block in enumerate(_extract_fenced_blocks(doc_path, ("json",)), 1):
+            try:
+                parsed: Any = json.loads(block)
+                assert isinstance(parsed, (dict, list))
+            except json.JSONDecodeError as err:
+                pytest.fail(f"JSON syntax error in {rel} block #{idx}: {err}")
+        for idx, block in enumerate(_extract_fenced_blocks(doc_path, ("yaml", "yml")), 1):
+            try:
+                parsed = yaml.safe_load(block)
+                assert parsed is None or isinstance(parsed, (dict, list))
+            except yaml.YAMLError as err:
+                pytest.fail(f"YAML syntax error in {rel} block #{idx}: {err}")

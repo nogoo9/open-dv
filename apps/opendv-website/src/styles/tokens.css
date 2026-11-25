@@ -54,7 +54,8 @@
 	--ink: #141413;
 	--body-strong: #252523;
 	--body: #3d3d3a;
-	--ink-muted: #6c6a64;
+	--ink-muted: #57554f;
+	--muted: #57554f;
 	--muted-soft: #8e8b82;
 	--border: #e6dfd8;
 	--border-soft: #ebe6df;
@@ -64,6 +65,7 @@
 	/* Brand Coral & Semantic Accents */
 	--primary: #cc785c;
 	--primary-active: #a9583e;
+	--primary-ink: #8f442d;
 	--primary-disabled: #e6dfd8;
 	--on-primary: #ffffff;
 	--primary-ring: rgba(204, 120, 92, 0.15);

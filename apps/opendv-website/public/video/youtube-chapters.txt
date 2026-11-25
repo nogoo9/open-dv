@@ -1,36 +1,38 @@
-Open-DV — Neuro-Symbolic Data Vault 2.0 & Unified 6-Step Wizard Walkthrough (2:45)
+Open-DV V2 — Agent-First 7-Step Data Vault 2.0 Workbench Walkthrough (2:45)
 
-Turn messy enterprise data into verified Data Vault 2.0 — before a single SQL line runs.
-Open-DV pairs Agent-first discovery in the 4-Tab Workbench with a deterministic 6-gate formal verifier (axi-dv, Gates G0-G5), in-memory DuckDB shadow sandbox, and 5-Zone (Z0-Z4) compiler (bronze, staging, raw_vault, business_vault, information_mart).
+Turn messy enterprise data into certified, multi-target Data Vault 2.0 — before any 5-Zone (Z0–Z4) SQL runs.
+Open-DV V2 pairs a 7-Step Guided ⇄ Observatory Workbench over 5-table project.sqlite with JobMcpBroker (/coord & /scout), Budget Meter telemetry, bounded L1 + V1–V8 CEGAR verification (including V8 Horizon Critic BRK-01..08), and compilation to 11 storage targets.
 
 Quick Start (Apache-2.0):
   git clone https://github.com/nogoo9/open-dv.git
   cd open-dv
-  uv sync --all-packages && bun install
-  uv run opendv serve --open
+  uv sync --all-packages
+  uv run opendv serve
 
-Web Workbench (Ontology & Pipeline | DV Schema Explorer | Run Explorer | Settings):
-  http://127.0.0.1:8420  (loopback zero-auth open access; --allow-remote-unauthenticated required for non-loopback)
+Web Workbench (Project Workflow | DV Schema Explorer | Run Explorer | Settings):
+  http://127.0.0.1:8420  (zero-auth loopback open access; --allow-remote-unauthenticated required for non-loopback)
 
-Headless CI Verification & New Subcommands (Dual CLIs):
-  uv run opendv verify -c final_contract.yaml --json
-  uv run opendv run dv-schema --run-id run_09f4c2 --sql "SELECT * FROM information_mart.vw_position_current LIMIT 20"
-  opendvctl ontology studio logs --session <id> --follow
+Headless CLI & 17-Tool Stdio MCP (Unified `opendv` CLI):
+  uv run opendv project init my-vault --domain asset_management
+  uv run opendv source attach my-vault --type sqlite --path ./data/public_am/am_sec_treasury_ibor.sqlite
+  uv run opendv ontology fibo-qa "FinancialInstrument"
+  uv run opendv vault build my-vault --profile balanced --json
+  uv run opendv vault logs my-vault --run-id run6-8bb5f57211
+  uv run opendv storage query my-vault --sql "SELECT COUNT(*) AS row_count FROM raw_vault.hub_holding"
 
 Chapters:
-0:00 Why LLM SQL Fails
-0:28 Loopback Access & Steps 1-3
-1:02 Agent Gate, Cost Meter & Diff Graph
-1:38 Step 6 Console & 6-Gate axi-dv
-2:05 DV Schema Explorer & Session Logs
-2:32 5-Zone SQL & Dual-CLI Parity
+0:00 Why LLM SQL Fails & V2 Architecture
+0:28 Loopback Open Access & Steps 1–3
+1:02 Brokered Step 4, Budget Meter & 4-Mode Step 5
+1:38 Step 6 Guided Vault Synthesis & V8 Horizon Critic
+2:05 Step 7 11 Targets, DV Schema Explorer & Run Explorer
+2:32 5-Zone SQL, .opendv.zip & Unified opendv CLI
 
 Resources & Specifications:
 - GitHub Repository: https://github.com/nogoo9/open-dv
-- Unified Wizard Requirements & UAT (docs/27): https://github.com/nogoo9/open-dv/blob/main/docs/27-unified-ontology-pipeline-requirements-and-uat.md
-- Unified Wizard Design & Plan (docs/28): https://github.com/nogoo9/open-dv/blob/main/docs/28-unified-ontology-pipeline-design-and-plan.md
-- Core Modelling Spec (3-Tier BKCC, PII Isolation): https://github.com/nogoo9/open-dv/blob/main/docs/01-core-modelling-spec.md
-- Schema Stability & Evolution (Alg A.7, A.9a Drift): https://github.com/nogoo9/open-dv/blob/main/docs/02-schema-stability-and-evolution.md
-- Verification & Agentic Architecture (6-Gate axi-dv, DuckDB Sandbox): https://github.com/nogoo9/open-dv/blob/main/docs/03-verification-and-agentic-architecture.md
-- ELM Calculus & Reference Algorithms (Alg A.1-A.9b, SHA-256): https://github.com/nogoo9/open-dv/blob/main/docs/05-elm-calculus-and-reference-algorithms.md
-- Dual-CLI Reference (opendv & opendvctl): https://github.com/nogoo9/open-dv/blob/main/docs/16-human-and-agent-usage-guide.md
+- V2 Clean-Sheet Architecture: https://github.com/nogoo9/open-dv/blob/main/docs/designs/v2-clean-sheet-architecture.md
+- V2 Workbench UI Design: https://github.com/nogoo9/open-dv/blob/main/docs/designs/v2-workbench-ui-design.md
+- Discovery, Grounding & Evolution Scenarios (SCEN-01..09): https://github.com/nogoo9/open-dv/blob/main/docs/29-discovery-grounding-and-evolution-scenarios.md
+- Enterprise DV2 Modeling & Loop Engineering (L1 + V1–V8): https://github.com/nogoo9/open-dv/blob/main/docs/30-enterprise-dv2-modeling-and-loop-engineering.md
+- V2 User Experience & Scenario Guide: https://github.com/nogoo9/open-dv/blob/main/docs/32-v2-user-experience-and-scenario-guide.md
+- Unified CLI & 17-Tool MCP Reference: https://github.com/nogoo9/open-dv/blob/main/docs/16-cli-reference.md

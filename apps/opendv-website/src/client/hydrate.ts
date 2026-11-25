@@ -11,9 +11,9 @@ const sa = (el: Element, k: string, v: string | null) =>
 
 const TAB = '[role="tab"]';
 const FAULTS: Record<string, string> = {
-	"fault-nullable-fk": "G1",
-	"fault-micro-sat": "G4",
-	"fault-hub-grain": "G3",
+	"fault-bk-collision": "L1",
+	"fault-pii-split": "V6B",
+	"fault-hub-edge": "V1_V5",
 };
 
 function sync(r: ParentNode, a: string, v: string, det?: string) {
@@ -124,8 +124,8 @@ function handleClick(e: Event) {
 		if (cap)
 			cap.textContent =
 				m === "naive"
-					? "Naive LLM SQL bypasses formal gates."
-					: "Open-DV enforces semantic Agents + 6-Gate Firewall.";
+					? "Naive LLM SQL bypasses formal CEGAR gates."
+					: "Open-DV pairs brokered Agents with L1 & V1–V8 CEGAR proofs before compiling 11 storage targets.";
 		return;
 	}
 

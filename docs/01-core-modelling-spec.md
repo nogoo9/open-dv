@@ -1,5 +1,8 @@
 # 01 — Data Vault 2.0 Core Architecture, Entity Specifications, and Methodology Standards
 
+> [!NOTE]
+> **OPEN-DV V2 CLEAN-SHEET — ALIGNMENT NOTICE (2026-11-25):** Data Vault 2.0 entity definitions (`hub_*`, `lnk_*`, `t_lnk_*`, `sat_*`, `mas_*`, `esat_*`, `sal_*`, `ref_*`, `pit_*`, `brg_*`, Zero/Ghost records) and naming standards remain active in V2. References to V1 `schemas/dv2-canonical-ir.schema.json`, `schemas/no-mistake-dv2-contract-v5.schema.json`, and `examples/dv_model_contract.yaml` are superseded by `VaultSchemaIR v2.0` (`src/opendv/models/`), `schemas/v2/`, and Step 7 dialect emitters (`src/opendv/storage/`). See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Part of the [`open-dv` Reference Guide Suite](DV2_AGENT_REFERENCE_GUIDE.md)**  
 > **Domain:** Core Architecture, Entity DDL/DML Specifications, Query Assistance Structures (PIT & Bridge), 6-Stage Pre-Hash Canonicalization Pipeline, Naming Taxonomy, Entity Classification Decision Trees, 5 Fatal Traps & Dual-Graph Grounding, and Node-Level SQLGlot AST Signatures  
 > **Companion Specifications:**

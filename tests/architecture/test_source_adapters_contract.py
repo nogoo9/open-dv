@@ -1,9 +1,10 @@
-"""Architectural guard for pluggable source adapters contract (Phase P4 / Task P4.5).
+"""Architectural guard for pluggable V2 source adapters contract (`src/opendv/sources/`).
 
-Verifies that production code outside `packages/opendv-sources/` contains:
-1. No `read_csv_auto`, `read_parquet`, or `read_json_auto` reader SQL function strings.
-2. No `.suffix` or extension branching for data source or document loading.
-3. GraphBProfiler has no format-specific profile_csv or profile_parquet methods.
+Verifies that production code outside `src/opendv/sources/` contains:
+1. No `read_csv_auto`, `read_parquet`, or `read_json_auto` reader SQL function calls outside
+   AST security denylists (`_dml_target_resolver.py`, `_readonly_sql_guard.py`).
+2. No `.suffix` or extension branching for data source or document loading (excluding emitters).
+3. `opendv.sources.profiler` has zero format-specific `profile_csv` or `profile_parquet` helpers.
 """
 
 from __future__ import annotations
@@ -21,6 +22,11 @@ BANNED_READER_STRINGS = {
     "read_json_auto",
 }
 
+READER_DENYLIST_ALLOWLIST = {
+    "src/opendv/storage/_dml_target_resolver.py",
+    "src/opendv/storage/_readonly_sql_guard.py",
+}
+
 DATA_EXTENSIONS = {
     ".csv",
     ".parquet",
@@ -31,54 +37,51 @@ DATA_EXTENSIONS = {
 
 
 def _get_production_py_files() -> list[Path]:
-    """Collect production Python files in packages/ and apps/."""
+    """Collect production Python files in `src/opendv/` outside `src/opendv/sources/`."""
     py_files: list[Path] = []
-    for root_dir in [REPO_ROOT / "packages", REPO_ROOT / "apps"]:
-        for py_path in root_dir.rglob("*.py"):
-            rel = py_path.relative_to(REPO_ROOT).as_posix()
-            if rel.startswith("packages/opendv-sources/"):
-                continue
-            # Exclude tests and fixtures
-            parts = py_path.parts
-            if "tests" in parts or "test" in parts or "testing" in parts or "fixtures" in parts:
-                continue
-            py_files.append(py_path)
+    for py_path in (REPO_ROOT / "src" / "opendv").rglob("*.py"):
+        rel = py_path.relative_to(REPO_ROOT).as_posix()
+        if rel.startswith(("src/opendv/sources/", "src/opendv/api/static/")):
+            continue
+        py_files.append(py_path)
     return sorted(py_files)
 
 
 @pytest.mark.architecture
 def test_zero_hardcoded_reader_sql_outside_sources() -> None:
-    """Assert no read_csv_auto, read_parquet, or read_json_auto strings outside opendv-sources."""
+    """Assert no read_csv_auto, read_parquet, or read_json_auto strings outside opendv.sources."""
     prod_files = _get_production_py_files()
     assert len(prod_files) >= 20, f"Expected at least 20 production files, found {len(prod_files)}"
 
     violations: list[str] = []
     for py_file in prod_files:
+        rel = py_file.relative_to(REPO_ROOT).as_posix()
+        if rel in READER_DENYLIST_ALLOWLIST:
+            continue
         content = py_file.read_text(encoding="utf-8")
         for banned in BANNED_READER_STRINGS:
             if banned in content:
-                rel = py_file.relative_to(REPO_ROOT).as_posix()
                 violations.append(f"{rel}: contains banned reader function string '{banned}'")
 
     assert not violations, (
-        "Banned DuckDB reader functions found outside opendv-sources:\n" + "\n".join(violations)
+        "Banned DuckDB reader functions found outside opendv.sources:\n" + "\n".join(violations)
     )
 
 
 @pytest.mark.architecture
 def test_zero_source_extension_branching_outside_sources() -> None:
-    """Assert no source/document extension branching exists outside opendv-sources."""
+    """Assert no source/document extension branching exists outside opendv.sources."""
     prod_files = _get_production_py_files()
     violations: list[str] = []
 
     for py_file in prod_files:
         rel = py_file.relative_to(REPO_ROOT).as_posix()
+        if rel == "src/opendv/storage/emitters/parquet.py":
+            continue
         tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
 
         for node in ast.walk(tree):
-            # Check for binary comparison or membership test involving data extensions
             if isinstance(node, ast.Compare):
-                # Check if comparison targets data extensions (e.g. .csv, .parquet, .pdf)
                 for comparator in node.comparators:
                     found_ext: str | None = None
                     if isinstance(comparator, ast.Constant) and isinstance(comparator.value, str):
@@ -99,21 +102,16 @@ def test_zero_source_extension_branching_outside_sources() -> None:
                         )
 
     assert not violations, (
-        "Detected data source / document extension branching outside opendv-sources:\n"
+        "Detected data source / document extension branching outside opendv.sources:\n"
         + "\n".join(violations)
     )
 
 
 @pytest.mark.architecture
-def test_graph_b_profiler_has_no_format_specific_methods() -> None:
-    """Assert GraphBProfiler defines profile_relation without format-specific methods."""
-    from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler, profile_relation
+def test_profiler_has_no_format_specific_methods() -> None:
+    """Assert `opendv.sources.profiler` uses unified extraction without format-specific helpers."""
+    from opendv.sources import profiler
 
-    assert callable(profile_relation), "profile_relation function must be callable"
-    assert hasattr(GraphBProfiler, "profile_relation"), "GraphBProfiler must have profile_relation"
-    assert not hasattr(GraphBProfiler, "profile_csv"), (
-        "GraphBProfiler.profile_csv must be deleted per SRC-02"
-    )
-    assert not hasattr(GraphBProfiler, "profile_parquet"), (
-        "GraphBProfiler.profile_parquet must be deleted per SRC-02"
-    )
+    assert hasattr(profiler, "profile_source"), "opendv.sources.profiler must define profile_source"
+    assert not hasattr(profiler, "profile_csv"), "profile_csv must not exist per SRC-02"
+    assert not hasattr(profiler, "profile_parquet"), "profile_parquet must not exist per SRC-02"

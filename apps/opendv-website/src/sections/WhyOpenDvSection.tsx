@@ -10,31 +10,31 @@ const PROVEN_GUARANTEES: readonly {
 		id: "Proof 1",
 		title: "Ontology-Grounded 3-Tier BKCC & SAL",
 		summary:
-			"Grounds core business entities against FIBO + Beyond-FIBO in Steps 1–5 and reconciles cross-feed identities via Same-As Links.",
+			"Grounds concepts via FIBO PATH_A1/A2 (BM25 >= 0.65) and Beyond-FIBO PATH_B1 across Steps 4–5, reconciling feeds via BKCC and sal_*.",
 	},
 	{
 		id: "Proof 2",
-		title: "Deterministic Surrogate Quarantine & Triage",
+		title: "100% Column Triage & Surrogate Quarantine",
 		summary:
-			"Graph B profiling blocks auto-increment surrogate IDs at Gate G1 and audits 100% of profiled columns in DV Schema Explorer (06c).",
+			"L1 + V1 (DV-COL-001) ensure every column carries a triage disposition while Graph B profiling quarantines auto-increment surrogate IDs.",
 	},
 	{
 		id: "Proof 3",
 		title: "Injective Length-Prefixed SHA-256 (Alg A.5)",
 		summary:
-			"Emits <len>:<val> canonical digests and nullable FK Link splits (Alg A.4) to guarantee zero boundary-shift collisions.",
+			"Emits <len>:<val> canonical digests with -1:^^ null framing, -1/-2 Dual Zero Keys, Ghost 0*64 records, and sparse FK Link splits (Alg A.4).",
 	},
 	{
 		id: "Proof 4",
-		title: "Insert-Only AST & 5-Zone (Z0–Z4) Compilation",
+		title: "Insert-Only AST & 11-Target Evaluation",
 		summary:
-			"SQLGlot AST checks ban UPDATE/DELETE on Raw Vault while Alg A.9a routes drift into _ext satellites across bronze to information_mart.",
+			"V6 DuckDbProverAdapter (15 DV-DYN) and Step 7 TargetEvalGate (EVAL-AST/RUN/FMT) verify 8 SQL dialects + Iceberg, Parquet & dbt across Z0–Z4.",
 	},
 	{
 		id: "Proof 5",
-		title: "Span-Grounded Docs, PII Masking & Cost Meter",
+		title: "Span-Grounded Docs, PII Split & Budget Meter",
 		summary:
-			"LiteParse anchors every claim to [char_start, char_end] spans, redacts PII/MNPI before LLM calls, and enforces live Cost Meter budget holds.",
+			"Alg A.9b verifies [char_start, char_end] or OcrPageReceipt spans, isolates sat_*_pii (<MASKED_PII>), and enforces live Budget Meter holds.",
 	},
 ];
 
@@ -50,11 +50,11 @@ UPDATE sat_customer
 
 const PROVEN_SQL_SNIPPET = `-- Z1->Z4 5-Zone SQL (Alg A.5 injective SHA-256 + information_mart)
 CREATE SCHEMA IF NOT EXISTS information_mart;
-SELECT LOWER(SHA256(
+SELECT UNHEX(SHA256(
   '33:AM_SEC_TREASURY_IBOR_HOLDINGS_13F||' ||
-  CAST(OCTET_LENGTH(ENCODE(NULLIF(UPPER(TRIM(CAST(holding_id AS VARCHAR))), ''))) AS VARCHAR)
-  || ':' || NULLIF(UPPER(TRIM(CAST(holding_id AS VARCHAR))), '')
-)) AS hk_holding FROM bronze.src_hub_holding;`;
+  COALESCE(CAST(OCTET_LENGTH(ENCODE(NULLIF(UPPER(TRIM(CAST(holding_id AS VARCHAR))), ''))) AS VARCHAR)
+  || ':' || NULLIF(UPPER(TRIM(CAST(holding_id AS VARCHAR))), ''), '-1:^^')
+)) AS hk_holding FROM bronze.stg_src_holdings_13f;`;
 
 export function WhyOpenDvSection(): React.JSX.Element {
 	return (
@@ -77,7 +77,8 @@ export function WhyOpenDvSection(): React.JSX.Element {
 					<p className="section-intro">
 						Asking a language model to template warehouse DDL/DML directly lets
 						subtle key, hash, and mutability defects slip into production.
-						Open-DV separates Agent-first discovery from deterministic proof.
+						Open-DV separates brokered Agent discovery from deterministic CEGAR
+						proofs.
 					</p>
 				</div>
 
@@ -135,9 +136,9 @@ export function WhyOpenDvSection(): React.JSX.Element {
 
 						<div className="code-well">
 							<div className="code-header">
-								<span>dv_duckdb_schema.sql (5-Zone Z0–Z4)</span>
+								<span>targets/duckdb_local/ddl/full_schema_w2.sql</span>
 								<span className="badge badge-pass">
-									<span aria-hidden="true">✓</span> G0–G5 Sealed
+									<span aria-hidden="true">✓</span> V1–V8 Sealed
 								</span>
 							</div>
 							<pre className="code-block">

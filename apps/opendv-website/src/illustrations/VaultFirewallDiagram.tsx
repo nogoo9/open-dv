@@ -51,8 +51,8 @@ const ln = (d: string, c: string, cls?: string) => (
 const SRCS = [
 	["SQLite · PRAGMA", "am_sec_treasury_ibor"],
 	["Databricks UC · Tags", "uc://am_prod.ibor.*"],
-	["Parquet / CSV · Vectorized", "Drift S(t) -> S(t+1)"],
-	["PDF + Notes · LiteParse", "10-K · [char_start, end]"],
+	["Parquet / CSV / XLSX", "125-perm MinHash"],
+	["PDF / DOCX / Notes", "DocumentMap + Scan Gate"],
 ] as const;
 
 const CORE = [
@@ -63,8 +63,8 @@ const CORE = [
 		"var(--primary)",
 		I,
 		U,
-		"@term-scout -> @ship-vault",
-		"Agent-only · YAML only",
+		"@ontology-first-mate -> @ship-vault",
+		"Brokered /coord · DraftVaultIR",
 	],
 	[
 		262,
@@ -73,8 +73,8 @@ const CORE = [
 		"var(--surface-dark)",
 		"var(--on-dark)",
 		"var(--on-dark-soft)",
-		"vault_blueprint.yaml",
-		"3-Tier BKCC · Canonical IR",
+		"VaultSchemaIR v2.0",
+		"3-Tier BKCC · Alg A.5 · Guided",
 	],
 	[
 		338,
@@ -83,10 +83,12 @@ const CORE = [
 		PS,
 		PI,
 		PI,
-		"axi-dv 6-Gate (G0–G5)",
-		"Alg A.1–A.9b · 4-Batch",
+		"CEGAR Gates (L1, V1–V8)",
+		"Alg A.1–A.9b · 15 DV-DYN",
 	],
 ] as const;
+
+const GATES = ["L1", "V1", "V6", "6B", "V7", "V8"] as const;
 
 const NODES = [
 	["[HUB]", "hub_security", "hub", "var(--hub-ink)", 8],
@@ -150,8 +152,8 @@ export function VaultFirewallDiagram(): React.JSX.Element {
 				>
 					<title id="vf-title">Open-DV Neuro-Symbolic Vault Firewall</title>
 					<desc id="vf-desc">
-						Open-DV agents emit vault_blueprint.yaml through 6-Gate axi-dv
-						(G0-G5) and @toon_v1 into 5-Zone (Z0-Z4) Data Vault 2.0 SQL vs
+						Open-DV agents emit VaultSchemaIR v2.0 through L1 codemods and V1-V8
+						CEGAR gates into 11-target 5-Zone (Z0-Z4) Data Vault 2.0 SQL vs
 						blocked Naive LLM SQL.
 					</desc>
 					<defs>
@@ -177,7 +179,7 @@ export function VaultFirewallDiagram(): React.JSX.Element {
 							return (
 								<g key={title}>
 									{bx(26, y, 154, 78)}
-									{tx(36, y + 26, title, I, 11)}
+									{tx(36, y + 26, title, I, 10.5)}
 									{i === 2 && (
 										<circle
 											cx="42"
@@ -191,7 +193,7 @@ export function VaultFirewallDiagram(): React.JSX.Element {
 								</g>
 							);
 						})}
-						{tx(34, 452, "Graph B + Char Spans", I)}
+						{tx(30, 452, "Graph B + Span Receipts", I)}
 					</g>
 					<g className="dia-naive-branch">
 						{ln("M190 88L234 88", DS, "dia-flow")}
@@ -214,12 +216,12 @@ export function VaultFirewallDiagram(): React.JSX.Element {
 						{CORE.map(([y, h, f, s, tc, sc, t1, t2]) => (
 							<g key={t1}>
 								{bx(236, y, 298, h, f, s, 7)}
-								{tx(248, y + 22, t1, tc, 11)}
+								{tx(248, y + 22, t1, tc, 10.5)}
 								{tx(248, y + 41, t2, sc, 9)}
 							</g>
 						))}
-						{bx(188, 300, 56, 22, "var(--surface-cream-strong)", G, 4)}
-						{tx(193, 314, "@toon_v1", G, 9)}
+						{bx(188, 300, 62, 22, "var(--surface-cream-strong)", G, 4)}
+						{tx(194, 314, "L2 Repair", G, 8.5)}
 						{bx(564, 156, 180, 318, C, PS, 8)}
 						{tx(576, 179, "Bipartite Constellation", PI, 11)}
 						{bx(
@@ -230,7 +232,7 @@ export function VaultFirewallDiagram(): React.JSX.Element {
 							"var(--surface-dark)",
 							"var(--surface-dark)",
 						)}
-						{tx(588, 426, "5-Zone (Z0–Z4) SQL", "var(--on-dark)")}
+						{tx(588, 426, "11 Targets (Z0–Z4)", "var(--on-dark)")}
 						{tx(
 							588,
 							446,
@@ -239,10 +241,10 @@ export function VaultFirewallDiagram(): React.JSX.Element {
 							9,
 						)}
 						<g textAnchor="middle">
-							{"012345".split("").map((n, i) => {
+							{GATES.map((lbl, i) => {
 								const gx = 248 + i * 46;
 								return (
-									<g key={n}>
+									<g key={lbl}>
 										{bx(gx, 396, 42, 44, C, PS, 5)}
 										<circle
 											cx={gx + 34}
@@ -251,7 +253,7 @@ export function VaultFirewallDiagram(): React.JSX.Element {
 											className="dia-pulse"
 											fill={PS}
 										/>
-										{tx(gx + 21, 424, `G${n}`, PI, 11)}
+										{tx(gx + 21, 424, lbl, PI, 10.5)}
 									</g>
 								);
 							})}
@@ -284,8 +286,8 @@ export function VaultFirewallDiagram(): React.JSX.Element {
 				</svg>
 			</div>
 			<figcaption data-firewall-caption>
-				Open-DV enforces semantic Agents + deterministic 6-Gate Firewall before
-				any 5-Zone (Z0–Z4) SQL compiles.
+				Open-DV pairs brokered Agents with L1 &amp; V1–V8 CEGAR proofs before
+				compiling 11 storage targets across 5 Zones (Z0–Z4).
 			</figcaption>
 		</figure>
 	);

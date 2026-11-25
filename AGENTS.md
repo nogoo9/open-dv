@@ -1,10 +1,10 @@
 # `open-dv` — Root Agent & Contributor Constitution (`AGENTS.md`)
 
 > **Mandatory Orientation for Autonomous AI Agents, Multi-Agent Swarms & Human Contributors**  
-> Read this file first before planning, modifying, verifying, or extending any package in the `open-dv` monorepo.
+> Read this file first before planning, modifying, verifying, or extending any module in `open-dv`.
 
 > [!IMPORTANT]
-> **Clean-Sheet V2 Supersession Scope (2026-11-21):** See [`docs/designs/SITEMAP.md`](docs/designs/SITEMAP.md) for the active-vs-superseded index across all specs. Under the clean-sheet Open-DV V2 architecture, V1 `--mode deterministic` heuristic synthesis (`ADR-002`), `--session` / `/sessions` aliases, V1 `CanonicalIR` (`final_canonical_ir.json`) and `compiler_4zone.py` (`final_four_zone.sql`), V1's 8-enum `PipelineStageId` lock + `00..06` log aliases, `opendv ontology studio promote` (`graph_a.lock`), `.odvstudio.zip` (`ADR-014`), 800-char `/parse` chunking (`ADR-010`), and V1 frozen SHA-256 hash pins (`ADR-005`) are **superseded and retired** in favor of Project-scoped `.opendv/projects/<id>/`, `UniversalVaultSchemaIR v2.0`, Step 7 (`v7`) emitters, and `.opendv.zip` (`Core` default).
+> **Clean-Sheet V2 Architecture (`2.0.0`):** See [`docs/designs/SITEMAP.md`](docs/designs/SITEMAP.md) for the active-vs-historical index across all specifications. Open-DV V2 replaces the legacy V1 multi-package monorepo (`packages/*`, `apps/opendvctl`, `/sessions`, `--mode deterministic`, `CanonicalIR`, `6-step` wizard, and `.odvstudio.zip`) with a clean 4-layer DAG in [`src/opendv/`](src/opendv/), unified `opendv` CLI, React 19 [`web/`](web/) 7-step Workbench, SQLite WAL `project.sqlite` persistence, [`schemas/v2/`](schemas/v2/), `UniversalVaultSchemaIR v2.0`, 11 dialect emitters (`Step 7`), and portable `.opendv.zip` (`core_project_state` default) archives.
 
 ---
 
@@ -14,19 +14,18 @@
 
 ---
 
-## 2. Core Architectural Separation: Target-Agnostic Models vs. Verification SQL
+## 2. Core Architectural Separation: Target-Agnostic IR vs. Symbolic Verification & Dialects
 
-Maintain a strict boundary between **what `open-dv` produces downstream** and **how `open-dv` dynamically verifies those models**:
+Maintain a strict boundary between **what `open-dv` models**, **how `open-dv` dynamically proves those models**, and **how targets emit SQL**:
 
-### 2.1 Primary Downstream Deliverables (Target-Agnostic DV 2.0 Specifications)
-1. **`final_contract.yaml` (`NoMistakeDataVault2ContractV5`)** — Validated against [`schemas/no-mistake-dv2-contract-v5.schema.json`](schemas/no-mistake-dv2-contract-v5.schema.json). Captures 100% column triage (`column_triage_ledger`), ontology-grounded `hubs`, $M:N$ `links` (`lnk_`, `t_lnk_`, `sal_`, `hal_`, `x_lnk_`), 3-axis split `satellites` (`sat_`, `mas_`, `esat_`, `sts_`, `rts_`), `reference_tables`, and `unmapped_escalations`.
-2. **`final_canonical_ir.json` (`CanonicalIR`)** — Validated against [`schemas/dv2-canonical-ir.schema.json`](schemas/dv2-canonical-ir.schema.json). Deterministic lowered IR consumed by downstream warehouse compilers, catalogs, or orchestrators (**dbt / AutomateDV / datavault4dbt**, **Snowflake**, **BigQuery**, **Databricks**, **SQLMesh**, or custom DDL/DML generators).
+### 2.1 Primary Downstream Deliverables (Target-Agnostic DV 2.0 Models)
+1. **`GraphAOntology` (`graph_a.json`)** — Business ontology mutated exclusively via typed `OntologyDelta` (`34` operations) under CAS optimistic concurrency (`If-Match` / `base_sha256`), grounded with `fibo-core-pack.json` (`2,206` FIBO concepts) and `8` Asset Management starter packs.
+2. **`VaultSchemaIR v2.0` (`UniversalVaultSchemaIR`, Step 4)** — Zero-SQL canonical Data Vault 2.0 intermediate representation with 100% `column_triage_ledger`, `bkcc` 3-tier business key collision codes, `hubs`, `links` (`lnk_`, `sal_`, `hal_`, `t_lnk_`), `satellites` (`sat_`, `mas_`, `esat_`, `sts_`, `rts_`, AI provenance), `pits`, `bridges`, and `reference_tables`.
 
-### 2.2 Role of the Reference DuckDB SQL Bundle (`final_four_zone.sql` / 5-Zone `Z0–Z4` Standard)
-`packages/opendv-duckdb-sandbox/src/opendv_duckdb_sandbox/compiler_4zone.py` emits `final_four_zone.sql` across **Zones `Z0–Z4`** (`bronze`, `staging`, `raw_vault`, `business_vault`, `information_mart`). While internal module/file parity names (`compiler_4zone`, `final_four_zone.sql`) remain unchanged, all UI, DV Schema Explorer, and user-facing documentation standardize on **5-Zone (`Z0–Z4`)** and **`information_mart`** (`DESIGN.md`, `FR-DVM-14`). It serves two specific roles:
-1. **Internal Dynamic Verification Harness (`STAGE_06_AXI_DV_DYNAMIC_SANDBOX` / Gate 5):** Runs inside `:memory:` DuckDB across **4 Adversarial Shadow Sandbox Batches** and **15 runtime invariants (`DV-DYN-001`–`015`)** to prove grain uniqueness, zero hash collisions, orphan-free referential integrity, true-delta historization, bi-temporal PIT accuracy, and replay idempotency ($\Delta \text{rows} = 0$) before sealing a contract.
-2. **Golden Reference Implementation:** Executable local reference deployment for sandboxing, demos, and regression tests.
-3. **NOT a Production Warehouse Dependency:** Downstream adopters consume `final_contract.yaml` and `final_canonical_ir.json` directly or via target-specific compilers without requiring DuckDB in production.
+### 2.2 Role of the Symbolic Verifier, DuckDB Prover & Step 7 Dialect Emitters (5-Zone `Z0–Z4`)
+`src/opendv/verifier/` and `src/opendv/storage/` verify `VaultSchemaIR` across **Zones `Z0–Z4`** (`bronze`, `staging`, `raw_vault`, `business_vault`, `information_mart`):
+1. **3-Loop CEGAR Prover (`src/opendv/verifier/` + `src/opendv/storage/prover/`):** Executes bounded in-memory DuckDB proof batches against generated IR to catch grain duplicates, hash collisions, orphan FKs, sparse FK collapses, non-additive drift, PII taint leaks, and idempotency failures (`Δrows = 0`), returning structured `ProblemDetails` remediation patches instead of allowing LLM-written SQL.
+2. **Step 7 Multi-Dialect Emitters (`11` targets):** Pure deterministic AST/template emitters in `src/opendv/storage/emitters/` lower verified `VaultSchemaIR v2.0` to `duckdb_local`, `databricks_uc`, `snowflake`, `postgres`, `bigquery`, `sqlserver_fabric`, `redshift`, `clickhouse`, `iceberg`, `parquet`, and `dbt` without requiring DuckDB in downstream production.
 
 ---
 
@@ -36,27 +35,27 @@ All contributions are governed by **Immutable Outcomes (The "What")** paired wit
 
 ### 3.1 Immutable Outcomes (The "What" — Strictly Non-Negotiable) & Design Rationale (The "Why")
 No PR, codemod, prompt change, or extension may weaken these fourteen guarantees:
-1. **Zero Unverified LLM SQL Generation (`OBJ-01`):** Agents (`@vault-first-mate`, `@scout-source`, `@scout-unstructured`, `@ship-vault`) emit/repair **only** declarative YAML/JSON (`NoMistakeDataVault2ContractV5` / `CanonicalIR`); physical SQL comes solely from symbolic compilers. *(Rationale: eliminates SQL/delimiter/`hash_diff` hallucination in insert-only vaults.)*
-2. **100% Column Triage Accountability (`FR-DOM-01` / `DV-G4-002`):** Every source column in every wave must appear in `column_triage_ledger` (`BUSINESS_KEY`, `FOREIGN_KEY_REF`, `DESCRIPTIVE_PAYLOAD`, `SYSTEM_SURROGATE_DROPPED`, or `OMITTED_INTENTIONALLY` with a $\ge 15$-char rationale). *(Rationale: prevents silent dropping of drifted columns, preserving full regulatory lineage.)*
-3. **Deterministic, Injective, Collision-Free Hashing (`FR-VER-01` / `Algorithm A.5`):** All `_hk` and `hash_diff` digests use length-prefixed (`<octet_len>:<val>`) or escaped serialization with null token `'-1:^^'`, 3-Tier `BKCC` (`TIER_1_GLOBAL_STANDARD`, `TIER_2_ENTERPRISE_SOR`, `TIER_3_LOCAL_SCOPED`), and Dual Zero-Keys (`0x00..00` for `-1`, `0xFF..FF` for `-2`). *(Rationale: prevents collisions, `CONCAT_WS` null drops, and UTF-8 byte/char divergence.)*
+1. **Zero Unverified LLM SQL Generation (`OBJ-01`):** LLM agents emit/repair **only** declarative `OntologyDelta` / `VaultSchemaIR` JSON proposals; physical SQL DDL/DML comes solely from deterministic `src/opendv/storage/` emitters. *(Rationale: eliminates SQL/delimiter/`hash_diff` hallucination in insert-only vaults.)*
+2. **100% Column Triage Accountability (`FR-DOM-01` / `DV-G4-002`):** Every discovered source column across waves must appear in `column_triage_ledger` (`BUSINESS_KEY`, `FOREIGN_KEY_REF`, `DESCRIPTIVE_PAYLOAD`, `SYSTEM_SURROGATE_DROPPED`, or `OMITTED_INTENTIONALLY` with rationale). *(Rationale: prevents silent dropping of drifted columns, preserving full regulatory lineage.)*
+3. **Deterministic, Injective, Collision-Free Hashing (`FR-VER-01` / `Algorithm A.5`):** All `_hk` and `hash_diff` digests use length-prefixed serialization with null token `'-1:^^'`, 3-Tier `BKCC`, and Dual Zero-Keys (`0x00..00` for `-1`, `0xFF..FF` for `-2`). *(Rationale: prevents collisions, `CONCAT_WS` null drops, and UTF-8 byte/char divergence.)*
 4. **Insert-Only Raw Vault History (`FR-VER-01` / `INV-01..06`):** Raw tables (`hub_*`, `lnk_*`, `sat_*`, `mas_*`) are strictly `INSERT`-only; `UPDATE`, `DELETE`, `DROP COLUMN`, and mutable `load_end_dts` are forbidden (derive intervals via `LEAD(load_dts)` or PITs). *(Rationale: preserves non-destructive historical auditability without SCD2 rewrite locks.)*
-5. **Additive-Only Schema Evolution (`FR-DOM-02..04` / `Algorithm A.7` & `EVO-01..08`):** Across $N \to N+1$ and $S_k(t) \to S_k(t+1)$ waves, deployed grains and historical `hash_diff` digests are immutable; new columns route to `sat_<base>_ext_*`, dropped columns project `CAST(NULL AS <type>)`, and sparse FKs ($U_{\text{nn}} < 0.95$) split into companion links (`Algorithm A.4`). *(Rationale: zero downtime, zero re-hashing storms, zero broken downstream queries.)*
-6. **Span-Grounded Unstructured Extraction & Steward Gating (`FR-DOM-05` / `Rules U1–U4`, `Algorithm A.9b`):** Raw blobs/vectors never enter relational Satellites (`Rule U1`); claims require `[char_start, char_end]` spans (`Rule U2/U3`), and `Tier-U3` / `DV-G4-001` ambiguities pause on `STEWARD_HOLD` / `ASK-USER`. *(Rationale: blocks document hallucinations and governs ambiguous identities.)*
-7. **5-Tier RBAC & Zero PII/Hash Leakage (`FR-INT-02`):** Telemetry (`state/vault-ledger.jsonl`), reports, and UI payloads enforce 5-Tier RBAC redaction and Semantic Hash Pills (`validate_no_pii_leaks`). *(Rationale: enables GDPR/CCPA crypto-shredding without exposing sensitive payloads or raw keys.)*
-8. **Parity Mandate across Transports:** Standalone `opendv` (Python), client `opendvctl` (Bun), and REST/SSE API expose identical capabilities with normalized parity (RFC 8785 JCS, identical exit codes, and error details). *(Rationale: deterministic behavior across scripts, operators, and UI clients.)*
-9. **Golden Rule for Output Baselines:** Goldens change only via `pytest -m golden --update-golden --golden-justification="[#ISSUE] reason"`; hand-edits are forbidden. *(Rationale: prevents silent contract drift and test weakening.)*
-10. **Shared Application Core (`REQ-CORE-01`):** Application logic, pipelines, verification, profiling, compilation, and sandboxing live exclusively in `packages/opendv-service`; `opendv-cli` and `opendv-platform-api` are thin adapters (`opendv-cli` never imports API modules). *(Rationale: enforces layered monorepo DAG boundaries.)*
-11. **Hardening & Fail-Loud Guarantees (`REQ-CFG-01` / `REQ-MOCK-01` / `REQ-FAIL-01`):** Zero hardcoded paths/ports, zero production mocks, and explicit typed error UX (no silent fallbacks/demo data). *(Rationale: container/air-gapped reliability without false-positive passes.)*
-12. **Two Consistent CLIs (`REQ-CLI-01` / `REQ-CLI-02`):** `opendv` and `opendvctl` derive from shared `cli-spec.json` with identical flags, help texts, and canonical outputs. *(Rationale: single-binary remote portability plus in-process local execution.)*
-13. **Pluggable Source Adapters (`REQ-SRC-01` / `REQ-SRC-02`):** Ingestion routes through `packages/opendv-sources` SPI (`file`, `inline`, `duckdb_attach`, `text`, `pdf`) via `source:`. *(Rationale: decouples storage/formats from modelling logic.)*
-14. **Decision-Gated Ontology Seams (`REQ-ONT-01` / `REQ-ONT-02`):** `Graph A` mutations require typed `OntologyDelta` (`apply_ontology_delta`) under CAS lineage; recommenders emit proposals only. *(Rationale: protects domain definitions from unverified in-place mutations.)*
+5. **Additive-Only Schema Evolution (`FR-DOM-02..04` / `Algorithm A.7` & `EVO-01..08`):** Across $N \to N+1$ and $S_k(t) \to S_k(t+1)$ waves, deployed grains and historical `hash_diff` digests are immutable; new columns route to `sat_<base>_ext_*`, dropped columns project `CAST(NULL AS <type>)`, and sparse FKs split into companion links (`Algorithm A.4`). *(Rationale: zero downtime, zero re-hashing storms, zero broken downstream queries.)*
+6. **Span-Grounded Unstructured Extraction & Steward Gating (`FR-DOM-05` / `Rules U1–U4`):** Raw blobs/vectors never enter relational Satellites (`Rule U1`); extracted claims require `(doc_id, page_number, char_start, char_end)` spans grounded into `AI_PROVENANCE_SATELLITE`, and unresolved ambiguities pause for steward review. *(Rationale: blocks document hallucinations and governs ambiguous identities.)*
+7. **Privacy Containment & Zero PII/Hash Leakage (`FR-INT-02`):** Unmasked PII (`SSN`, IBAN, email, high-entropy secrets) and confidential `do_not_send_to_agent` sources fail closed before outbound agent calls; reports/UI payloads redact sensitive fields and emit Semantic Hash Pills. *(Rationale: enforces GDPR/CCPA & air-gapped governance without exposing raw keys.)*
+8. **Cross-Surface Contract Parity:** Unified `opendv` CLI, FastAPI REST/SSE (`/api/v1/...`), `opendv mcp serve`, and the `web/` Workbench enforce identical `StrictModel` (`extra="forbid"`) schemas, RFC 8785 JCS SHA-256 digests, `34` `ErrorCode`s, and `8` `CliExitCode`s (`schemas/v2/`). *(Rationale: deterministic parity across operators, automation, and browser clients.)*
+9. **Baseline & Golden Discipline:** `schemas/v2/{cli-spec,error-codes,openapi,baseline-digests}.json` and `tests/golden_v2/` baselines change only via canonical exporters/regenerators (`python -m opendv.cli.export_contracts`) with verified round-trip tests; hand-edits are forbidden. *(Rationale: prevents silent contract drift.)*
+10. **Layered 4-Tier DAG Core (`REQ-CORE-01`):** Domain logic lives in [`src/opendv/`](src/opendv/) enforcing strict downward imports: Layer 1 (`models`) -> Layer 2 (`sources`, `verifier`, `storage`) -> Layer 3 (`agents`) -> Layer 4 (`service`) -> Layer 5 (`api`, `cli`). `cli` never imports `api`, and `models` imports no higher layer. *(Rationale: guarantees modularity and zero circular dependencies.)*
+11. **Hardening & Fail-Loud Guarantees (`REQ-CFG-01` / `REQ-MOCK-01` / `REQ-FAIL-01`):** Zero hardcoded user paths/ports outside explicit defaults, zero production mocks or silent synthetic fallbacks, and explicit typed `ProblemDetails` (`34` `ErrorCode`s, e.g. `422 AGENT_NOT_CONFIGURED`, `409 PROJECT_JOB_ACTIVE`, `429 BUDGET_EXCEEDED`). *(Rationale: air-gapped reliability without false-positive passes.)*
+12. **Single Canonical CLI (`REQ-CLI-01`):** All commands derive from `schemas/v2/cli-spec.json` (`46` subcommands across `project`, `source`, `ontology`, `vault`, `storage`, `agents`, `mcp`, `secrets`, `settings`, `doctor`, `serve`) under unified `uv run opendv ...` (supports both in-process mode and `--api-url http://127.0.0.1:8420`). *(Rationale: single authoritative command surface.)*
+13. **Pluggable Source Adapters (`REQ-SRC-01`):** Ingestion routes through `src/opendv/sources/` (`ConnectorAdapter` SPI + SSRF/path-escape guards) with unified schema profiling and PII taint checks. *(Rationale: decouples heterogeneous connectors from modeling logic.)*
+14. **Decision-Gated Ontology & Active-Run Locking (`REQ-ONT-01`):** `Graph A` mutations require typed `OntologyDelta` (`34` ops) under CAS SHA-256 verification, and concurrent mutating jobs per project fail closed with `409 PROJECT_JOB_ACTIVE`. *(Rationale: protects domain definitions and SQLite WAL project integrity.)*
 
 ### 3.2 Implementation Freedom (The "How" — Extensible by Design) & Rationale
 Provided all Immutable Outcomes and verification gates pass, contributors may freely extend:
-- **Agent Harnesses & Models (`packages/opendv-agent-harness`):** Add LLM providers, CLI/SDK adapters beyond `agy`, `claude-cli`, `antigravity`, and `claude`, or refine `@toon_v1` repair loops *(avoids vendor lock-in)*.
-- **Target Dialect Compilers & Exporters:** Lower `CanonicalIR` / `NoMistakeDataVault2ContractV5` to **dbt (`AutomateDV` / `datavault4dbt`)**, **Snowflake**, **BigQuery**, **Databricks**, **SQLMesh**, or **Apache Iceberg** *(decouples modelling from warehouse dialect)*.
-- **Profiling & Discovery Engines:** Enhance `GraphBProfiler`, functional dependency discovery, similarity matchers, and OCR/PDF chunking *(scales from local files to cloud metadata push-down)*.
-- **UI & API Transports (`apps/opendv-platform-api`, `apps/opendv-web-workbench`, `packages/opendv-protocol-ts`):** Evolve visualizations, persistence backends, and catalog integrations *(embeds cleanly into governance portals and CI/CD)*.
+- **Agent Harnesses & Models ([`src/opendv/agents/`](src/opendv/agents/)):** Add LLM adapters beyond `agy`, `claude`, and `gemini`, or refine bounded CEGAR repair loops with `Budget Meter` (`Turns · Tokens · Active Seconds`) caps *(avoids vendor lock-in)*.
+- **Target Dialect Emitters ([`src/opendv/storage/emitters/`](src/opendv/storage/emitters/)):** Extend or add SQL/orchestrator emitters beyond the built-in 11 targets *(decouples modelling from warehouse dialect)*.
+- **Connectors & Discovery Engines ([`src/opendv/sources/`](src/opendv/sources/)):** Add read-only database/lakehouse connectors, OCR/PDF extractors, or BM25/FIBO ranking heuristics *(scales from local SQLite/DuckDB files to cloud catalogs)*.
+- **UI & API Transports ([`src/opendv/api/`](src/opendv/api/), [`web/`](web/)):** Evolve React 19 Workbench views, `@xyflow/react` visualizations, and SQLite persistence within `DESIGN.md` WCAG 2.1 AA tokens *(embeds cleanly into governance workflows)*.
 
 ---
 
@@ -64,111 +63,76 @@ Provided all Immutable Outcomes and verification gates pass, contributors may fr
 
 | Priority | Document | Purpose |
 | :---: | :--- | :--- |
-| **P0** | [`docs/designs/SITEMAP.md`](docs/designs/SITEMAP.md) | Canonical EGM design sitemap indexing architecture docs, V2 specs, approved `docs/designs/` docs, and `.dev/docs` scratch routing. |
-| **P0** | [`docs/00-mission-vision-and-functional-requirements.md`](docs/00-mission-vision-and-functional-requirements.md) | Mission, Functional Requirements (`FR-DOM-*`, `FR-VER-*`, `FR-INT-*`), Conformance Rubric & Traceability Matrix (`S1`–`S10`, `#30`–`#44`). |
-| **P0** | [`docs/16-human-and-agent-usage-guide.md`](docs/16-human-and-agent-usage-guide.md) | Operational Playbook: `opendv` vs `opendvctl`, sources, `Mode A/B/C`, periodic waves, Steward Holds, and downstream `CanonicalIR` usage. |
-| **P0** | [`docs/17-testing-scenarios-and-datasets.md`](docs/17-testing-scenarios-and-datasets.md) | Normative Test Ledger: datasets, scenarios (`S1`–`S10`), unmatched cases (`UF-1`–`UF-5`), 3-transport parity, and Goldens (`GT-01`..`GT-06`). |
-| **P0** | [`docs/18-implementation-plan-platform-parity-and-architecture.md`](docs/18-implementation-plan-platform-parity-and-architecture.md) | Platform parity & architecture roadmap (`REQ-CORE/CFG/MOCK/FAIL/CLI/SRC/ONT-*`, Phases P1–P10, Issue `#63`). |
-| **P0** | [`DESIGN.md`](DESIGN.md) | Canonical Claude-aligned UI design system (`#faf9f5` cream, `#cc785c` coral, `#181715` dark chrome, `5-Zone` `Z0–Z4` + `information_mart` UI standard). |
-| **P0** | [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](docs/27-unified-ontology-pipeline-requirements-and-uat.md) | Normative Unified 6-Step Wizard + 4-View DV Schema Explorer requirements (`D1`–`D28`, `FR-*`, `SCN-01`..`13`, `UAT-01`..`30`). |
-| **P0** | [`docs/28-unified-ontology-pipeline-design-and-plan.md`](docs/28-unified-ontology-pipeline-design-and-plan.md) | Phased architecture & `< 5,000`-token decomposition plan (`D16`, `STAGE_00..07` -> `00..06` console projection, `D11`–`D28`). |
-| **P0** | [`docs/29-discovery-grounding-and-evolution-scenarios.md`](docs/29-discovery-grounding-and-evolution-scenarios.md) | Canonical 9-Scenario Discovery, Grounding & Multi-Wave Matrix (`SCEN-01..09`), Path A/B1/B2 rules, `Local Only`/PII containment & CI/website parity rules. |
-| **P0** | [`docs/30-enterprise-dv2-modeling-and-loop-engineering.md`](docs/30-enterprise-dv2-modeling-and-loop-engineering.md) | V2 Strategy Blueprint: Enterprise DV 2.0 + `BKCC` + `sal_*`, 3-Loop CEGAR, DuckDB testing, zero-SQL `UniversalVaultSchemaIR v2.0`, decoupled `v7` & `ProjectState`, `V8` Horizon Critic, Guided UX & `.opendv.zip`. |
-| **P0** | [`docs/31-v2-e2e-requirements-gaps-and-uat-spec.md`](docs/31-v2-e2e-requirements-gaps-and-uat-spec.md) | Consolidated V2 full-stack E2E architecture (`Phases 0–9`), `11`-workstream matrix (`OBS-01..48`, `REQ-01..68`), and `89`-item UAT expected-output checklist. |
-| **P0** | [`docs/32-v2-user-experience-and-scenario-guide.md`](docs/32-v2-user-experience-and-scenario-guide.md) | Complete Steps 1–7 User Experience Guide (`Core Project State` default `.opendv.zip`, `Guided` vs `Architect` UX, `Step 7 v7`) & `20`-Scenario Playbook (`SCEN-01..09`, `MOD-01..07`, `OPS-01..04`). |
-| **P0** | [`docs/33-v2-phased-implementation-and-real-data-uat-plan.md`](docs/33-v2-phased-implementation-and-real-data-uat-plan.md) & [`docs/design/ontology-studio/uat-v2-feedback-and-triage-log.md`](docs/design/ontology-studio/uat-v2-feedback-and-triage-log.md) | Master V2 Phased TDD Implementation & Real-Data Live-Agent UAT Plan (`Phases V2-1..V2-9`, `DS-AM-REAL`, `DS-CEGAR-12TRAP`, `DS-ERP-REAL`, `DS-HORIZON-SEC`) + full source triage ledger. |
-| **P0** | [`docs/19-ontology-studio-architecture.md`](docs/19-ontology-studio-architecture.md) – [`docs/24-ontology-studio-engineering-learnings.md`](docs/24-ontology-studio-engineering-learnings.md) | Ontology Studio architecture (`19`), normative spec (`20`), historical plan (`21`), user guide (`22`), extension guide (`23`), and hardening learnings (`24`). |
-| **P0** | [`README.md`](README.md) | Quick start, monorepo layout, CLI summary, and 4-wave sample dataset guide. |
-| **P1** | [`docs/DV2_AGENT_REFERENCE_GUIDE.md`](docs/DV2_AGENT_REFERENCE_GUIDE.md) | DV 2.0 layers, 6-stage hashing, `INV-01..06`, `EVO-01..08`, `AP-01..15`, and `Algorithms A.1–A.9b`. |
-| **P1** | [`docs/12-unified-platform-web-and-cli-setup.md`](docs/12-unified-platform-web-and-cli-setup.md) | Unified `:8420` server, 4-tab Claude `DESIGN.md` Web Workbench (`/`, `/ontology`, `/builder`, `/dv-schema`, `/explorer`, `/settings`), and CLI config guide. |
-| **P1** | [`docs/12-agentic-pipeline-inputs-and-harness-guide.md`](docs/12-agentic-pipeline-inputs-and-harness-guide.md) | Specification for `pipeline_input.yaml`, `harness_config.yaml`, `model_overrides`, `agent_models`, and auth modes. |
-| **P1** | [`docs/25-data-driven-single-run-pipeline-design.md`](docs/25-data-driven-single-run-pipeline-design.md) – [`docs/26-data-driven-pipeline-team-implementation-plan.md`](docs/26-data-driven-pipeline-team-implementation-plan.md) | Data-driven single-run `VaultBlueprint` & multi-connector architecture (`25`) and implementation plan (`26`). |
-| **P1** | [`docs/14-end-to-end-consistency-and-scenarios-audit.md`](docs/14-end-to-end-consistency-and-scenarios-audit.md) | 10-scenario consistency audit, unmatched ontology field routing matrix, and remediation issues (`#30`–`#44`). |
-| **P2** | [`docs/01-core-modelling-spec.md`](docs/01-core-modelling-spec.md) – [`docs/15-end-to-end-pipeline-execution-and-interactive-spec.md`](docs/15-end-to-end-pipeline-execution-and-interactive-spec.md) | Modular specs covering ELM calculus, 6-Gate `axi-dv` verification, unstructured DV 2.0, observability, and API/SDK contracts. |
+| **P0** | [`docs/designs/SITEMAP.md`](docs/designs/SITEMAP.md) | Canonical EGM design sitemap indexing V2 active specs, historical docs, and `.dev/docs` scratch routing. |
+| **P0** | [`docs/designs/v2-clean-sheet-architecture.md`](docs/designs/v2-clean-sheet-architecture.md) | Authoritative clean-sheet V2 specification: 4-layer DAG, `project.sqlite` 5-table schema, `34` `ErrorCode`s, REST/CLI/MCP contracts. |
+| **P0** | [`docs/designs/v2-workbench-ui-design.md`](docs/designs/v2-workbench-ui-design.md) & [`DESIGN.md`](DESIGN.md) | Canonical Claude-aligned WCAG 2.1 AA design system (`#faf9f5`, `#cc785c`, `#57554f`, `#8f442d`, `5-Zone` `Z0–Z4`, 4-tab topbar, 7-step UI). |
+| **P0** | [`docs/29-discovery-grounding-and-evolution-scenarios.md`](docs/29-discovery-grounding-and-evolution-scenarios.md) | Canonical 9-Scenario Discovery, Grounding & Multi-Wave Matrix (`SCEN-01..09`), Path A/B1/B2 rules, privacy containment & parity rules. |
+| **P0** | [`docs/30-enterprise-dv2-modeling-and-loop-engineering.md`](docs/30-enterprise-dv2-modeling-and-loop-engineering.md) | V2 Strategy Blueprint: Enterprise DV 2.0 + `BKCC` + `sal_*`, 3-Loop CEGAR, `VaultSchemaIR v2.0`, Step 7 emitters, `Guided ⇄ Observatory` UX, `.opendv.zip`. |
+| **P0** | [`docs/31-v2-e2e-requirements-gaps-and-uat-spec.md`](docs/31-v2-e2e-requirements-gaps-and-uat-spec.md) | Consolidated V2 E2E spec (`OBS-01..48`, `REQ-01..68`) and `89`-item UAT checklist. |
+| **P0** | [`docs/32-v2-user-experience-and-scenario-guide.md`](docs/32-v2-user-experience-and-scenario-guide.md) | Steps 1–7 User Experience Guide (`Core Project State` default `.opendv.zip`, `Budget Meter`, `Run Explorer`) & `20`-Scenario Playbook. |
+| **P0** | [`docs/33-v2-phased-implementation-and-real-data-uat-plan.md`](docs/33-v2-phased-implementation-and-real-data-uat-plan.md) | Master V2 Phased TDD Implementation & Real-Data UAT Plan (`Phases V2-1..V2-9`, `DS-CEGAR-12TRAP`, `data/public_am/`). |
+| **P0** | [`docs/16-cli-reference.md`](docs/16-cli-reference.md) & [`docs/16-human-and-agent-usage-guide.md`](docs/16-human-and-agent-usage-guide.md) | Auto-generated V2 CLI reference from `schemas/v2/cli-spec.json` (`16-cli-reference`) and operational playbook (`16-human-and-agent`). |
+| **P0** | [`README.md`](README.md) & [`examples/v2_asset_management/README.md`](examples/v2_asset_management/README.md) | Quick start, V2 package layout, CLI summary, and Asset Management `data/public_am/` walkthrough. |
+| **P1** | [`docs/DV2_AGENT_REFERENCE_GUIDE.md`](docs/DV2_AGENT_REFERENCE_GUIDE.md) | DV 2.0 layers, length-prefixed hashing, `INV-01..06`, `EVO-01..08`, `AP-01..15`, and `Algorithms A.1–A.9b`. |
+| **P1** | [`docs/00-mission-vision-and-functional-requirements.md`](docs/00-mission-vision-and-functional-requirements.md) – [`docs/28-unified-ontology-pipeline-design-and-plan.md`](docs/28-unified-ontology-pipeline-design-and-plan.md) | Foundational DV 2.0 theory, conformance rubric, and historical V1 architecture records (each marked with its V2 supersession notice). |
 
 ---
 
-## 5. Monorepo Package Ownership Boundaries
+## 5. V2 Package & Application Ownership Boundaries
 
-| Package / App Path | Responsibility | Allowed Dependencies |
+| Path | Layer / Role | Allowed Dependencies |
 | :--- | :--- | :--- |
-| `packages/opendv-contracts` | Language-neutral Pydantic v2 / TypeSpec DTOs, events, and error models. | Pure Python + Pydantic. |
-| `packages/opendv-cli-common` | Shared CLI tree/spec loader, table rendering, TOON serialization, exit codes. | `opendv-contracts`. |
-| `packages/opendv-service` | Headless application service, Ontology Studio & pipeline orchestrator (`OpenDVService`). | `opendv-core`, `opendv-axi-verifier`, `opendv-duckdb-sandbox`, `opendv-telemetry`, `opendv-agent-harness`, `opendv-contracts`, `opendv-sources`. |
-| `packages/opendv-sources` | Pluggable source adapters (`file`, `inline`, `duckdb_attach`, `text`, `pdf`) and parsers. | `opendv-core`, `opendv-contracts`. |
-| `packages/opendv-testkit` | Isolated test doubles, deterministic adapters, mock bundles (zero prod imports). | `opendv-service`, `opendv-core`, `opendv-contracts`. |
-| `packages/opendv-core` | Pydantic v2 models (`NoMistakeDataVault2ContractV5`, `CanonicalIR`), `Algorithm A.5` hashing, ELM math. | `opendv-contracts`. |
-| `packages/opendv-telemetry` | Append-only JSONL ledger, CAS, 5-Tier RBAC redactor, PII detector, Hash Pills. | `opendv-core`, `opendv-contracts`. |
-| `packages/opendv-axi-verifier` | 6-Gate static/evolution verifier (`Gates 0–4`), AST linter (`A.6`), codemods (`A.1..A.9b`), `@toon_v1`. | `opendv-core`, `opendv-telemetry`, `opendv-contracts`, `sqlglot`, `networkx`. |
-| `packages/opendv-duckdb-sandbox` | `GraphBProfiler`, IR lowerer, `compiler_4zone.py`, Gate 5 Shadow Sandbox (`DV-DYN-001..015`), PIT engine. | `opendv-core`, `opendv-telemetry`, `opendv-axi-verifier`, `opendv-contracts`, `opendv-sources`, `duckdb`. |
-| `packages/opendv-agent-harness` | 8-stage `AgenticVaultPipeline` (`STAGE_00`–`STAGE_07`), 4 personas, 8 tools, `StewardHoldManager`, LLM adapters. | `opendv-core`, `opendv-telemetry`, `opendv-axi-verifier`, `opendv-duckdb-sandbox`, `opendv-contracts`, `opendv-sources`. |
-| `packages/opendv-protocol-ts` | Zero-dependency TypeScript SDK (`@opendv/protocol-ts`), SSE client, Web Crypto Hash Pills. | Pure TypeScript / Web APIs. |
-| `apps/opendv-cli` | Python standalone in-process engine CLI (`opendv`). | `opendv-service`, `opendv-cli-common`, `opendv-contracts`. |
-| `apps/opendvctl` | Bun compiled platform client standalone binary (`opendvctl`). | `opendv-protocol-ts`. |
-| `apps/opendv-platform-api` | FastAPI REST + W3C SSE headless server (`:8420`) and OpenAPI 3.1 exporter. | `opendv-service`, `opendv-contracts`, `fastapi`. |
-| `apps/opendv-web-workbench` | React 19 + Bun 4-tab Claude `DESIGN.md` Workbench served on `:8420`: `Ontology & Pipeline` (`/`, `/ontology`, `/builder` -> 6-step Wizard), `DV Schema Explorer` (`/dv-schema`), `Run Explorer` (`/explorer`, `/stages/00..07`), `Settings` (`/settings`); Agent-only UI (`D28`). | `opendv-protocol-ts`. |
+| `src/opendv/models/` | **Layer 1:** Pydantic v2 `StrictModel` DTOs (`GraphAOntology`, `34`-op `OntologyDelta`, `VaultSchemaIR v2.0`, `ProjectState`), `34` `ErrorCode`s, `8` `CliExitCode`s, RFC 8785 `json_hasher`. | Stdlib + Pydantic. |
+| `src/opendv/sources/` | **Layer 2:** Pluggable `ConnectorAdapter` SPI, SQLite/DuckDB/Postgres/CSV/Parquet/PDF/Markdown/Inline ingestion, SSRF/path-escape guards, profiler, PII detector, BM25 + `fibo-core-pack.json` (`2,206` concepts). | `opendv.models`, `pypdf`, `pyarrow`, `duckdb`. |
+| `src/opendv/verifier/` | **Layer 2:** Symbolic CEGAR 3-loop prover, static/evolution AST checks, `ProblemDetails` remediations, `VaultSchemaIR` lowering & hash rules. | `opendv.models`, `sqlglot`, `networkx`. |
+| `src/opendv/storage/` | **Layer 2:** `:memory:` DuckDB prover sandbox, readonly SQL guard, AST dialect emitters (`11` targets for Step 7 `v7`). | `opendv.models`, `opendv.verifier`, `duckdb`, `sqlglot`. |
+| `src/opendv/agents/` | **Layer 3:** Agent CLI harnesses (`agy`, `claude`, `gemini`), `opendv mcp serve`, tool router, Step 4 budget tracking. | `opendv.models`, `opendv.sources`, `opendv.verifier`, `opendv.storage`. |
+| `src/opendv/service/` | **Layer 4:** `OpenDVService`, SQLite WAL `project.sqlite` store, `KeyringSecretStore`, `.opendv.zip` `core_project_state` bundles, `7`-step workflows, SSE event bus. | `opendv.models`, `sources`, `verifier`, `storage`, `agents`. |
+| `src/opendv/api/` | **Layer 5 (Adapter):** FastAPI REST + W3C SSE server (`:8420`), loopback open-access security guard (`exit 40`), static Web UI host, OpenAPI 3.1 exporter. | `opendv.models`, `opendv.service`, `fastapi`. |
+| `src/opendv/cli/` | **Layer 5 (Adapter):** Unified Typer CLI (`opendv`), `schemas/v2/` contract exporter (`python -m opendv.cli.export_contracts`), table/JSON renderers. | `opendv.models`, `opendv.service`, `opendv.sources`, `opendv.verifier`, `opendv.storage`, `opendv.agents` (never imports `opendv.api`). |
+| `web/` | **Frontend Workbench:** React 19 + Vite + Bun 4-tab WCAG AA Workbench served on `:8420`: `Project Workflow` (`Step 1..7`, `Guided ⇄ Observatory`, `Budget Meter`), `DV Schema Explorer`, `Run Explorer`, `Settings`. | `/api/v1/...` REST + SSE (`schemas/v2/openapi.json`). |
+| `apps/opendv-website/` | **Docs Microsite:** Astro static site documenting V2 architecture, 7-step UX, and live Asset Management walkthrough. | Self-contained Astro build (`DESIGN.md` tokens). |
+| `schemas/v2/` | **Canonical Contracts:** `cli-spec.json`, `error-codes.json`, `openapi.json`, `baseline-digests.json` (+ `tests/golden_v2/`). | Exported deterministically from `src/opendv/`. |
 
 ---
 
 ## 6. Essential Conformance, Verification & Testing Commands
 
-Run from the repository root before concluding any task:
+Run from `open-dv/` before concluding any task:
 
 ```bash
-# 1. Full normative Python suite (unit + 6-gate verifier + DuckDB sandbox + E2E)
-uv run pytest -v
+# 1. Verify environment & unified CLI contracts
+uv run opendv --help
+uv run opendv --json doctor
+uv run python -m opendv.cli.export_contracts --check
+uv run python scripts/check_error_codes.py --catalog schemas/v2/error-codes.json --baselines schemas/v2/baseline-digests.json --check-ast
 
-# 2. Cross-transport parity tests (opendv, opendvctl, REST API)
-uv run pytest -m parity -v
+# 2. Architectural boundary, clone, token-budget (<5,000), doc-sync & hardening guards
+uv run pytest tests/architecture/ tests/docs/ tests/parity/test_public_datasets_manifest.py -v
 
-# 3. Golden Test Suite (GT-01..GT-06)
-uv run pytest -m golden -v
+# 3. Full V2 Python test suite (models, sources, verifier, storage, service, api, cli, parity)
+uv run pytest tests/models/ tests/sources/ tests/verifier/ tests/storage/ tests/service/ tests/api/ tests/cli/ tests/parity/ -v
 
-# 4. Architectural boundary, mock-isolation, and no-duplication guards (T13, T14)
-uv run pytest tests/architecture/ -v
+# 4. Lint & strict typecheck
+uv run ruff check src tests scripts
+uv run mypy src
 
-# 5. Deterministic pipeline input & harness pre-flight validation
-uv run opendv pipeline validate \
-  --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml \
-  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml \
-  --json
-
-# 6. Standalone 6-Gate symbolic verification (zero LLM credentials required)
-uv run opendv verify \
-  --contract examples/private_equity/dv_pe_model_contract.yaml \
-  --graph-a examples/private_equity/pe_graph_a_ontology.yaml \
-  --graph-b examples/private_equity/pe_graph_b_profile.json
-
-# 7. Compile verified contract to Canonical IR & 5-Zone (Z0-Z4) / final_four_zone.sql + 4-Batch Shadow Sandbox
-uv run opendv compile \
-  --contract examples/private_equity/dv_pe_model_contract.yaml \
-  --canonical-ir examples/private_equity/pe_canonical_ir.json
-
-uv run opendv sandbox \
-  --contract examples/private_equity/dv_pe_model_contract.yaml \
-  --canonical-ir examples/private_equity/pe_canonical_ir.json \
-  --query-type ADVERSARIAL_BATCHES_1_TO_4 \
-  --cutoff "2026-11-15 23:59:59"
-
-# 8. TypeScript SDK, Web Workbench, and opendvctl tests & typecheck
-bun test
-bun x tsc -b --pretty
+# 5. Web Workbench (web/) & marketing site (apps/opendv-website/)
+bun run --cwd web typecheck && bun run --cwd web lint && bun run --cwd web build && bun run --cwd web test
+bun run --cwd apps/opendv-website build
 ```
-
-> [!IMPORTANT]
-> **Working on an Open GitHub Issue (`#30`–`#44`, `#63`–`#123`)?** Consult §7 of [`docs/00-mission-vision-and-functional-requirements.md`](docs/00-mission-vision-and-functional-requirements.md) and [`docs/17-testing-scenarios-and-datasets.md`](docs/17-testing-scenarios-and-datasets.md) to verify all target `FR-*`, `S1`–`S10`, `GT-01`..`GT-06`, and `INV-*/EVO-*/DV-*/ONT-EVO-*` invariants.
 
 ---
 
-## 7. Ontology Studio & Platform Hardening Learnings
+## 7. V2 Platform & Ontology Hardening Learnings
 
-All work touching CAS/hashing, file locks, async SSE jobs, CLI/API/Workbench contracts, governance (`ONT-EVO-001..003`), or docs must obey [`.agents/rules/ontology-studio-learnings.md`](.agents/rules/ontology-studio-learnings.md) and [`docs/24-ontology-studio-engineering-learnings.md`](docs/24-ontology-studio-engineering-learnings.md):
+All work touching CAS/hashing, SQLite WAL persistence, async SSE jobs, CLI/API/Workbench contracts, governance (`ONT-EVO-001..003`), or docs must obey [`.agents/rules/ontology-studio-learnings.md`](.agents/rules/ontology-studio-learnings.md):
 
-1. **RFC 8785 JCS & Digest Fidelity:** Never invent placeholder digests (genesis `0.0.0` Graph A = `1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9`; PE golden = `1c100409...`). Persist exact canonical JCS bytes (`sha256(disk_bytes) == target_sha256`) and scope empty-field pruning strictly to post-baseline extensions without reordering legacy arrays (`attributes`).
-2. **Windows/POSIX Locks & Binary-SID ACLs:** Use the single `StudioLock` (`L1 -> L5`) protocol without overlapping `msvcrt.locking` byte writes, key `ContextVar` lock reentrancy on `(thread_id, task_id, is_locked)` with `BaseException` (`CancelledError`) multi-lock rollback, place directory-lifecycle locks in the parent directory on Windows (never inside a directory targeted by `os.replace`), enforce Windows ACLs via Win32 `advapi32` binary SIDs (`S-1-5-18`, `S-1-5-32-544`, owner SID — never localized `icacls.exe` stdout), use staging + tombstone swaps on `force=True`, and kill full process trees on timeout.
-3. **Thread-Safe Async & Gapless SSE:** Dispatch from OS worker threads exclusively via `loop.call_soon_threadsafe`, and subscribe live SSE queues *before* replaying `events.jsonl` (deduplicating by monotonic sequence ID).
-4. **Cross-Surface `extra="forbid"`, Loopback Open Access (`D18`), `< 5,000`-Token Ceiling (`D16`), & Agent-Only UI (`D28`):** Keep `cli-spec.json`, `error-codes.json`, `opendv`, `opendvctl`, FastAPI, Web Workbench (`studioFetch` on loopback zero-auth `:8420` without token/CSRF headers; `--allow-remote-unauthenticated` required for non-loopback `--host` or exit `40`), and tested doc snippets (`tests/docs/test_doc_code_snippets.py`) strictly aligned. Never expose a deterministic mode toggle in the Web Workbench UI (`D28`), keep all active Python/TS modules strictly `< 5,000` `cl100k_base` tokens (`tests/architecture/test_module_token_budget.py`, `D16`), never auto-fetch current server `head_sha256` to populate `If-Match` over stale client deltas/canvas edits, and sanitize untrusted LLM/PDF identifiers and comments in all exporters.
-5. **Fail-Closed Governance, Sticky Privacy & Portable Audits:** Enforce Path A `FIBO` `skos:exactMatch`/`skos:closeMatch >= 0.6500` (`skos:broadMatch` excluded) over `concept_name + synonyms` with mutation-triggered grandfather/waiver revocation, never derive trusted bootstrap overrides (`allow_bootstrap` / `allow_legacy_ip1_bootstrap`) from caller-controlled payload metadata, use `(?<![A-Za-z0-9])` boundaries in pseudonymizers with sticky `do_not_send_to_agent` taint, and maintain HMAC-signed `audit.jsonl` chains across bundle imports.
+1. **RFC 8785 JCS & Digest Fidelity:** Never invent placeholder digests (V2 `0.0.0` genesis `GraphAOntology` = `0ae856bf9fdba74e83e793ea9f74106a0c14d21d73756e1e3a12abd426d0083a`; `starter_packs` & `fibo_core_pack` pinned in `schemas/v2/baseline-digests.json`). Always serialize canonical JCS bytes via `dumps_jcs_bytes`/`sha256_jcs` and enforce `If-Match` / `base_sha256` optimistic concurrency without auto-refreshing stale client edits.
+2. **SQLite WAL Locking, Binary-SID ACLs & Zip Guard:** Persist all project state atomically inside `.opendv/projects/<id>/project.sqlite` (5 tables) with single-writer per-project lock semantics returning `409 PROJECT_JOB_ACTIVE` on conflicting active jobs; enforce restricted ACLs via Win32 `advapi32` binary SIDs (POSIX `0600`/`0700`); validate `.opendv.zip` imports via `zip_guard.py` (anti-zip-slip, anti-zip-bomb, SHA-256 manifest verification) and store API secrets only via `KeyringSecretStore`.
+3. **Thread-Safe Async & Gapless SSE:** Dispatch from worker threads strictly via `loop.call_soon_threadsafe`, replay `RunStreamEvent` sequence IDs before subscribing live queues, and track explicit Step 4 `Budget Meter` metrics (`Turns · Tokens · Active Seconds`, failing cleanly with `429 BUDGET_EXCEEDED`).
+4. **Cross-Surface `extra="forbid"`, Loopback Open Access (`D18`), `< 5,000`-Token Ceiling (`D16`), & Agent-Only UI (`D28`):** Keep `schemas/v2/{cli-spec,error-codes,openapi}.json`, `opendv`, FastAPI (`:8420`), `web/`, and docs aligned. Loopback requests run zero-auth without token/CSRF logins; non-loopback `--host` exits `40` unless `--allow-remote-unauthenticated` is passed. Keep every module in `src/opendv/` and `web/src/` strictly `< 5,000` `cl100k_base` tokens (`tests/architecture/test_module_token_budget.py`).
+5. **Fail-Closed Governance & Sticky Privacy:** Enforce Path A FIBO `skos:exactMatch`/`skos:closeMatch >= 0.6500` (`skos:broadMatch` excluded), PII/secret detection + `(?<![A-Za-z0-9])` pseudonymization with sticky `do_not_send_to_agent` taint, SSRF/path-escape connector guards, and untrusted identifier sanitization across all Step 7 emitters.
 6. **Multi-Agent Wave Hygiene:** Never commit scratch context/critique dumps or one-off scripts into `scripts/` or `reports/`.
 
 ---

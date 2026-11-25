@@ -6,7 +6,7 @@ import { type BuildSiteResult, buildSite } from "../src/build";
 const APP_ROOT = resolve(import.meta.dir, "..");
 const DIST_DIR = join(APP_ROOT, "dist");
 const BASE_PATH = "/open-dv";
-const SKIP_DIRS = new Set(["node_modules", "dist", ".moon"]);
+const SKIP_DIRS = new Set(["node_modules", "dist"]);
 
 const REQUIRED_FILES = [
 	".nojekyll",
@@ -54,6 +54,14 @@ const BANNED_PATTERNS: readonly RegExp[] = [
 	new RegExp(`\\b${["87", "87"].join("")}\\b`),
 	new RegExp(`\\b${["4\\.2", "k"].join("")}\\b`, "i"),
 	new RegExp(`\\b${["Ru", "st"].join("")}\\b`),
+	new RegExp(`\\b${["opendv", "ctl"].join("")}\\b`, "i"),
+	new RegExp(`\\b${["Cost", " Meter"].join("")}\\b`, "i"),
+	new RegExp(`\\b${["Session", " Logs"].join("")}\\b`, "i"),
+	new RegExp(`\\b${["6-", "Step"].join("")}\\b`, "i"),
+	new RegExp(`\\b${["Vault", "Blueprint"].join("")}\\b`, "i"),
+	new RegExp(`\\b${["STAGE_", "0[0-7]"].join("")}\\b`),
+	new RegExp(`@${["toon", "_v1"].join("")}\\b`),
+	new RegExp(`\\b${["G", "[0-5]"].join("")}\\b`),
 ];
 
 let buildResult: BuildSiteResult;
@@ -181,7 +189,7 @@ describe("@opendv/website static build", () => {
 		}
 	});
 
-	test("Claude DESIGN.md tokens, 4-spoke SPIKE_MARK_SVG, and FR-DOC-01 5-Zone content", () => {
+	test("Claude DESIGN.md + WCAG AA tokens, 4-spoke SPIKE_MARK_SVG, and V2 7-Step 5-Zone content", () => {
 		const indexHtml = readDist("index.html");
 		const tourHtml = readDist("tour", "index.html");
 		const siteCssLower = readDist("assets", "site.css").toLowerCase();
@@ -190,6 +198,8 @@ describe("@opendv/website static build", () => {
 		expect(siteCssLower).toContain("#faf9f5");
 		expect(siteCssLower).toContain("#cc785c");
 		expect(siteCssLower).toContain("#181715");
+		expect(siteCssLower).toContain("#57554f");
+		expect(siteCssLower).toContain("#8f442d");
 		expect(siteCssLower).toMatch(/--header-h:\s*(?:4rem|64px)\b/i);
 		expect(siteCssLower).not.toContain("#f6f4ee");
 		expect(siteCssLower).not.toContain("#1d4ed8");
@@ -210,23 +220,29 @@ describe("@opendv/website static build", () => {
 		];
 		for (const text of docTexts) {
 			expect(text).not.toMatch(/\b(?:4-Zone|four-zone)\b/i);
+			expect(text).toMatch(/7-[Ss]tep/);
+			expect(text).toContain("Run Explorer");
 		}
 
 		for (const html of [indexHtml, tourHtml]) {
 			expect(html).toMatch(/5-Zone/i);
 			expect(html).toMatch(/Z0\s*[–-]\s*Z4/i);
 			expect(html).toContain("information_mart");
-			expect(html).toMatch(/6-[Ss]tep/);
+			expect(html).toMatch(/7-[Ss]tep/);
 			expect(html).toContain("DV Schema Explorer");
-			expect(html).toMatch(/Session\s*Logs|Logs\s*(?:&amp;|&)\s*Traces/i);
+			expect(html).toContain("Run Explorer");
 		}
 
-		expect(indexHtml).toMatch(/Cost Meter/i);
+		expect(indexHtml).toMatch(/Budget Meter/i);
+		expect(indexHtml).toContain("VaultSchemaIR v2.0");
 		expect(indexHtml).toContain("--allow-remote-unauthenticated");
-		expect(indexHtml).toContain("run dv-schema");
-		expect(indexHtml).toContain("attach-source");
-		expect(indexHtml).toContain("fibo-qa");
-		expect(indexHtml).toContain("ontology studio logs");
+		expect(indexHtml).toContain("source attach");
+		expect(indexHtml).toContain("ontology fibo-qa");
+		expect(indexHtml).toContain("storage query");
+		expect(indexHtml).toContain("vault logs");
+		for (const gateId of ["L1", "V1_V5", "V6", "V6B", "V7", "V8"]) {
+			expect(indexHtml).toContain(gateId);
+		}
 	});
 
 	test("zero broken internal links, media paths, or CSS font URLs", () => {
@@ -253,7 +269,7 @@ describe("@opendv/website static build", () => {
 		}
 	});
 
-	test("token budget, T9 guard, zero .py files, and zero fake claims", () => {
+	test("token budget, T9 guard, zero .py files, and zero legacy V1 claims", () => {
 		const pyFiles = walkFiles(APP_ROOT).filter((f) => f.endsWith(".py"));
 		expect(pyFiles).toEqual([]);
 
@@ -269,6 +285,11 @@ describe("@opendv/website static build", () => {
 			const content = readFileSync(f, "utf-8");
 			expect(content.length).toBeLessThan(20_000);
 			expect(Math.ceil(content.length / 3)).toBeLessThan(5_000);
+			if (
+				f.endsWith("tests/build.test.ts") ||
+				f.endsWith("tests\\build.test.ts")
+			)
+				continue;
 			for (const re of BANNED_PATTERNS) expect(re.test(content)).toBe(false);
 		}
 

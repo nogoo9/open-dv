@@ -3,7 +3,6 @@ __pycache__/
 *$py.class
 .pytest_cache/
 .venv/
-**/.moon/cache/
 node_modules/
 dist/
 *.egg-info/
@@ -19,31 +18,20 @@ worktrees/
 !.agents/skills/**
 .env
 .critique/
-.dev/docs/
+.dev/
 reports/*.json
 playwright-report/
 test-results/
 
-# Playwright test artifacts
-playwright-report/
-test-results/
-apps/opendv-web-workbench/tests/e2e/screenshots/
+# Local Asset Management test fixtures & portable bundles
 data/public_am/*.sqlite
+!data/public_am/am_sec_treasury_ibor.sqlite
 !data/public_am/ds_cegar_12trap.duckdb
+!tests/golden_v2/am_core_bundle.core.opendv.zip
 **/.odv_workspace_secret
 
-
-# Ephemeral test runtime outputs in artifacts/
-artifacts/dv_contract.json
-artifacts/final_canonical_ir.json
-artifacts/final_contract.yaml
-artifacts/final_four_zone.sql
-artifacts/pipeline_report.json
-artifacts/pipeline_report.md
-artifacts/vault-ledger.jsonl
-artifacts/vault_blueprint.yaml
-artifacts/wave_0_ontology_coverage.json
-artifacts/waves/
+# Ephemeral runtime artifacts
+artifacts/
 
 # V2 Web Workbench build & Playwright artifacts (preserve static/.gitkeep)
 /web/dist/

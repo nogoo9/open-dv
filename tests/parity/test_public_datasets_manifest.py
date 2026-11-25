@@ -7,8 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from opendv_sources.adapters.sqlite_inspector import SqliteCatalogInspector
-from opendv_sources.models.specs import SourceSpec, TableRef
+from opendv.sources.adapters import extract_structured_source
 from tests.fixtures.public_am.fetch_public_datasets import (
     AM_SQLITE_FILENAME,
     CHINOOK_FILENAME,
@@ -127,17 +126,14 @@ def test_benchmark_sqlite_offline_fallback_generation(tmp_path: Path) -> None:
     ch_conn.close()
 
 
-def test_sqlite_catalog_inspector_on_am_database(tmp_path: Path) -> None:
-    """Verify SqliteCatalogInspector introspects the generated am_sec_treasury_ibor.sqlite."""
+def test_v2_sqlite_adapter_extracts_am_database(tmp_path: Path) -> None:
+    """Verify V2 `extract_structured_source` introspects `am_sec_treasury_ibor.sqlite` cleanly."""
     out_dir = tmp_path / "public_am"
     results = fetch_public_am_datasets(output_dir=out_dir, mode="fixture")
     db_path = results[AM_SQLITE_FILENAME]
 
-    inspector = SqliteCatalogInspector()
-    spec = SourceSpec(adapter="sqlite", uri=str(db_path))
-
-    tables = inspector.list_tables(spec)
-    table_names = {t.table_name for t in tables}
+    extracted = extract_structured_source("sqlite", str(db_path))
+    by_name = {tbl.table_name: tbl for tbl in extracted}
     assert {
         "issuers",
         "securities",
@@ -145,14 +141,12 @@ def test_sqlite_catalog_inspector_on_am_database(tmp_path: Path) -> None:
         "holdings_13f",
         "treasury_rates",
         "yield_curves",
-    }.issubset(table_names)
+    }.issubset(by_name)
 
-    schema = inspector.inspect_table(spec, TableRef(table_name="holdings_13f"))
-    assert schema.primary_key_columns == ["holding_id"]
-    fk_targets = {fk.target_table for fk in schema.foreign_keys}
+    holdings = by_name["holdings_13f"]
+    pk_cols = [c.col_name for c in holdings.columns if c.is_pk]
+    assert pk_cols == ["holding_id"]
+    fk_targets = {c.fk_ref.split(".", 1)[0] for c in holdings.columns if c.fk_ref}
     assert "securities" in fk_targets
     assert "institutional_filers" in fk_targets
-
-    expanded = inspector.expand_feed(spec)
-    assert len(expanded) == len(tables)
-    assert all(r.execution_mode == "DIRECT_DUCKDB_ATTACH" for r in expanded)
+    assert holdings.row_count_est > 0

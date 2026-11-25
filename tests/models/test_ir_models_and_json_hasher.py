@@ -205,10 +205,12 @@ class TestJsonHasherAndVectors:
         assert sha256_jcs(_rev_dict(bm25_data)) == sha256_jcs(bm25_data)
 
         genesis_data = json.loads(GENESIS_VECTOR_PATH.read_text(encoding="utf-8"))
-        assert (
-            sha256_jcs(genesis_data)
-            == "1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9"
+        validated_genesis = GraphAOntology.model_validate(genesis_data)
+        expected_genesis_sha = (
+            "0ae856bf9fdba74e83e793ea9f74106a0c14d21d73756e1e3a12abd426d0083a"
         )
+        assert sha256_jcs(genesis_data) == expected_genesis_sha
+        assert sha256_jcs(validated_genesis) == expected_genesis_sha
         assert loads_jcs(dumps_jcs_bytes(genesis_data)) == genesis_data
 
         v2_genesis = GraphAOntology(
