@@ -17,14 +17,18 @@ export interface TrapItem {
 export interface PipelineStage {
 	readonly id: string;
 	readonly code: string;
-	readonly phase: "Discovery" | "Modelling" | "Verification" | "Compilation";
+	readonly phase:
+		| "Scope & Evidence"
+		| "Discovery & Ontology"
+		| "CEGAR & Critics"
+		| "11-Target Storage";
 	readonly actor: string;
 	readonly temp: string;
 	readonly summary: string;
 }
 
-export interface AxiGate {
-	readonly id: "G0" | "G1" | "G2" | "G3" | "G4" | "G5";
+export interface VerifierGate {
+	readonly id: "L1" | "V1_V5" | "V6" | "V6B" | "V7" | "V8";
 	readonly name: string;
 	readonly rules: string;
 	readonly check: string;
@@ -34,7 +38,7 @@ export interface AxiGate {
 export interface FaultPreset {
 	readonly id: string;
 	readonly label: string;
-	readonly gateId: AxiGate["id"];
+	readonly gateId: VerifierGate["id"];
 	readonly symptom: string;
 	readonly resolution: string;
 	readonly traceSnippet: string;
@@ -44,10 +48,10 @@ export interface InferenceScenario {
 	readonly id: string;
 	readonly tabLabel: string;
 	readonly mode:
-		| "COLD_START_N1"
-		| "MULTI_SOURCE_EXPANSION"
-		| "HYBRID_PER_SOURCE"
-		| "VERIFIED_NO_OP";
+		| "COLD_START_W1"
+		| "MULTI_SOURCE_BKCC"
+		| "ADDITIVE_EXT_W2"
+		| "HORIZON_STEER";
 	readonly inputs: string;
 	readonly strategy: string;
 	readonly algorithms: string;
@@ -58,16 +62,17 @@ export interface ConnectorSpec {
 	readonly id: string;
 	readonly name: string;
 	readonly executionClass:
-		| "DIRECT_DUCKDB_ATTACH"
-		| "REMOTE_PUSHDOWN_PLUS_ARROW_SAMPLE"
-		| "DOCUMENT_SPAN_EXTRACTOR";
+		| "LOCAL_FILE_INSPECT_AND_ATTACH"
+		| "COLUMNAR_VECTOR_PROFILE"
+		| "SSRF_GUARDED_KEYRING_PUSHDOWN"
+		| "SYNCHRONOUS_DOCUMENT_MAP";
 	readonly introspection: string;
 }
 
 export interface DialectSnippet {
 	readonly id: string;
 	readonly label: string;
-	readonly lang: "sql" | "yaml" | "bash";
+	readonly lang: "sql" | "json" | "bash";
 	readonly filename: string;
 	readonly code: string;
 }

@@ -1,85 +1,45 @@
-# `open-dv` — Open Neuro-Symbolic Data Vault 2.0 Modeller, Verifier & SQL Compiler (`v7.0`)
+# `open-dv` — Neuro-Symbolic Data Vault 2.0 Modeller, CEGAR Prover & Multi-Dialect Compiler (`2.0.0`)
 
-**`open-dv`** is an open-source, neuro-symbolic **Data Vault 2.0 (DV 2.0)** modelling, verification, and SQL compilation platform (`dv-firstmate` + `no-mistakes` + `axi-dv`). It transforms messy operational schemas, evolving multi-source tables, and unstructured business documents into mathematically verified **Raw Vault**, **Business Vault**, and **Information Mart** (`information_mart`) models (`Hub`, `Link`, `Satellite`, `PIT`, `Bridge`) and executable **5-Zone (`Z0–Z4`)** SQL (emitted internally as `final_four_zone.sql` by `compiler_4zone`)—without ever trusting an LLM to write raw SQL directly.
+[![Architecture: Zero Unverified LLM SQL](https://img.shields.io/badge/Architecture-Zero%20Unverified%20LLM%20SQL-cc785c.svg)](docs/designs/v2-clean-sheet-architecture.md)
+[![Data Vault: 2.0 Verified](https://img.shields.io/badge/Data%20Vault-2.0%205--Zone%20(Z0--Z4)-181715.svg)](docs/DV2_AGENT_REFERENCE_GUIDE.md)
+[![Design System: WCAG 2.1 AA](https://img.shields.io/badge/Design%20System-Claude%20WCAG%20AA-8f442d.svg)](DESIGN.md)
+[![Storage Targets: 11 Emitters](https://img.shields.io/badge/Emitters-11%20Targets-2d7a4f.svg)](src/opendv/storage/)
+
+**`open-dv`** is an open-source neuro-symbolic Data Vault 2.0 (**Hubs**, **Links**, **Satellites**, **PITs**, **Bridges**, and **Reference Tables**) platform that turns heterogeneous operational sources ($N = 1 \to N + 1$), drifting upstream schemas ($S_k(t) \to S_k(t+1)$), and unstructured enterprise documents into mathematically verified, insert-only Data Vault 2.0 architectures—**without ever trusting an LLM to write raw SQL DDL or DML**.
 
 ---
 
 ## Table of Contents
 
-- [1. What is `open-dv`? (Project Overview & Architecture at a Glance)](#1-what-is-open-dv-project-overview--architecture-at-a-glance)
-- [2. 5-Minute Developer Quick Start](#2-5-minute-developer-quick-start)
-  - [Step 1: Prerequisites & Installation](#step-1-prerequisites--installation)
-  - [Step 2: Configure Your Agent Harness (`harness_config.yaml`)](#step-2-configure-your-agent-harness-harness_configyaml)
-  - [Step 3: Validate Inputs & Run the End-to-End Agentic Pipeline (`opendv pipeline`)](#step-3-validate-inputs--run-the-end-to-end-agentic-pipeline-opendv-pipeline)
-  - [Step 4: Run Standalone Symbolic Verification, Compilation & DuckDB Sandbox](#step-4-run-standalone-symbolic-verification-compilation--duckdb-sandbox)
-  - [Step 5: Launch the Unified Platform Server & 4-Tab Web Workbench (`:8420`)](#step-5-launch-the-unified-platform-server--4-tab-web-workbench-8420)
-  - [Step 6: Run the Unified 6-Step Wizard, DV Schema Explorer (`/dv-schema`) & `SessionLogsInspector`](#step-6-run-the-unified-6-step-wizard-dv-schema-explorer-dv-schema--sessionlogsinspector)
-- [3. CLI Command Reference & Monorepo Structure](#3-cli-command-reference--monorepo-structure)
-- [4. Documentation & Specification Map](#4-documentation--specification-map)
-- [Appendix: Deep-Dive Technical Reference & Specifications](#appendix-deep-dive-technical-reference--specifications)
-  - [A.1 8-Stage Agentic Pipeline Architecture (`STAGE_00` – `STAGE_07`)](#a1-8-stage-agentic-pipeline-architecture-stage_00--stage_07)
-  - [A.2 Input Artifacts & Harness Configuration Matrix](#a2-input-artifacts--harness-configuration-matrix)
-  - [A.3 Global Commerce Vault 4-Wave Progressive Sample Dataset](#a3-global-commerce-vault-4-wave-progressive-sample-dataset)
-  - [A.4 Core Architecture, Mathematical Invariants & Rule Taxonomies](#a4-core-architecture-mathematical-invariants--rule-taxonomies)
-  - [A.5 Full CLI & Remote Platform API Command Recipes](#a5-full-cli--remote-platform-api-command-recipes)
-  - [A.6 Normative Test Suite & Coverage Matrix](#a6-normative-test-suite--coverage-matrix)
+1. [What Is `open-dv` V2?](#1-what-is-open-dv-v2)
+2. [5-Minute Developer Quick Start](#2-5-minute-developer-quick-start)
+3. [7-Step Workbench Workflow & Explorer Surfaces](#3-7-step-workbench-workflow--explorer-surfaces)
+4. [CLI Command Reference (`opendv`) & MCP Server](#4-cli-command-reference-opendv--mcp-server)
+5. [Repository Structure & 4-Layer Architecture](#5-repository-structure--4-layer-architecture)
+6. [11 Step-7 Dialect & Orchestrator Emitters](#6-11-step-7-dialect--orchestrator-emitters)
+7. [Portable `.opendv.zip` Bundles & `data/public_am/` Walkthrough](#7-portable-opendvzip-bundles--datapublic_am-walkthrough)
+8. [Documentation & Specification Map](#8-documentation--specification-map)
+9. [Verification, Testing & Build Gates](#9-verification-testing--build-gates)
 
 ---
 
-## 1. What is `open-dv`? (Project Overview & Architecture at a Glance)
+## 1. What Is `open-dv` V2?
 
-Data Vault 2.0 delivers 100% historical auditability, decoupled parallel ingestion, and resilience to upstream schema drift by decomposing enterprise data into **Hubs** (business keys/identity), **Links** (associations and transactions), and **Satellites** (insert-only temporal attributes), joined via deterministic cryptographic hash keys (`_hk`) and change digests (`hash_diff`).
-
-When autonomous LLM agents design or evolve Data Vault schemas without formal guardrails, five fatal traps—**Source-Driven Hub Proliferation**, **Surrogate Key Leakage**, **Silent Hash Collisions**, **Soft Rule Contamination**, and **Destructive Satellite `UPDATE`s**—can silently corrupt historical lineage.
-
-> [!IMPORTANT]
-> **Mission & Core Architectural Separation: Target-Agnostic DV 2.0 Models vs. Reference SQL**
-> - **Mission:** `open-dv` transforms evolving operational schemas ($N=1 \to N+1$), drifting tables ($S_k(t) \to S_k(t+1)$), and unstructured enterprise documents into mathematically verified **Data Vault 2.0** models—**without ever trusting an LLM to write raw SQL directly.** (See [`docs/00-mission-vision-and-functional-requirements.md`](docs/00-mission-vision-and-functional-requirements.md) and [`AGENTS.md`](AGENTS.md).)
-> - **Primary Downstream Deliverables (Target-Agnostic):** The core product of `open-dv` for your enterprise data platform is the verified declarative model contract (**`final_contract.yaml`**) and lowered Canonical Intermediate Representation (**`final_canonical_ir.json`**). These artifacts are 100% vendor-neutral and feed any downstream warehouse compiler or metadata framework (**dbt / AutomateDV / datavault4dbt, Snowflake, BigQuery, Databricks, SQLMesh**, etc.).
-> - **Role of the Reference DuckDB SQL Bundle (`final_four_zone.sql` / 5-Zone `Z0–Z4` Standard):** The included `compiler_4zone` DuckDB compiler emits `final_four_zone.sql` across **5 Zones (`Z0–Z4`)** (`bronze`, `staging`, `raw_vault`, `business_vault`, `information_mart`). While internal module/file names (`compiler_4zone`, `final_four_zone.sql`) stay intact for parity, all UI and DV Schema Explorer views standardize on **5-Zone (`Z0–Z4`)** and **`information_mart`**. It serves as **(1) `open-dv`'s internal Stage 06 dynamic verification harness** (proving grain uniqueness, zero hash collisions, bi-temporal PIT accuracy, and replay idempotency across 4 Adversarial Shadow Sandbox Batches before sealing a contract) and **(2) an executable golden reference implementation**. Running DuckDB in production is **never** required to adopt `open-dv`. (See [`docs/16-human-and-agent-usage-guide.md`](docs/16-human-and-agent-usage-guide.md) for full integration playbooks.)
-
-`open-dv` prevents these failure modes through **four core pillars**:
-
-1. **Multi-Agent Pipeline (`opendv pipeline` / `packages/opendv-agent-harness`)**
-   Orchestrates four specialized agent personas—`vault-first-mate` (read-only supervisor), `scout-source` (relational Bronze statistical profiler & drift detector), `scout-unstructured` (span-grounded NER & 3-Tier entity resolver), and `ship-vault` (3-Pass Chain-of-Thought contract modeller)—across an **8-stage pipeline (`STAGE_00`–`STAGE_07`)**. Supports semantic `reasoning` / `fast` model tiers and optional fine-grained per-agent `agent_models` overrides across four production harness adapters: `agy` (`agy` CLI), `claude-cli` (`claude` CLI), `antigravity` (Google Antigravity SDK), and `claude` (Claude Agent SDK).
-2. **Deterministic Symbolic Verifier & Compiler (`packages/opendv-core` + `packages/opendv-axi-verifier` + `packages/opendv-duckdb-sandbox`)**
-   Agents emit **only** a declarative YAML/JSON contract ([`schemas/no-mistake-dv2-contract-v5.schema.json`](schemas/no-mistake-dv2-contract-v5.schema.json)). The symbolic **6-Gate `axi-dv` verifier** enforces **6 fundamental stability invariants (`INV-01..06`)**, **8 schema-evolution rules (`EVO-01..08`)**, **15 anti-pattern guards (`AP-01..15`)**, length-prefixed SHA-256 hashing (`Algorithm A.5`), `sqlglot` AST verification (`Algorithm A.6`), `networkx` bipartite DAG checks (`DV-STR-*` / `DV-COL-*`), and a **Gate 4 YAGNI write-amplification cost guard** ($W_{\text{amp}} \ge 50\text{ MB/day}$). Verified contracts are lowered into Canonical IR ([`schemas/dv2-canonical-ir.schema.json`](schemas/dv2-canonical-ir.schema.json)), compiled into **5-Zone (`Z0–Z4`)** DuckDB/Databricks SQL (`final_four_zone.sql`), and tested against **4 Adversarial Shadow Sandbox Batches** (`DV-DYN-001..015`) in an in-memory DuckDB instance, feeding compact `@toon_v1` error traces back to `ship-vault` for closed-loop self-healing.
-3. **Unified Single-App Platform Server, 4-Tab Claude `DESIGN.md` Workbench & 4-View DV Schema Explorer (`apps/opendv-platform-api` + `apps/opendv-web-workbench`)**
-   Serves both the `/api/v1/*` FastAPI REST + W3C Server-Sent Events (SSE) backend and the compiled Claude [`DESIGN.md`](DESIGN.md) **4-tab Web Workbench** (`Ontology & Pipeline`, `DV Schema Explorer`, `Run Explorer`, `Settings`) on a single auth-free loopback port (`http://127.0.0.1:8420`). Non-loopback `--host` bindings are refused with exit code `40` unless `--allow-remote-unauthenticated` is explicitly supplied (`D18`). Desktop-first (`1440×920` / `1024×768`) with clean `< 768px` view-only stacking (`D26`), the Workbench exposes the **Unified 6-Step Wizard** (replacing legacy separate `/ontology` and `/builder` screens), the **4-View `DV Schema Explorer`** (`/dv-schema`) with persisted DuckDB row previews and a read-only `validate_safe_sql` SQL runner (`D11`), live **`SessionLogsInspector`** (`EventSource` `/logs/stream` + `50 MB` `.gz` / `.jsonl` bundle retention, `D24`), live header **Cost Meter** & fail-closed **`BudgetHold`** (`D21`), and shared `<AgentHarnessConfigCard />` in **`Settings`**.
-4. **Agent-First Unified 6-Step Ontology & Pipeline Wizard (`packages/opendv-service` + `packages/opendv-sources` + `apps/opendv-web-workbench`)**
-   Unifies enterprise ontology construction (`Graph A`) and Data Vault 2.0 contract synthesis into a single **Agent-only UI** (`D28`: zero deterministic toggle in the UI; fails closed with `422 AGENT_NOT_CONFIGURED` until a real provider is verified). Enforces one active job per session (`409 SESSION_JOB_ACTIVE`, `D27`), new-schema wizard sessions (`wizard_schema_version`, `D25`), multi-connector ingestion (`SQLite`, `DuckDB`, `Databricks UC`, `CSV`/`Parquet`/`XLSX`, `PDF`/`DOCX`), single-pass `@term-scout -> @domain-clarifier -> @ontology-architect` synthesis (`D1`) with `Ask FIBO` (`D2`), `CitationInspectorDrawer`, optional `VisualEditorDrawer` (`D15`), **`Fast-Forward`** (`Step 3 -> Step 6`, `D8`), **`Export Ontology Only`** (`D9`), auto-bound `deployed_contract` (`D12`), `00..06` live console pills (`docs/28 §4.4`), inline **`StewardHoldModal`** (`D14`), and **`↺ Sync Drift`** (`D10`). (See [`docs/27`](docs/27-unified-ontology-pipeline-requirements-and-uat.md), [`docs/28`](docs/28-unified-ontology-pipeline-design-and-plan.md), [`docs/19`](docs/19-ontology-studio-architecture.md), and [`docs/20`](docs/20-ontology-studio-spec.md).)
-
-### Architecture Flow at a Glance
+Open-DV V2 separates **probabilistic business modeling** (handled by LLM agents over typed JSON proposals) from **deterministic Data Vault 2.0 verification and SQL emission** (handled by symbolic analyzers, an in-memory DuckDB 3-Loop CEGAR prover, and pure AST emitters):
 
 ```mermaid
 flowchart LR
-    subgraph Inputs ["1. Inputs"]
-        A["Graph A Ontology (YAML)\n+ Relational CSV / Parquet\n+ Unstructured Docs (TXT/PDF)\n+ Optional Prior Contract"]
-    end
-
-    subgraph Agents ["2. Multi-Agent Discovery & Modelling (STAGE_00..04)"]
-        FM["vault-first-mate\n(Orchestrator)"]
-        SS["scout-source\n(Graph B Profiler & Drift)"]
-        SU["scout-unstructured\n(Span NER & 3-Tier ER)"]
-        SV["ship-vault\n(3-Pass CoT Modeller)"]
-        FM --> SS & SU --> SV
-    end
-
-    subgraph Symbolic ["3. Symbolic Verifier & DuckDB Sandbox (STAGE_05..06)"]
-        AXI["6-Gate axi-dv Verifier\n(INV-01..06, EVO-01..08, AP-01..15,\nAlg A.1..A.9b, NetworkX, SQLGlot)"]
-        SBX["4-Batch DuckDB Shadow Sandbox\n(DV-DYN-001..015 & Bi-Temporal PIT)"]
-        AXI --> SBX
-    end
-
-    subgraph Outputs ["4. 5-Zone SQL (Z0-Z4) & 4-Tab DESIGN.md Workbench (STAGE_07)"]
-        OUT["Verified Contract + Canonical IR\n+ Executable 5-Zone SQL (final_four_zone.sql)\n+ 4-Tab Workbench & DV Schema Explorer"]
-    end
-
-    Inputs --> Agents
-    SV -- "dv_model_contract.yaml" --> AXI
-    AXI -- "Auto-Fix / @toon_v1 Self-Heal" --> SV
-    SBX --> Outputs
+    S["Step 1: Scope & Seeds<br/>Project Init, Starter Packs & .opendv.zip"] --> B["Step 2-3: Sources & Preview<br/>ConnectorAdapter + PII Guard + DocumentMap"]
+    B --> GA["Step 4-5: Discovery & Ontology Explorer<br/>FIBO Core Pack (2,206) + 34-op OntologyDelta"]
+    GA --> CEGAR["Step 6: Vault Synthesis (3-Loop CEGAR)<br/>Zero-SQL VaultSchemaIR v2.0 + DuckDB Prover + Budget Meter"]
+    CEGAR --> EMIT["Step 7: Storage & Targets (v7)<br/>11 Targets across 5-Zone (Z0-Z4) + Live Query"]
 ```
+
+### Core V2 Capabilities
+- **Zero Unverified LLM SQL (`OBJ-01`):** Agents never generate SQL DDL or DML; they emit `OntologyDelta` (`34` operations) and declarative `VaultSchemaIR v2.0` (`UniversalVaultSchemaIR`) specifications compiled deterministically in Python.
+- **5-Zone Standard (`Z0–Z4`):** `bronze` (`Z0`), `staging` (`Z1`), `raw_vault` (`Z2`), `business_vault` (`Z3`), and `information_mart` (`Z4`).
+- **4-Layer Python Core (`src/opendv/`):** Consolidated clean-sheet package replacing legacy multi-package workspaces, backed by SQLite WAL `project.sqlite` persistence (`5` tables), Win32/POSIX ACL-hardened `KeyringSecretStore`, and `34` closed `ErrorCode`s.
+- **Unified `opendv` CLI + `:8420` Web Workbench:** One Python CLI (`46` subcommands defined in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json)) running either in-process or remotely via `--api-url`, plus a React 19 WCAG 2.1 AA Web Workbench ([`web/`](web/)) and read-only MCP bridge (`opendv mcp serve`).
 
 ---
 
@@ -87,739 +47,174 @@ flowchart LR
 
 ### Step 1: Prerequisites & Installation
 
-Ensure you have the following installed:
-- **Python `>=3.12`** and **[`uv`](https://docs.astral.sh/uv/)**
-- **[`bun`](https://bun.sh/) `>=1.1`** (for the TypeScript Protocol SDK and 4-Tab Claude `DESIGN.md` Web Workbench)
-- **At least one LLM Agent Harness** (for running `opendv pipeline run`):
-  - Local logged-in **`agy` CLI** (`provider: agy`) or **`claude` CLI** (`provider: claude-cli`)
-  - Or API credentials for **Google Antigravity / Gemini** (`provider: antigravity`, `$GEMINI_API_KEY` or Vertex ADC) or **Anthropic Claude** (`provider: claude`, `$ANTHROPIC_API_KEY`, AWS Bedrock, or Vertex ADC)
-  - *(Note: Standalone symbolic verification, compilation, and DuckDB sandbox commands in Step 4 require zero LLM credentials.)*
-
-Install all Python and TypeScript workspace packages from the repository root:
+Requires **Python 3.12+**, **`uv`**, and **Bun 1.x** (for the React 19 Web Workbench and Astro docs site):
 
 ```bash
-# Install all Python workspace libraries and CLI entrypoints (opendv, axi-dv)
-uv sync --all-packages
+# Install Python dependencies and unified opendv CLI entrypoint
+uv sync
 
-# Install TypeScript dependencies for the Protocol SDK and Web Workbench
-bun install
-# (Or specifically for the workbench: bun install --cwd apps/opendv-web-workbench)
+# Build the React 19 Web Workbench bundle into web/dist/
+bun install --cwd web
+bun run --cwd web build
+
+# Verify local environment, schema contracts, and agent harnesses
+uv run opendv --json doctor
 ```
+
+### Step 2: Configure Secrets & Harness Settings
+
+Store LLM or catalog credentials securely in your OS keyring (`KeyringSecretStore`) or local development `.env` (see [`.env.example`](.env.example)), never inside project state or `project.sqlite`:
+
+```bash
+# Interactive/stdin secret storage (never echoed to telemetry or .opendv.zip exports)
+uv run opendv secrets set ANTHROPIC_API_KEY --prompt
+uv run opendv --json settings show
+```
+
+### Step 3: Initialize a Project, Attach Real Data & Build Through Step 7
+
+Run an end-to-end Asset Management walkthrough using [`data/public_am/`](data/public_am/) (see [`examples/v2_asset_management/README.md`](examples/v2_asset_management/README.md) for the full script):
+
+```bash
+# 1. Create a project seeded with an Asset Management starter pack
+uv run opendv project init --project am_demo --namespace asset_management --starter-pack multi_asset_ibor
+
+# 2. Attach SQLite / CSV / Parquet / PDF sources (profiled & PII-checked locally)
+uv run opendv source attach --project am_demo --kind csv --uri data/public_am/sec_13f_holdings.csv
+uv run opendv source attach --project am_demo --kind pdf --uri data/public_am/am_custody_and_voting_guide.pdf
+
+# 3. Ground ontology against FIBO Core Pack (2,206 concepts) + build VaultSchemaIR v2.0
+uv run opendv ontology construct --project am_demo --discovery-mode incremental_new --wait
+uv run opendv vault build --project am_demo --policy balanced --wait
+
+# 4. Verify VaultSchemaIR and emit SQL / dbt deliverables for Step 7
+uv run opendv --json vault verify --project am_demo
+uv run opendv --json storage compile --project am_demo --target duckdb_local --verify-runtime
+```
+
+### Step 4: Launch the Unified Server & 4-Tab Web Workbench (`:8420`)
+
+```bash
+# Windows PowerShell / CMD launchers also wrap: uv run opendv serve
+uv run opendv serve --host 127.0.0.1 --port 8420
+```
+
+Open **`http://127.0.0.1:8420`** in your browser. Loopback access runs without login/token prompts; non-loopback `--host` binding fails closed with exit code `40` unless `--allow-remote-unauthenticated` is explicitly passed.
 
 ---
 
-### Step 2: Configure Your Agent Harness (`harness_config.yaml`)
+## 3. 7-Step Workbench Workflow & Explorer Surfaces
 
-`open-dv` decouples its 8-stage pipeline from any single LLM vendor via [`HarnessSetupConfig`](docs/12-agentic-pipeline-inputs-and-harness-guide.md#1-agent-harness-configuration-harnesssetupconfig--harness_configyaml):
-- **`provider`**: Selects the execution adapter (`agy`, `claude-cli`, `antigravity`, or `claude`).
-- **`model_overrides`**: Maps the two semantic tiers—`reasoning` (`vault-first-mate` orchestration & `ship-vault` 3-Pass CoT modelling/repair) and `fast` (`scout-source` profiling & `scout-unstructured` span extraction)—to concrete model IDs.
-- **`agent_models`** *(optional)*: Fine-grained per-agent model overrides (`vault-first-mate`, `scout-source`, `scout-unstructured`, `ship-vault`) that take highest precedence over `model_overrides`.
+The React 19 Web Workbench ([`web/`](web/), governed by [`DESIGN.md`](DESIGN.md) WCAG 2.1 AA tokens) exposes **4 top-level tabs**:
 
-Example minimal `harness_config.yaml`:
-
-```yaml
-provider: agy # Options: agy | claude-cli | antigravity | claude
-
-model_overrides:
-  reasoning: gemini-4-argon-high # Or claude-opus-4-6 for claude / claude-cli
-  fast: gemini-3.8-flash-high    # Or claude-haiku-4-5 for claude / claude-cli
-
-# Optional per-agent overrides (precedence: agent_models[persona] -> model_overrides[tier] -> provider default):
-# agent_models:
-#   vault-first-mate: gemini-4-argon-high
-#   scout-source: gemini-3.8-flash-high
-#   scout-unstructured: gemini-3.8-flash-high
-#   ship-vault: gemini-4-argon-high
-
-auth:
-  auth_mode: cli_session # Options: cli_session | api_key_env | vertex_adc | aws_bedrock | none
-  require_credentials_present: false
-
-steward_hold_policy: auto_approve_top_candidate # Options: auto_approve_top_candidate | pause | reject_on_hold
-```
-
-Ready-to-use sample configurations are included in [`examples/pipeline_samples/global_commerce_vault/`](examples/pipeline_samples/global_commerce_vault/):
-- [`harness_config.yaml`](examples/pipeline_samples/global_commerce_vault/harness_config.yaml) / [`harness_config_agy.yaml`](examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml) (`provider: agy`)
-- [`harness_config_claude_cli.yaml`](examples/pipeline_samples/global_commerce_vault/harness_config_claude_cli.yaml) (`provider: claude-cli`)
-- [`harness_config_antigravity.yaml`](examples/pipeline_samples/global_commerce_vault/harness_config_antigravity.yaml) (`provider: antigravity`)
-- [`harness_config_claude.yaml`](examples/pipeline_samples/global_commerce_vault/harness_config_claude.yaml) (`provider: claude`)
-
-See [docs/12-agentic-pipeline-inputs-and-harness-guide.md](docs/12-agentic-pipeline-inputs-and-harness-guide.md) for the complete authentication and configuration reference.
+| Topbar Tab | Route | Purpose |
+| :--- | :--- | :--- |
+| **Project Workflow** | `/projects/:id/step/1..7` | **7-Step** modeling track (**1. Scope & Seeds**, **2. Sources & Secrets**, **3. Preview & Clusters**, **4. Discovery**, **5. Ontology Explorer**, **6. Vault Synthesis**, **7. Storage & Targets**) with **`Guided ⇄ Observatory`** mode switch, **`Readiness` / `Revision`** status pills, and live **`Budget Meter`** (`Turns · Tokens · Active Seconds`). |
+| **DV Schema Explorer** | `/projects/:id/explorer` | 4-View explorer (**Lineage Graph**, **Table Catalog**, **SQL & DDL**, **5-Zone Matrix**) built with accessible `@xyflow/react` canvases (`>= 3:1` edge contrast and `2px` `:focus-visible` focus rings). |
+| **Run Explorer** | `/projects/:id/runs` | Per-run attempt timeline, CEGAR iteration diffs, live W3C SSE log inspector, budget adjustments (`+turns`/`+tokens`), and Horizon Critic (`v7`/`v8`) review actions. |
+| **Settings** | `/settings` | Harness provider & tier selection (`agy`, `claude`, `gemini`), `CegarPolicy` presets, secret backend & workspace root trust management, and MCP server registration. |
 
 ---
 
-### Step 3: Validate Inputs & Run the End-to-End Agentic Pipeline (`opendv pipeline`)
+## 4. CLI Command Reference (`opendv`) & MCP Server
 
-Use `opendv pipeline validate` to run deterministic pre-flight checks on your input specification, ontology, data sources, and harness config, then run `opendv pipeline run` to execute the 8-stage neuro-symbolic pipeline.
+All `46` subcommands are defined canonically in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json) and auto-documented in [`docs/16-cli-reference.md`](docs/16-cli-reference.md):
 
-```bash
-# 1. Pre-flight deterministic input validation (Wave 0 baseline cold-start spec)
-uv run opendv pipeline validate \
-  --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml \
-  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml \
-  --json
+| Command Group | Key Subcommands | Purpose |
+| :--- | :--- | :--- |
+| `opendv project` | `init`, `list`, `show`, `delete`, `export`, `import` | Create, inspect, and export/import portable `.opendv.zip` archives (`core_project_state` default; `--full-demo` optional). |
+| `opendv source` | `adapters`, `inspect`, `attach`, `list`, `reattach`, `detach`, `note`, `approve-scan` | Inspect/attach CSV, Parquet, SQLite, DuckDB, Postgres, PDF, Markdown, or unstructured notes with SSRF/PII checks. |
+| `opendv ontology` | `construct`, `answer`, `control`, `validate`, `commit`, `export`, `fibo-qa` | Construct & evolve `GraphAOntology` via CAS `OntologyDelta`s and FIBO BM25 citation resolution. |
+| `opendv vault` | `build`, `control`, `hold`, `horizon`, `logs`, `verify`, `waive` | Run the 3-Loop CEGAR `VaultSchemaIR v2.0` builder, inspect SSE logs, resolve steward holds, manage waivers & Horizon Critic checks. |
+| `opendv storage` | `compile`, `migrate`, `query`, `regenerate` | Lower verified `VaultSchemaIR v2.0` to any of the `11` Step-7 targets (`v7`), run sandbox/migrations, and issue guarded read-only SQL queries. |
+| `opendv agents` / `mcp` | `agents list\|inspect`, `mcp list\|register\|remove\|serve` | Manage built-in agent harnesses and launch the read-only local MCP server (`opendv mcp serve`). |
+| `opendv secrets` / `settings` / `doctor` / `serve` | `secrets set\|list\|delete`, `settings show\|set\|trust-workspace`, `doctor`, `serve` | Manage OS keyring secrets, CEGAR policies, trusted workspaces, system health, and the `:8420` HTTP/SSE host. |
 
-# 2. Run Wave 0 (Day-1 Cold Start, N=1: CRM Customers + ERP Orders)
-#    --stream (default) prints live [Wave W][STAGE 00..07] progress
-#    --stream-tokens streams live LLM token deltas from the harness
-uv run opendv pipeline run \
-  --stream \
-  --stream-tokens \
-  --role INTERNAL_MODELER \
-  --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml \
-  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml \
-  --output-dir /tmp/opendv-quickstart/wave0
-
-# 3. Run Wave 1 Incremental Evolution (N=1 -> N=2: Stripe EU Billing Invoices)
-#    Passes Wave 0's verified contract via --initial-contract to enforce Algorithm A.7 additive evolution locks
-uv run opendv pipeline run \
-  --stream \
-  --role INTERNAL_MODELER \
-  --input examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml \
-  --initial-contract /tmp/opendv-quickstart/wave0/final_contract.yaml \
-  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml \
-  --output-dir /tmp/opendv-quickstart/wave1
-```
-
-> [!TIP]
-> Pass `--no-stream` to silence stage progress, or combine `--stream --json` to stream live stage/token progress to `stderr` while keeping `stdout` pure machine-parseable JSON. You can also run all 4 sample waves (`wave0`..`wave3`) in a single regression command using `--input examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml`.
-
-**Inspecting Generated Artifacts:**
-Each pipeline run seals its verified outputs and per-wave intermediate artifacts into `--output-dir`:
-- `final_contract.yaml` (and per-wave `waves/wave_<w>/wave_<w>_contract_verified.yaml`) — Verified `NoMistakeDataVault2ContractV5` model contract (`dv_model_contract.yaml` schema).
-- `final_canonical_ir.json` — Lowered Canonical Intermediate Representation (`CanonicalIR`).
-- `final_four_zone.sql` (and `waves/wave_<w>/wave_<w>_four_zone.sql`) — Generated 5-Zone (`Z0–Z4` + `information_mart`) DuckDB SQL DDL/DML + bi-temporal PIT queries (internal parity filename `final_four_zone.sql`).
-- `pipeline_report.json` & `pipeline_report.md` — Full `AgenticPipelineReport` run report (`pipeline_run_report.json` telemetry, gate verdicts, token/cost metrics, and CAS SHA-256 digests).
-- `vault-ledger.jsonl` — Append-only `VaultObservabilityEvent` stream for the Web Workbench.
-
-```bash
-# Inspect the RBAC-redacted pipeline run report via CLI
-uv run opendv pipeline report \
-  --role INTERNAL_MODELER \
-  --report-path /tmp/opendv-quickstart/wave1/pipeline_report.json \
-  --json
-```
+Use global `--api-url http://127.0.0.1:8420` to proxy any CLI command through a running `:8420` server, or omit it for direct in-process execution over `.opendv/projects/<id>/project.sqlite`.
 
 ---
 
-### Step 4: Run Standalone Symbolic Verification, Compilation & DuckDB Sandbox
-
-You can run the deterministic 6-Gate `axi-dv` verifier, 5-Zone (`Z0–Z4`) SQL compiler (`compiler_4zone`), and 4-Batch Adversarial DuckDB Shadow Sandbox standalone (in-process via `opendv`, with zero LLM calls) against the included Private Equity reference package in [`examples/private_equity/`](examples/private_equity/):
-
-```bash
-# 1. Verify a Data Vault 2.0 contract through Gates 0–5 (add --toon for compact @toon_v1 trace output)
-uv run opendv verify \
-  --contract examples/private_equity/dv_pe_model_contract.yaml \
-  --graph-a examples/private_equity/pe_graph_a_ontology.yaml \
-  --graph-b examples/private_equity/pe_graph_b_profile.json
-
-# 2. Compile a verified contract into Canonical IR & 5-Zone (Z0–Z4) DuckDB SQL
-uv run opendv compile \
-  --contract examples/private_equity/dv_pe_model_contract.yaml \
-  --canonical-ir examples/private_equity/pe_canonical_ir.json
-
-# 3. Execute the 4-Batch Adversarial DuckDB Shadow Sandbox (DV-DYN-001..015) & Query D.10 PIT audit
-uv run opendv sandbox \
-  --contract examples/private_equity/dv_pe_model_contract.yaml \
-  --canonical-ir examples/private_equity/pe_canonical_ir.json \
-  --query-type ADVERSARIAL_BATCHES_1_TO_4 \
-  --cutoff "2026-11-15 23:59:59"
-```
-
----
-
-### Step 5: Launch the Unified Platform Server & 4-Tab Web Workbench (`:8420`)
-
-`opendv-platform-api` serves both the `/api/v1/*` REST + SSE backend and the compiled static React 19 **Claude [`DESIGN.md`](DESIGN.md) 4-Tab Web Workbench** on a single auth-free loopback port (`http://127.0.0.1:8420`, zero login tokens or CSRF headers required on loopback; non-loopback `--host` is refused with **exit code `40`** unless `--allow-remote-unauthenticated` is explicitly supplied under `D18`):
-
-```bash
-# 1. Build the static Web Workbench bundle into apps/opendv-web-workbench/dist/
-bun run --cwd apps/opendv-web-workbench build
-
-# 2. Launch the unified single-app Platform & Web Workbench Server on http://127.0.0.1:8420
-uv run opendv serve --host 127.0.0.1 --port 8420 --open
-# (Or via entrypoint: uv run opendv-platform --host 127.0.0.1 --port 8420)
-```
-
-- **Tab 1 — `Ontology & Pipeline` (`/`, `/ontology`, `/builder`):** [http://127.0.0.1:8420/](http://127.0.0.1:8420/) — Unified 6-Step Wizard (`OntologyWizardShell`) unifying ontology construction and Data Vault 2.0 pipeline synthesis (`D19`).
-- **Tab 2 — `DV Schema Explorer` (`/dv-schema`):** [http://127.0.0.1:8420/dv-schema](http://127.0.0.1:8420/dv-schema) — 4-View Data Vault 2.0 topology, 100% column triage & wave diff, persisted DuckDB row browser + read-only SQL runner (`validate_safe_sql`, `D11`), and `5-Zone (Z0–Z4)` + `information_mart` SQL/IR inspector.
-- **Tab 3 — `Run Explorer` (`/explorer`, `/stages/00..07`):** [http://127.0.0.1:8420/explorer](http://127.0.0.1:8420/explorer) — Run scorecards, gate verdicts, and stage drilldowns (`STAGE_00`–`STAGE_07`).
-- **Tab 4 — `Settings` (`/settings`):** [http://127.0.0.1:8420/settings](http://127.0.0.1:8420/settings) — Shared `<AgentHarnessConfigCard />` for provider, `reasoning`/`fast` & per-persona model routing, auth env vars, `HarnessBudget` Cost Meter (`D21`), and policies. **Agent-only UI (`D28`)**: zero deterministic mode toggle is exposed in Settings or the Wizard.
-- **OpenAPI Swagger UI & Health Check:** [http://127.0.0.1:8420/docs](http://127.0.0.1:8420/docs) | [http://127.0.0.1:8420/api/v1/health](http://127.0.0.1:8420/api/v1/health)
-
-See **[`docs/12-unified-platform-web-and-cli-setup.md`](docs/12-unified-platform-web-and-cli-setup.md)** for the complete unified setup and Web/CLI workflow guide. *(Desktop-first responsive shell calibrated for `1440×920` / `1024×768`; `< 768px` collapses into view-only mode under `D26`. For frontend hot-reload development only, run `bun run --cwd apps/opendv-web-workbench dev` on `:5173`.)*
-
----
-
-### Step 6: Run the Unified 6-Step Wizard, DV Schema Explorer (`/dv-schema`) & `SessionLogsInspector`
-
-1. **Unified 6-Step Wizard (`Ontology & Pipeline`):**
-   - **Step 1 — Scope & Baseline:** Start from Blank `v0.0.0`, Workspace Seed, 6 Asset-Management Starter Packs, or import `.yaml`/`.json`/`.ttl`. Wizard sessions record `wizard_schema_version` (`D25`) and display a one-line CLI export notice if older legacy sessions exist.
-   - **Step 2 — Sources & Domain Notes:** Attach SQLite, DuckDB, Databricks UC, or CSV/Parquet/XLSX connectors, upload PDF/DOCX/MD (`ocr=auto|force|off`, `do_not_send_to_agent`), or enter Inline Notes.
-   - **Step 3 — Preview Evidence:** Inspect inferred PK/FK/stats and `<= 50` local sample rows (`3a`) + parsed document chunks (`3b`), or click **`Fast-Forward`** (`D8`) straight to Step 6 when using a finalized ontology baseline.
-   - **Step 4 — Agent Setup Gate, Synthesis & Citations:** Fails closed with **`422 AGENT_NOT_CONFIGURED`** until `<AgentHarnessConfigCard />` is verified (`● Agent Ready`). Runs single-pass `@term-scout -> @domain-clarifier -> @ontology-architect` synthesis with live Q&A cascade, unchecked **`MAJOR · Opt-In`**, **`Ask FIBO`**, and **`CitationInspectorDrawer`** (`4c`).
-   - **Step 5 — Visual Diff, DAG & Export:** Inspect the warm-paper `elkjs` DAG, optionally open **`VisualEditorDrawer`** (`D15`), run **`Export Ontology Only`** (`D9`), or commit atomically to CAS.
-   - **Step 6 — DV 2.0 Build & Run:** Auto-binds `deployed_contract` (`D12`), compiles DuckDB/Databricks `5-Zone (Z0–Z4)` + `information_mart` SQL, streams live **`00..06`** console pills (mapped over internal `STAGE_00..07` per [`docs/28 §4.4`](docs/28-unified-ontology-pipeline-design-and-plan.md)), enforces single-job session concurrency (**`409 SESSION_JOB_ACTIVE`**, `D27`), surfaces inline **`StewardHoldModal`** (`D14`) and **`BudgetHold`** (`D21`) tied to the header **Cost Meter**, supports **`↺ Sync Drift`** (`D10`), and links directly to **`DV Schema Explorer`** (`/dv-schema`).
-2. **Live `SessionLogsInspector` & `D13` CLI Parity:**
-   - Click **`Logs & Traces`** or any Step 6 pill (`00..06`) to stream `GET /api/v1/ontology/studio/sessions/{id}/logs/stream` over `EventSource` (`50 MB` `.gz` segment retention & `.jsonl` bundle export, `D24`).
-   - Run the exact same `D13` operations via either CLI (`opendv` or `opendvctl`):
-
-```bash
-# Attach a tabular connector source, ask FIBO Q&A, stream live logs, and inspect DV Schema Explorer
-uv run opendv ontology studio attach-source --session <session_id> --adapter csv --uri examples/pipeline_samples/global_commerce_vault/sources/wave0_cold_start/crm_customers.csv
-uv run opendv ontology studio fibo-qa --session <session_id> --question "Which FIBO class aligns to Customer?"
-uv run opendv ontology studio logs --session <session_id> --stage 03 --follow
-uv run opendv run dv-schema --run-id <run_id> --sql "SELECT * FROM information_mart.vw_customer_current LIMIT 10"
-```
-
----
-
-## 3. CLI Command Reference & Monorepo Structure
-
-### Two-CLI Architecture & Command Reference
-
-`open-dv` provides two contract-identical CLIs generated from [`packages/opendv-contracts/schemas/cli-spec.json`](packages/opendv-contracts/schemas/cli-spec.json):
-- **`opendv` (`apps/opendv-cli`)**: Standalone in-process Python CLI executing directly against the shared core in `opendv_service` (zero HTTP server required; air-gapped, local CI/CD).
-- **`opendvctl` (`apps/opendvctl`)**: Bun-compiled standalone binary platform client connecting over HTTP/SSE to `opendv-platform-api` via `--api-url <url>` (default `http://127.0.0.1:8420`).
-
-Both CLIs share identical subcommands, options, exit codes, and RFC 8785 canonical JSON outputs for all verification, compilation, pipeline, and configuration operations (`opendv serve` is standalone-only on `opendv` since it launches the server):
-
-| Command | Purpose & Key Flags |
-| :--- | :--- |
-| `opendv pipeline validate` | Pre-flight deterministic validation of `--input <pipeline_input.yaml>`, `--initial-contract <prev_contract.yaml>`, `--harness-config <harness_config.yaml>`, Graph A ontology, CSV/Parquet sources, and unstructured span bounds. |
-| `opendv pipeline run` | Executes the 8-stage neuro-symbolic pipeline (`STAGE_00`–`STAGE_07`). Supports `--input`, `--initial-contract`, `--harness-config`, `--output-dir`, `--provider`, `--hold-policy`, `--stream` / `--no-stream`, and `--stream-tokens`. |
-| `opendv pipeline report` *(sample-info / run inspection)* | Inspects a completed `AgenticPipelineReport` (`pipeline_report.json`) locally via `--report-path` or remotely via `--run-id`, applying 5-Tier RBAC redaction (`--role`). |
-| `opendv verify` / `axi-dv verify` | Runs the 6-Gate `axi-dv` symbolic verification pipeline (`Gates 0–5`) on `--contract`, `--graph-a`, and `--graph-b`. Supports `--toon` for token-dense `@toon_v1` diagnostic traces. |
-| `opendv profile` | Profiles raw Bronze CSV/Parquet sources (`--source-csv`, `--source-system`, `--table-name`) via `GraphBProfiler` or inspects an existing `--graph-b` JSON profile. |
-| `opendv compile` | Lowers a verified `--contract` into `--canonical-ir` (`CanonicalIR`) and compiles deterministic **5-Zone (`Z0–Z4`)** DuckDB SQL (`final_four_zone.sql` via `compiler_4zone`). |
-| `opendv sandbox` | Executes the 4-Batch Adversarial DuckDB Shadow Sandbox (`--query-type ADVERSARIAL_BATCHES_1_TO_4`) and bi-temporal PIT queries (`QUERY_D10_PIT`, `QUERY_D10B_VALUATION`) at `--cutoff <timestamp>`. |
-| `opendv run [list\|get\|create\|abort\|events\|artifact\|dv-schema]` | Manages verification runs, streams W3C Server-Sent Events (`events --last-event-id <id>`), and inspects Data Vault 2.0 schema graphs, live rows, or read-only DuckDB SQL (`run dv-schema`, `D13`). |
-| `opendv hold [list\|approve\|reject\|answer\|resolve]` | Lists or resolves Steward Captain-Holds (`Tier-U3` ambiguous entity resolution or `Gate 3/4` holds) via `--hold-id`, `--candidate`, and `--notes`. |
-| `opendv ontology [suggest\|validate-delta\|diff\|accept\|reject]` / `opendvctl ontology ...` | Recommends ontology concepts from sources or deltas, validates proposals, diffs candidate models, and applies decision-gated mutations to Graph A. |
-| `opendv ontology studio [init\|create\|delete\|list\|status\|upload\|parse\|clarify\|answer\|construct\|delta\|proposal\|export\|promote\|bundle\|text\|starter-pack\|staged\|attach-source\|fibo-qa\|logs]` / `opendvctl ontology studio ...` | Unified Ontology & Pipeline Studio — **21 `ontology studio` subcommand groups** (including `attach-source`, `fibo-qa`, `logs`, `text`, `starter-pack`, `staged`) managing `wizard_schema_version` CAS sessions, multi-connector ingestion (`D13`), agent synthesis, proposals, diffs, exports (YAML, Canonical JCS JSON, Turtle, JSON-LD), workspace promotion under `graph_a.lock`, and live session/stage logs (`--follow`). |
-| `opendv config [show\|set\|validate]` / `opendvctl config [show\|set\|validate]` | Inspects, updates (`--provider`, `--reasoning-model`, `--fast-model`, `--auth-mode`, `--hold-policy`, `--ontology-policy`, `--harness-config`), and pre-flight validates platform & agent harness settings and provider readiness. |
-| `opendv serve` *(standalone-only)* | Launches the unified Open-DV Platform Server (`:8420`) serving both `/api/v1/*` REST/SSE and the embedded static 4-tab Web Workbench (`--host`, `--port`, `--config`, `--workspace`, `--open`, `--allow-remote-unauthenticated` — non-loopback `--host` exits with code `40` unless explicitly enabled). |
-
-### Monorepo Directory Layout
+## 5. Repository Structure & 4-Layer Architecture
 
 ```text
 open-dv/
-├── packages/
-│   ├── opendv-core/            # Pydantic v2 contracts, Canonical IR, ELM calculus & Alg A.5 SHA-256 hashing
-│   ├── opendv-contracts/       # Pydantic DTOs, schemas, errors & canonical CLI specification (cli-spec.json)
-│   ├── opendv-cli-common/      # Spec-driven argument parser builder, JCS canonical printer & terminal presenters
-│   ├── opendv-service/         # Shared application core use cases (Verify, Compile, Sandbox, Pipeline, Ontology Studio & CAS)
-│   ├── opendv-sources/         # Pluggable source & document adapters (file, inline, duckdb_attach, text, pdf/LiteParse, FIBO loader)
-│   ├── opendv-telemetry/       # JSONL ledger emitter, CAS store, 5-tier RBAC redactor, PII detector & Hash Pills
-│   ├── opendv-axi-verifier/    # 6-Gate axi-dv orchestrator (Alg A.8), AST codemods (A.1..A.9b) & @toon_v1 codec
-│   ├── opendv-duckdb-sandbox/  # GraphBProfiler, IR lowerer, 5-Zone Z0-Z4 SQL compiler (compiler_4zone) & 4-Batch DuckDB Shadow Sandbox
-│   ├── opendv-agent-harness/   # 8-stage AgenticVaultPipeline, 4 personas, 8 tools & agy/claude/CLI/SDK adapters
-│   ├── opendv-testkit/         # Test fixtures, in-memory repositories & transport parity test harnesses
-│   └── opendv-protocol-ts/     # Zero-dependency TypeScript SDK (@opendv/protocol-ts), SSE client & Web Crypto Hash Pills
-├── apps/
-│   ├── opendv-cli/             # Standalone in-process Python CLI (`opendv` & `axi-dv`)
-│   ├── opendvctl/              # Bun-compiled standalone platform client binary
-│   ├── opendv-platform-api/    # FastAPI REST + SSE headless platform server (:8420) & OpenAPI 3.1 exporter
-│   ├── opendv-web-workbench/   # Claude DESIGN.md 4-Tab Web Workbench (:8420; 6-Step Wizard, 4-View DV Schema Explorer, Run Explorer, Settings)
-│   └── opendv-website/         # Static editorial GitHub Pages documentation & tour site
-├── examples/
-│   ├── dv_model_contract.yaml  # Annotated single-Hub multi-source Data Vault 2.0 contract example
-│   ├── private_equity/         # Complete Private Equity reference bundle (Contract, Canonical IR, Graph A, Graph B)
-│   ├── scenarios/              # Adversarial & regression scenario fixtures (e.g., s7_multibyte_utf8)
-│   └── pipeline_samples/
-│       ├── global_commerce_vault/     # 4-wave progressive commerce dataset, per-wave specs & harness_config*.yaml
-│       └── scenario_s2_issue39_bkcc/  # Scenario S2 multi-source convergence & composite-feed BKCC dataset
-├── schemas/                    # Normative JSON Schemas (Draft 2020-12) & OpenAPI 3.1.0 specification
-├── docs/                       # Architecture & engineering specifications (00..28, assets/unified-wizard/, DV2_AGENT_REFERENCE_GUIDE.md)
-├── DESIGN.md                   # Canonical Claude-aligned editorial design tokens & 5-Zone (Z0-Z4) UI standard
-├── AGENTS.md                   # Root Agent & Contributor Constitution (Mission, Guardrails & Conformance)
-└── tests/                      # Normative end-to-end pytest specification suite (+ per-package tests)
+├── src/opendv/                    # Consolidated Python core (strict downward 4-layer DAG)
+│   ├── models/                    # Layer 1: StrictModel DTOs, VaultSchemaIR v2.0, 34 ErrorCodes, RFC 8785 JCS
+│   ├── sources/                   # Layer 2: ConnectorAdapter SPI, profiler, PII/NER taint, FIBO Core Pack (2,206)
+│   ├── verifier/                  # Layer 2: 3-loop CEGAR prover, static/evolution rules, ProblemDetails patches
+│   ├── storage/                   # Layer 2: DuckDB prover sandbox, readonly SQL guard, 11 Step-7 dialect emitters
+│   ├── agents/                    # Layer 3: Harness adapters (agy, claude, gemini), MCP server, budget meter
+│   ├── service/                   # Layer 4: OpenDVService, project.sqlite WAL store, zip_guard, KeyringSecretStore
+│   ├── api/                       # Layer 5: FastAPI REST + SSE (:8420), loopback security guard, static UI host
+│   └── cli/                       # Layer 5: Unified Typer CLI (46 subcommands) + schemas/v2 contract exporter
+├── web/                           # React 19 + Vite + Bun 4-tab WCAG 2.1 AA Web Workbench
+├── apps/opendv-website/           # Astro documentation & V2 showcase site
+├── schemas/v2/                    # Canonical cli-spec.json, error-codes.json, openapi.json, baseline-digests.json
+├── data/public_am/                # Public Asset Management CSV, Parquet, SQLite, DuckDB & PDF test fixtures
+├── examples/v2_asset_management/  # End-to-end V2 Asset Management quickstart guide
+├── vectors/                       # Deterministic RFC 8785 JCS reference vectors (bm25.json, genesis.json)
+├── scripts/                       # Contract/error-code/CLI-doc verification & FIBO vendoring scripts
+├── tests/                         # Python unit, integration, parity, doc-sync, and 12 architecture guard suites
+├── docs/                          # Specifications, UX/UAT guides (docs/29..33), & historical V1 records (docs/00..28)
+├── DESIGN.md                      # Canonical WCAG 2.1 AA design tokens & UX spec
+├── AGENTS.md / CLAUDE.md          # Agent & contributor constitutions
+└── pyproject.toml                 # Single-package uv/hatchling configuration + ruff/mypy/pytest settings
 ```
 
 ---
 
-## 4. Documentation & Specification Map
+## 6. 11 Step-7 Dialect & Orchestrator Emitters
 
-| Document / Schema | Path | When to Read This |
-| :--- | :--- | :--- |
-| **Root Agent & Contributor Constitution (`AGENTS.md`)** | [`AGENTS.md`](AGENTS.md) | **Read first for AI agents and contributors:** Mission statement, Target-Agnostic vs. Verification SQL separation, "Clear on What, Non-Prescriptive on How" guardrails, package boundaries, Ponytail discipline (`§8`), and conformance CLI commands. |
-| **Claude `DESIGN.md` Design System** | [`DESIGN.md`](DESIGN.md) | **Read for UI/theme tokens & layout:** Warm cream/coral/dark-chrome tokens, `Instrument Serif` / `DM Sans` / `JetBrains Mono` typography, `54px` 4-tab Workbench shell, and `5-Zone (Z0–Z4)` + `information_mart` UI standard. |
-| **00 — Mission, Vision, Functional Requirements & Traceability** | [`docs/00-mission-vision-and-functional-requirements.md`](docs/00-mission-vision-and-functional-requirements.md) | **Read for product scope & governance:** Core problem statement, Functional Requirements (`FR-DOM-*`, `FR-VER-*`, `FR-INT-*`), non-prescriptive extensibility principles, 6-Point Conformance Rubric, and the **Requirements-to-Scenarios (`S1`–`S10`) & Open Issues (`#30`–`#44`) Traceability Matrix**. |
-| **16 — Human & Autonomous Agent Usage & Integration Guide** | [`docs/16-human-and-agent-usage-guide.md`](docs/16-human-and-agent-usage-guide.md) | **Read for day-to-day operations & downstream integration:** Operating modes (`Mode A/B/C`), why the SQL bundle is optional in production, wave-by-wave periodic source onboarding (`--initial-contract`), Steward Hold resolution, and consuming `final_contract.yaml` / `final_canonical_ir.json` in `dbt` / Snowflake / Databricks. |
-| **17 — Testing Scenarios & Datasets** | [`docs/17-testing-scenarios-and-datasets.md`](docs/17-testing-scenarios-and-datasets.md) | **Read for E2E & regression testing:** Catalog of verification scenarios (`S1`–`S10`), real CSV/YAML/JSON datasets (`private_equity`, `global_commerce_vault`, `scenario_s2_issue39_bkcc`), unit tests, and CLI verification commands. |
-| **18 - Implementation Plan: Platform Parity & Architecture (v3.9)** | [`docs/18-implementation-plan-platform-parity-and-architecture.md`](docs/18-implementation-plan-platform-parity-and-architecture.md) | **Read before contributing to the platform roadmap:** shared application core, standalone `opendv` and Bun `opendvctl` CLIs, pluggable source and format adapters, no-hardcoding / no-mock / fail-loud rules, ontology-recommender extension seams, legacy workbench removal, and the docs/17-grounded parity and golden test strategy. Delivery is tracked in issue #63 (phases P1–P10 with task sub-issues). |
-| **Master Agent Reference Guide (`v6.0`)** | [`docs/DV2_AGENT_REFERENCE_GUIDE.md`](docs/DV2_AGENT_REFERENCE_GUIDE.md) | **Start here for a single-file technical overview** of DV 2.0 layers, DDL/DML templates, 6-stage hashing, the 5 Fatal Traps, `dv-firstmate`, and the 6-Gate `axi-dv` pipeline. |
-| **Complete HTML Design & Implementation Guide** | [`docs/references/No-Mistake-Agentic-Data-Vault-2.0-Complete-Design-and-Implementation-Guide.html`](docs/references/No-Mistake-Agentic-Data-Vault-2.0-Complete-Design-and-Implementation-Guide.html) | Read when you want the standalone visual HTML edition with full mathematical proofs, callouts, schemas, and reference algorithms. |
-| **01 — Core Modelling Specification** | [`docs/01-core-modelling-spec.md`](docs/01-core-modelling-spec.md) | Read when designing Hubs, Links (`lnk_`, `t_lnk_`, `sal_`, `hal_`, `x_lnk_`), Satellites (`sat_`, `mas_`, `esat_`, `sts_`, `rts_`, `ref_`), PIT/Bridge tables, Zero Keys, Ghost Records, or SQLGlot AST rules. |
-| **02 — Schema Stability, Cold-Start ($N=1$) & Evolution** | [`docs/02-schema-stability-and-evolution.md`](docs/02-schema-stability-and-evolution.md) | Read to understand invariants `INV-01..06`, drift playbooks `EVO-01..08`, key rules `KEY-01..05`, bi-temporal rules `TMP-01..04`, anti-patterns `AP-01..15`, 3-Tier `BKCC` Authority, and Gate 4 YAGNI cost guards. |
-| **03 — 6-Gate Verification & `dv-firstmate` Architecture** | [`docs/03-verification-and-agentic-architecture.md`](docs/03-verification-and-agentic-architecture.md) | Read for the bipartite graph formulation, static rules (`DV-STR-*`, `DV-COL-*`, `DV-EVO-*`), runtime checks (`DV-DYN-001..015`), the 4 Adversarial Sandbox Batches, and agent swarm roles. |
-| **04 — Unstructured & Multi-Modal DV 2.0** | [`docs/04-unstructured-and-multimodal-dv2.md`](docs/04-unstructured-and-multimodal-dv2.md) | Read when onboarding PDFs/text/audio using `Rules U1–U4`, `hub_document`, `mas_document_<cbc>_extraction`, 3-Tier Entity Resolution (`Tier-U1..U3`), and `Algorithm A.9b`. |
-| **05 — ELM Calculus, 3-Pass CoT & Reference Algorithms** | [`docs/05-elm-calculus-and-reference-algorithms.md`](docs/05-elm-calculus-and-reference-algorithms.md) | Read for the formal Graph B equations ($U(C), H(C), N_{\text{null}}(C), I(A.x \subseteq B.y), \lambda(c), W_{\text{amp}}$), 3-Pass CoT prompts, and Python/SQL implementations of **Algorithms `A.1`–`A.9` + `D.10`**. |
-| **06 — Explainability, Observability & Visualization Architecture** | [`docs/06-explainability-and-observability-spec.md`](docs/06-explainability-and-observability-spec.md) | Read when working with `VaultObservabilityEvent` telemetry (`state/vault-ledger.jsonl`), 3-Layer Progressive Disclosure, Semantic Hash Pills, or Explorer Views. |
-| **07 — End-to-End Private Equity Modelling & Verification Demo** | [`docs/07-end-to-end-private-equity-demo.md`](docs/07-end-to-end-private-equity-demo.md) | Read for a self-contained 7-Scene walkthrough (*Apex Horizon Capital*) tracing multi-source onboarding, PDF side-letter extraction, TOON self-healing, schema drift, and 4-Zone SQL execution. |
-| **08 — Platform MVP Monorepo & Headless API Spec** | [`docs/08-platform-mvp-monorepo-and-api-spec.md`](docs/08-platform-mvp-monorepo-and-api-spec.md) | Read when modifying the polyglot monorepo (`proto` + `moon` + `uv` + `bun`), 5-Tier RBAC redaction, Content-Addressable Store (CAS), or `/api/v1/*` REST + SSE endpoints. |
-| **09 — Agnostic Agent Harness & Dual-SDK Adapter Spec** | [`docs/09-agnostic-agent-harness-and-sdk-spec.md`](docs/09-agnostic-agent-harness-and-sdk-spec.md) | Read when extending `VaultAgentHarness`, `ModelTier` / `agent_models` routing, domain tools, or the `agy`, `claude-cli`, `antigravity`, and `claude` adapters. |
-| **11 — Master Agent Worker Implementation & Dispatch Plan** | [`docs/11-agent-worker-implementation-plan.md`](docs/11-agent-worker-implementation-plan.md) | Read for the dependency-ordered Work Breakdown Structure (`WP-01`–`WP-12`), package ownership boundaries, and verification commands. |
-| **12 — Unified Platform Server, Static Web Workbench & CLI Configuration Guide** | [`docs/12-unified-platform-web-and-cli-setup.md`](docs/12-unified-platform-web-and-cli-setup.md) | **Read for unified `:8420` single-app deployment, Web Workbench & CLI configuration:** Serving the Claude `DESIGN.md` 4-tab shell (`/` Unified 6-Step Wizard, `/dv-schema` DV Schema Explorer, `/explorer`, `/settings` with `<AgentHarnessConfigCard />`), `SessionLogsInspector`, loopback open-access + `--allow-remote-unauthenticated` exit `40`, and `opendvctl config` / `opendv config`. |
-| **12 — Agentic Pipeline Inputs, Harness Config & Auth Reference** | [`docs/12-agentic-pipeline-inputs-and-harness-guide.md`](docs/12-agentic-pipeline-inputs-and-harness-guide.md) | **Read when configuring `harness_config.yaml` or `pipeline_input.yaml`**, setting up API keys / Vertex ADC / AWS Bedrock / CLI sessions, `HarnessBudget` / `BudgetHold`, or running incremental `--initial-contract` waves. |
-| **13 — Real Agentic Pipeline Remediation Specification** | [`docs/13-real-agentic-pipeline-remediation-spec.md`](docs/13-real-agentic-pipeline-remediation-spec.md) | Read for the engineering specification of discovery-first agentic execution, real neuro-symbolic domain tool wiring, fail-closed harness adapters, and dynamic 4-Batch DuckDB sandbox verification. |
-| **14 — End-to-End Consistency Review, Scenarios Audit & Invariant Analysis** | [`docs/14-end-to-end-consistency-and-scenarios-audit.md`](docs/14-end-to-end-consistency-and-scenarios-audit.md) | Read for comprehensive 10-scenario audit, unmatched field ontology routing matrix, actual vs expected codebase behaviors, and bug remediation tracking. |
-| **15 — End-to-End Pipeline Execution & Interactive Component Spec** | [`docs/15-end-to-end-pipeline-execution-and-interactive-spec.md`](docs/15-end-to-end-pipeline-execution-and-interactive-spec.md) | Read for the exhaustive 8-stage pipeline specification (input/output contracts, artifacts, state transitions, and interactive drill-down views). |
-| **17 — Testing Scenarios & Datasets Reference** | [`docs/17-testing-scenarios-and-datasets.md`](docs/17-testing-scenarios-and-datasets.md) | Read for normative end-to-end testing scenarios (`S1`–`S10`, `UF-1`–`UF-5`), adversarial datasets (including Scenario S7 multi-byte UTF-8 and Scenario S9 multi-tenant `bkcc_column_expr` fixtures), multi-wave evolution datasets, and exact unit/E2E verification commands across the monorepo. |
-| **DV 2.0 Architectural & Mathematical Evaluation (Unabridged)** | [`docs/references/dv2-architectural-consistency-evaluation.md`](docs/references/dv2-architectural-consistency-evaluation.md) | Read for the deep-dive architectural critique and mathematical evaluation of Data Vault 2.0 hashing, Zero-Key sentinels, and boundary invariants. |
-| **No-Mistake DV 2.0 Contract V5 JSON Schema** | [`schemas/no-mistake-dv2-contract-v5.schema.json`](schemas/no-mistake-dv2-contract-v5.schema.json) | Draft 2020-12 JSON Schema for `NoMistakeDataVault2ContractV5` (`column_triage_ledger`, `hubs`, `links`, `satellites`, `reference_tables`, `unmapped_escalations`). |
-| **Canonical IR JSON Schema** | [`schemas/dv2-canonical-ir.schema.json`](schemas/dv2-canonical-ir.schema.json) | Draft 2020-12 JSON Schema for the low-level `CanonicalIR` contract between semantic modelling agents and the deterministic 5-Zone (`Z0–Z4`) SQL compiler (`compiler_4zone`). |
-| **Observability Telemetry Event JSON Schema** | [`schemas/vault-observability-event.schema.json`](schemas/vault-observability-event.schema.json) | Draft 2020-12 JSON Schema for `VaultObservabilityEvent` records emitted over `state/vault-ledger.jsonl`. |
-| **Headless Platform OpenAPI 3.1.0 Schema** | [`schemas/openapi-v1.json`](schemas/openapi-v1.json) | Deterministic OpenAPI 3.1.0 specification for all `/api/v1` REST and SSE endpoints (`moon run opendv-platform-api:export-openapi`). |
-| **16 — CLI Reference (`opendv` & `opendvctl`)** | [`docs/16-cli-reference.md`](docs/16-cli-reference.md) | **Canonical CLI reference documentation:** complete options, defaults, choices, types, DTOs, and example invocations for all core command groups (incl. `run dv-schema`) and all **21 `ontology studio` subcommand groups** (incl. `attach-source`, `fibo-qa`, `logs`). |
-| **19 — Ontology Construction Studio Architecture** | [`docs/19-ontology-studio-architecture.md`](docs/19-ontology-studio-architecture.md) | **Read for Studio architecture:** Loopback open-access (`D18`), CAS session storage (`wizard_schema_version`), EDM Council FIBO + Path B empirical grounding, OCC concurrency, and React Flow + elkjs workbench. |
-| **20 — Ontology Construction Studio Specification** | [`docs/20-ontology-studio-spec.md`](docs/20-ontology-studio-spec.md) | **Read for normative Studio spec:** Core user journeys, REST/SSE endpoints, ingestion pipeline, `422 AGENT_NOT_CONFIGURED`, `409 SESSION_JOB_ACTIVE`, and export formats. |
-| **21 — Ontology Construction Studio Implementation Plan** | [`docs/21-ontology-studio-implementation-plan.md`](docs/21-ontology-studio-implementation-plan.md) | **Historical Phase 4–6 archive** (superseded for active UI/wizard architecture by `docs/27` and `docs/28`). |
-| **22 — Ontology Construction Studio User Guide** | [`docs/22-ontology-studio-user-guide.md`](docs/22-ontology-studio-user-guide.md) | **Read for end-to-end Studio & Wizard workflows:** Unified 6-Step Wizard, 4-View DV Schema Explorer, `SessionLogsInspector`, loopback vs `--allow-remote-unauthenticated` deployment, CLI recipes (21 subcommand groups + `run dv-schema`), and error catalog. |
-| **23 — Ontology Construction Studio Extension Guide** | [`docs/23-ontology-studio-extension-guide.md`](docs/23-ontology-studio-extension-guide.md) | **Read when extending Studio:** Custom document adapters (`DocumentAdapter` SPI), reference ontologies (`ReferenceOntologyAdapter` SPI), custom concept matchers/tokenizers, agent personas, and custom export serializers. |
-| **24 — Ontology Studio Engineering Learnings** | [`docs/24-ontology-studio-engineering-learnings.md`](docs/24-ontology-studio-engineering-learnings.md) | **Read for hardening & concurrency invariants:** RFC 8785 JCS fidelity, `StudioLock` `L1..L5`, thread-safe SSE bridges, and Phase 1–4 evolution addendum. |
-| **25 — Data-Driven Single-Run Pipeline Design** | [`docs/25-data-driven-single-run-pipeline-design.md`](docs/25-data-driven-single-run-pipeline-design.md) | **Read for single-run `VaultBlueprint` & multi-connector SPI:** `mode_detector`, `CatalogSourceAdapter`, and `< 5,000`-token pipeline split. |
-| **26 — Data-Driven Pipeline Implementation Plan** | [`docs/26-data-driven-pipeline-team-implementation-plan.md`](docs/26-data-driven-pipeline-team-implementation-plan.md) | **Read for WS-1..WS-6 delivery context** (UI unified into `docs/27` & `docs/28` under `D19`). |
-| **27 — Unified Ontology & DV 2.0 Pipeline Wizard Requirements & UAT** | [`docs/27-unified-ontology-pipeline-requirements-and-uat.md`](docs/27-unified-ontology-pipeline-requirements-and-uat.md) | **Normative M1–M6 requirements (`FR-*`, `NFR-*`, `D1`–`D28`)** and real-agent/real-data UAT catalog (`SCN-01`..`13`, `UAT-01`..`30`). |
-| **28 — Unified Wizard & DV Schema Explorer Design & Plan** | [`docs/28-unified-ontology-pipeline-design-and-plan.md`](docs/28-unified-ontology-pipeline-design-and-plan.md) | **Execution-ready architecture & phased plan:** 12 approved mockups, `< 5,000`-token module decomposition (`D16`), REST/SSE matrix, and `STAGE_00..07` -> `00..06` console mapping (`§4.4`). |
-
----
----
-
-## Appendix: Deep-Dive Technical Reference & Specifications
-
-This appendix retains the complete architectural matrices, mathematical invariants, multi-wave dataset specifications, CLI/API recipes, and test inventories for `open-dv` (`v6.0` Unified Edition: `dv-firstmate` + `no-mistakes` + `axi-dv`).
+`src/opendv/storage/` compiles verified `VaultSchemaIR v2.0` deterministically across **5 Zones (`Z0–Z4`)** for:
+- **Analytical & Cloud Warehouses (`8` SQL Dialects):** `duckdb_local`, `databricks_uc`, `snowflake`, `postgres`, `bigquery`, `sqlserver_fabric`, `redshift`, `clickhouse`
+- **Format & Orchestrator Bundles (`3` Format Targets):** `iceberg`, `parquet`, `dbt` (configurable SQL dialect via `--dbt-dialect`)
 
 ---
 
-### A.1 8-Stage Agentic Pipeline Architecture (`STAGE_00` – `STAGE_07`)
+## 7. Portable `.opendv.zip` Bundles & `data/public_am/` Walkthrough
 
-> **Normative References:** [`docs/08-platform-mvp-monorepo-and-api-spec.md`](docs/08-platform-mvp-monorepo-and-api-spec.md), [`docs/09-agnostic-agent-harness-and-sdk-spec.md`](docs/09-agnostic-agent-harness-and-sdk-spec.md), [`docs/12-agentic-pipeline-inputs-and-harness-guide.md`](docs/12-agentic-pipeline-inputs-and-harness-guide.md), [`docs/13-real-agentic-pipeline-remediation-spec.md`](docs/13-real-agentic-pipeline-remediation-spec.md), [`docs/14-end-to-end-consistency-and-scenarios-audit.md`](docs/14-end-to-end-consistency-and-scenarios-audit.md), and [`docs/15-end-to-end-pipeline-execution-and-interactive-spec.md`](docs/15-end-to-end-pipeline-execution-and-interactive-spec.md).
-
-`open-dv` implements a deterministic, closed-loop multi-agent Data Vault 2.0 pipeline modeled after `firstmate` and `no-mistakes`. Neither the CLI (`opendv`) nor the Platform API/Web Workbench hardcode sample file paths—every invocation accepts explicit input specifications and agent harness configurations and enforces deterministic pre-flight and post-flight validation.
-
-#### 8-Stage Pipeline Lifecycle (`STAGE_00` through `STAGE_07`)
-
-Each wave in a pipeline run executes the 8 canonical stages across Cold Start ($N=1$) and Incremental Evolution Waves ($N \to N+1$ multi-source onboarding, $S_k(t) \to S_k(t+1)$ intra-source schema drift, and multimodal unstructured document grounding):
-
-| Stage ID | Active Persona | Semantic Model Tier | Responsibility & Deterministic Artifacts |
-| :--- | :--- | :---: | :--- |
-| `STAGE_00_ORCHESTRATION` | `@vault-first-mate` | `reasoning` (`ModelTier.HIGH_REASONING`) | Validates `GraphAOntology` (`Graph A`), initializes the wave worktree/state context, and plans wave execution. |
-| `STAGE_01_SCOUT_SOURCE` | `@scout-source` | `fast` (`ModelTier.FAST_TIER`) | Profiles relational CSV/Parquet sources via `GraphBProfiler` ($U(C), H(C), N_{\text{null}}(C), I(A.x \subseteq B.y), \lambda(c)$) and runs `Algorithm A.9a` intra-source schema drift detection ($S_k(t) \to S_k(t+1)$). |
-| `STAGE_02_SCOUT_UNSTRUCTURED` | `@scout-unstructured` | `fast` (`ModelTier.FAST_TIER`) | Grounds unstructured text/PDF spans (`[char_start, char_end]`), executes 3-Tier Entity Resolution (`Tier-U1..U3`), and enforces `Algorithm A.9b` (`hub_document`, `lnk_document_<cbc>`, `mas_document_<cbc>_extraction`). |
-| `STAGE_03_SHIP_VAULT_PASS1` | `@ship-vault` | `reasoning` (`ModelTier.HIGH_REASONING`) | Executes Pass 1 Exhaustive 100% Column Triage (`BUSINESS_KEY`, `FOREIGN_KEY_REF`, `DESCRIPTIVE_PAYLOAD`, `SYSTEM_SURROGATE_DROPPED`). |
-| `STAGE_04_SHIP_VAULT_PASS2` | `@ship-vault` | `reasoning` (`ModelTier.HIGH_REASONING`) | Synthesizes Pass 2/3 Ensemble Logical Model (ELM) topology (`Hubs`, `Links`, `Same-As Links`, `Satellites`, `PII Satellites`) with 3-Tier `BKCC` collision shields and `Algorithm A.7` additive evolution locks. |
-| `STAGE_05_AXI_DV_STATIC_GATES` | `@axi-dv` (+ `@ship-vault` on repair) | `fast` (`reasoning` on `@toon_v1` repair) | Runs Gates 0–4 (`gate1_contract_grain`, `Algorithm A.5/A.6` SQLGlot AST, `gate3_networkx_dag` bipartite topology, `Algorithm A.1` Gate 4 YAGNI cost guard) with closed-loop `@toon_v1` self-healing (`k=1 -> k=2`). |
-| `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `@axi-dv` | `fast` (`ModelTier.FAST_TIER`) | Executes Gate 5 in an ephemeral `:memory:` DuckDB Shadow Sandbox across all 4 Adversarial Batches and 15 runtime checks (`DV-DYN-001`–`015`). |
-| `STAGE_07_DETERMINISTIC_COMPILER` | `@deterministic-compiler` | `fast` (`ModelTier.FAST_TIER`) | Lowers verified `NoMistakeDataVault2ContractV5` to `CanonicalIR`, compiles **5-Zone (`Z0–Z4` + `information_mart`)** DuckDB/Databricks SQL (`final_four_zone.sql`), executes bi-temporal `Query D.10` / `D.10b`, and seals all artifacts into the Content-Addressable Store (CAS). |
-
-#### `dv-firstmate` + `axi-dv` 6-Gate Neuro-Symbolic Topology
-
-```mermaid
-flowchart TB
-    User(["Data Architect / Captain"])
-    FM["Vault First Mate (Read-Only Supervisor)\n- Owns state/vault-ledger.jsonl & Graph A Ontology\n- Never writes SQL or YAML models directly"]
-    Watch["Zero-Token Bash Daemons\n- bin/fm-watch.sh (Fleet Monitor)\n- bin/fm-schema-watch.sh (Drift Detector)"]
-
-    subgraph Scouts ["1. Read-Only Discovery Scouts"]
-        SS["scout-source\n- Graph B Profiler (05 §1)\n- Algorithm A.9a (Intra-Source Drift)"]
-        SU["scout-unstructured\n- Span-Grounded NER (Rules U1-U4)\n- 3-Tier ER (Tier-U1..U3) & Alg A.9b"]
-    end
-
-    subgraph Worktrees ["2. Isolated Treehouse Worktree Workers"]
-        SW["ship-vault\n- 3-Pass CoT State Machine\n- Emits dv_model_contract.yaml\n- Guarded Rebase (ci.revalidate_repairs)"]
-    end
-
-    subgraph AxiDV ["3. Deterministic axi-dv Compiler & 6-Gate Verifier"]
-        G0["Gate 0: Pre-Flight Profile & Drift (Graph B / Alg A.9a)"]
-        G1["Gate 1: JSON Schema, 3-Tier BK & Grain (v5.0 / Alg A.4)"]
-        G2["Gate 2: Deterministic Hash & SQLGlot AST (Alg A.5 / A.6)"]
-        G3["Gate 3: NetworkX Bipartite Topology DAG & Evolution Lock (Alg A.7)"]
-        G4["Gate 4: YAGNI Write-Amp Cost Guard >= 50 MB/day (Alg A.1)"]
-        G5["Gate 5: 4-Batch DuckDB Adversarial Sandbox + Unstructured Verifier (Alg A.9b)"]
-        G0 --> G1 --> G2 --> G3 --> G4 --> G5
-    end
-
-    User -- "--intent / ask-user decisions" --> FM
-    Watch -- "State change / schema drift wakeup" --> FM
-    FM -- "Dispatches" --> SS & SU
-    SS & SU -- "Graph B JSON + Extraction Contracts" --> FM
-    FM -- "Spawns isolated worktree" --> SW
-    SW <-->|"auto-fix / TOON reject-with-trace"| AxiDV
-    G5 -- "All 6 Gates PASS -> PR Ready" --> FM
-```
+- **Portable Default (`core_project_state`):** `opendv project export --project <id> --out bundle.opendv.zip` packages canonical JSON/IR state, project manifest, ontology revisions, and SHA-256 checksums without leaking API secrets or bulky demo databases. Pass `--full-demo` to include raw fixture files.
+- **Anti-Tamper Import Guard:** `opendv project import` verifies paths against zip-slip, decompression ratios against zip-bombs (`zip_guard.py`), and cryptographic SHA-256 digests (`BUNDLE_HASH_MISMATCH`).
+- **Real Asset Management Dataset (`data/public_am/`):** Explore SEC 13F holdings, FRED Treasury rates, bi-temporal NAV restatements, EU custody LEI Parquet drift, `ds_cegar_12trap.duckdb` (`12` deliberate CEGAR modeling traps), and the custody/voting PDF in [`examples/v2_asset_management/README.md`](examples/v2_asset_management/README.md).
 
 ---
 
-### A.2 Input Artifacts & Harness Configuration Matrix
+## 8. Documentation & Specification Map
 
-> **Normative Reference:** [`docs/12-agentic-pipeline-inputs-and-harness-guide.md`](docs/12-agentic-pipeline-inputs-and-harness-guide.md) (§1–§5).
-
-#### 1. Input Artifacts (`PipelineInputSpec` — `pipeline_input.yaml` & Per-Wave Specs)
-
-The pipeline accepts a declarative [`pipeline_input.yaml`](examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml) (or standalone per-wave specs [`wave0_cold_start.yaml`](examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml), [`wave1_incremental_billing.yaml`](examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml), [`wave2_schema_drift.yaml`](examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml), [`wave3_unstructured_msa.yaml`](examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml)) validated by `PipelineInputSpec`:
-
-| Input Artifact / Field | Schema / Model | Role & Validation Rules |
-| :--- | :--- | :--- |
-| **Pipeline Input Spec (`pipeline_input.yaml` / `wave*.yaml`)** | `PipelineInputSpec` (`PipelineWaveInput`, `PipelineSourceFeedInput`, `PipelineUnstructuredDocInput`) | Declares `pipeline_id`, `project_id`, `run_id`, `display_name`, `domain_namespace`, `graph_a_ontology_path`, optional `initial_contract_path`, `assertion_cutoff_ts`, `output_dir`, and `waves[]` (`sources[]` and `unstructured_documents[]`). |
-| **Enterprise Ontology (`Graph A`)** | `GraphAOntology` (e.g., [`commerce_graph_a_ontology.yaml`](examples/pipeline_samples/global_commerce_vault/ontology/commerce_graph_a_ontology.yaml), [`pe_graph_a_ontology.yaml`](examples/private_equity/pe_graph_a_ontology.yaml)) | Defines Core Business Concepts (CBCs), 3-Tier Business Key Authority (`TIER_1_GLOBAL_STANDARD`, `TIER_2_ENTERPRISE_SOR`, `TIER_3_LOCAL_SCOPED`), canonical relationships, and governance rules. |
-| **Relational Source Feeds (`waves[].sources[]`)** | CSV / Parquet / JSON files | Verified during pre-flight (`validate_pipeline_inputs`) for path containment, file existence, non-empty row count, and column header completeness; profiled into `GraphBProfile` (`Graph B`). |
-| **Unstructured Documents (`waves[].unstructured_documents[]`)** | Markdown / TXT / PDF text files | Verified for file existence and strict character-offset span bounds (`0 <= char_start < char_end <= len(text)`) matching `verbatim_quote` under `Rules U1–U4` and `Algorithm A.9b`. |
-| **Prior Verified Contract (`--initial-contract` / `initial_contract_path`)** | `NoMistakeDataVault2ContractV5` (`final_contract.yaml`) | Seeds incremental $N \to N+1$ and $S_k(t) \to S_k(t+1)$ waves so `Algorithm A.7` enforces additive-only evolution locks (`DV-EVO-001`–`007`) against previously deployed Hubs, Links, and Satellites. |
-
-#### 2. Harness Provider & Authentication Matrix (`HarnessSetupConfig` & `HarnessAuthConfig`)
-
-The pipeline accepts a harness configuration file ([`harness_config.yaml`](examples/pipeline_samples/global_commerce_vault/harness_config.yaml), [`harness_config_agy.yaml`](examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml), [`harness_config_antigravity.yaml`](examples/pipeline_samples/global_commerce_vault/harness_config_antigravity.yaml), [`harness_config_claude.yaml`](examples/pipeline_samples/global_commerce_vault/harness_config_claude.yaml), or [`harness_config_claude_cli.yaml`](examples/pipeline_samples/global_commerce_vault/harness_config_claude_cli.yaml)) validated by `HarnessSetupConfig`:
-
-| Provider Value (`provider`) | Concrete Adapter Class | Underlying Runtime / SDK | Supported `auth_mode` / `mode` Values & Environment Variables | Default `model_overrides` (`reasoning` / `fast`) |
-| :--- | :--- | :--- | :--- | :--- |
-| **`"agy"` / `"agy-cli"`** | `AgyCliHarnessAdapter` | Local logged-in Antigravity Coding CLI (`agy -p --output-format stream-json --json-schema <path>`) | `cli_session` / `ambient_cli` (`~/.gemini` session; checks `agy` on `PATH` or `$OPENDV_AGY_CLI_BIN`). Rejects `aws_bedrock` (`HARNESS_AUTH_INCOMPATIBLE`). | `reasoning: gemini-4-argon-high`<br>`fast: gemini-3.8-flash-high` |
-| **`"claude-cli"` / `"claude-code"`** | `ClaudeCliHarnessAdapter` | Local logged-in Claude Code CLI (`claude -p --model <id> --output-format stream-json --json-schema <schema> --agents <json>`) | `cli_session` / `ambient_cli` / `oauth_token` / `foundry` / `auto` (`~/.claude` session; checks `claude` on `PATH` or `$OPENDV_CLAUDE_CLI_BIN`), `api_key_env` (`$ANTHROPIC_API_KEY`), `vertex_adc` (`CLAUDE_CODE_USE_VERTEX=1`, `$ANTHROPIC_VERTEX_PROJECT_ID`, `$CLOUD_ML_REGION`), `aws_bedrock` (`CLAUDE_CODE_USE_BEDROCK=1`, `$AWS_REGION`, `$AWS_PROFILE`). | `reasoning: claude-opus-4-6`<br>`fast: claude-haiku-4-5` |
-| **`"antigravity"`** | `AntigravityHarnessAdapter` | Google Antigravity Python SDK (`google.antigravity`) or Gemini REST fallback | `api_key_env` (`$GEMINI_API_KEY` / `$GOOGLE_API_KEY`, optional `$GOOGLE_GEMINI_BASE_URL`), `vertex_adc` (`GOOGLE_GENAI_USE_VERTEXAI=true`, `$GOOGLE_CLOUD_PROJECT`, `$GOOGLE_CLOUD_LOCATION`, `$GOOGLE_APPLICATION_CREDENTIALS`), `cli_session`. Rejects `aws_bedrock` (`HARNESS_AUTH_INCOMPATIBLE`). | `reasoning: gemini-4-argon-high`<br>`fast: gemini-3.8-flash-high` |
-| **`"claude"`** | `ClaudeAgentHarnessAdapter` | Anthropic Claude Agent SDK (`claude_agent_sdk`) or Anthropic Messages REST fallback | `api_key_env` (`$ANTHROPIC_API_KEY`, optional `$ANTHROPIC_BASE_URL`), `aws_bedrock` (`CLAUDE_CODE_USE_BEDROCK=1`, `$AWS_REGION` / `$AWS_DEFAULT_REGION`, `$AWS_PROFILE`), `vertex_adc` (`CLAUDE_CODE_USE_VERTEX=1`, `$ANTHROPIC_VERTEX_PROJECT_ID`, `$CLOUD_ML_REGION`, `$GOOGLE_APPLICATION_CREDENTIALS`), `cli_session`. | `reasoning: claude-opus-4-6` (SDK fallback `claude-opus-5-5-high`)<br>`fast: claude-haiku-4-5` (SDK fallback `claude-sonnet-5-5-medium`) |
-
-- **3-Level Model Resolution Precedence:** `agent_models[persona]` (`vault-first-mate`, `scout-source`, `scout-unstructured`, `ship-vault`) $\to$ `model_overrides[tier]` (`reasoning`, `fast`) $\to$ provider default map (`DEFAULT_AGY_MODEL_MAP` / `DEFAULT_CLAUDE_MODEL_MAP`). Legacy `model_overrides` keys (`argon`, `flash`) are rejected (`HARNESS_SETUP_INVALID`).
-- **Live Stage Progress & Token Streaming (`on_stage_start`, `on_stage_complete`, `on_stream_event`, `--stream`, `--stream-tokens`):** `AgenticVaultPipeline` emits real-time stage lifecycle callbacks (`STAGE_00`–`STAGE_07`) and incremental `HarnessEventKind.TEXT_DELTA` / `THOUGHT_DELTA` stream events. When `--json` or `--toon` is set, live progress writes to `stderr` so `stdout` remains pure machine-parseable JSON/TOON.
-- **Deterministic Pre-Flight (`validate_pipeline_inputs`) & Post-Flight (`validate_pipeline_outputs`) Validation:**
-  - *Pre-Flight:* Verifies path containment, file existence, provider/auth compatibility (`HARNESS_AUTH_INVALID`, `HARNESS_AUTH_INCOMPATIBLE`, `HARNESS_AUTH_MISSING`, `HARNESS_PROVIDER_UNAVAILABLE`), `GraphAOntology` schema compliance, relational source headers, and unstructured character span bounds. (`DeterministicHarnessAdapter` is reserved strictly for internal `pytest` unit/integration mocking and is rejected by the CLI and REST API.)
-  - *Post-Flight:* Validates every synthesized `NoMistakeDataVault2ContractV5`, `CanonicalIR`, `GraphBProfile`, and `VaultObservabilityEvent` against Draft 2020-12 JSON Schemas, enforces 5-tier RBAC `validate_no_pii_leaks` (zero unredacted `RESTRICTED_PII`, `MNPI`, or raw 64-hex digests), and checks Content-Addressable Store (CAS) SHA-256 integrity for all artifacts in `AgenticPipelineReport` (`pipeline_report.json`, `pipeline_report.md`, `final_contract.yaml`, `final_canonical_ir.json`, `final_four_zone.sql`, `vault-ledger.jsonl`, and `waves/wave_<w>/*`).
+- **Authoritative Sitemap:** [`docs/designs/SITEMAP.md`](docs/designs/SITEMAP.md)
+- **Clean-Sheet V2 Architecture & UI Specs:** [`docs/designs/v2-clean-sheet-architecture.md`](docs/designs/v2-clean-sheet-architecture.md), [`docs/designs/v2-workbench-ui-design.md`](docs/designs/v2-workbench-ui-design.md)
+- **V2 Discovery, Modeling, E2E & UAT Suite (`docs/29..33`):**
+  - [`docs/29-discovery-grounding-and-evolution-scenarios.md`](docs/29-discovery-grounding-and-evolution-scenarios.md) — `SCEN-01..09`
+  - [`docs/30-enterprise-dv2-modeling-and-loop-engineering.md`](docs/30-enterprise-dv2-modeling-and-loop-engineering.md) — Enterprise DV 2.0 + 3-Loop CEGAR blueprint
+  - [`docs/31-v2-e2e-requirements-gaps-and-uat-spec.md`](docs/31-v2-e2e-requirements-gaps-and-uat-spec.md) — `OBS-01..48`, `REQ-01..68`, `89` UAT checks
+  - [`docs/32-v2-user-experience-and-scenario-guide.md`](docs/32-v2-user-experience-and-scenario-guide.md) — Steps 1–7 UX & `20`-Scenario Playbook
+  - [`docs/33-v2-phased-implementation-and-real-data-uat-plan.md`](docs/33-v2-phased-implementation-and-real-data-uat-plan.md) — Phased TDD & Live-Agent UAT Plan
+- **CLI & DV 2.0 Reference:** [`docs/16-cli-reference.md`](docs/16-cli-reference.md) (generated), [`docs/16-human-and-agent-usage-guide.md`](docs/16-human-and-agent-usage-guide.md), [`docs/DV2_AGENT_REFERENCE_GUIDE.md`](docs/DV2_AGENT_REFERENCE_GUIDE.md)
+- **Foundational Theory & Historical V1 Records:** [`docs/00`](docs/00-mission-vision-and-functional-requirements.md)–[`docs/28`](docs/28-unified-ontology-pipeline-design-and-plan.md) (annotated with V2 supersession headers)
 
 ---
 
-### A.3 Global Commerce Vault 4-Wave Progressive Sample Dataset
-
-> **Normative References:** [`examples/pipeline_samples/global_commerce_vault/`](examples/pipeline_samples/global_commerce_vault/) and [`docs/12-agentic-pipeline-inputs-and-harness-guide.md`](docs/12-agentic-pipeline-inputs-and-harness-guide.md) (§2–§3).
-
-In an enterprise Data Vault 2.0 platform, Day-1 Cold Start ($N=1$), new source system onboarding ($N \to N+1$), upstream operational schema drift ($S_k(t) \to S_k(t+1)$), and unstructured contract/document ingestion arrive asynchronously over time as **separate operational releases**. Accordingly, [`examples/pipeline_samples/global_commerce_vault/`](examples/pipeline_samples/global_commerce_vault/) provides both **4 standalone per-wave specs** (`wave0_cold_start.yaml` .. `wave3_unstructured_msa.yaml`) for subsequent CLI calls using `--initial-contract`, and a **combined 4-wave spec** ([`pipeline_input.yaml`](examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml)) for single-command CI regression testing, backed by **4 relational CSV datasets** (`crm_customers.csv`, `erp_orders.csv`, `stripe_invoices.csv`, `crm_customers_v2.csv`), the enterprise ontology ([`ontology/commerce_graph_a_ontology.yaml`](examples/pipeline_samples/global_commerce_vault/ontology/commerce_graph_a_ontology.yaml)), and unstructured contract documents ([`sources/wave3_unstructured_msa/enterprise_msa_addendum_2026.txt`](examples/pipeline_samples/global_commerce_vault/sources/wave3_unstructured_msa/enterprise_msa_addendum_2026.txt) alongside the 3 Private Equity unstructured Markdown/PDF reference narratives in [`docs/07-end-to-end-private-equity-demo.md`](docs/07-end-to-end-private-equity-demo.md)).
-
-| Wave Index & Name | Per-Wave Input Spec & `--initial-contract` Reference | Input Data Sources | Architectural & Verification Scenarios Exercised |
-| :--- | :--- | :--- | :--- |
-| **Wave 0 (`Wave 1` of 4):** `COLD_START` | [`wave0_cold_start.yaml`](examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml)<br>*(No `--initial-contract`; produces `wave0/final_contract.yaml`)* | `sources/wave0_cold_start/crm_customers.csv`<br>`sources/wave0_cold_start/erp_orders.csv` | **Cold Start ($N=1$, `COLD_START_N1`):** Quarantines and drops system surrogate key (`customer_row_seq`), isolates `RESTRICTED_PII` (`contact_email`, `tax_ssn_tin`) into a dedicated PII satellite (`Algorithm A.1`), and splits sparse optional promo foreign key (`promo_campaign_code`, $U_{nn} < 0.95$) into a dedicated link (`Algorithm A.4`). Produces 3 Hubs, 2 Links, and 4 Satellites. |
-| **Wave 1 (`Wave 2` of 4):** `INCREMENTAL_SOURCE` | [`wave1_incremental_billing.yaml`](examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml)<br>`--initial-contract <wave0_out>/final_contract.yaml` | `sources/wave1_incremental_billing/stripe_invoices.csv` | **Incremental Source Onboarding ($N=1 \to N=2$, `MULTI_SOURCE_EXPANSION`):** Onboards regional Stripe EU billing invoices using `TIER_3_LOCAL_SCOPED` `BKCC` namespace `STRIPE_EU` on `hub_customer`, adds `lnk_customer_sales_order` and `sat_customer_core` billing state, and enforces `Algorithm A.7` additive evolution locks (`zero` destructive mutations to Wave 0 Hubs/Links/Satellites). |
-| **Wave 2 (`Wave 3` of 4):** `SCHEMA_DRIFT` | [`wave2_schema_drift.yaml`](examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml)<br>`--initial-contract <wave1_out>/final_contract.yaml` | `sources/wave2_schema_drift/crm_customers_v2.csv`<br>*(baseline: `sources/wave0_cold_start/crm_customers.csv`)* | **Intra-Source Schema Drift ($S_1(t) \to S_1(t+1)$, `MULTI_SOURCE_EXPANSION`):** Detects additive columns (`loyalty_tier_code`, `annual_spend_band`) against the deployed contract and `baseline_data_path` via `Algorithm A.9a` and spawns additive companion satellite `sat_customer_core_ext_v2` without mutating `sat_customer_core` or historical `hash_diff` digests. |
-| **Wave 3 (`Wave 4` of 4):** `UNSTRUCTURED_ONBOARDING` | [`wave3_unstructured_msa.yaml`](examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml)<br>`--initial-contract <wave2_out>/final_contract.yaml` | `sources/wave3_unstructured_msa/enterprise_msa_addendum_2026.txt` | **Multimodal Unstructured Grounding (`Rules U1–U4`, `MULTI_SOURCE_EXPANSION`):** Verifies verbatim `[char_start, char_end]` character spans via `Algorithm A.9b`, routes `Tier-U1` (`0.98`, `ext_msa_counterparty_u1`) and `Tier-U3` (`0.68`, `STEWARD_HOLD` resolution for `ext_msa_guarantor_u3`) entity candidates against existing `hub_customer`, and adds `hub_document`, `lnk_document_customer`, `sat_document_customer_ai_provenance`, and `mas_document_extractions`. |
-
-#### Production Multi-Call Incremental Evolution Commands (`--initial-contract`)
+## 9. Verification, Testing & Build Gates
 
 ```bash
-# CLI Call 1 (Wave 0 — Day-1 Cold Start, N=1):
-uv run opendv pipeline run \
-  --local \
-  --role INTERNAL_MODELER \
-  --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml \
-  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml \
-  --output-dir /tmp/opendv-commerce/wave0 \
-  --json
+# CLI & contract checks
+uv run opendv --help
+uv run opendv --json doctor
+uv run python -m opendv.cli.export_contracts --check
+uv run python scripts/check_error_codes.py --catalog schemas/v2/error-codes.json --baselines schemas/v2/baseline-digests.json --check-ast
 
-# CLI Call 2 (Wave 1 — Incremental Source Onboarding, N=1 -> N=2):
-uv run opendv pipeline run \
-  --local \
-  --role INTERNAL_MODELER \
-  --input examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml \
-  --initial-contract /tmp/opendv-commerce/wave0/final_contract.yaml \
-  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml \
-  --output-dir /tmp/opendv-commerce/wave1 \
-  --json
+# Python test suite & architecture guards
+uv run pytest tests/ -q
 
-# CLI Call 3 (Wave 2 — Intra-Source Schema Drift, S_1(t) -> S_1(t+1)):
-uv run opendv pipeline run \
-  --local \
-  --role INTERNAL_MODELER \
-  --input examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml \
-  --initial-contract /tmp/opendv-commerce/wave1/final_contract.yaml \
-  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml \
-  --output-dir /tmp/opendv-commerce/wave2 \
-  --json
+# Python lint & static typecheck
+uv run ruff check src tests scripts
+uv run mypy src
 
-# CLI Call 4 (Wave 3 — Unstructured Document Onboarding, Rules U1-U4):
-uv run opendv pipeline run \
-  --local \
-  --role INTERNAL_MODELER \
-  --input examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml \
-  --initial-contract /tmp/opendv-commerce/wave2/final_contract.yaml \
-  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml \
-  --output-dir /tmp/opendv-commerce/wave3 \
-  --json
+# Web Workbench (web/) & marketing site (apps/opendv-website/)
+bun run --cwd web typecheck && bun run --cwd web lint && bun run --cwd web build && bun run --cwd web test
+bun run --cwd apps/opendv-website build
 ```
-
----
-
-### A.4 Core Architecture, Mathematical Invariants & Rule Taxonomies
-
-> **Normative References:** [`docs/01-core-modelling-spec.md`](docs/01-core-modelling-spec.md), [`docs/02-schema-stability-and-evolution.md`](docs/02-schema-stability-and-evolution.md), [`docs/03-verification-and-agentic-architecture.md`](docs/03-verification-and-agentic-architecture.md), [`docs/04-unstructured-and-multimodal-dv2.md`](docs/04-unstructured-and-multimodal-dv2.md), [`docs/05-elm-calculus-and-reference-algorithms.md`](docs/05-elm-calculus-and-reference-algorithms.md), [`docs/06-explainability-and-observability-spec.md`](docs/06-explainability-and-observability-spec.md), and [`docs/07-end-to-end-private-equity-demo.md`](docs/07-end-to-end-private-equity-demo.md).
-
-#### 1. Four Architectural Pillars of `open-dv` (`v6.0`)
-
-1. **Dual-Graph Grounding & Constrained Contract Output (Zero Direct SQL Generation by LLMs):** Semantic modelling agents receive **Graph A** (Enterprise Core Business Concept Ontology) and **Graph B** (Bronze Empirical Profile: uniqueness $U(C)$, Shannon entropy $H(C)$, null rate $N_{\text{null}}(C)$, Jaccard inclusion $I(A.x \subseteq B.y)$, and change frequency $\lambda(c)$) and emit **only** a declarative YAML/JSON contract validated against [`schemas/no-mistake-dv2-contract-v5.schema.json`](schemas/no-mistake-dv2-contract-v5.schema.json) and [`schemas/dv2-canonical-ir.schema.json`](schemas/dv2-canonical-ir.schema.json).
-2. **Pragmatic Cold-Start ($N=1$) & Additive Multi-Source ($N \to N+1$) Evolution:** Locks irreversible structural anchors on Day 1 (CBC Hub naming, 3-Tier `BKCC` Authority, Nullable-FK Link Splitter $U_{nn} \ge 0.95$, Insert-Only Raw Vault) while enforcing a **Gate 4 YAGNI Write-Amplification Cost Guard** ($W_{\text{amp}} \ge 50\text{ MB/day}$, $\ge 10$ cols, $\Delta\log_{10}(\lambda) \ge 2.0$) to prevent premature micro-satellite sprawl.
-3. **The 6-Gate `axi-dv` & TOON Verification Pipeline (`Gates 0–5`):** Combines deterministic cold-start codemods (`Algorithms A.1`–`A.4`, including the Gate 4 write-amplification cost guard in `A.1`), length-prefixed hash compilation (`Algorithm A.5`), `sqlglot` AST verification (`Algorithm A.6`), the $N \to N+1$ additive-evolution lock (`Algorithm A.7`), the `axi-dv` orchestrator (`Algorithm A.8`), a `networkx.MultiDiGraph` bipartite DAG verifier (`gate3_networkx_dag`), and a **4-Batch Adversarial DuckDB Shadow Sandbox** (`DuckDbShadowSandbox`, `DV-DYN-001`–`015`, Batches 1–4) with 3-way triage (`auto-fix`, token-dense `reject-with-trace` in TOON format, and `ask-user`).
-4. **`dv-firstmate` Multi-Agent Swarm & Unstructured DV 2.0 (`Rules U1–U4`):** Coordinates a read-only `Vault First Mate` supervisor, `scout-source` (Bronze profiler & $S_k(t) \to S_k(t+1)$ drift detector), `scout-unstructured` (span-grounded NER + 3-Tier entity resolution `Tier-U1..U3` into `hub_document` and `mas_document_<cbc>_extraction`), and isolated `ship-vault` worktree workers with guarded rebase (`ci.revalidate_repairs`).
-
-#### 2. Summary of Invariant, Verification, & Algorithm Taxonomy
-
-| Namespace | ID Range | Enforcement Layer | Scope & Purpose |
-| :--- | :--- | :--- | :--- |
-| **Fundamental Stability Invariants** | `INV-01` – `INV-06` | Architectural Contract ([`docs/02`](docs/02-schema-stability-and-evolution.md)) | Insert-only Raw Vault immutability, virtualized `LEAD(load_dts)` end-dating, Hub semantic grain invariance, Link Unit-of-Work grain invariance, strict Hub/Link/Satellite separation of concerns, and idempotent `hash_diff` delta suppression. |
-| **Source Schema Drift Playbooks** | `EVO-01` – `EVO-08` & `Alg A.9a` | Schema Evolution ([`docs/02`](docs/02-schema-stability-and-evolution.md), [`docs/05`](docs/05-elm-calculus-and-reference-algorithms.md)) | Additive evolution patterns for `ADD_COLUMN` (`sat_*_ext_v2`), `DROP_COLUMN` (Staging `NULL` tombstone), `RENAME_COLUMN` (Staging alias), `TYPE_WIDENING`, `SEMANTIC_TYPE_CHANGE`, velocity splits, PII isolation, and $N \to N+1$ multi-source onboarding. |
-| **Key Canonicalization & Authority** | `KEY-01` – `KEY-05` & `TIER_1`..`TIER_3` | Gate 1 & Gate 2 (`Alg A.4` / `Alg A.5`, [`docs/01`](docs/01-core-modelling-spec.md), [`docs/02`](docs/02-schema-stability-and-evolution.md)) | 6-stage pre-hash canonicalization, length-prefixed (`<len>:<val>`) injective encoding, `TIER_1_GLOBAL_STANDARD` / `TIER_2_ENTERPRISE_SOR` (`BKCC='GLOBAL'`) passive integration, and `TIER_3_LOCAL_SCOPED` (`BKCC='<SOURCE_SYS>'`) collision isolation. |
-| **Bi-Temporal & Multi-Timeline Rules** | `TMP-01` – `TMP-04` | Ingestion & Querying ([`docs/02`](docs/02-schema-stability-and-evolution.md), [`docs/05`](docs/05-elm-calculus-and-reference-algorithms.md)) | Separation of `load_dts` (assertion time), `applied_dts` (business validity time), and `event_dts`; non-spoofing of `load_dts`; early-arriving fact Hub stubbing; and bi-temporal PIT queries (`Query D.10`). |
-| **Unstructured & Multimodal Rules** | `Rule U1` – `Rule U4` & `Tier-U1..U3` | `scout-unstructured` & `Alg A.9b` ([`docs/04`](docs/04-unstructured-and-multimodal-dv2.md)) | Content-addressable `hub_document` (`doc_sha256`), separation of Raw Vault claims (`mas_document_<cbc>_extraction`) from Business Vault vectors (`bsat_document_chunk_vector`), character-offset provenance (`span_start`, `span_end`), and 3-Tier Entity Resolution. |
-| **Anti-Pattern Catalog** | `AP-01` – `AP-15` | Pre-Deploy Lint Gates ([`docs/02`](docs/02-schema-stability-and-evolution.md)) | Catalog of 15 critical Data Vault failure modes (including physical `load_end_dts` updates, Sat-to-Sat chaining, missing Effectivity Satellite driving keys, `CONCAT_WS` NULL-skipping collisions, and source-system-specific Hubs). |
-| **Static Graph, Column & AST Rules** | `DV-STR-001`–`015`, `DV-COL-001`–`013`, `DV-AST-001`–`007`, `DV-EVO-001`–`007` | Gates 1–3 (`StaticVerifier` / `Alg A.6` / `Alg A.7`, [`docs/03`](docs/03-verification-and-agentic-architecture.md)) | Bipartite Hub-Link topology ($\text{outdeg}(h)=0$, Link arity $\ge 2$, single-parent Satellites), Nullable-FK Link Splitter ($U_{nn} \ge 0.95$), alphabetical `hash_diff` sorting, SQLGlot AST immutability & unstructured steward-gate enforcement, and additive evolution locks. |
-| **YAGNI Write-Amplification Guard** | `Gate 4` (`Alg A.1`) | Compile-Time Cost Guard ([`docs/02`](docs/02-schema-stability-and-evolution.md), [`docs/05`](docs/05-elm-calculus-and-reference-algorithms.md)) | Permits single-source rate-of-change Satellite splits iff $\text{cols} \ge 10$, $\Delta\log_{10}(\lambda) \ge 2.0$, and $W_{\text{amp}} \ge 50\text{ MB/day}$ (or `PII`); otherwise triggers `auto-fix: merge_satellites`. |
-| **Dynamic Runtime & Adversarial Batches** | `DV-DYN-001`–`015` & `Batches 1–4` (`DV-DYN-*` templates) | Gate 5 Shadow Sandbox (`DynamicVerifier`, [`docs/03`](docs/03-verification-and-agentic-architecture.md)) | Executable SQL checks and 4 Adversarial DuckDB Sandbox Batches verifying Ghost Record `INNER JOIN` completeness (Batch 1), Replay Idempotency $\Delta\text{rows}=0$ (Batch 2), Single-Attribute Delta + Boundary-Shift Collision (Batch 3), and $N=1 \to N=2$ Cross-Source Collision (Batch 4). |
-
-#### 3. Detailed Monorepo Workspace Package Matrix
-
-The repository is organized as a polyglot monorepo managed with [`proto`](.prototools) (`moon 2.3.0`, `python 3.12.13`, `uv 0.11.11`, `bun 1.3.13`), [`moon`](.moon/workspace.yml), [`uv`](pyproject.toml), and [`bun`](package.json):
-
-| Workspace Project | Language / Layer | Detailed Role & Module Inventory |
-| :--- | :--- | :--- |
-| [`packages/opendv-core`](packages/opendv-core/) | Python library (`domain-core`) | Strict Pydantic v2 domain models (`NoMistakeDataVault2ContractV5`, `CanonicalIR`, `GraphAOntology`, `GraphBProfile`, `VaultObservabilityEvent`), Draft 2020-12 `SchemaRegistry`, ELM calculus (`elm_calculus`), and `Algorithm A.5` length-prefixed SHA-256 hashing & Zero Key resolution (`hashing`, `constants`). |
-| [`packages/opendv-telemetry`](packages/opendv-telemetry/) | Python library (`telemetry`) | Append-only `VaultLedgerEmitter` & async SSE streaming (`ledger_emitter`), immutable SHA-256 `ContentAddressableStore` (`cas_store`), 5-tier RBAC redaction (`rbac_redactor`), adversarial PII & Shannon-entropy leak detection (`pii_detector`), Semantic Hash Pills (`hash_pills`), and W3C distributed `TraceContext` propagation (`trace_context`). |
-| [`packages/opendv-axi-verifier`](packages/opendv-axi-verifier/) | Python library (`verifier`) | 6-Gate `axi-dv` orchestrator (`alg_a8_orchestrator`), deterministic contract & SQLGlot AST codemods (`A.1` 3-axis satellite split & Gate 4 YAGNI cost guard, `A.2` enum-to-ref demotion, `A.3` link `esat_*` injection, `A.4` 3-Tier `BKCC` & nullable-FK link splitter, `A.5` canonical SHA-256 hash AST, `A.9a` intra-source schema drift), static verifiers (`gate1_contract_grain`, `gate3_networkx_dag`, `A.6` SQLGlot AST, `A.7` evolution lock, `A.9b` unstructured span & 3-Tier ER), and `@toon_v1` codec (`toon_codec`). |
-| [`packages/opendv-duckdb-sandbox`](packages/opendv-duckdb-sandbox/) | Python library (`duckdb-sandbox`) | Empirical `GraphBProfiler` & $S_k(t) \to S_k(t+1)$ schema drift detector (`graph_b_profiler`), `NoMistakeDataVault2ContractV5` $\to$ `CanonicalIR` lowerer & topological load wave planner (`ir_lowerer`), deterministic **5-Zone (`Z0–Z4`)** DuckDB/Databricks SQL compiler (`compiler_4zone`), 4-Batch adversarial shadow sandbox executor (`adversarial_batches`), 15 runtime invariant evaluators `DV-DYN-001`–`015` (`dynamic_checks`), bi-temporal PIT query engine for `Query D.10` & `Query D.10b` (`pit_query_engine`), and high-level `DuckDbShadowSandbox` orchestrator with Gate 5 dynamic telemetry emission (`sandbox_engine`). |
-| [`packages/opendv-agent-harness`](packages/opendv-agent-harness/) | Python library (`agent-harness`) | Hexagonal `VaultAgentHarness` protocol & W3C span lifecycle (`protocol`), vendor-neutral domain & budget/sandbox models (`models`), `ModelTier` routing (`reasoning` / `fast`), `agent_models` per-persona overrides, & `PERSONA_CAPABILITY_MATRIX` (`routing`), 8 RBAC-gated pure-Python domain tools (`tools.base`, `tools.catalog`), Dual-SDK Tool Bridge for Google Antigravity & Claude Agent SDK MCP (`tools.bridge`), concrete `AgyCliHarnessAdapter`, `ClaudeCliHarnessAdapter`, `AntigravityHarnessAdapter`, & `ClaudeAgentHarnessAdapter` production adapters (`adapters`; `DeterministicHarnessAdapter` is reserved strictly for internal `pytest` unit/integration mocking), provider registry & factory (`registry`), 4 canonical persona task/subagent builders (`personas`: `vault-first-mate`, `scout-source`, `scout-unstructured`, `ship-vault`), `StewardHoldManager` `ASK-USER` / `STEWARD_HOLD` lifecycle & session resumption (`hold_manager`), real-time `VaultObservabilityEvent` stream translation (`telemetry.translator`), and the end-to-end 8-stage neuro-symbolic `AgenticVaultPipeline` orchestrator & deterministic input/output validators (`pipeline`). |
-| [`packages/opendv-protocol-ts`](packages/opendv-protocol-ts/) | TypeScript library (`protocol-sdk`) | Zero-dependency TypeScript protocol SDK (`@opendv/protocol-ts`): normative DTOs, REST/SSE clients, W3C SSE parser, offline `.jsonl` replay engine (`MockVaultEventStreamClient`), Web Crypto `Algorithm A.5` hashing & Semantic Hash Pills, RBAC redaction/filters, and Private Equity demo bundle. |
-| [`apps/opendv-platform-api`](apps/opendv-platform-api/) | Python application (`api-server`) | Headless FastAPI ASGI server (`main`, `deps`), deterministic OpenAPI 3.1.0 exporter (`export_openapi` $\to$ [`schemas/openapi-v1.json`](schemas/openapi-v1.json)), RFC 9457 `application/problem+json` error handling, server-side 5-Tier RBAC redaction (`X-OpenDV-Role`), and `/api/v1` routers (`health`, `projects`, `runs` with SSE `Last-Event-ID` cursor replay, `run_complete` framing, `/api/v1/runs/{run_id}/report`, `/api/v1/runs/{run_id}/dv-schema*`, `pipelines` with `/api/v1/pipelines/validate` & `/api/v1/pipelines/runs`, `ontology_studio_*`, `gates`, `sandbox`, `decisions`, `artifacts`). |
-| [`apps/opendv-cli`](apps/opendv-cli/) | Python automation (`cli`) | Unified `opendv` and `axi-dv` command-line tools (`main`, `api_client`) supporting both `--local` (direct library invocation) and `--api-url` (remote HTTP API) modes across `pipeline`, `verify`, `profile`, `compile`, `sandbox`, `run` (incl. `dv-schema`), `hold`, `ontology`, `config`, `source`, and `serve`. |
-| [`apps/opendv-web-workbench`](apps/opendv-web-workbench/) | TypeScript application (`web-ui`) | Claude [`DESIGN.md`](DESIGN.md) 4-Tab Web Workbench (`@opendv/web-workbench`): Unified 6-Step Wizard (`Ontology & Pipeline`), 4-View `DV Schema Explorer` (`/dv-schema`), `Run Explorer` (`/explorer`), `Settings` (`/settings`), `SessionLogsInspector`, Zustand domain store slices, and Bun dev proxy (`:5173` -> `:8420`). |
-
----
-
-### A.5 Full CLI & Remote Platform API Command Recipes
-
-> **Normative References:** [`docs/08-platform-mvp-monorepo-and-api-spec.md`](docs/08-platform-mvp-monorepo-and-api-spec.md) and [`docs/09-agnostic-agent-harness-and-sdk-spec.md`](docs/09-agnostic-agent-harness-and-sdk-spec.md).
-
-#### 1. In-Process Standalone CLI Recipes (`opendv`)
-
-Execute directly in-process against the workspace packages (zero server required):
-
-```bash
-# Verify a Data Vault 2.0 contract through the 6-Gate AXI-DV pipeline
-uv run opendv verify \
-  --contract examples/private_equity/dv_pe_model_contract.yaml \
-  --graph-a examples/private_equity/pe_graph_a_ontology.yaml \
-  --graph-b examples/private_equity/pe_graph_b_profile.json
-
-# Or with TOON token-dense trace output
-uv run axi-dv verify --toon \
-  --contract examples/private_equity/dv_pe_model_contract.yaml \
-  --graph-a examples/private_equity/pe_graph_a_ontology.yaml \
-  --graph-b examples/private_equity/pe_graph_b_profile.json
-
-# Inspect empirical Bronze column profiles (Graph B)
-uv run opendv profile \
-  --graph-b examples/private_equity/pe_graph_b_profile.json
-
-# Compile contract into Canonical IR & 5-Zone (Z0-Z4) SQL (final_four_zone.sql)
-uv run opendv compile \
-  --contract examples/private_equity/dv_pe_model_contract.yaml \
-  --canonical-ir examples/private_equity/pe_canonical_ir.json
-
-# Execute 4-Batch Adversarial DuckDB Sandbox verification & Query D.10 bi-temporal audit
-uv run opendv sandbox \
-  --contract examples/private_equity/dv_pe_model_contract.yaml \
-  --canonical-ir examples/private_equity/pe_canonical_ir.json \
-  --query-type ADVERSARIAL_BATCHES_1_TO_4 \
-  --cutoff "2026-11-15 23:59:59"
-
-# Create and inspect local pipeline runs
-uv run opendv run list \
-  --project-id proj-apex-horizon-pe
-uv run opendv run get \
-  --project-id proj-apex-horizon-pe \
-  --run-id run-pe-apex-horizon-20261030
-
-# Inspect and resolve Steward Captain-Holds
-uv run opendv hold list \
-  --run-id run-pe-apex-horizon-20261030
-uv run opendv hold approve \
-  --run-id run-pe-apex-horizon-20261030 \
-  --hold-id hold-tier-u3-horizon-sovereign-vehicle \
-  --candidate APEX_CO_I
-
-# Suggest and govern ontology extensions
-uv run opendv ontology suggest \
-  --mode BOOTSTRAP \
-  --domain-namespace pe_funds \
-  --json
-```
-
-#### 2. Remote Platform Client Recipes (`opendvctl`)
-
-Execute against a live Platform API server on `http://127.0.0.1:8420`:
-
-```bash
-# Verify contract via remote Platform API
-opendvctl verify --api-url http://127.0.0.1:8420 \
-  --run-id run-pe-apex-horizon-20261030 \
-  --contract examples/private_equity/dv_pe_model_contract.yaml \
-  --graph-a examples/private_equity/pe_graph_a_ontology.yaml \
-  --graph-b examples/private_equity/pe_graph_b_profile.json
-
-# Inspect Bronze profiles via remote Platform API
-opendvctl profile --api-url http://127.0.0.1:8420 \
-  --run-id run-pe-apex-horizon-20261030 \
-  --graph-b examples/private_equity/pe_graph_b_profile.json
-
-# Compile contract via remote Platform API
-opendvctl compile --api-url http://127.0.0.1:8420 \
-  --run-id run-pe-apex-horizon-20261030 \
-  --contract examples/private_equity/dv_pe_model_contract.yaml \
-  --canonical-ir examples/private_equity/pe_canonical_ir.json
-
-# Execute 4-Batch sandbox & bi-temporal queries via remote Platform API
-opendvctl sandbox --api-url http://127.0.0.1:8420 \
-  --run-id run-pe-apex-horizon-20261030 \
-  --contract examples/private_equity/dv_pe_model_contract.yaml \
-  --canonical-ir examples/private_equity/pe_canonical_ir.json \
-  --query-type ADVERSARIAL_BATCHES_1_TO_4 \
-  --cutoff "2026-11-15 23:59:59"
-
-# Manage verification runs and stream real-time SSE observability events
-opendvctl run list --api-url http://127.0.0.1:8420 \
-  --project-id proj-apex-horizon-pe
-opendvctl run get --api-url http://127.0.0.1:8420 \
-  --project-id proj-apex-horizon-pe \
-  --run-id run-pe-apex-horizon-20261030
-opendvctl run events --api-url http://127.0.0.1:8420 \
-  --run-id run-pe-apex-horizon-20261030
-
-# List and resolve Steward Captain-Holds via remote Platform API
-opendvctl hold list --api-url http://127.0.0.1:8420 \
-  --run-id run-pe-apex-horizon-20261030
-opendvctl hold approve --api-url http://127.0.0.1:8420 \
-  --run-id run-pe-apex-horizon-20261030 \
-  --hold-id hold-tier-u3-horizon-sovereign-vehicle \
-  --candidate APEX_CO_I
-
-# Trigger or inspect a pipeline run via remote Platform API
-opendvctl pipeline run \
-  --api-url http://127.0.0.1:8420 \
-  --role INTERNAL_MODELER \
-  --input examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml \
-  --initial-contract /tmp/opendv-commerce/wave0/final_contract.yaml \
-  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config.yaml \
-  --json
-
-opendvctl pipeline report \
-  --api-url http://127.0.0.1:8420 \
-  --role INTERNAL_MODELER \
-  --run-id run-global-commerce-sample-001 \
-  --json
-
-# Suggest and govern ontology extensions via remote Platform API
-opendvctl ontology suggest \
-  --api-url http://127.0.0.1:8420 \
-  --mode BOOTSTRAP \
-  --domain-namespace pe_funds \
-  --json
-```
-
-#### 3. Headless Platform REST API (`curl`) Recipes
-
-With the Platform API server running on `http://127.0.0.1:8420` (where `POST /api/v1/pipelines/runs` and `GET /api/v1/runs/{run_id}/report` enforce 5-Tier RBAC redaction on `observability_events` via `X-OpenDV-Role`, defaulting to `PUBLIC`):
-
-```bash
-# 1. Pre-flight deterministic input validation (with optional initial_contract_path)
-curl -sS -X POST http://127.0.0.1:8420/api/v1/pipelines/validate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input_spec_path": "examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml",
-    "initial_contract_path": "/tmp/opendv-commerce/wave0/final_contract.yaml",
-    "harness_config_path": "examples/pipeline_samples/global_commerce_vault/harness_config.yaml",
-    "provider_override": "antigravity",
-    "steward_hold_policy": "auto_approve_top_candidate"
-  }' | python3 -m json.tool
-
-# 2. Execute an incremental wave or full multi-wave pipeline and receive the RBAC-redacted AgenticPipelineReport
-curl -sS -X POST http://127.0.0.1:8420/api/v1/pipelines/runs \
-  -H "Content-Type: application/json" \
-  -H "X-OpenDV-Role: INTERNAL_MODELER" \
-  -d '{
-    "input_spec_path": "examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml",
-    "initial_contract_path": "/tmp/opendv-commerce/wave0/final_contract.yaml",
-    "harness_config_path": "examples/pipeline_samples/global_commerce_vault/harness_config.yaml",
-    "provider_override": "antigravity",
-    "steward_hold_policy": "auto_approve_top_candidate"
-  }' | python3 -m json.tool
-
-# 3. Retrieve the RBAC-redacted AgenticPipelineReport for a run_id
-curl -sS http://127.0.0.1:8420/api/v1/runs/run-global-commerce-sample-001/report \
-  -H "X-OpenDV-Role: INTERNAL_MODELER" | python3 -m json.tool
-```
-
-**Triggering via Web Workbench (`http://127.0.0.1:8420/`):**
-1. Open the **`Ontology & Pipeline`** tab (Unified 6-Step Wizard at `http://127.0.0.1:8420/`), configure scope & sources in **Steps 1–3** (or click **`Fast-Forward`** from Step 3 if using a finalized ontology baseline), and verify the Agent provider in **Step 4a** (`<AgentHarnessConfigCard />`).
-2. Review/commit the ontology in **Steps 4–5** and advance to **Step 6 (DV 2.0 Build & Run)**, where `deployed_contract` auto-binds (`D12`) and you select `DuckDB` or `Databricks Delta`.
-3. Click **`Run 7-Stage Pipeline`** to watch the live **`00..06`** console pills (mapped over internal `STAGE_00..07`), inspect **`SessionLogsInspector`** (`/logs/stream`), resolve any inline **`StewardHoldModal`** (`D14`) or **`BudgetHold`** (`D21`), and open **`DV Schema Explorer`** (`/dv-schema`) to browse live rows and run read-only SQL (`D11`).
-
-> [!NOTE]
-> The compiled Web Workbench is served directly by `opendv serve` on `http://127.0.0.1:8420`. For frontend hot-reload development only, run `bun run --cwd apps/opendv-web-workbench dev` (`:5173`), which proxies `/api/*` requests to `http://127.0.0.1:8420` (override via `OPENDV_API_URL`).
-
----
-
-### A.6 Normative Test Suite & Coverage Matrix
-
-> **Normative Reference:** [`docs/11-agent-worker-implementation-plan.md`](docs/11-agent-worker-implementation-plan.md).
-
-The [CI workflow](.github/workflows/ci.yml) validates all JSON Schemas against Draft 2020-12, checks example contracts and Canonical IR documents ([`examples/dv_model_contract.yaml`](examples/dv_model_contract.yaml), [`examples/private_equity/dv_pe_model_contract.yaml`](examples/private_equity/dv_pe_model_contract.yaml), [`examples/private_equity/pe_canonical_ir.json`](examples/private_equity/pe_canonical_ir.json)), compiles every `python` code fence in `docs/`, executes the `5-Zone (Z0–Z4)` DuckDB SQL bundle (`final_four_zone.sql`), and runs the full normative `pytest` and `bun test` suites.
-
-> [!IMPORTANT]
-> **`DeterministicHarnessAdapter` Is Test-Only:** `DeterministicHarnessAdapter` and internal SDK shims exist strictly inside `pytest` unit and integration suites for deterministic CI testing without live external LLM API calls. They are rejected by the production CLI (`opendv`) and Platform REST API (`/api/v1/pipelines/*`).
-
-#### Running `pytest`, `bun test`, & Schema Validation
-
-```bash
-# Run the full Python test suite (root specification tests + all packages/* and apps/* tests)
-uv run pytest -v
-
-# Run TypeScript unit & component tests for the Protocol SDK and Web Workbench
-bun run --cwd packages/opendv-protocol-ts test
-bun run --cwd apps/opendv-web-workbench test
-
-# Or run the full polyglot toolchain via proto & moon
-proto install
-uv sync --all-packages --locked
-bun install --frozen-lockfile
-moon run opendv-core:validate-schemas
-moon run :lint :format-check :typecheck :test :build
-
-# Quick standalone JSON Schema syntax check
-python3 -m json.tool schemas/dv2-canonical-ir.schema.json > /dev/null
-python3 -m json.tool schemas/no-mistake-dv2-contract-v5.schema.json > /dev/null
-python3 -m json.tool schemas/vault-observability-event.schema.json > /dev/null
-python3 -m json.tool schemas/openapi-v1.json > /dev/null
-```
-
-#### Module-by-Module Test Inventory
-
-| Test Module | Coverage Scope |
-| :--- | :--- |
-| [`tests/conftest.py`](tests/conftest.py) | Shared session/function fixtures for repository paths, JSON Schemas, YAML contracts, Canonical IR, Graph A/B profiles, extracted `docs/05`–`docs/07` Python algorithms, and ephemeral `:memory:` DuckDB connections. |
-| [`tests/test_schemas_and_contracts.py`](tests/test_schemas_and_contracts.py) | Draft 2020-12 meta-validation of `schemas/*.json`, positive validation of `dv_model_contract.yaml`, `dv_pe_model_contract.yaml`, and `pe_canonical_ir.json`, parametrized negative/adversarial mutations (`DV-G1-001`, `DV-G3-002`, `DV-G3-003`, naming regexes, hash functions, and zero-key/ghost record policies), plus `docs/08`–`docs/11` platform MVP monorepo configs, RBAC redaction, SSE wire vectors, dual-SDK agent harness adapters, hash pill parity, and `WP-01`–`WP-12` dispatch wave verification. |
-| [`tests/test_hashing_and_keys.py`](tests/test_hashing_and_keys.py) | Reference `compute_dv2_length_prefixed_sha256` verification, all 12 normative Private Equity SHA-256 test vectors (`docs/06` Table 2.4), delimiter-collision immunity (`['AB','C'] != ['A','BC']`), asymmetric case/whitespace normalization, `-1` null vs. `-2` empty-string sentinels, and Zero Key constants (`0x00..00` and `0xff..ff`). |
-| [`tests/test_verification_gates_and_codemods.py`](tests/test_verification_gates_and_codemods.py) | Gate 2 `Algorithm A.1` ELM-to-DV2 folding & Link grain checks (Traps 1 & 2), Gate 3 `networkx.MultiDiGraph` topology verifier (`DV-G3-001`..`005`), Gate 4 `Algorithm A.4` YAGNI & 67/67 Graph B column triage completeness (Trap 3 `SPLIT_REQUIRED`), Gate 6 `Algorithm A.6` `sqlglot` AST SQL linter (`DV-G6-001`..`005`), and deterministic AST codemods (`A.1`–`A.8`) with idempotence and post-codemod gate convergence. |
-| [`tests/test_observability_and_redaction.py`](tests/test_observability_and_redaction.py) | `VaultObservabilityEvent` positive & negative validation across all 8 pipeline phases (`P1_INGESTION`..`P8_OPERATIONS`) and conditional `allOf` rules, 5-tier data classification redaction (`PUBLIC`, `INTERNAL`, `CONFIDENTIAL`, `MNPI`, `RESTRICTED_PII`) with adversarial PII leak detection, `format_semantic_hash_pill`, 3-layer progressive disclosure invariants, and schema validation. |
-| [`tests/test_multimodal_and_duckdb_e2e.py`](tests/test_multimodal_and_duckdb_e2e.py) | `Algorithm A.9b` 17/17 PDF character-offset grounding spans + adversarial span mutations (`DV-AUD-001`..`005`), cross-modal numerical discrepancy detection (25 bps & 50 bps fee deltas without mutating `raw_vault.sat_fund_investran`), `Algorithm A.9a` intra-source schema drift codemod, 5-Zone (`Z0–Z4`) DuckDB warehouse execution (`final_four_zone.sql`), Zero Keys & Ghost Records, 0 orphans across 23 FK relationships, all 15 `DV-DYN-001`..`015` checks, all 4 Adversarial Shadow Sandbox Batches, and Bi-Temporal PIT Audit Queries `D.10` & `D.10b` at `2026-10-15 12:00:00` and `2026-11-20 23:59:59`. |
-| [`tests/test_issue40_tier1_global_bkcc_e2e.py`](tests/test_issue40_tier1_global_bkcc_e2e.py) | End-to-end verification of Issue #40 (`GAP-09` / `DV-COL-013`) across Scenario S1 (Cold Start $N=1$) and Scenario S2 (Multi-Source Convergence $N \to N+1$) using real CSV datasets, `GraphBProfiler`, 6-Gate static verification, `CanonicalIR` lowering, 5-Zone (`Z0–Z4`) DuckDB SQL compilation (`compiler_4zone`), and 4-Batch Adversarial Shadow Sandbox execution ([`docs/17`](docs/17-testing-scenarios-and-datasets.md)). |
-| [`packages/opendv-core/tests/test_core_models_and_hashing.py`](packages/opendv-core/tests/test_core_models_and_hashing.py) | Unit tests for `opendv-core` normative constants, `Algorithm A.5` length-prefixed SHA-256 hashing & Private Equity vectors, boundary-shift & positional `NULL` collision resistance, Zero Key FK resolution, ELM information-theoretic & temporal calculus (`W_amp = 4.20 MB/day`), Draft 2020-12 `SchemaRegistry`, and strict Pydantic v2 models (`NoMistakeDataVault2ContractV5`, `CanonicalIR`, `GraphAOntology`, `GraphBProfile`, `VaultObservabilityEvent`). |
-| [`packages/opendv-telemetry/tests/test_telemetry_and_rbac.py`](packages/opendv-telemetry/tests/test_telemetry_and_rbac.py) | Unit and async tests for `opendv-telemetry`: Semantic Hash Pill formatting (`HK`, `LHK`, `HD`, `GHOST`, `ZERO-KEY`, `ERR-KEY`), `ContentAddressableStore` atomic writes & tamper detection, W3C distributed `TraceContext` propagation, 5-tier RBAC redaction (`PUBLIC`, `INTERNAL_MODELER`, `CONFIDENTIAL_ANALYST`, `PII_STEWARD`, `PRIVILEGED_CUSTODIAN`), PII/MNPI/64-hex/Shannon-entropy leak scanning, and `VaultLedgerEmitter` JSONL persistence & SSE `Last-Event-ID` cursor replay. |
-| [`packages/opendv-axi-verifier/tests/test_codemods_and_static_gates.py`](packages/opendv-axi-verifier/tests/test_codemods_and_static_gates.py) | Unit tests for `opendv-axi-verifier`: deterministic contract & SQLGlot AST codemods (`A.1`–`A.5`, `A.9a`), Gate 1–6 static verifiers (`gate1_contract_grain`, `gate3_networkx_dag` `DV-STR-001`..`015` & `DV-COL-001`..`013`, `A.6` SQLGlot AST `DV-AST-001`..`007`, `A.7` evolution lock `DV-EVO-001`..`007`, `A.9b` unstructured span & 3-Tier ER routing), `@toon_v1` serializer/parser round-trip, and `Algorithm A.8` `run_axi_dv_verification_pipeline` end-to-end orchestration. |
-| [`packages/opendv-duckdb-sandbox/tests/test_compiler_and_4batch_sandbox.py`](packages/opendv-duckdb-sandbox/tests/test_compiler_and_4batch_sandbox.py) | Unit and integration tests for `opendv-duckdb-sandbox`: `lower_contract_to_canonical_ir` & `topological_load_dag` (`dv_pe_model_contract.yaml` & `dv_model_contract.yaml`), `GraphBProfiler` empirical table/Parquet/CSV metrics & 5-class $S_k(t) \to S_k(t+1)$ schema drift detection, 5-Zone (`Z0–Z4`) SQL compilation (`compile_canonical_ir_to_4zone_sql` & `compile_zone_0_migration_sql` idempotent `ALTER TABLE ADD COLUMN` multi-wave Satellite evolution), bi-temporal adjacent effective state delta detection (`Scenario S6`), unstructured steward-gate Zone 2 DML filtering (`Scenario S8`), all 4 Adversarial Shadow Sandbox Batches in DuckDB `:memory:`, all 15 `DV-DYN-001`..`015` checks, and `PitQueryEngine` (`Query D.10` / `D.10b`). |
-| [`packages/opendv-agent-harness/tests/test_tool_bridge_and_catalog.py`](packages/opendv-agent-harness/tests/test_tool_bridge_and_catalog.py) | Unit and async tests for `opendv-agent-harness`: `VaultAgentHarness` & `BaseVaultAgentHarness` task execution and `STEWARD_HOLD` transitions, `HarnessConfig` absolute-path validation, `ModelTier` (`reasoning` / `fast`) & `agent_models` routing & `PERSONA_CAPABILITY_MATRIX`, RBAC persona gating & CAS artifact persistence across all 8 canonical domain tools, Dual-SDK Tool Bridge (`to_antigravity_tool_callable` signature/docstring synthesis & `ToolContext` state sync, `build_claude_sdk_mcp_bundle` `mcp__opendv__*` packaging), and `HarnessTelemetryTranslator` JSONL ledger emission with Layer 1 64-hex scrubbing. |
-| [`packages/opendv-agent-harness/tests/test_antigravity_adapter.py`](packages/opendv-agent-harness/tests/test_antigravity_adapter.py) | Unit and async tests for `AgyCliHarnessAdapter` (`agy` CLI subprocess runner) and `AntigravityHarnessAdapter` (`google.antigravity` mock SDK & Gemini REST fallback), `ModelTier` & `agent_models` overrides, 9-tier `policy.*` safety rules (read-only/writable workspace & dangerous shell command blocking), `SubagentConfig` delegation, concurrent `asyncio.TaskGroup` thought/tool/token streaming, `structured_output()` validation, `cancel_active_turn`, `create_agent_harness` / `register_harness`, all 4 persona task/subagent builders, and `StewardHoldManager` persistence, reload, resolution, and session resumption. |
-| [`packages/opendv-agent-harness/tests/test_claude_adapter.py`](packages/opendv-agent-harness/tests/test_claude_adapter.py) | Unit and async tests for `ClaudeCliHarnessAdapter` (`claude` CLI subprocess runner) and `ClaudeAgentHarnessAdapter` (`claude_agent_sdk` mock SDK), `ModelTier` & `agent_models` overrides, `strip_mcp_prefix("mcp__opendv__...")`, `ClaudeAgentOptions` & `AgentDefinition` / `--agents` subagent wiring, `HookMatcher` `PreToolUse` Bash guardrail, `ThinkingBlock` / `TextBlock` / `ToolUseBlock` / `ToolResultBlock` / `ResultMessage` streaming, `output_format` / `--json-schema` JSON Schema validation & fallback, `STEWARD_HOLD` session resumption (`resume` / `--resume`), and `cancel_active_turn` (`client.interrupt()`). |
-| [`packages/opendv-agent-harness/tests/test_agentic_pipeline.py`](packages/opendv-agent-harness/tests/test_agentic_pipeline.py) | Unit and integration tests for `AgenticVaultPipeline` & `run_agentic_vault_pipeline`: deterministic pre-flight (`validate_pipeline_inputs`) and post-flight (`validate_pipeline_outputs`) validators, 4-wave Global Commerce Vault execution across `agy`, `antigravity`, `claude`, and `claude-cli` / `claude-code` harness providers (plus internal `DeterministicHarnessAdapter` test mocks), standalone 4-call incremental `--initial-contract` schema evolution, `@toon_v1` closed-loop self-healing (`k=1 -> k=2`), `Tier-U3` `STEWARD_HOLD` policies (`auto_approve_top_candidate`, `pause`, `reject_on_hold`), and CAS SHA-256 artifact integrity. |
-| [`packages/opendv-protocol-ts/tests/`](packages/opendv-protocol-ts/tests/) | Bun unit tests for `@opendv/protocol-ts`: Web Crypto `Algorithm A.5` length-prefixed SHA-256 hashing & Private Equity test vectors (`hash-pill.test.ts`), W3C SSE frame & stream parsing (`sse-parser.test.ts`), `OpenDVPlatformClient` & `VaultEventStreamClient` cursor/reconnection behavior (`client.test.ts`), and `MockVaultEventStreamClient` offline replay coverage (`mock-replay.test.ts`). |
-| [`apps/opendv-platform-api/tests/test_platform_api_rest_and_sse.py`](apps/opendv-platform-api/tests/test_platform_api_rest_and_sse.py) | Unit and integration tests for `opendv-platform-api`: `/api/v1/health`, `/api/v1/platform/capabilities`, `/api/v1/projects` (including repository-root path containment), `/api/v1/runs`, `/api/v1/pipelines/validate`, `/api/v1/pipelines/runs`, `/api/v1/runs/{run_id}/report`, `/api/v1/runs/{run_id}/events` SSE streaming with `Last-Event-ID` replay & 5-Tier RBAC redaction (`X-OpenDV-Role`), `/api/v1/runs/{run_id}/gates` (`PASS` and `REJECT_WITH_TRACE` verdicts), `/api/v1/runs/{run_id}/sandbox` (`Query D.10` & `D.10b`), `/api/v1/runs/{run_id}/decisions` (`Tier-U3` Captain-Hold resolution), legacy workbench 404 responses (Decision D3), `/api/v1/artifacts/{sha256}` CAS integrity, RFC 9457 `application/problem+json` errors, and deterministic `schemas/openapi-v1.json` export. |
-| [`apps/opendv-platform-api/tests/test_e2e_private_equity_certification.py`](apps/opendv-platform-api/tests/test_e2e_private_equity_certification.py) | Full-stack Private Equity certification test exercising platform capabilities (`G0`–`G5`, `reasoning`/`fast` model tiers), project & run creation, W3C SSE `Last-Event-ID` replay, `Tier-U3` Captain-Hold resolution (`Horizon Sovereign Co-Invest Vehicle`), 6-Gate closed-loop verification, 5-Zone (`Z0–Z4`) DuckDB SQL compilation (`compiler_4zone`), 4-Batch Adversarial Shadow Sandbox (`DV-DYN-001`–`015`, `Query D.10` / `D.10b` PIT verification), and legacy workbench 404 responses (Decision D3). |
-| [`apps/opendv-cli/tests/test_opendv_and_axi_dv_cli.py`](apps/opendv-cli/tests/test_opendv_and_axi_dv_cli.py) | Unit and integration tests for `opendv` and `axi-dv` CLI entrypoints across `--local` and `--api-url` (in-memory ASGI transport) modes: `pipeline` (`validate`, `run`, `report` with 5-Tier RBAC redaction and zero hardcoded sample paths), `verify` (including `--toon` output, default subcommand routing, and failing contract exit codes), `profile`, `compile`, `sandbox` (`Query D.10` / `D.10b` at custom `--cutoff`), `run` (`list`, `get`, `create`, `abort`, `events`, `dv-schema`), `hold` (`list`, `approve`), and `ontology studio` (21 subcommand groups). |
-| [`apps/opendv-web-workbench/tests/`](apps/opendv-web-workbench/tests/) | Bun unit and component tests for `@opendv/web-workbench`: Claude `DESIGN.md` 4-tab shell, Unified 6-Step Wizard, 4-View DV Schema Explorer, `SessionLogsInspector`, `<AgentHarnessConfigCard />`, WCAG AA/AAA visual grammar, and zero-dependency Bun dev server & `/api` proxy. |
-
----
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE).
+Apache License 2.0. See `LICENSE` for details.

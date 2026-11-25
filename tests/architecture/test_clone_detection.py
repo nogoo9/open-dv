@@ -10,17 +10,18 @@ import pytest
 from tests.architecture.conftest import REPO_ROOT
 
 TARGET_DIRS = [
-    "apps/opendv-cli/src",
-    "apps/opendv-platform-api/src",
-    "packages/opendv-service/src",
-    "packages/opendv-contracts/src",
+    "src/opendv/cli",
+    "src/opendv/api",
+    "src/opendv/service",
+    "src/opendv/sources",
+    "src/opendv/agents",
 ]
 
 
 @pytest.mark.architecture
 @pytest.mark.slow
 def test_zero_code_clones() -> None:
-    """Assert zero duplicate code clones (>= 8 lines) across core packages and apps."""
+    """Assert zero duplicate code clones (>= 8 lines) across V2 service, API, CLI, sources, agents."""
     cmd = [
         sys.executable,
         "-m",
@@ -28,7 +29,6 @@ def test_zero_code_clones() -> None:
         "--disable=all",
         "--enable=duplicate-code",
         "--min-similarity-lines=8",
-        "--ignore-patterns=.*pipeline\\.py",
         *[str(REPO_ROOT / d) for d in TARGET_DIRS],
     ]
     res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(REPO_ROOT))

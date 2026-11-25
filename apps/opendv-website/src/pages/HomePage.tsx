@@ -16,8 +16,8 @@ export function HomePage({
 }): React.JSX.Element {
 	return (
 		<DocumentShell
-			title="open-dv — Agent-First 6-Step Data Vault 2.0 Studio & 5-Zone Compiler"
-			description="Open-source Apache-2.0 Agent-first 6-Step Data Vault 2.0 wizard, 4-View DV Schema Explorer, 6-gate axi-dv verifier, DuckDB shadow sandbox, and 5-Zone (Z0-Z4) SQL compiler."
+			title="open-dv — Agent-First 7-Step Data Vault 2.0 Workbench & 11-Target Compiler"
+			description="Open-source Apache-2.0 Agent-first 7-Step Guided ⇄ Observatory Data Vault 2.0 Workbench, 4-View DV Schema Explorer, Run Explorer, L1 + V1–V8 CEGAR verifier, and 11-target 5-Zone (Z0-Z4) compiler."
 			canonicalPath="/"
 			activeRoute="home"
 			{...(basePath !== undefined ? { basePath } : {})}

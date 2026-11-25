@@ -90,24 +90,24 @@ test.describe("Open-DV website E2E", () => {
 		await expect(fw).toHaveAttribute("data-paused", "true");
 		expect(await pauseBtn.getAttribute("aria-pressed")).toBeNull();
 
-		await page.locator('[data-scenario-tab="hybrid-drift"]').click();
+		await page.locator('[data-scenario-tab="additive-ext-w2"]').click();
 		await expect(
 			page.locator('[data-diagram="inference-matrix"]'),
-		).toHaveAttribute("data-active-scenario", "hybrid-drift");
-		const hybrid = page.locator('[data-scenario-panel="hybrid-drift"]');
-		await expect(hybrid).toBeVisible();
-		await expect(hybrid).toContainText("HYBRID_PER_SOURCE");
+		).toHaveAttribute("data-active-scenario", "additive-ext-w2");
+		const wave2Panel = page.locator('[data-scenario-panel="additive-ext-w2"]');
+		await expect(wave2Panel).toBeVisible();
+		await expect(wave2Panel).toContainText("ADDITIVE_EXT_W2");
 
 		const sg = page.locator('[data-diagram="six-gate-verifier"]');
-		await page.locator('[data-fault-btn="fault-nullable-fk"]').click();
+		await page.locator('[data-fault-btn="fault-bk-collision"]').click();
 		await expect(
-			page.locator('[data-fault-detail="fault-nullable-fk"]'),
-		).toContainText("G1|AUTO-FIX|ALG_A4");
+			page.locator('[data-fault-detail="fault-bk-collision"]'),
+		).toContainText("L1|AUTO-FIX|ALG_A4");
 
-		await page.locator('[data-gate-select="G3"]').click();
-		await expect(sg).toHaveAttribute("data-active-gate", "G3");
-		await expect(page.locator('[data-gate-detail="G3"]')).toContainText(
-			"NetworkX Bipartite",
+		await page.locator('[data-gate-select="V6"]').click();
+		await expect(sg).toHaveAttribute("data-active-gate", "V6");
+		await expect(page.locator('[data-gate-detail="V6"]')).toContainText(
+			"DuckDB 15-Invariant Prover",
 		);
 
 		const ctx = await browser.newContext({ reducedMotion: "reduce" });
@@ -174,7 +174,7 @@ test.describe("Open-DV website E2E", () => {
 
 		for (const tabId of [
 			"#wb-tab-dv-schema-explorer",
-			"#wb-tab-session-logs",
+			"#wb-tab-run-explorer",
 		]) {
 			const tab = page.locator(tabId);
 			await tab.click();
@@ -191,6 +191,7 @@ test.describe("Open-DV website E2E", () => {
 				)
 				.toBe(true);
 		}
+		await expect(page.locator("#wb-panel-run-explorer")).toBeVisible();
 
 		for (const tab of await wbTabs.all()) {
 			await tab.click();
@@ -210,6 +211,14 @@ test.describe("Open-DV website E2E", () => {
 			'[data-tabs-group="dialects"] [role="tab"]',
 		);
 		await expect(dialectTabs).toHaveCount(5);
+		await page.locator("#dialect-tab-vault-ir-json").click();
+		await expect(page.locator("#dialect-panel-vault-ir-json")).toContainText(
+			'"schema_version": "2.0"',
+		);
+		await page.locator("#dialect-tab-opendv-cli").click();
+		await expect(page.locator("#dialect-panel-opendv-cli")).toContainText(
+			"source attach",
+		);
 		await page.getByRole("tab", { name: "Databricks Delta SQL" }).click();
 		const delta = page.locator("#dialect-panel-databricks-sql");
 		await expect(delta).toBeVisible();
@@ -280,7 +289,7 @@ test.describe("Open-DV website E2E", () => {
 		expect(total).toBeGreaterThanOrEqual(6);
 
 		const filter = page.locator("[data-transcript-filter]");
-		await filter.fill("axi");
+		await filter.fill("horizon");
 		const visibleRows = page.locator("[data-chapter-row]:visible");
 		const matched = await visibleRows.count();
 		expect(matched).toBeGreaterThanOrEqual(1);

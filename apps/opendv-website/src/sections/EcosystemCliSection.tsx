@@ -17,16 +17,18 @@ export function EcosystemCliSection(): React.JSX.Element {
 				<div className="section-head">
 					<div className="section-head-copy">
 						<p className="eyebrow">
-							CONNECTORS, 5-ZONE SQL &amp; CONTRACT-IDENTICAL CLIS
+							CONNECTORS, 11 TARGETS &amp; UNIFIED OPENDV CLI
 						</p>
 						<h2 id="ecosystem-heading">
-							Universal connectors, 5-Zone IR, and Dual-CLI parity.
+							Universal connectors, VaultSchemaIR v2.0, and unified CLI/MCP
+							parity.
 						</h2>
 					</div>
 					<p className="section-intro">
-						Profile catalogs locally or push aggregates to remote warehouses,
-						compile 5-Zone (Z0–Z4) <code>information_mart</code> SQL, and invoke
-						every subcommand from Python or standalone Bun binaries.
+						Profile sources via 6 static adapters, compile{" "}
+						<code>VaultSchemaIR v2.0</code> across 11 targets (8 SQL dialects +
+						Iceberg, Parquet, and dbt), and invoke every workflow via Python CLI
+						or 17-tool <code>stdio</code> MCP.
 					</p>
 				</div>
 
@@ -113,35 +115,34 @@ export function EcosystemCliSection(): React.JSX.Element {
 					<aside className="card">
 						<div className="badge-row" style={{ marginBlockEnd: "0.55rem" }}>
 							<span className="badge badge-gold">
-								DUAL-CLI &amp; 6 HARNESS ADAPTERS
+								UNIFIED CLI · 17-TOOL MCP · 34 ERROR CODES
 							</span>
 						</div>
 						<h3>
-							<code>opendv</code> (Python) &amp; <code>opendvctl</code> (Bun)
+							<code>opendv</code> CLI &amp; <code>stdio</code> MCP
 						</h3>
 						<p className="prose" style={{ fontSize: "0.92rem" }}>
-							Both binaries generate from <code>schemas/v1/cli-spec.json</code>{" "}
-							with 3-transport RFC 8785 JCS parity across{" "}
-							<code>run dv-schema</code>,{" "}
-							<code>ontology studio attach-source</code>,{" "}
-							<code>ontology studio fibo-qa</code>, and{" "}
-							<code>ontology studio logs</code>.
+							Generated canonically from <code>schemas/v2/cli-spec.json</code>{" "}
+							with RFC 8785 JCS and 34-code parity across{" "}
+							<code>project init</code>, <code>source attach</code>,{" "}
+							<code>ontology fibo-qa</code>, <code>vault build</code>,{" "}
+							<code>vault logs</code>, and <code>storage query</code>.
 						</p>
 						<dl className="scenario-readout" style={{ marginBlock: "1rem" }}>
 							<div>
-								<dt>opendv (Python In-Process)</dt>
+								<dt>In-Process or --api-url</dt>
 								<dd>
-									Runs directly against <code>opendv_service</code> with zero
-									HTTP server; <code>serve --open</code> defaults to loopback
-									open access.
+									Runs directly against <code>OpenDVService</code> over 5-table{" "}
+									<code>project.sqlite</code> or targets a live{" "}
+									<code>:8420</code> server.
 								</dd>
 							</div>
 							<div>
-								<dt>opendvctl (Bun Platform Binary)</dt>
+								<dt>17-Tool stdio MCP &amp; Run Explorer</dt>
 								<dd>
-									Streams SSE progress and session logs from{" "}
-									<code>http://127.0.0.1:8420</code> with{" "}
-									<code>Logs &amp; Traces</code> 50 MB retention.
+									<code>opendv mcp serve</code> binds IDE agents cleanly while{" "}
+									<code>Run Explorer</code> streams <code>Last-Event-ID</code>{" "}
+									timelines, attempt snapshots, and receipts.
 								</dd>
 							</div>
 						</dl>
@@ -151,7 +152,7 @@ export function EcosystemCliSection(): React.JSX.Element {
 								className="eyebrow"
 								style={{ marginBlockEnd: "0.45rem", fontSize: "0.7rem" }}
 							>
-								6 Supported Agent Harness Providers
+								4 Supported Agent Harness Providers
 							</p>
 							<ul
 								className="badge-row"

@@ -523,17 +523,32 @@ async def test_uat_v26_api_03_problem_details_34_codes_validation_500_and_roots(
 @pytest.mark.asyncio
 async def test_uat_v26_api_04_conditional_spa_static_mount(tmp_path: Path) -> None:
     svc = _make_svc(tmp_path)
-    default_app = create_app(svc)
-
     gitkeep = Path(__file__).resolve().parents[2] / "src" / "opendv" / "api" / "static" / ".gitkeep"
     assert gitkeep.is_file() and gitkeep.stat().st_size == 0
 
+    empty_static = tmp_path / "empty_static"
+    empty_static.mkdir()
+    unbuilt_app = create_app(svc, static_dir=empty_static)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=unbuilt_app),
+        base_url="http://127.0.0.1:8420",
+    ) as client:
+        assert (await client.get("/api/v1/health")).status_code == 200
+        _assert_problem(await client.get("/"), status=404, error_code="RESOURCE_NOT_FOUND")
+
+    default_app = create_app(svc)
+    built_spa = (gitkeep.parent / "index.html").is_file()
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=default_app),
         base_url="http://127.0.0.1:8420",
     ) as client:
         assert (await client.get("/api/v1/health")).status_code == 200
-        _assert_problem(await client.get("/"), status=404, error_code="RESOURCE_NOT_FOUND")
+        root_resp = await client.get("/")
+        if built_spa:
+            assert root_resp.status_code == 200
+            assert "text/html" in root_resp.headers["content-type"]
+        else:
+            _assert_problem(root_resp, status=404, error_code="RESOURCE_NOT_FOUND")
 
     static_dir = tmp_path / "static_ui"
     (static_dir / "assets").mkdir(parents=True)

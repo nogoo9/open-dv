@@ -156,14 +156,14 @@ svg.dia {
 	transition: opacity 180ms ease;
 }
 
-.diagram-frame[data-active-scenario="day0-seed"]
-	[data-scenario-node*="day0-seed"],
-.diagram-frame[data-active-scenario="sqlite-greenfield"]
-	[data-scenario-node*="sqlite-greenfield"],
-.diagram-frame[data-active-scenario="hybrid-drift"]
-	[data-scenario-node*="hybrid-drift"],
-.diagram-frame[data-active-scenario="verified-noop"]
-	[data-scenario-node*="verified-noop"] {
+.diagram-frame[data-active-scenario="cold-start-w1"]
+	[data-scenario-node*="cold-start-w1"],
+.diagram-frame[data-active-scenario="multi-source-bkcc"]
+	[data-scenario-node*="multi-source-bkcc"],
+.diagram-frame[data-active-scenario="additive-ext-w2"]
+	[data-scenario-node*="additive-ext-w2"],
+.diagram-frame[data-active-scenario="horizon-steer"]
+	[data-scenario-node*="horizon-steer"] {
 	opacity: 1;
 }
 
@@ -179,32 +179,35 @@ svg.dia {
 	outline-offset: 4px;
 }
 
-.diagram-frame[data-active-gate="G0"] [data-gate-select="G0"] .dia-gate-box,
-.diagram-frame[data-active-gate="G1"] [data-gate-select="G1"] .dia-gate-box,
-.diagram-frame[data-active-gate="G2"] [data-gate-select="G2"] .dia-gate-box,
-.diagram-frame[data-active-gate="G3"] [data-gate-select="G3"] .dia-gate-box,
-.diagram-frame[data-active-gate="G4"] [data-gate-select="G4"] .dia-gate-box,
-.diagram-frame[data-active-gate="G5"] [data-gate-select="G5"] .dia-gate-box {
+.diagram-frame[data-active-gate="L1"] [data-gate-select="L1"] .dia-gate-box,
+.diagram-frame[data-active-gate="V1_V5"]
+	[data-gate-select="V1_V5"]
+	.dia-gate-box,
+.diagram-frame[data-active-gate="V6"] [data-gate-select="V6"] .dia-gate-box,
+.diagram-frame[data-active-gate="V6B"] [data-gate-select="V6B"] .dia-gate-box,
+.diagram-frame[data-active-gate="V7"] [data-gate-select="V7"] .dia-gate-box,
+.diagram-frame[data-active-gate="V8"] [data-gate-select="V8"] .dia-gate-box {
 	stroke: var(--primary);
 	stroke-width: 2.5px;
 	fill: var(--surface-cream-strong);
 }
 
-.diagram-frame[data-active-fault="fault-nullable-fk"]
-	[data-gate-select="G1"]
+.diagram-frame[data-active-fault="fault-bk-collision"]
+	[data-gate-select="L1"]
 	.dia-gate-box,
-.diagram-frame[data-active-fault="fault-micro-sat"]
-	[data-gate-select="G4"]
+.diagram-frame[data-active-fault="fault-pii-split"]
+	[data-gate-select="V6B"]
 	.dia-gate-box,
-.diagram-frame[data-active-fault="fault-hub-grain"]
-	[data-gate-select="G3"]
+.diagram-frame[data-active-fault="fault-hub-edge"]
+	[data-gate-select="V1_V5"]
 	.dia-gate-box {
 	stroke: var(--danger-stroke);
 	stroke-width: 2.5px;
 	fill: var(--danger-fill);
 }
 
-.diagram-frame[data-active-fault="fault-hub-grain"] .dia-heal-arc {
+.diagram-frame[data-active-fault="fault-hub-edge"] .dia-heal-arc,
+.diagram-frame[data-active-fault="fault-pii-split"] .dia-heal-arc {
 	stroke: var(--primary);
 	stroke-width: 2.5px;
 }

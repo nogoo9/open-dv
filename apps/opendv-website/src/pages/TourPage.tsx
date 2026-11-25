@@ -13,8 +13,8 @@ export function TourPage({
 
 	return (
 		<DocumentShell
-			title="open-dv Technical Walkthrough — 6-Step Wizard, DV Schema Explorer & Session Logs"
-			description="Watch the 2:45 Open-DV walkthrough covering loopback open access, the Unified 6-Step Wizard, 6-Gate axi-dv proofs, 4-View DV Schema Explorer, Session Logs, and 5-Zone (Z0-Z4) SQL."
+			title="open-dv Technical Walkthrough — 7-Step Workbench, DV Schema Explorer & Run Explorer"
+			description="Watch the 2:45 Open-DV V2 walkthrough covering loopback open access, the 7-Step Guided ⇄ Observatory Workbench, L1 + V1–V8 CEGAR proofs, 4-View DV Schema Explorer, Run Explorer, 11 storage targets, and unified opendv CLI."
 			canonicalPath="/tour/"
 			activeRoute="tour"
 			{...(basePath !== undefined ? { basePath } : {})}
@@ -36,10 +36,11 @@ export function TourPage({
 						Open-DV {SITE_META.version} Technical Walkthrough
 					</h1>
 					<p className="lede">
-						Complete 2:45 guided tour across loopback open access, the Unified
-						6-Step Wizard, 6-Gate <code>axi-dv</code> proofs, 4-View DV Schema
-						Explorer, Session Logs &amp; Traces, 5-Zone (Z0–Z4){" "}
-						<code>information_mart</code> SQL, and Dual CLIs.
+						Complete 2:45 guided tour across loopback open access, the 7-Step
+						Guided ⇄ Observatory Workbench, L1 + V1–V8 CEGAR proofs, 4-View DV
+						Schema Explorer, Run Explorer, 11 storage targets spanning 5-Zone
+						(Z0–Z4) + <code>information_mart</code>, and the unified{" "}
+						<code>opendv</code> CLI.
 					</p>
 
 					<div className="video-frame">
@@ -152,7 +153,7 @@ export function TourPage({
 								id="transcript-search"
 								type="search"
 								className="search-input"
-								placeholder="Search FIBO, 5-Zone, axi-dv, DuckDB..."
+								placeholder="Search FIBO, 5-Zone, CEGAR, Horizon, DuckDB..."
 								data-transcript-filter
 							/>
 						</div>

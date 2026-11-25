@@ -1,3 +1,9 @@
-# Enforce LF line endings for golden fixtures and schemas across platforms (RFC 8785, G.4)
-tests/golden/** text eol=lf
+# Enforce LF line endings for canonical V2 schemas across platforms (RFC 8785)
 schemas/** text eol=lf
+
+# Binary data fixtures and portable Open-DV bundles
+*.zip binary
+*.duckdb binary
+*.sqlite binary
+*.parquet binary
+*.pdf binary

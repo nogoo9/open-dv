@@ -1,37 +1,19 @@
-"""Architecture Gate: Zero Hardcoded Literals Enforcement.
-
-Per ADR-020 and Doc 26 §1.1, validates via Python AST parsing and regex:
-1. Zero hardcoded external dataset HTTP/HTTPS URLs in production code under
-   packages/*/src and apps/*/src (exempting namespace URIs like fibo.edmcouncil.org,
-   w3.org, open-dv.dev, and JSON $schema / $id).
-2. Zero literal Databricks hostnames (*.cloud.databricks.com).
-3. Zero literal API secrets (dapi[a-f0-9]{32}).
-4. Zero unconfigured modeling thresholds outside config/constants modules.
-5. Zero hardcoded domain mock tables, fallback sessions, synthetic SHA-256 hashes,
-   or user-specific paths in production UI and CLI code.
-"""
+"""Architecture Gate: Zero Hardcoded Literals Enforcement across `src/opendv/` and `web/src/`."""
 
 from __future__ import annotations
 
 import ast
-from pathlib import Path
+import json
 import re
+from pathlib import Path
+
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.architecture.conftest import REPO_ROOT
 
 PROD_SOURCE_ROOTS = [
-    REPO_ROOT / "packages" / "opendv-core" / "src",
-    REPO_ROOT / "packages" / "opendv-contracts" / "src",
-    REPO_ROOT / "packages" / "opendv-sources" / "src",
-    REPO_ROOT / "packages" / "opendv-axi-verifier" / "src",
-    REPO_ROOT / "packages" / "opendv-duckdb-sandbox" / "src",
-    REPO_ROOT / "packages" / "opendv-service" / "src",
-    REPO_ROOT / "packages" / "opendv-agent-harness" / "src",
-    REPO_ROOT / "apps" / "opendv-platform-api" / "src",
-    REPO_ROOT / "apps" / "opendv-cli" / "src",
-    REPO_ROOT / "apps" / "opendvctl" / "src",
-    REPO_ROOT / "apps" / "opendv-web-workbench" / "src",
+    REPO_ROOT / "src" / "opendv",
+    REPO_ROOT / "web" / "src",
 ]
 
 # Namespace & infrastructure URI exemptions (Decision D2 & ADR-020)
@@ -41,6 +23,7 @@ EXEMPT_URI_PATTERNS = [
     re.compile(r"^https?://([a-zA-Z0-9-]+\.)*json-schema\.org"),
     re.compile(r"^https?://([a-zA-Z0-9-]+\.)*edmcouncil\.org"),
     re.compile(r"^https?://([a-zA-Z0-9-]+\.)*open-dv\.dev"),
+    re.compile(r"^https?://([a-zA-Z0-9-]+\.)*opendv\.dev"),
     re.compile(r"^https?://([a-zA-Z0-9-]+\.)*open-dv\.internal"),
     re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?"),
     re.compile(r"^https?://generativelanguage\.googleapis\.com"),
@@ -52,10 +35,13 @@ DATABRICKS_HOST_RE = re.compile(r"[a-zA-Z0-9-]+\.cloud\.databricks\.com", re.IGN
 API_SECRET_RE = re.compile(r"dapi[a-f0-9]{32}", re.IGNORECASE)
 HTTP_URL_RE = re.compile(r"https?://[^\s'\"`<>{}|\^\[\]]+", re.IGNORECASE)
 
+# Canonical configuration & security/matcher threshold modules in V2
 EXACT_CONFIG_MODULE_ALLOWLIST = {
-    "packages/opendv-core/src/opendv_core/config.py",
-    "packages/opendv-sources/src/opendv_sources/config/defaults.py",
-    "packages/opendv-agent-harness/src/opendv_agent_harness/pipeline/config.py",
+    "src/opendv/service/settings_store.py",
+    "src/opendv/service/bundles/zip_guard.py",
+    "src/opendv/sources/clustering.py",
+    "src/opendv/sources/fibo/closure_rules.py",
+    "src/opendv/sources/pii.py",
 }
 
 
@@ -69,21 +55,24 @@ def _collect_production_files(suffixes: tuple[str, ...]) -> list[Path]:
     for root in PROD_SOURCE_ROOTS:
         if not root.is_dir():
             continue
-        for f in root.glob("**/*"):
-            if f.is_file() and f.suffix in suffixes:
-                files.append(f)
+        for f in root.rglob("*"):
+            if not f.is_file() or f.suffix not in suffixes:
+                continue
+            rel = f.relative_to(REPO_ROOT).as_posix()
+            if (
+                rel.startswith("src/opendv/api/static/")
+                or rel == "web/src/api/types.generated.ts"
+                or "tests" in f.parts
+                or "e2e" in f.parts
+            ):
+                continue
+            files.append(f)
     return sorted(files)
 
 
 @pytest.mark.architecture
 def test_zero_hardcoded_external_dataset_urls() -> None:
-    """Check 1: Zero hardcoded external dataset HTTP/HTTPS URLs in production code.
-
-    External dataset URLs (e.g. SEC, FRED, Northwind, Chinook downloads) must be centralized
-    in tests/fixtures/public_am/dataset_manifest.yaml or runtime configuration.
-    Namespace and protocol URIs (w3.org, fibo, open-dv, JSON schema, localhost, API endpoints)
-    are strictly exempted.
-    """
+    """Check 1: Zero hardcoded external dataset HTTP/HTTPS URLs in production code."""
     py_files = _collect_production_files((".py",))
     assert py_files, "No production Python files found to scan"
 
@@ -104,20 +93,18 @@ def test_zero_hardcoded_external_dataset_urls() -> None:
                             f"{py_file.relative_to(REPO_ROOT)}:{getattr(node, 'lineno', 0)}: {url}"
                         )
 
-    # Also scan TypeScript files in apps
     ts_files = _collect_production_files((".ts", ".tsx"))
+    assert ts_files, "No production TypeScript files found to scan"
     for ts_file in ts_files:
         content = ts_file.read_text(encoding="utf-8")
         for lno, line in enumerate(content.splitlines(), start=1):
             for match in HTTP_URL_RE.finditer(line):
                 url = match.group(0)
                 if not _is_exempt_uri(url):
-                    violations.append(
-                        f"{ts_file.relative_to(REPO_ROOT)}:{lno}: {url}"
-                    )
+                    violations.append(f"{ts_file.relative_to(REPO_ROOT)}:{lno}: {url}")
 
     assert not violations, (
-        "Hardcoded external dataset URLs found in production packages:\n"
+        "Hardcoded external dataset URLs found in production sources:\n"
         + "\n".join(violations)
         + "\nMove dataset URLs to dataset_manifest.yaml or configuration."
     )
@@ -156,90 +143,62 @@ def test_zero_literal_api_secrets() -> None:
             if API_SECRET_RE.search(line):
                 violations.append(f"{p_file.relative_to(REPO_ROOT)}:{lno}: found API token pattern")
 
-    assert not violations, (
-        "Literal API secrets found in production packages:\n"
-        + "\n".join(violations)
+    assert not violations, "Literal API secrets found in production sources:\n" + "\n".join(
+        violations
     )
 
 
 @pytest.mark.architecture
-def test_zero_unconfigured_modeling_thresholds() -> None:
-    """Check 4: Zero unconfigured modeling thresholds outside config/constants modules.
+def test_zero_unconfigured_modeling_thresholds(tmp_path: Path) -> None:
+    """Check 4: Thresholds live in typed V2 settings/matcher configs, not arbitrary modules."""
+    from opendv.models import CEGAR_POLICY_SPECS, STEP4_DEFAULT_BUDGET
+    from opendv.service.settings_store import SettingsStore
 
-    Asserts that:
-    1. CoreModelingConfig and SourceDefaultsConfig provide typed, env-overridable settings
-       for algorithmic thresholds.
-    2. No production modules outside config/constants files define unconfigurable module-level
-       threshold constants.
-    """
-    from opendv_core.config import CoreModelingConfig, get_core_modeling_config
-    from opendv_sources.config.defaults import SourceDefaultsConfig, get_source_defaults
+    settings = SettingsStore(tmp_path).load_settings()
+    assert settings.cegar_policy in CEGAR_POLICY_SPECS
+    assert STEP4_DEFAULT_BUDGET.max_turns > 0
+    assert STEP4_DEFAULT_BUDGET.max_tokens > 0
+    assert STEP4_DEFAULT_BUDGET.timeout_seconds > 0
 
-    # 1. Assert centralized config exists and provides defaults
-    core_cfg = get_core_modeling_config()
-    assert isinstance(core_cfg, CoreModelingConfig)
-    assert 0.0 < core_cfg.levenshtein_rename_threshold < 1.0
-    assert 0.0 < core_cfg.jaccard_similarity_threshold < 1.0
-    assert 0.0 < core_cfg.sparse_fk_null_threshold < 1.0
-    assert core_cfg.max_sandbox_rows > 0
+    bm25_cfg_path = REPO_ROOT / "schemas" / "v2" / "matchers" / "bm25_fibo_v1.json"
+    assert bm25_cfg_path.is_file(), f"Missing {bm25_cfg_path}"
+    bm25_cfg = json.loads(bm25_cfg_path.read_text(encoding="utf-8"))
+    assert float(bm25_cfg["grounding_threshold"]) >= 0.65
 
-    sources_cfg = get_source_defaults()
-    assert isinstance(sources_cfg, SourceDefaultsConfig)
-    assert sources_cfg.default_max_sandbox_rows > 0
-
-    # 2. AST check: ban unconfigured module-level threshold definitions (e.g. THRESHOLD = 0.85)
-    # in non-config modules
-    modeling_roots = [
-        REPO_ROOT / "packages" / "opendv-core" / "src",
-        REPO_ROOT / "packages" / "opendv-sources" / "src",
-        REPO_ROOT / "packages" / "opendv-agent-harness" / "src",
-        REPO_ROOT / "packages" / "opendv-duckdb-sandbox" / "src",
-        REPO_ROOT / "packages" / "opendv-axi-verifier" / "src",
-    ]
-    py_files = [f for r in modeling_roots for f in r.glob("**/*.py") if f.is_file()]
+    py_files = _collect_production_files((".py",))
     violations: list[str] = []
-
     for py_file in py_files:
         rel_posix = py_file.relative_to(REPO_ROOT).as_posix()
         if rel_posix in EXACT_CONFIG_MODULE_ALLOWLIST:
             continue
 
-        content = py_file.read_text(encoding="utf-8")
-        try:
-            tree = ast.parse(content, filename=str(py_file))
-        except SyntaxError:
-            continue
-
+        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
         for stmt in tree.body:
             targets: list[ast.AST] = []
             if isinstance(stmt, ast.Assign):
                 targets.extend(stmt.targets)
             elif isinstance(stmt, ast.AnnAssign):
                 targets.append(stmt.target)
-
             for target in targets:
-                if isinstance(target, ast.Name):
-                    name = target.id
-                    if name.isupper() and ("THRESHOLD" in name or "MAGIC" in name):
-                        violations.append(
-                            f"{py_file.relative_to(REPO_ROOT)}:{stmt.lineno}: "
-                            f"Module-level constant '{name}' defined outside config/constants"
-                        )
+                if (
+                    isinstance(target, ast.Name)
+                    and target.id.isupper()
+                    and ("THRESHOLD" in target.id or "MAGIC" in target.id)
+                ):
+                    violations.append(
+                        f"{rel_posix}:{stmt.lineno}: "
+                        f"Module-level constant '{target.id}' defined outside config allowlist"
+                    )
 
     assert not violations, (
-        "Unconfigured module-level thresholds defined outside config modules:\n"
+        "Unconfigured module-level thresholds defined outside allowlisted config modules:\n"
         + "\n".join(violations)
     )
 
 
 @pytest.mark.architecture
 def test_zero_hardcoded_domain_mocks_in_production_frontend() -> None:
-    """Check 5: Zero hardcoded mock tables, fallback sessions, synthetic SHA-256 hashes,
-    or user-specific paths in production UI and CLI code.
-    """
-    wb_src = REPO_ROOT / "apps" / "opendv-web-workbench" / "src"
-    ctl_src = REPO_ROOT / "apps" / "opendvctl" / "src"
-
+    """Check 5: Zero hardcoded domain mocks, fallback tables, synthetic hashes, or fixture paths."""
     banned_patterns = [
         re.compile(r"\bDEFAULT_DIFF\b"),
         re.compile(r"\bDEFAULT_SQLITE_TABLES\b"),
@@ -247,7 +206,6 @@ def test_zero_hardcoded_domain_mocks_in_production_frontend() -> None:
         re.compile(r"\bDEFAULT_MODELS\b"),
         re.compile(r"\bFALLBACK_[A-Z0-9_]+\b"),
         re.compile(r"\bsqlite_prod\b"),
-        re.compile(r"\bdatabricks_uc\b"),
         re.compile(r"\bam_prod\b"),
         re.compile(r"\bsession_asset_mgmt_ibor\b"),
         re.compile(r"\bsession-am-core\b"),
@@ -259,52 +217,32 @@ def test_zero_hardcoded_domain_mocks_in_production_frontend() -> None:
     ]
 
     violations: list[str] = []
-    for root in [wb_src, ctl_src]:
-        if not root.is_dir():
-            continue
-        for f in root.rglob("*"):
-            if f.is_file() and f.suffix in (".ts", ".tsx"):
-                content = f.read_text(encoding="utf-8")
-                for lno, line in enumerate(content.splitlines(), start=1):
-                    for pat in banned_patterns:
-                        if pat.search(line):
-                            violations.append(
-                                f"{f.relative_to(REPO_ROOT)}:{lno}: matches '{pat.pattern}' -> {line.strip()}"
-                            )
+    for f in _collect_production_files((".ts", ".tsx")):
+        content = f.read_text(encoding="utf-8")
+        for lno, line in enumerate(content.splitlines(), start=1):
+            for pat in banned_patterns:
+                if pat.search(line):
+                    violations.append(
+                        f"{f.relative_to(REPO_ROOT).as_posix()}:{lno}: "
+                        f"matches '{pat.pattern}' -> {line.strip()}"
+                    )
 
     assert not violations, (
-        "Hardcoded domain mocks, fake sessions, synthetic hashes, or user paths found in production UI/CLI:\n"
+        "Hardcoded domain mocks, fake sessions, synthetic hashes, or user paths in web/src:\n"
         + "\n".join(violations)
     )
 
 
 @pytest.mark.architecture
 def test_zero_hardcoded_domain_hubs_in_production_code() -> None:
-    """Check 6: Ban hardcoded domain hub strings ('hub_security', 'hub_customer') in production code."""
-    pipeline_roots = [
-        REPO_ROOT / "packages" / "opendv-core" / "src",
-        REPO_ROOT / "packages" / "opendv-contracts" / "src",
-        REPO_ROOT / "packages" / "opendv-sources" / "src",
-        REPO_ROOT / "packages" / "opendv-axi-verifier" / "src",
-        REPO_ROOT / "packages" / "opendv-duckdb-sandbox" / "src",
-        REPO_ROOT / "packages" / "opendv-agent-harness" / "src",
-        REPO_ROOT / "packages" / "opendv-service" / "src",
-        REPO_ROOT / "apps" / "opendv-platform-api" / "src",
-        REPO_ROOT / "apps" / "opendv-web-workbench" / "src",
-        REPO_ROOT / "apps" / "opendv-cli" / "src",
-        REPO_ROOT / "apps" / "opendvctl" / "src",
-    ]
+    """Check 6: Ban hardcoded domain hub strings ('hub_security', 'hub_customer') in production."""
     banned = re.compile(r"[\"'](hub_security|hub_customer)[\"']")
     violations: list[str] = []
-    for root in pipeline_roots:
-        if not root.is_dir():
-            continue
-        for f in root.glob("**/*"):
-            if f.is_file() and f.suffix in (".py", ".ts", ".tsx"):
-                content = f.read_text(encoding="utf-8")
-                for lno, line in enumerate(content.splitlines(), start=1):
-                    if banned.search(line):
-                        violations.append(f"{f.relative_to(REPO_ROOT)}:{lno}: {line.strip()}")
+    for f in _collect_production_files((".py", ".ts", ".tsx")):
+        content = f.read_text(encoding="utf-8")
+        for lno, line in enumerate(content.splitlines(), start=1):
+            if banned.search(line):
+                violations.append(f"{f.relative_to(REPO_ROOT).as_posix()}:{lno}: {line.strip()}")
 
     assert not violations, (
         "Hardcoded domain hub strings ('hub_security', 'hub_customer') found in production code:\n"

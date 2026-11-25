@@ -19,9 +19,9 @@
 		"build": "tsc --noEmit && bun run src/build.ts",
 		"build:static": "bun run src/build.ts",
 		"dev": "bun run src/preview.ts",
-		"lint": "bun x biome check src",
+		"lint": "bun x biome check src tests e2e",
 		"preview": "bun run src/preview.ts",
-		"test": "bun test",
+		"test": "bun test tests",
 		"test:e2e": "bun x playwright test",
 		"typecheck": "tsc --noEmit"
 	}

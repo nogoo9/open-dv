@@ -23,7 +23,7 @@ export function QuickStartSection(): React.JSX.Element {
 						</h2>
 					</div>
 					<p className="section-intro">
-						Start the 4-Tab Workbench on loopback{" "}
+						Start the 4-Tab React 19 Workbench on loopback{" "}
 						<code>http://127.0.0.1:8420</code> with zero login tokens, or copy
 						the setup prompt for your coding agent.
 					</p>

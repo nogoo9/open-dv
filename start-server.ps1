@@ -1,10 +1,8 @@
-# Start Open-DV Platform API Server with runtime configuration
+# Start Open-DV V2 Platform API & Web Workbench Server
 $ErrorActionPreference = "Stop"
 
 Push-Location $PSScriptRoot
 try {
-    $env:OPENDV_CONFIG = Join-Path $PSScriptRoot "opendv.config.yaml"
-    $env:OPENDV_WORKSPACE_ROOT = $PSScriptRoot
     if (-not $env:OPENDV_HOST) {
         $env:OPENDV_HOST = "127.0.0.1"
     }
@@ -12,13 +10,10 @@ try {
         $env:OPENDV_PORT = "8420"
     }
 
-    Write-Host "Starting Open-DV Platform API on http://$($env:OPENDV_HOST):$($env:OPENDV_PORT) ..." -ForegroundColor Cyan
-    Write-Host "Using config: $env:OPENDV_CONFIG" -ForegroundColor DarkGray
-    Write-Host "Workspace:    $env:OPENDV_WORKSPACE_ROOT" -ForegroundColor DarkGray
+    Write-Host "Starting Open-DV V2 Server on http://$($env:OPENDV_HOST):$($env:OPENDV_PORT) ..." -ForegroundColor Cyan
 
-    uv run --package opendv-platform-api uvicorn opendv_platform_api.main:app --host $env:OPENDV_HOST --reload --port $env:OPENDV_PORT @args
+    uv run opendv serve --host $env:OPENDV_HOST --port $env:OPENDV_PORT @args
 }
 finally {
     Pop-Location
 }
-

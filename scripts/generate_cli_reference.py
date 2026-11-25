@@ -1,9 +1,8 @@
-"""Script to generate docs/16-cli-reference.md from schemas/v1/cli-spec.json."""
+"""Script to generate docs/16-cli-reference.md from schemas/v2/cli-spec.json."""
 
 from __future__ import annotations
 
-from opendv_service.cli_spec.docs_generator import generate_cli_reference_markdown
-from opendv_service.cli_spec.exporter import find_repo_root
+from opendv.cli.export_contracts import find_repo_root, generate_cli_reference_markdown
 
 
 def main() -> int:

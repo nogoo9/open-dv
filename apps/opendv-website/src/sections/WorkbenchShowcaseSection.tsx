@@ -18,20 +18,21 @@ export function WorkbenchShowcaseSection({
 				<div className="section-head">
 					<div className="section-head-copy">
 						<p className="eyebrow">
-							4-TAB WORKBENCH · ONTOLOGY &amp; PIPELINE | DV SCHEMA EXPLORER |
-							RUN EXPLORER | SETTINGS
+							4-TAB WORKBENCH · PROJECT WORKFLOW | DV SCHEMA EXPLORER | RUN
+							EXPLORER | SETTINGS
 						</p>
 						<h2 id="workbench-heading">
-							12-Screen Tour: 6-Step Wizard, 4-View DV Schema Explorer &amp;
-							Session Logs.
+							12-Screen Tour: 7-Step Guided ⇄ Observatory, 4-View DV Schema
+							Explorer &amp; Run Explorer.
 						</h2>
 					</div>
 					<p className="section-intro">
-						Explore all 12 screens at 1440×920 (2× Retina) across the Agent-only
-						6-Step Wizard, the 4-View DV Schema Explorer (Graph, 100% Column
-						Triage, W1→W3 Wave Diff, and Safe Read-Only SQL via{" "}
-						<code>validate_safe_sql()</code>), plus live Cost Meter and{" "}
-						<code>Logs &amp; Traces</code>.
+						Explore all 12 screens at 1440×920 (2× Retina) across the 7-Step{" "}
+						<code>Guided ⇄ Observatory</code> Workbench, 4-View 5-Zone{" "}
+						<code>DV Schema Explorer</code>, Step 7 11-Target Storage
+						Compilation &amp; Read-Only DuckDB Query Runner, plus live{" "}
+						<code>Budget Meter</code> and <code>Last-Event-ID</code>{" "}
+						<code>Run Explorer</code>.
 					</p>
 				</div>
 

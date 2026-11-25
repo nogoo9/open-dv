@@ -4,70 +4,70 @@ Language: en
 
 1
 00:00:00.250 --> 00:00:08.500
-Data Vault 2.0 gives enterprises complete historical
-auditability and resilient multi-source integration.
+Data Vault 2.0 delivers enterprise historical auditability
+and resilient multi-source integration across complex feeds.
 
 2
 00:00:08.500 --> 00:00:18.200
-Yet asking an LLM to write Data Vault SQL directly risks
-hash collisions, leaked surrogate keys, and destructive UPDATEs.
+Yet asking an LLM to emit Data Vault SQL directly risks
+Alg A.5 hash collisions, Dual Zero Key bugs, and destructive UPDATEs.
 
 3
 00:00:18.200 --> 00:00:27.850
-Open-DV pairs Agent-first discovery with the 6-gate axi-dv
-verifier before 5-Zone (Z0-Z4) SQL compiles.
+Open-DV V2 pairs an Agent-first 7-Step Guided Workbench
+with deterministic L1 codemods and V1–V8 CEGAR proofs.
 
 4
 00:00:28.250 --> 00:00:39.500
-Launch locally on loopback 127.0.0.1:8420 with opendv serve --open,
-zero login friction, and fail-closed --allow-remote-unauthenticated guard.
+Run uv run opendv serve for zero-auth loopback access on :8420
+(non-loopback hosts fail closed without --allow-remote-unauthenticated).
 
 5
 00:00:39.500 --> 00:00:51.500
-In Steps 1 to 3 of the Unified 6-Step Wizard, choose a baseline or
-6 starter packs, attach SQLite, Databricks UC, PDFs, and inline notes.
+Step 1 selects Blank Genesis, Starter Packs, or .opendv.zip;
+Step 2 profiles 6 connectors with zero-LLM DocumentMap indexing.
 
 6
 00:00:51.500 --> 00:01:01.500
-Preview up to 50 local rows and LiteParse spans with zero mention
-floor, or Fast-Forward to Step 6 when your schema is ready.
+Step 3 previews 125-perm MinHash clusters, ConceptMemory Pin/Mute
+tags, and explicit Steward Scan Consent per scanned PDF page.
 
 7
 00:01:02.250 --> 00:01:15.500
-Step 4 enforces the 422 AGENT_NOT_CONFIGURED setup gate and live Cost
-Meter before single-pass synthesis across 6 harness providers.
+Step 4 isolates /coord and /scout via JobMcpBroker alongside
+the Budget Meter (Turns, Tokens, Active Seconds) and Hold cards.
 
 8
 00:01:15.500 --> 00:01:28.500
-Cherry-pick Beyond-FIBO and 1x Semantic rules, inspect citations in
-the 716px drawer, and review the Step 5 elkjs diff graph or export YAML/TTL.
+Verify 4-Path grounding (PATH_A1, PATH_A2, PATH_B1, PATH_B2) in
+the Citation Drawer before committing Graph A in Step 5 Explorer.
 
 9
 00:01:28.500 --> 00:01:37.500
-Step 6 auto-binds deployed_contract and runs the 7-pill 00-06 console
-with inline Steward Hold, Budget Hold, and Drift Sync back to Step 4.
+Edit keys and YAML CST cleanly across 4 modes in Step 5 with
+OCC base_revision_id guards and Ask FIBO alignment receipts.
 
 10
 00:01:38.250 --> 00:01:51.500
-Gates G0 through G5 enforce SQLGlot AST rules, NetworkX bipartite
-proofs, and 4 adversarial DuckDB batches with @toon_v1 self-healing.
+Step 6 Guided ⇄ Observatory pairs Steward Decision Cards with
+L1 codemods, V1–V5 symbolic checks, and V6 15-invariant DuckDB proofs.
 
 11
 00:01:51.500 --> 00:02:04.850
-Switch to the 4-View DV Schema Explorer to inspect Hub-Link-Sat-PIT
-topology, 100% Column Triage, W1-W2-W3 diffs, and Safe Read-Only SQL.
+V6B anti-patterns, V7 Semantic Critic, and V8 Horizon Critic
+test BRK-01..08 breakages before sealing VaultSchemaIR v2.0.
 
 12
-00:02:05.250 --> 00:02:20.000
-Open Logs & Traces in SessionLogsInspector for live W3C EventSource
-telemetry, PII-masked prompts, LLM outputs, and 50 MB bundle export.
+00:02:05.250 --> 00:02:18.500
+Step 7 compiles VaultSchemaIR v2.0 into 11 targets (8 SQL dialects,
+Iceberg, Parquet, dbt) with a sandboxed read-only DuckDB runner.
 
 13
-00:02:20.000 --> 00:02:31.850
-Compile multi-dialect DuckDB and Databricks Delta 5-Zone (Z0-Z4) SQL
-spanning bronze, staging, raw_vault, business_vault, and information_mart.
+00:02:18.500 --> 00:02:31.850
+Inspect 5-Zone Z0–Z4 lineage in 4-view DV Schema Explorer and replay
+Last-Event-ID timelines, Attempts, and receipts in Run Explorer.
 
 14
 00:02:32.250 --> 00:02:44.850
-Run the same workflow headlessly with opendv and opendvctl parity
-subcommands: run dv-schema, attach-source, fibo-qa, and ontology studio logs.
+Script every workflow with the unified opendv CLI & 17-tool MCP:
+project init, source attach, ontology fibo-qa, vault logs, storage query.

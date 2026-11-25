@@ -1,6 +1,9 @@
 # Data Vault 2.0 Agentic Modelling & Schema Stability Reference Guide (`open-dv`)
 
-> **Master Reference Specification for Autonomous Data Vault 2.0 Agents (`v6.0` Unified Edition: `dv-firstmate` + `no-mistakes` + `axi-dv`)**  
+> [!NOTE]
+> **OPEN-DV V2 CLEAN-SHEET — ALIGNMENT NOTICE (2026-11-25):** Data Vault 2.0 layers (`Z0–Z4`), 6-stage length-prefixed hashing (`Algorithm A.5`), `INV-01..06`, `EVO-01..08`, `AP-01..15`, and `Algorithms A.1–A.9b` remain authoritative. V1 `v6.0` references below (`packages/*`, `opendvctl`, `/sessions`, `CanonicalIR` v1, and V1 single-pass pipelines) are superseded by `src/opendv/`, `web/`, `schemas/v2/`, `VaultSchemaIR v2.0`, 3-Loop CEGAR, `Step 7` (`v7`) emitters, and unified `opendv` CLI (`docs/designs/SITEMAP.md` & `docs/designs/v2-clean-sheet-architecture.md`).
+
+> **Master Reference Specification for Autonomous Data Vault 2.0 Agents (`open-dv` DV 2.0 Domain Reference)**  
 > **Version:** `6.0.0`  
 > **Primary Reference & Modular Domain Specifications:**
 > - [🧭 **Root Agent & Contributor Constitution (`AGENTS.md`)**](../AGENTS.md)
@@ -22,13 +25,12 @@
 > - [14 — End-to-End Consistency Review, Scenarios Audit, and Data Vault 2.0 Invariant Analysis](14-end-to-end-consistency-and-scenarios-audit.md)
 > - [15 — End-to-End Pipeline Execution & Interactive Component Specification](15-end-to-end-pipeline-execution-and-interactive-spec.md)
 > - [📄 Data Vault 2.0 Architectural & Mathematical Consistency Evaluation (Unabridged Reference)](references/dv2-architectural-consistency-evaluation.md)
-> - **Formal Schemas & Contracts:**
->   - [No-Mistake DV 2.0 Contract V5 JSON Schema (`schemas/no-mistake-dv2-contract-v5.schema.json`)](../schemas/no-mistake-dv2-contract-v5.schema.json)
->   - [Canonical Intermediate Representation (IR) JSON Schema (`schemas/dv2-canonical-ir.schema.json`)](../schemas/dv2-canonical-ir.schema.json)
->   - [Observability Telemetry Event JSON Schema (`schemas/vault-observability-event.schema.json`)](../schemas/vault-observability-event.schema.json)
->   - [Annotated Multi-Source Model Contract Example (`examples/dv_model_contract.yaml`)](../examples/dv_model_contract.yaml)
->   - [Private Equity Model Contract & Canonical IR Package (`examples/private_equity/dv_pe_model_contract.yaml`)](../examples/private_equity/dv_pe_model_contract.yaml)
->   - [Executable Normative `pytest` Suite (`tests/` — run via `pytest -v`)](../tests/)
+> - **Formal Schemas & Contracts (Active V2 `schemas/v2/` + Superseded V1 History):**
+>   - [VaultSchemaIR v2.0 JSON Schema (`schemas/v2/vault-schema-ir-v2.schema.json`)](../schemas/v2/vault-schema-ir-v2.schema.json) *(supersedes retired V1 `schemas/no-mistake-dv2-contract-v5.schema.json` & `schemas/dv2-canonical-ir.schema.json`)*
+>   - [OpenAPI 3.1 & CLI Spec (`schemas/v2/openapi.json` · `schemas/v2/cli-spec.json`)](../schemas/v2/openapi.json)
+>   - [Error Codes Catalog (`schemas/v2/error-codes.json`) & Project Bundle v2 Schema](../schemas/v2/error-codes.json) *(supersedes retired V1 `schemas/vault-observability-event.schema.json`)*
+>   - [Asset Management V2 Walkthrough (`examples/v2_asset_management/README.md`)](../examples/v2_asset_management/README.md) *(supersedes retired V1 `examples/dv_model_contract.yaml` & `examples/private_equity/dv_pe_model_contract.yaml`)*
+>   - [Executable Normative `pytest` Suite (`tests/` — run via `uv run pytest -m "not live_provider"`)](../tests/)
 
 ---
 
@@ -100,7 +102,7 @@ Unlike Third Normal Form (3NF), which commingles identity, cardinality, and muta
 When designing **`open-dv`**—an autonomous multi-agent system that designs, evolves, and verifies Data Vault 2.0 models—removing hard RDBMS foreign-key constraints in favor of deterministic cryptographic hash keys introduces a critical risk: **LLM hallucinations (such as Hub-to-Hub foreign keys, unsorted `hash_diff` columns, unescaped delimiter collisions, or destructive `DROP`/`UPDATE` migrations) will silently corrupt the enterprise historical record unless blocked by formal verification gates.**
 
 To guarantee mathematical schema stability and data integrity, `open-dv` enforces a **Neuro-Symbolic Verification Architecture** built on three non-negotiable pillars:
-1. **IR-First Target-Agnostic Contract (Zero Direct SQL Generation by LLMs):** Semantic modelling agents (`SourceProfiler` / `scout-source`, `GrainAndKeyDiscovery` / `scout-unstructured`, `TopologyArchitect` / `ship-vault`) never author raw SQL DDL or DML directly. They emit and repair models exclusively as declarative **Target-Agnostic Contracts** (`NoMistakeDataVault2ContractV5` validated against [`schemas/no-mistake-dv2-contract-v5.schema.json`](../schemas/no-mistake-dv2-contract-v5.schema.json)) which lower into the **Canonical Intermediate Representation (`CanonicalIR`)** validated against [`schemas/dv2-canonical-ir.schema.json`](../schemas/dv2-canonical-ir.schema.json). Downstream platforms can consume `final_contract.yaml` and `final_canonical_ir.json` directly (e.g., to drive dbt / AutomateDV, Snowflake, BigQuery, Databricks, or SQLMesh generators), while `open-dv`'s built-in symbolic `DeterministicCompiler` (`compiler_4zone.py`) transpiles verified IR into 4-Zone DuckDB SQL (`final_four_zone.sql`) for Gate 5 dynamic shadow-sandbox verification and reference execution.
+1. **IR-First Target-Agnostic Contract (Zero Direct SQL Generation by LLMs):** Semantic modelling agents (`SourceProfiler` / `scout-source`, `GrainAndKeyDiscovery` / `scout-unstructured`, `TopologyArchitect` / `ship-vault`) never author raw SQL DDL or DML directly. In V2, they emit and repair models exclusively as zero-SQL `VaultSchemaIR v2.0` proposals ([`schemas/v2/vault-schema-ir-v2.schema.json`](../schemas/v2/vault-schema-ir-v2.schema.json); historical V1 references used `NoMistakeDataVault2ContractV5` / `CanonicalIR` under retired `schemas/no-mistake-dv2-contract-v5.schema.json` and `schemas/dv2-canonical-ir.schema.json`), which deterministic emitters in [`src/opendv/storage/`](../src/opendv/storage/) compile across 11 targets (`duckdb_local`, `databricks_uc`, `snowflake`, `postgres`, `bigquery`, `sqlserver_fabric`, `redshift`, `clickhouse`, `iceberg`, `parquet`, `dbt`). Downstream platforms consume verified `VaultSchemaIR v2.0` bundles directly, while `open-dv`'s in-memory DuckDB prover (`src/opendv/storage/prover/`) executes dynamic invariants (`DV-DYN-001..015`).
 2. **Two-Phase Defense-in-Depth Verification (`StaticVerifier` + `DynamicVerifier`):**
    - **Compile-Time Static & Evolution Gates (`DV-STR-*`, `DV-COL-*`, `DV-EVO-*`)** verify the bipartite graph topology, column contracts, hash canonicalization rules, and backwards-compatible schema evolution against the immutable baseline catalog *before* opening any database connection.
    - **Runtime Sandbox & Post-Load Gates (`DV-DYN-001`–`DV-DYN-015`)** execute the compiled DDL and load pipeline twice (`Run 1` + `Run 2` replay) in an ephemeral sandbox to prove grain uniqueness, zero hash collisions, orphan-free referential integrity, true-delta Satellite historization, Zero/Ghost record presence, and replay idempotency ($\Delta \text{rows} = 0$).
@@ -659,7 +661,7 @@ flowchart TD
 
 ### 6.2 Static Structural & Graph Topology Rules (`DV-STR-001`–`DV-STR-015`)
 
-> **Authoritative Specification:** See [`docs/03-verification-and-agentic-architecture.md` §1.2 (`Structural & Graph Topology Rule Catalog (DV-STR-*)`)](03-verification-and-agentic-architecture.md#12-structural--graph-topology-rule-catalog-dv-str-) and [`packages/opendv-axi-verifier/src/opendv_axi_verifier/verifiers/gate3_networkx_dag.py`](../packages/opendv-axi-verifier/src/opendv_axi_verifier/verifiers/gate3_networkx_dag.py) for the complete 15-rule specification (`DV-STR-001` through `DV-STR-015`, including `DV-STR-015` canonical Same-As Link `(hk_master, hk_duplicate)` edge ordering, 3-Tier `BKCC` authority ranking, and reflexive/inverted-pair rejection).
+> **Authoritative Specification:** See [`docs/03-verification-and-agentic-architecture.md` §1.2 (`Structural & Graph Topology Rule Catalog (DV-STR-*)`)](03-verification-and-agentic-architecture.md#12-structural--graph-topology-rule-catalog-dv-str-) and [`src/opendv/verifier/v1_structure.py`](../src/opendv/verifier/v1_structure.py) (historical V1 `packages/opendv-axi-verifier/.../gate3_networkx_dag.py` retired) for the complete 15-rule specification (`DV-STR-001` through `DV-STR-015`, including `DV-STR-015` canonical Same-As Link `(hk_master, hk_duplicate)` edge ordering, 3-Tier `BKCC` authority ranking, and reflexive/inverted-pair rejection).
 
 ---
 
@@ -904,7 +906,7 @@ flowchart TB
 | :--- | :--- | :--- | :--- | :--- |
 | **1. `SourceProfiler`** (`SourceProfilerAgent`) | LLM + Statistical Profiler | Raw source DDL, sample rows, CDC metadata | `SourceProfileManifest` (candidate uniqueness ratios, null rates, functional dependencies $X \to Y$, column volatility classification, PII tags) | Read-only `SELECT` on source/staging schemas. Cannot write IR or SQL. |
 | **2. `GrainAndKeyDiscovery`** (`GrainDiscoveryAgent`) | Semantic LLM Agent | `SourceProfileManifest` + existing Enterprise `HubRegistry` | `GrainSpecification` (maps source tables to Enterprise Business Concepts, selects Business Keys, assigns `bkcc` codes, identifies Multi-Active `child_dependent_keys` and Link driving keys) | Read-only access to `HubRegistry` and `SourceProfileManifest`. Cannot emit SQL. |
-| **3. `TopologyArchitect`** (`TopologyArchitectAgent`) | Graph Modelling LLM Agent | `GrainSpecification` + `BaselineCatalogIR` + (optional) `CriticDiagnosticReport` | `ProposedCanonicalIR` ([`schemas/dv2-canonical-ir.schema.json`](../schemas/dv2-canonical-ir.schema.json)) | Can only emit/patch JSON/YAML IR documents. **Zero access** to SQL execution, warehouse credentials, or verifier code. |
+| **3. `TopologyArchitect`** (`TopologyArchitectAgent`) | Graph Modelling LLM Agent | `GrainSpecification` + `BaselineCatalogIR` + (optional) `CriticDiagnosticReport` | `VaultSchemaIR` ([`schemas/v2/vault-schema-ir-v2.schema.json`](../schemas/v2/vault-schema-ir-v2.schema.json); historical V1 `schemas/dv2-canonical-ir.schema.json`) | Can only emit/patch JSON/YAML IR documents. **Zero access** to SQL execution, warehouse credentials, or verifier code. |
 | **4. `DeterministicCompiler`** | Pure Symbolic Transpiler (Non-LLM) | Statically verified `ProposedCanonicalIR` | Deterministic SQL DDL, Staging Hashing Views, Idempotent Load DML (or `AutomateDV` / `datavault4dbt` YAML + Jinja models), and `DV-DYN-*` SQL test suite | Pure function $f(\text{IR}) \to (\text{SQL}_{\text{DDL}}, \text{SQL}_{\text{DML}}, \text{SQL}_{\text{TESTS}})$. Enforces alphabetical `hash_diff` sorting, delimiter escaping, and Zero/Ghost record seeding by construction. |
 | **5. `StaticVerifier`** | Symbolic Compile-Time Gatekeeper | `ProposedCanonicalIR` + `BaselineCatalogIR` + compiled SQL AST | Static & Evolution `RuleViolation[]` (`DV-IR-*`, `DV-STR-*`, `DV-COL-*`, `DV-EVO-*`) | Executes in isolated read-only trust domain before any database connection is opened. |
 | **6. `DynamicVerifier`** | Symbolic Runtime Gatekeeper | Compiled DDL/DML + Ephemeral Sandbox DB (`Run 1` + `Run 2` replay) | Runtime `RuleViolation[]` (`DV-DYN-001`–`DV-DYN-015`) with sample counterexample rows and replay row deltas | Executes in isolated trust domain. Modelling agents have **zero write permissions** to verification rules, test queries, or baseline catalog snapshots. |
@@ -952,7 +954,7 @@ stateDiagram-v2
 
 ### 7.5 Canonical IR Specification & Deterministic Idempotent Compiler Templates
 
-The formal JSON Schema (Draft 2020-12) for the `open-dv` Canonical Intermediate Representation is maintained at [`schemas/dv2-canonical-ir.schema.json`](../schemas/dv2-canonical-ir.schema.json). Once an IR document passes `StaticVerifier` (`DV-STR-*`, `DV-COL-*`, `DV-EVO-*`), the `DeterministicCompiler` emits idempotent `INSERT-ONLY` load templates that satisfy `DV-DYN-008` and `DV-DYN-012` by construction:
+The formal JSON Schema (Draft 2020-12) for Open-DV V2's `VaultSchemaIR v2.0` is maintained at [`schemas/v2/vault-schema-ir-v2.schema.json`](../schemas/v2/vault-schema-ir-v2.schema.json) (superseding V1 `schemas/dv2-canonical-ir.schema.json`). Once an IR document passes `StaticVerifier` (`DV-STR-*`, `DV-COL-*`, `DV-EVO-*`), the deterministic SQL compiler emits idempotent `INSERT-ONLY` load templates that satisfy `DV-DYN-008` and `DV-DYN-012` by construction:
 
 ```sql
 -- 1. Idempotent Hub Load Pattern (Anti-Join on hk + Deduplicated Batch)
@@ -1023,7 +1025,7 @@ Naive LLM SQL generation fails in production Data Vault 2.0 deployments due to f
 
 **Core Design Rule (`no-mistakes` Pattern):** *The LLM is a Semantic Mapper, Never a SQL Boilerplate Generator.*
 - The agent receives **Graph A** (Top-Down Enterprise Business Ontology of Core Business Concepts / CBCs) and **Graph B** (Bottom-Up Bronze Empirical Profile, formally defined in [`05` §1](05-elm-calculus-and-reference-algorithms.md): uniqueness $U(C)$, Shannon entropy $H(C)$, null rate $N_{\text{null}}(C)$, Jaccard inclusion $I(A.x \subseteq B.y)$, and change rate $\lambda(c)$).
-- The agent emits **only** a constrained YAML/JSON contract ([`examples/dv_model_contract.yaml`](../examples/dv_model_contract.yaml)) validated against [`schemas/no-mistake-dv2-contract-v5.schema.json`](../schemas/no-mistake-dv2-contract-v5.schema.json).
+- The agent emits **only** constrained declarative JSON/YAML IR proposals validated against [`schemas/v2/vault-schema-ir-v2.schema.json`](../schemas/v2/vault-schema-ir-v2.schema.json) (historical V1 `examples/dv_model_contract.yaml` & `schemas/no-mistake-dv2-contract-v5.schema.json` retired in V2).
 
 ---
 

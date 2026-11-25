@@ -59,6 +59,18 @@ suites:
       - name: "yield_curves"
         pk: ["curve_id"]
         description: "Daily term structure yield curve spreads."
+    checked_in_v2_fixtures:
+      - "data/public_am/am_custody_and_voting_guide.pdf"
+      - "data/public_am/am_esg_stewardship_proxy.parquet"
+      - "data/public_am/am_stewardship_domain_notes.md"
+      - "data/public_am/ds_cegar_12trap.duckdb"
+      - "data/public_am/fred_treasury_rates.csv"
+      - "data/public_am/prime_allocations_w2.csv"
+      - "data/public_am/sec_13f_holdings.csv"
+      - "data/public_am/sec_security_master.csv"
+      - "data/public_am/wave2_ambiguous_otc_collateral.csv"
+      - "data/public_am/wave2_bitemporal_nav_restatements.csv"
+      - "data/public_am/wave2_eu_custody_lei_and_drift.parquet"
 
   benchmarks:
     northwind:

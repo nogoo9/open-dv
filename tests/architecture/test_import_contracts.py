@@ -9,79 +9,6 @@ import pytest
 
 from tests.architecture.conftest import REPO_ROOT
 
-BANNED_IMPORTS: dict[str, set[str]] = {
-    # apps/opendv-cli must never import web frameworks or platform API
-    "apps/opendv-cli/src": {
-        "fastapi",
-        "starlette",
-        "opendv_platform_api",
-        "httpx",
-    },
-    # apps/opendv-cli/tests must never import platform API or web frameworks
-    "apps/opendv-cli/tests": {
-        "fastapi",
-        "starlette",
-        "opendv_platform_api",
-        "httpx",
-    },
-    # apps/opendv-platform-api must never import direct engine packages or CLI
-    "apps/opendv-platform-api/src": {
-        "opendv_axi_verifier",
-        "opendv_duckdb_sandbox",
-        "opendv_agent_harness",
-        "opendv_cli",
-    },
-    # packages/opendv-service must be headless (zero web framework or CLI imports)
-    "packages/opendv-service/src": {
-        "fastapi",
-        "starlette",
-        "opendv_platform_api",
-        "opendv_cli",
-    },
-    # packages/opendv-contracts must be language-neutral and dependency-free
-    "packages/opendv-contracts/src": {
-        "opendv_service",
-        "opendv_platform_api",
-        "opendv_cli",
-        "opendv_axi_verifier",
-        "opendv_duckdb_sandbox",
-        "opendv_agent_harness",
-        "opendv_core",
-    },
-    # packages/opendv-cli-common must be clean of services, platforms, and engines
-    "packages/opendv-cli-common/src": {
-        "opendv_service",
-        "opendv_platform_api",
-        "opendv_cli",
-        "opendv_axi_verifier",
-        "opendv_duckdb_sandbox",
-        "opendv_agent_harness",
-        "opendv_core",
-        "fastapi",
-        "starlette",
-        "httpx",
-    },
-    # packages/opendv-core must not import from higher layers
-    "packages/opendv-core/src": {
-        "opendv_service",
-        "opendv_contracts",
-        "opendv_platform_api",
-        "opendv_cli",
-        "opendv_axi_verifier",
-        "opendv_duckdb_sandbox",
-        "opendv_agent_harness",
-    },
-    # packages/opendv-agent-harness/personas must depend only on opendv-core and opendv-contracts
-    "packages/opendv-agent-harness/src/opendv_agent_harness/personas": {
-        "opendv_service",
-        "opendv_sources",
-        "opendv_platform_api",
-        "opendv_cli",
-        "fastapi",
-        "starlette",
-    },
-}
-
 
 def _resolve_relative_import(
     file_path: Path,
@@ -197,7 +124,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
         set(),
     ),
     "src/opendv/sources": (
-        False,
+        True,
         {
             "opendv.verifier",
             "opendv.storage",
@@ -216,7 +143,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
         set(),
     ),
     "src/opendv/verifier": (
-        False,
+        True,
         {
             "opendv.sources",
             "opendv.storage",
@@ -236,7 +163,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
         set(),
     ),
     "src/opendv/storage": (
-        False,
+        True,
         {
             "opendv.sources",
             "opendv.verifier",
@@ -254,7 +181,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
         {"opendv.verifier.ports"},
     ),
     "src/opendv/agents": (
-        False,
+        True,
         {
             "opendv.sources",
             "opendv.storage",
@@ -272,7 +199,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
         set(),
     ),
     "src/opendv/service": (
-        False,
+        True,
         {
             "opendv.api",
             "opendv.cli",
@@ -285,7 +212,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
         set(),
     ),
     "src/opendv/api": (
-        False,
+        True,
         {
             "opendv.sources",
             "opendv.verifier",
@@ -301,7 +228,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
         set(),
     ),
     "src/opendv/cli": (
-        False,
+        True,
         {
             "opendv.sources",
             "opendv.verifier",
@@ -355,33 +282,4 @@ def test_v2_import_contracts(
     assert not violations, (
         f"V2 layering contract violations detected in '{target_rel_dir}':\n"
         + "\n".join(violations)
-    )
-
-
-@pytest.mark.architecture
-@pytest.mark.parametrize("target_rel_dir,banned", BANNED_IMPORTS.items())
-def test_import_contracts(target_rel_dir: str, banned: set[str]) -> None:
-    """Verify that packages and apps observe strict dependency layering boundaries."""
-    target_dir = REPO_ROOT / target_rel_dir
-    assert target_dir.exists(), f"Target directory does not exist: {target_dir}"
-
-    py_files = list(target_dir.rglob("*.py"))
-    assert py_files, f"No Python files found in {target_dir}"
-
-    violations: list[str] = []
-    for py_file in py_files:
-        rel_path = py_file.relative_to(REPO_ROOT)
-        for lineno, mod in get_imports(py_file):
-            # Reasoned exemption: StudioAgentRunner setup in platform-api main.py loads HarnessConfig
-            if (
-                rel_path.as_posix() == "apps/opendv-platform-api/src/opendv_platform_api/main.py"
-                and mod == "opendv_agent_harness.models"
-            ):
-                continue
-            top_mod = mod.split(".")[0]
-            if top_mod in banned or mod in banned:
-                violations.append(f"{rel_path}:{lineno}: banned import '{mod}'")
-
-    assert not violations, (
-        f"Layering contract violations detected in '{target_rel_dir}':\n" + "\n".join(violations)
     )

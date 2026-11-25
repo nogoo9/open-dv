@@ -1,388 +1,251 @@
-"""Stdlib HTTP client, cross-process file-lock rate limiter, and repo doc search for Open-DV."""
+"""Shared HTTP client, rate limiter, and repo doc search for Open-DV V2 workflows."""
 
 from __future__ import annotations
 
 import json
-import mimetypes
 import os
 import re
 import sys
 import tempfile
 import time
-import uuid
-from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from urllib import error as urllib_error
-from urllib import parse as urllib_parse
-from urllib import request as urllib_request
+from urllib.parse import urlparse
+
+import httpx
 
 DEFAULT_API_URL = "http://127.0.0.1:8420"
 DEFAULT_LOOPBACK_RPS = 5.0
 DEFAULT_REMOTE_RPS = 1.0
-LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
-STRUCTURED_EXT_RE = re.compile(
-    r"\.(parquet|csv|tsv|xlsx|xls|sqlite|sqlite3|db|duckdb|ddb|jsonl|ndjson|json)$", re.I
-)
-UNSTRUCTURED_EXT_RE = re.compile(r"\.(pdf|docx|doc|md|markdown|txt|html|htm|rtf)$", re.I)
+MAX_ATTEMPTS = 4
 
 
-class RateLimitError(Exception):
-    """Raised when HTTP 429 rate limits persist after retries."""
+class ApiError(RuntimeError):
+    """HTTP error raised when Open-DV V2 API returns a non-success response."""
 
-
-class OpenDVHttpError(RuntimeError):
-    """HTTP error carrying status code and decoded response body."""
-
-    def __init__(self, status: int, url: str, body: str) -> None:
-        self.status = status
+    def __init__(self, status_code: int, method: str, url: str, body: Any) -> None:
+        self.status_code = status_code
+        self.method = method
         self.url = url
         self.body = body
-        super().__init__(f"HTTP {status} from {url}: {body}")
+        detail = json.dumps(body) if isinstance(body, (dict, list)) else str(body)
+        super().__init__(f"{method} {url} failed with HTTP {status_code}: {detail}")
 
 
-def _is_loopback_url(api_url: str) -> bool:
-    host = (urllib_parse.urlparse(api_url).hostname or "").lower()
-    return host in LOOPBACK_HOSTS
+class RateLimitError(ApiError):
+    """Raised when persistent HTTP 429 responses exceed retry budget."""
+
+
+def find_repo_root(start: Path | None = None) -> Path:
+    """Locate the Open-DV repository root containing pyproject.toml and schemas/v2/."""
+    cur = (start or Path(__file__)).resolve()
+    for candidate in (cur, *cur.parents):
+        if (candidate / "pyproject.toml").is_file() and (
+            candidate / "schemas" / "v2"
+        ).is_dir():
+            return candidate
+    return Path.cwd().resolve()
+
+
+def is_loopback_url(api_url: str) -> bool:
+    """Return True when the target host resolves to loopback."""
+    host = (urlparse(api_url).hostname or "").lower()
+    return host in {"127.0.0.1", "localhost", "::1"}
+
+
+def _rate_lock_path(api_url: str) -> Path:
+    safe_host = re.sub(r"[^a-z0-9._-]+", "_", urlparse(api_url).netloc.lower() or "local")
+    return Path(tempfile.gettempdir()) / f"opendv_workflow_rate_{safe_host}.lock"
 
 
 @contextmanager
-def _interprocess_lock(lock_path: Path) -> Iterator[None]:
-    """Acquire an OS-level lock across concurrent processes on Windows or POSIX."""
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(lock_path, "a+b") as lock_fh:
-        lock_fh.seek(0, os.SEEK_END)
-        if lock_fh.tell() == 0:
-            lock_fh.write(b"0")
-            lock_fh.flush()
-        lock_fh.seek(0)
+def _cross_process_rate_slot(api_url: str, rps: float) -> Any:
+    """Coordinate outgoing requests across subagents using a cross-process file lock."""
+    interval = 1.0 / max(rps, 0.1)
+    lock_file = _rate_lock_path(api_url)
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    with lock_file.open("a+b") as handle:
+        handle.seek(0)
         if os.name == "nt":
             import msvcrt
 
-            for _ in range(50):
+            while True:
                 try:
-                    msvcrt.locking(lock_fh.fileno(), msvcrt.LK_NBLCK, 1)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
                     break
                 except OSError:
-                    time.sleep(0.05)
-            else:
-                lock_fh.seek(0)
-                msvcrt.locking(lock_fh.fileno(), msvcrt.LK_LOCK, 1)
-            try:
-                yield
-            finally:
-                lock_fh.seek(0)
-                msvcrt.locking(lock_fh.fileno(), msvcrt.LK_UNLCK, 1)
+                    time.sleep(0.02)
         else:
             import fcntl
 
-            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
-
-
-class CrossProcessRateLimiter:
-    """File-lock and monotonic-clock rate limiter shared across concurrent agents."""
-
-    def __init__(self, rps: float, state_name: str = "opendv_workflow_ratelimit") -> None:
-        self.rps = max(rps, 0.1)
-        self.min_interval = 1.0 / self.rps
-        tmp = Path(tempfile.gettempdir())
-        self.lock_path = tmp / f"{state_name}.lock"
-        self.state_path = tmp / f"{state_name}.txt"
-        self._last_mono = 0.0
-
-    def acquire(self) -> None:
-        """Sleep until inter-request spacing is satisfied across processes."""
-        with _interprocess_lock(self.lock_path):
-            now_wall = time.time()
-            prev_wall = 0.0
-            if self.state_path.is_file():
-                try:
-                    prev_wall = float(self.state_path.read_text(encoding="utf-8").strip() or "0")
-                except ValueError:
-                    prev_wall = 0.0
-            elapsed = max(0.0, time.monotonic() - self._last_mono)
-            wall_elapsed = max(0.0, now_wall - prev_wall) if prev_wall > 0 else self.min_interval
-            wait = max(self.min_interval - wall_elapsed, 0.0)
-            if self._last_mono > 0:
-                wait = max(wait, max(0.0, self.min_interval - elapsed))
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            handle.seek(0)
+            raw = handle.read().decode("utf-8", errors="ignore").strip()
+            last_ts = float(raw) if raw else 0.0
+            now = time.monotonic()
+            wait = interval - (now - last_ts)
             if wait > 0:
                 time.sleep(wait)
-            self._last_mono = time.monotonic()
-            self.state_path.write_text(f"{time.time():.6f}", encoding="utf-8")
+            new_ts = f"{time.monotonic():.6f}".encode()
+            handle.seek(0)
+            handle.truncate(0)
+            handle.write(new_ts)
+            handle.flush()
+        finally:
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    yield
 
 
 class OpenDVClient:
-    """Stdlib urllib client for Open-DV REST API with rate limiting and retry handling."""
+    """Rate-limited synchronous REST client targeting Open-DV V2 `/api/v1` endpoints."""
 
     def __init__(
         self,
         api_url: str = DEFAULT_API_URL,
+        *,
         rps: float | None = None,
         timeout: float = 30.0,
     ) -> None:
         self.api_url = api_url.rstrip("/")
-        effective_rps = rps if rps is not None else (
-            DEFAULT_LOOPBACK_RPS if _is_loopback_url(self.api_url) else DEFAULT_REMOTE_RPS
+        self.rps = (
+            rps
+            if rps is not None
+            else (DEFAULT_LOOPBACK_RPS if is_loopback_url(self.api_url) else DEFAULT_REMOTE_RPS)
         )
-        self.rps = effective_rps
-        self.timeout = timeout
-        self.limiter = CrossProcessRateLimiter(effective_rps)
+        self._client = httpx.Client(base_url=self.api_url, timeout=timeout)
 
-    def _build_url(self, path: str, query: dict[str, Any] | None = None) -> str:
-        clean = path if path.startswith("/") else f"/{path}"
-        url = f"{self.api_url}{clean}"
-        if query:
-            pairs = [(k, str(v)) for k, v in query.items() if v is not None]
-            if pairs:
-                url = f"{url}?{urllib_parse.urlencode(pairs)}"
-        return url
+    def close(self) -> None:
+        self._client.close()
 
-    def request_raw(
+    def request(
         self,
         method: str,
         path: str,
         *,
-        query: dict[str, Any] | None = None,
-        json_body: Any = None,
-        raw_body: bytes | None = None,
-        headers: dict[str, str] | None = None,
-        retries: int = 3,
-    ) -> tuple[int, dict[str, str], bytes]:
-        """Execute an HTTP call with cross-process pacing, 5xx backoff, and 429 errors."""
-        url = self._build_url(path, query)
-        body_bytes = raw_body
-        req_headers = {"Accept": "application/json"}
-        if json_body is not None:
-            body_bytes = json.dumps(json_body).encode("utf-8")
-            req_headers["Content-Type"] = "application/json"
-        if headers:
-            req_headers.update(headers)
-
-        for attempt in range(retries):
-            self.limiter.acquire()
-            req = urllib_request.Request(url, data=body_bytes, headers=req_headers, method=method)
-            try:
-                with urllib_request.urlopen(req, timeout=self.timeout) as resp:
-                    resp_headers = {k.lower(): v for k, v in resp.headers.items()}
-                    return resp.status, resp_headers, resp.read()
-            except urllib_error.HTTPError as exc:
-                err_body = exc.read().decode("utf-8", errors="replace")
-                if exc.code == 429:
-                    wait = min(8, 2**attempt)
-                    print(
-                        f"Rate limited (HTTP 429) on {url} at {self.rps:.2f} req/s; "
-                        f"retrying in {wait}s ({attempt + 1}/{retries})...",
-                        file=sys.stderr,
-                    )
-                    if attempt == retries - 1:
-                        raise RateLimitError(
-                            f"HTTP 429 from {url} (configured limit {self.rps:.2f} req/s): "
-                            f"{err_body}"
-                        ) from exc
-                    time.sleep(wait)
-                    continue
-                if exc.code >= 500:
-                    wait = 2**attempt
-                    print(
-                        f"Transient server error HTTP {exc.code} on {url}; "
-                        f"retrying in {wait}s ({attempt + 1}/{retries})...",
-                        file=sys.stderr,
-                    )
-                    if attempt == retries - 1:
-                        raise OpenDVHttpError(exc.code, url, err_body) from exc
-                    time.sleep(wait)
-                    continue
-                raise OpenDVHttpError(exc.code, url, err_body) from exc
-            except urllib_error.URLError as exc:
-                raise RuntimeError(
-                    f"Cannot reach Open-DV server at {url}: {exc.reason}. "
-                    "Start it with: uv run opendv serve --host 127.0.0.1 --port 8420"
-                ) from exc
-        raise RuntimeError(f"Exhausted retries for {url}")
-
-    def request_json(
-        self,
-        method: str,
-        path: str,
-        *,
-        query: dict[str, Any] | None = None,
-        json_body: Any = None,
-        headers: dict[str, str] | None = None,
-        retries: int = 3,
+        json_body: dict[str, Any] | list[Any] | None = None,
+        params: dict[str, Any] | None = None,
+        files: Any = None,
+        expect_bytes: bool = False,
     ) -> Any:
-        """Perform an HTTP call expecting a JSON response."""
-        status, _, raw = self.request_raw(
-            method, path, query=query, json_body=json_body, headers=headers, retries=retries
-        )
-        if status == 204 or not raw:
-            return None
-        return json.loads(raw.decode("utf-8"))
-
-    def upload_file(
-        self,
-        session_id: str,
-        file_path: Path,
-        *,
-        ocr_mode: str = "auto",
-        do_not_send: bool = False,
-        description: str | None = None,
-    ) -> Any:
-        """Upload a local document or structured file via multipart/form-data."""
-        boundary = f"----OpenDVBoundary{uuid.uuid4().hex}"
-        mime = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
-        parts: list[bytes] = []
-
-        def add_field(name: str, value: str) -> None:
-            parts.append(
-                f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n"
-                f"{value}\r\n".encode()
-            )
-
-        add_field("ocr_mode", ocr_mode)
-        add_field("do_not_send_to_agent", "true" if do_not_send else "false")
-        if description:
-            add_field("description", description)
-
-        file_bytes = file_path.read_bytes()
-        parts.append(
-            f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
-            f"filename=\"{file_path.name}\"\r\nContent-Type: {mime}\r\n\r\n".encode()
-            + file_bytes
-            + f"\r\n--{boundary}--\r\n".encode()
-        )
-        body = b"".join(parts)
-        _, _, raw = self.request_raw(
-            "POST",
-            f"/api/v1/ontology/studio/sessions/{urllib_parse.quote(session_id)}/sources",
-            raw_body=body,
-            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-        )
-        return json.loads(raw.decode("utf-8"))
-
-    def poll_studio_job(
-        self, session_id: str, job_id: str, timeout_s: float = 300.0
-    ) -> dict[str, Any]:
-        """Poll a Studio async job until completion or failure."""
-        deadline = time.monotonic() + timeout_s
-        path = (
-            f"/api/v1/ontology/studio/sessions/{urllib_parse.quote(session_id)}"
-            f"/jobs/{urllib_parse.quote(job_id)}"
-        )
-        while time.monotonic() < deadline:
-            data = self.request_json("GET", path)
-            status = str(data.get("status", "")).upper()
-            if status in {"COMPLETED", "SUCCEEDED", "DONE"}:
-                return data
-            if status in {"FAILED", "CANCELLED", "CANCELED", "HOLD", "PAUSED_HOLD", "BUDGET_HOLD"}:
-                return data
-            time.sleep(1.0)
-        raise TimeoutError(f"Timed out after {timeout_s}s waiting for Studio job '{job_id}'.")
-
-    def poll_pipeline_run(self, run_id: str, timeout_s: float = 600.0) -> dict[str, Any]:
-        """Poll a DV 2.0 pipeline run until settled (COMPLETED, PAUSED_HOLD, FAILED, or ABORTED)."""
-        deadline = time.monotonic() + timeout_s
-        path = f"/api/v1/runs/{urllib_parse.quote(run_id)}"
-        while time.monotonic() < deadline:
-            data = self.request_json("GET", path)
-            status = str(data.get("status", "")).upper()
-            if status and status not in {"RUNNING", "PENDING", "QUEUED"}:
-                return data
-            time.sleep(1.5)
-        raise TimeoutError(f"Timed out after {timeout_s}s waiting for pipeline run '{run_id}'.")
-
-    def extract_baseline_contract(self, run_id: str) -> str | None:
-        """Fetch final_contract.yaml / contract_content from a certified run for D12."""
-        rep = self.request_json("GET", f"/api/v1/runs/{urllib_parse.quote(run_id)}/report")
-        if (
-            isinstance(rep, dict)
-            and isinstance(rep.get("contract_content"), str)
-            and rep["contract_content"].strip()
-        ):
-            return rep["contract_content"]
-        arts = self.request_json("GET", f"/api/v1/runs/{urllib_parse.quote(run_id)}/artifacts")
-        if isinstance(arts, list):
-            for art in arts:
-                if not isinstance(art, dict):
-                    continue
-                aid = str(art.get("artifact_id", ""))
-                fname = str(art.get("filename", ""))
-                content = art.get("content")
-                if isinstance(content, str) and content.strip() and (
-                    aid == "final_contract" or fname == "final_contract.yaml"
-                ):
-                    return content
-        return None
-
-
-def slug_system(raw: str) -> str:
-    """Normalize a filename or identifier into a clean source_system slug."""
-    cleaned = re.sub(r"[^a-z0-9]+", "_", raw.strip().lower()).strip("_")
-    return cleaned or "source"
-
-
-def partition_session_sources(
-    sources: list[dict[str, Any]], chunks: list[dict[str, Any]]
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Split Studio manifest sources into PipelineInputDTO feeds vs unstructured_documents."""
-    feeds: list[dict[str, Any]] = []
-    docs: list[dict[str, Any]] = []
-    for idx, src in enumerate(sources):
-        if src.get("do_not_send_to_agent"):
-            continue
-        fname = str(src.get("file_name") or src.get("filename") or src.get("source_id") or "")
-        mime = str(src.get("mime_type") or "").split(";")[0].strip().lower()
-        sid = str(src.get("source_id") or f"src-{idx + 1}")
-        sha = src.get("source_sha256")
-        cas_uri = f"cas://{sha}" if sha else fname
-        is_unstructured = not STRUCTURED_EXT_RE.search(fname) and (
-            bool(UNSTRUCTURED_EXT_RE.search(fname))
-            or mime in {"application/pdf", "text/markdown", "text/plain", "text/html"}
-        )
-        if is_unstructured:
-            matched_text = "\n\n".join(
-                str(c.get("text") or c.get("text_snippet") or "")
-                for c in chunks
-                if (
-                    c.get("source_id") == sid
-                    or c.get("document_id") == sid
-                    or c.get("source_file") == fname
+        url = path if path.startswith("/") else f"/{path}"
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            with _cross_process_rate_slot(self.api_url, self.rps):
+                resp = self._client.request(
+                    method,
+                    url,
+                    json=json_body,
+                    params=params,
+                    files=files,
                 )
-                and str(c.get("text") or c.get("text_snippet") or "").strip()
-            )
-            doc: dict[str, Any] = {
-                "doc_id": sid,
-                "document_path": cas_uri,
-                "metadata": {"title": fname, "source_id": sid},
-            }
-            if mime:
-                doc["mime_type"] = mime
-            if matched_text:
-                doc["content"] = matched_text
-            docs.append(doc)
-        else:
-            ext = Path(fname).suffix.lstrip(".").lower()
-            feeds.append(
-                {
-                    "feed_id": sid,
-                    "source_system": slug_system(fname),
-                    "uri": cas_uri,
-                    "options": {
-                        "table_name": slug_system(Path(fname).stem),
-                        "source_name": fname,
-                        **({"source_format": ext} if ext else {}),
-                    },
-                }
-            )
-    return feeds, docs
+            if resp.status_code in {429, 502, 503, 504} and attempt < MAX_ATTEMPTS:
+                delay = float(2 ** (attempt - 1))
+                print(
+                    f"[opendv-workflow] HTTP {resp.status_code} on {method} {url}; "
+                    f"retrying in {delay:.0f}s",
+                    file=sys.stderr,
+                )
+                time.sleep(delay)
+                continue
+            if resp.status_code >= 400:
+                try:
+                    parsed: Any = resp.json()
+                except ValueError:
+                    parsed = resp.text
+                if resp.status_code == 429:
+                    raise RateLimitError(
+                        resp.status_code,
+                        method,
+                        f"{self.api_url}{url} (limit={self.rps} rps)",
+                        parsed,
+                    )
+                raise ApiError(resp.status_code, method, f"{self.api_url}{url}", parsed)
+            if expect_bytes:
+                return resp.content
+            if not resp.content:
+                return {}
+            try:
+                return resp.json()
+            except ValueError:
+                return resp.text
+        raise RuntimeError(f"Exhausted retries for {method} {url}")
+
+    def get_json(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
+        return self.request("GET", path, params=params)
+
+    def post_json(
+        self,
+        path: str,
+        body: dict[str, Any] | None = None,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        return self.request("POST", path, json_body=body or {}, params=params)
+
+    def put_json(self, path: str, body: dict[str, Any]) -> Any:
+        return self.request("PUT", path, json_body=body)
+
+    def patch_json(self, path: str, body: dict[str, Any]) -> Any:
+        return self.request("PATCH", path, json_body=body)
+
+    def delete_json(self, path: str) -> Any:
+        return self.request("DELETE", path)
+
+    def get_bytes(self, path: str, *, params: dict[str, Any] | None = None) -> bytes:
+        data = self.request("GET", path, params=params, expect_bytes=True)
+        return bytes(data)
+
+    def poll_until(
+        self,
+        path: str,
+        *,
+        terminal_statuses: set[str],
+        timeout_seconds: float = 180.0,
+        interval_seconds: float = 1.5,
+    ) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            state = dict(self.get_json(path))
+            status = str(state.get("status", "")).upper()
+            if status in terminal_statuses or time.monotonic() >= deadline:
+                return state
+            time.sleep(interval_seconds)
 
 
-def search_repo_docs(repo_root: Path, query: str, scope: str, limit: int) -> list[dict[str, Any]]:
-    """Search Open-DV markdown docs and specs for Q&A grounding."""
+def slug_id(raw: str) -> str:
+    """Normalize a raw name into an Open-DV V2 kebab/snake slug."""
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "_", raw.strip().lower()).strip("_-")
+    return cleaned or "opendv_project"
+
+
+def write_json_output(output_path: str | None, payload: Any) -> None:
+    """Write formatted JSON to output_path (or compact summary to stdout if omitted)."""
+    rendered = json.dumps(payload, indent=2, default=str)
+    if output_path:
+        dest = Path(output_path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(rendered + "\n", encoding="utf-8")
+        print(json.dumps({"ok": True, "output_file": str(dest), "bytes": len(rendered)}))
+        return
+    print(rendered)
+
+
+def search_repo_docs(
+    repo_root: Path,
+    query: str,
+    scope: str = "all",
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    """Search Open-DV V2 markdown docs and schemas/v2 contracts for Q&A grounding."""
     candidates: list[Path] = []
     if scope in {"all", "design"}:
         root_docs = [
@@ -390,24 +253,32 @@ def search_repo_docs(repo_root: Path, query: str, scope: str, limit: int) -> lis
             repo_root / "README.md",
             repo_root / "AGENTS.md",
             repo_root / "CLAUDE.md",
+            repo_root / "examples" / "v2_asset_management" / "README.md",
         ]
         candidates.extend(p for p in root_docs if p.is_file())
+        if (repo_root / "docs" / "designs").is_dir():
+            candidates.extend(sorted((repo_root / "docs" / "designs").glob("*.md")))
     if scope in {"all", "docs"} and (repo_root / "docs").is_dir():
         candidates.extend(sorted((repo_root / "docs").glob("*.md")))
     if scope in {"all", "cli"}:
-        cli_spec = repo_root / "schemas" / "v1" / "cli-spec.json"
+        cli_spec = repo_root / "schemas" / "v2" / "cli-spec.json"
         if cli_spec.is_file():
             candidates.append(cli_spec)
     if scope in {"all", "api"}:
-        api_spec = repo_root / "schemas" / "v1" / "openapi.json"
-        if api_spec.is_file():
-            candidates.append(api_spec)
+        for name in ("openapi.json", "error-codes.json", "baseline-digests.json"):
+            spec_path = repo_root / "schemas" / "v2" / name
+            if spec_path.is_file():
+                candidates.append(spec_path)
 
     terms = [t for t in re.split(r"\s+", query.strip().lower()) if t]
     if not terms:
         return []
     hits: list[dict[str, Any]] = []
+    seen_files: set[Path] = set()
     for path in candidates:
+        if path in seen_files:
+            continue
+        seen_files.add(path)
         rel = path.relative_to(repo_root).as_posix()
         try:
             lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()

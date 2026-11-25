@@ -20,7 +20,7 @@ interface NavLinkItem {
 const SECTION_LINKS: readonly NavLinkItem[] = [
 	{ label: "Why Open-DV", target: "#why" },
 	{ label: "How It Works", target: "#how" },
-	{ label: "6-Gate Verifier", target: "#verifier" },
+	{ label: "CEGAR Gates", target: "#verifier" },
 	{ label: "Workbench", target: "#workbench" },
 	{ label: "Ecosystem", target: "#ecosystem" },
 	{ label: "Quick Start", target: "#quickstart" },
@@ -198,10 +198,10 @@ export function DocumentShell(props: LayoutProps): React.JSX.Element {
 									<span className="brand-version">{SITE_META.version}</span>
 								</a>
 								<p className="footer-copy">
-									Agent-first 6-Step Wizard, 4-View DV Schema Explorer, 6-gate{" "}
-									<code>axi-dv</code> formal verification, and deterministic
-									multi-dialect 5-Zone (Z0–Z4) + <code>information_mart</code>{" "}
-									SQL compilation.
+									7-Step Guided ⇄ Observatory Workbench, 4-View DV Schema
+									Explorer, Run Explorer, L1 + V1–V8 CEGAR verification, and
+									11-target 5-Zone (Z0–Z4) + <code>information_mart</code> SQL
+									compilation.
 								</p>
 							</div>
 
@@ -261,11 +261,11 @@ export function DocumentShell(props: LayoutProps): React.JSX.Element {
 									</li>
 									<li>
 										<a
-											href={`${SITE_META.docsBaseUrl}/16-human-and-agent-usage-guide.md`}
+											href={`${SITE_META.docsBaseUrl}/16-cli-reference.md`}
 											target="_blank"
 											rel="noopener noreferrer"
 										>
-											Dual-CLI (opendv / opendvctl)
+											Unified opendv CLI &amp; MCP
 										</a>
 									</li>
 									<li>
@@ -288,7 +288,7 @@ export function DocumentShell(props: LayoutProps): React.JSX.Element {
 								License
 							</span>
 							<span>
-								Loopback Studio: <code>http://127.0.0.1:8420</code> ·{" "}
+								Loopback Workbench: <code>http://127.0.0.1:8420</code> ·{" "}
 								<code>--allow-remote-unauthenticated</code> guard
 							</span>
 						</div>

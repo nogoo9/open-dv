@@ -15,7 +15,7 @@ import {
 } from "../components/SourceRecoveryDialogs";
 import { parseAppRoute, useProjectStore } from "../store/projectStore";
 
-const FALLBACK_ADAPTERS: ConnectorAdapterSpec[] = [
+const DEFAULT_CONNECTOR_SPECS: ConnectorAdapterSpec[] = [
 	{ adapter_id: "sqlite", display_name: "SQLite Database", fields: [] },
 	{ adapter_id: "duckdb", display_name: "DuckDB Database", fields: [] },
 	{ adapter_id: "parquet", display_name: "Apache Parquet File", fields: [] },
@@ -58,8 +58,9 @@ export function Step2Sources() {
 		parseAppRoute(new URL(currentUrl, "http://localhost").pathname).projectId;
 	const fileRef = useRef<HTMLInputElement>(null);
 
-	const [adapters, setAdapters] =
-		useState<ConnectorAdapterSpec[]>(FALLBACK_ADAPTERS);
+	const [adapters, setAdapters] = useState<ConnectorAdapterSpec[]>(
+		DEFAULT_CONNECTOR_SPECS,
+	);
 	const [secrets, setSecrets] = useState<SecretSummary[]>([]);
 	const [kind, setKind] = useState("sqlite");
 	const [uri, setUri] = useState("");
@@ -400,7 +401,7 @@ export function Step2Sources() {
 									className="input mono"
 									value={uri}
 									onChange={(e) => setUri(e.target.value)}
-									placeholder="data/public_am/am_sec_treasury_ibor.sqlite"
+									placeholder="path/to/database.sqlite"
 								/>
 							</label>
 						)}

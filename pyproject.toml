@@ -4,9 +4,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "opendv-workspace"
-version = "0.1.0"
-description = "Open-DV (v6.0): Neuro-Symbolic Agentic Data Vault 2.0 Modeller, 6-Gate AXI Verifier, and Headless Platform"
+name = "opendv"
+version = "2.0.0"
+description = "Open-DV (2.0.0): Neuro-Symbolic Data Vault 2.0 Modeller, 3-Loop CEGAR Prover & Multi-Dialect Compiler"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
@@ -33,6 +33,9 @@ dependencies = [
     "pypdfium2>=4.30.0",
 ]
 
+[project.scripts]
+opendv = "opendv.cli.main:app"
+
 [project.optional-dependencies]
 databricks = ["databricks-sql-connector>=3.0.0"]
 sdk = ["anthropic>=0.40.0", "google-genai>=1.0.0"]
@@ -48,39 +51,8 @@ artifacts = [
 [tool.hatch.build.targets.wheel.force-include]
 "schemas/v2" = "opendv/schemas/v2"
 
-[tool.uv.workspace]
-members = [
-    "packages/opendv-contracts",
-    "packages/opendv-cli-common",
-    "packages/opendv-service",
-    "packages/opendv-core",
-    "packages/opendv-telemetry",
-    "packages/opendv-axi-verifier",
-    "packages/opendv-duckdb-sandbox",
-    "packages/opendv-agent-harness",
-    "packages/opendv-testkit",
-    "packages/opendv-sources",
-    "apps/opendv-platform-api",
-    "apps/opendv-cli",
-]
-
-[tool.uv.sources]
-opendv-contracts = { workspace = true }
-opendv-cli-common = { workspace = true }
-opendv-service = { workspace = true }
-opendv-core = { workspace = true }
-opendv-telemetry = { workspace = true }
-opendv-axi-verifier = { workspace = true }
-opendv-duckdb-sandbox = { workspace = true }
-opendv-agent-harness = { workspace = true }
-opendv-testkit = { workspace = true }
-opendv-sources = { workspace = true }
-opendv-platform-api = { workspace = true }
-opendv-cli = { workspace = true }
-
 [dependency-groups]
 dev = [
-    "opendv-testkit",
     "pytest>=9.0.0",
     "pytest-asyncio>=0.25.0",
     "httpx>=0.28.0",
@@ -102,7 +74,7 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-src = ["src", "packages/*/src", "apps/*/src"]
+src = ["src"]
 
 [tool.ruff.lint]
 select = [
@@ -170,14 +142,6 @@ warn_return_any = true
 
 [[tool.mypy.overrides]]
 module = [
-    "opendv_service.*",
-    "opendv_platform_api.*",
-    "opendv_cli.*",
-]
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = [
     "pyarrow",
     "pyarrow.*",
 ]
@@ -195,33 +159,5 @@ markers = [
     "live_provider: Integration tests requiring live LLM providers",
     "architecture: Architecture, import contract, and no-duplication tests",
 ]
-pythonpath = [
-    "src",
-    "packages/opendv-contracts/src",
-    "packages/opendv-cli-common/src",
-    "packages/opendv-service/src",
-    "packages/opendv-core/src",
-    "packages/opendv-telemetry/src",
-    "packages/opendv-axi-verifier/src",
-    "packages/opendv-duckdb-sandbox/src",
-    "packages/opendv-agent-harness/src",
-    "packages/opendv-testkit/src",
-    "packages/opendv-sources/src",
-    "apps/opendv-platform-api/src",
-    "apps/opendv-cli/src",
-]
-testpaths = [
-    "tests",
-    "packages/opendv-contracts/tests",
-    "packages/opendv-cli-common/tests",
-    "packages/opendv-service/tests",
-    "packages/opendv-core/tests",
-    "packages/opendv-telemetry/tests",
-    "packages/opendv-axi-verifier/tests",
-    "packages/opendv-duckdb-sandbox/tests",
-    "packages/opendv-agent-harness/tests",
-    "packages/opendv-testkit/tests",
-    "packages/opendv-sources/tests",
-    "apps/opendv-platform-api/tests",
-    "apps/opendv-cli/tests",
-]
+pythonpath = ["src"]
+testpaths = ["tests"]

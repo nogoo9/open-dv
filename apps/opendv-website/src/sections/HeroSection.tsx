@@ -9,21 +9,21 @@ const HERO_PILLARS: readonly {
 }[] = [
 	{
 		num: "01",
-		title: "1. Unified 6-Step Wizard",
+		title: "1. 7-Step Guided ⇄ Observatory",
 		detail:
-			"Agent-only UI (D28) from Scope & 6 Starter Packs, Multi-Connector + OCR + Inline Notes, <= 50-row/chunk Preview, and 422 Agent Gate through Step 5 Diff Graph & Export.",
+			"Zero-LLM project.sqlite scoping (core_spine & .opendv.zip), 6 static adapters, 125-perm MinHash clusters, DocumentMap scan gates, brokered Step 4 Holds, and 4-Mode Step 5 Graph A.",
 	},
 	{
 		num: "02",
-		title: "2. 6-Gate axi-dv + 5-Zone Compiler",
+		title: "2. L1 + V1–V8 CEGAR & Horizon Critic",
 		detail:
-			"Auto-binds deployed_contract (D12), proves 3-Tier BKCC grain, Alg A.5 SHA-256, NetworkX DAG, and 4-Batch DuckDB before emitting 5-Zone (Z0–Z4) + information_mart SQL.",
+			"Lowers DraftVaultIR into VaultSchemaIR v2.0 via L1 codemods, V1–V5 DAG/hash/lock proofs, V6 15-invariant DuckDB prover, V6B smells, V7 Frontier critic, and V8 BRK-01..08 resilience.",
 	},
 	{
 		num: "03",
-		title: "3. 4-View DV Schema Explorer & Live Logs",
+		title: "3. 11 Targets, Explorer & Run Explorer",
 		detail:
-			"Inspect Hub-Link-Sat-PIT topology, 100% Column Triage, W1->W3 wave diffs, Safe Read-Only SQL (D11), live Cost Meter, and SessionLogsInspector EventSource traces.",
+			"Compiles 8 SQL dialects + Iceberg, Parquet & dbt with TargetEvalGate parity, 4-View 5-Zone (Z0–Z4) DV Schema Explorer, Budget Meter, and Last-Event-ID Run Explorer.",
 	},
 ];
 
@@ -48,9 +48,11 @@ export function HeroSection(): React.JSX.Element {
 						</h1>
 						<p className="lede">
 							Launch the 4-Tab Workbench on loopback <code>127.0.0.1:8420</code>{" "}
-							with zero login friction. Agents ground semantics in the Unified
-							6-Step Wizard while 6-Gate <code>axi-dv</code> proves every
-							invariant before 5-Zone (Z0–Z4) <code>information_mart</code> SQL
+							with zero login friction. Brokered scouts ground{" "}
+							<code>Graph A</code> across the 7-Step{" "}
+							<code>Guided ⇄ Observatory</code> workflow while <code>L1</code>{" "}
+							&amp; <code>V1–V8</code> CEGAR prove every invariant before
+							11-target 5-Zone (Z0–Z4) <code>information_mart</code> SQL
 							compiles.
 						</p>
 

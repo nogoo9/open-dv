@@ -1,5 +1,8 @@
 # 05 — Ensemble Logical Modeling (ELM) Calculus, Mathematical Formulations, and Production Reference Algorithms (`A.1`–`A.9`)
 
+> [!NOTE]
+> **OPEN-DV V2 CLEAN-SHEET — ALIGNMENT NOTICE (2026-11-25):** `Algorithms A.1–A.9b` and `Algorithm A.5` length-prefixed UTF-8 SHA-256 hashing specifications remain normative in V2; implementation modules now live in `src/opendv/sources/`, `src/opendv/verifier/`, and `src/opendv/storage/` targeting `VaultSchemaIR v2.0`. See [`docs/designs/SITEMAP.md`](designs/SITEMAP.md).
+
 > **Part of the [`open-dv` Reference Guide Suite](DV2_AGENT_REFERENCE_GUIDE.md)**  
 > **Domain:** Mathematical Formulations for Graph B & Gate 4 Cost Guard, ELM Workshop Calculus, Three-Pass Chain-of-Thought State Machine, Production System Prompt Template, and Complete Production Python Reference Implementations (`Algorithms A.1`–`A.9` & `D.10`)  
 > **Companion Specifications:**

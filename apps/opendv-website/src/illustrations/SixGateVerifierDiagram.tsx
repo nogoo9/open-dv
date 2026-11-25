@@ -1,5 +1,5 @@
 import type React from "react";
-import { AXI_GATES, FAULT_PRESETS } from "../data/site-data";
+import { FAULT_PRESETS, VERIFIER_GATES } from "../data/site-data";
 
 const M = "var(--font-mono)";
 const PS = "var(--pass-stroke)";
@@ -10,18 +10,18 @@ const HS = "var(--surface-dark)";
 const CRD = "var(--bg-canvas)";
 
 const SN =
-	"Profile & Drift|Schema & BKCC|Hash & AST|Bipartite DAG|YAGNI Guard|4-Batch Sandbox".split(
+	"Codemods & Triage|DAG, Hash & Locks|DuckDB 15-DV-DYN|Schema Smells|Frontier Critic|Horizon Critic".split(
 		"|",
 	);
 const SR =
-	"INV-06 · A.9a|KEY-01 · A.4|A.5 · A.6|EVO · A.7|A.1 · 50MB/d|DV-DYN · D.10b".split(
+	"Alg A.1..A.4 · S6-03|DV-STR · A.5 · A.9b|DV-DYN · Alg A.6|DV-AP · WAIV-*|V7 >= 90/95|BRK-01..08 >= 85".split(
 		"|",
 	);
 const BATCHES = [
-	[622, 222, "Ghost '0'*64"],
-	[762, 222, "Replay=0"],
-	[622, 254, "Boundary-Shift"],
-	[762, 254, "BKCC"],
+	[622, 222, "Ghost 0*64 + -1/-2"],
+	[762, 222, "Replay delta = 0"],
+	[622, 254, "Boundary-Shift A.5"],
+	[762, 254, "BKCC + Soft Purity"],
 ] as const;
 
 const bx = (
@@ -74,7 +74,7 @@ export function SixGateVerifierDiagram(): React.JSX.Element {
 		<figure
 			className="diagram-frame"
 			data-diagram="six-gate-verifier"
-			data-active-gate="G0"
+			data-active-gate="L1"
 			data-active-fault="none"
 			data-paused="false"
 		>
@@ -86,7 +86,7 @@ export function SixGateVerifierDiagram(): React.JSX.Element {
 						data-fault-btn="none"
 						aria-pressed="true"
 					>
-						Normal Pipeline
+						Normal CEGAR Loop
 					</button>
 					{FAULT_PRESETS.map((f) => (
 						<button
@@ -125,10 +125,11 @@ export function SixGateVerifierDiagram(): React.JSX.Element {
 					aria-labelledby="sg-title sg-desc"
 					stroke="none"
 				>
-					<title id="sg-title">Axi-DV 6-Gate Verifier</title>
+					<title id="sg-title">Open-DV V2 6-Gate CEGAR Verifier</title>
 					<desc id="sg-desc">
-						Gates G0-G5, Alg A.1/A.4/A.5/A.6/A.7 repair lane, @toon_v1
-						k=1-&gt;k=2 loop, and DuckDB 4-Batch Sandbox.
+						L1 deterministic codemods, V1_V5 symbolic DAG/hashing/spans, V6
+						DuckDB 15-invariant prover, V6B schema smells, V7 semantic critic,
+						and V8 horizon resilience critic with bounded L2/L3 repair.
 					</desc>
 					<defs>
 						<marker
@@ -149,7 +150,8 @@ export function SixGateVerifierDiagram(): React.JSX.Element {
 						"var(--primary-active)",
 						"dia-heal-arc",
 					)}
-					{ln("M843 168L843 188", PS)}
+					{ln("M453 168L453 200", PS)}
+					{ln("M610 238L583 238", PS)}
 					{bx(148, 14, 612, 44, HS, HS)}
 					{bx(16, 92, 98, 76, "var(--bg-card)", "var(--border-strong)")}
 					{bx(
@@ -165,32 +167,40 @@ export function SixGateVerifierDiagram(): React.JSX.Element {
 						{tx(
 							454,
 							33,
-							"Deterministic Repair · Alg A.1/A.4/A.5/A.6/A.7",
+							"Deterministic L1 Codemods · Alg A.1 / A.4 / A.5 / A.9a",
 							11,
 							"var(--on-dark)",
 						)}
 						{tx(
 							454,
 							49,
-							"AST codemods fix FKs, SHA-256 & micro-sats",
+							"Zero-LLM IR enrichment fixes sparse FKs, _ext_vN drift & triage",
 							9,
 							"var(--on-dark-soft)",
 							0,
 						)}
 						{tx(65, 120, "@ship-vault", 11, I)}
-						{tx(65, 138, "Blueprint YAML", 9, U, 0)}
+						{tx(65, 138, "DraftVaultIR", 9, U, 0)}
 						{tx(
 							315,
 							233,
-							"@toon_v1 k=1 -> k=2 Bounded Loop",
-							11,
+							"L2 Bounded Repair (K_max) & L3 Guided Hold",
+							10.5,
 							"var(--primary-active)",
 						)}
-						{tx(315, 250, "Compact trace triggers structural fix", 9, U, 0)}
-						{tx(757, 210, ":memory: DuckDB 4-Batch Sandbox", 11, PI)}
+						{tx(
+							315,
+							250,
+							"E(IR_k) = 100*|V1..V6| + 10*|V6B| + max(0, floor - V7)",
+							8.5,
+							U,
+							0,
+						)}
+						{tx(757, 210, "V6 :memory: DuckDbProverAdapter", 10.5, PI)}
 					</g>
-					{AXI_GATES.map((g, i) => {
+					{VERIFIER_GATES.map((g, i) => {
 						const gx = 138 + i * 130;
+						const badgeW = g.id.length > 3 ? 44 : 34;
 						return (
 							<g key={g.id}>
 								{i > 0 && ln(`M${gx - 20} 130L${gx - 2} 130`, PS, "dia-flow")}
@@ -203,7 +213,7 @@ export function SixGateVerifierDiagram(): React.JSX.Element {
 									// biome-ignore lint/a11y/useSemanticElements: SVG group node acts as interactive gate button inside inline SVG
 									role="button"
 									tabIndex={0}
-									aria-pressed={g.id === "G0" ? "true" : "false"}
+									aria-pressed={g.id === "L1" ? "true" : "false"}
 									stroke="var(--border-strong)"
 									strokeWidth="1.5"
 								>
@@ -216,9 +226,9 @@ export function SixGateVerifierDiagram(): React.JSX.Element {
 										className="dia-gate-box"
 										fill={CRD}
 									/>
-									{bx(gx + 8, 100, 34, 18, "var(--pass-fill)", PS, 4)}
+									{bx(gx + 8, 100, badgeW, 18, "var(--pass-fill)", PS, 4)}
 									<g stroke="none" textAnchor="middle">
-										{tx(gx + 25, 113, g.id, 10, PI)}
+										{tx(gx + 8 + badgeW / 2, 113, g.id, 9.5, PI)}
 										<circle
 											cx={gx + 96}
 											cy="109"
@@ -226,8 +236,8 @@ export function SixGateVerifierDiagram(): React.JSX.Element {
 											className="dia-pulse"
 											fill={PS}
 										/>
-										{tx(gx + 55, 136, SN[i] ?? g.name, 11, I, 0)}
-										{tx(gx + 55, 155, SR[i] ?? g.rules, 9, U)}
+										{tx(gx + 55, 136, SN[i] ?? g.name, 10.5, I, 0)}
+										{tx(gx + 55, 155, SR[i] ?? g.rules, 8.5, U)}
 									</g>
 								</g>
 							</g>
@@ -243,12 +253,12 @@ export function SixGateVerifierDiagram(): React.JSX.Element {
 					</g>
 				</svg>
 			</div>
-			{AXI_GATES.map((g) => (
+			{VERIFIER_GATES.map((g) => (
 				<div
 					key={g.id}
 					className="gate-readout"
 					data-gate-detail={g.id}
-					hidden={g.id !== "G0"}
+					hidden={g.id !== "L1"}
 				>
 					<strong>
 						{g.id} · {g.name}
@@ -273,7 +283,8 @@ export function SixGateVerifierDiagram(): React.JSX.Element {
 			))}
 			<div className="fault-console" aria-live="polite">
 				<div className="fault-detail" data-fault-detail="none">
-					All 6 axi-dv gates + DuckDB 4-Batch Shadow Sandbox nominal.
+					All 6 CEGAR gates (L1, V1_V5, V6, V6B, V7, V8) + DuckDbProverAdapter
+					nominal (E = 0).
 				</div>
 				{FAULT_PRESETS.map((f) => (
 					<div

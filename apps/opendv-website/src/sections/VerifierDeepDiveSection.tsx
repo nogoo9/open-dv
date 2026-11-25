@@ -1,5 +1,5 @@
 import type React from "react";
-import { AXI_GATES } from "../data/site-data";
+import { VERIFIER_GATES } from "../data/site-data";
 import { SixGateVerifierDiagram } from "../illustrations/SixGateVerifierDiagram";
 
 export function VerifierDeepDiveSection(): React.JSX.Element {
@@ -14,18 +14,19 @@ export function VerifierDeepDiveSection(): React.JSX.Element {
 				<div className="section-head">
 					<div className="section-head-copy">
 						<p className="eyebrow">
-							SYMBOLIC FIREWALL · 6-GATE AXI-DV &amp; @TOON_V1 SELF-HEALING
+							SYMBOLIC &amp; PROVER FIREWALL · L1, V1–V6B, V7 &amp; V8 HORIZON
 						</p>
 						<h2 id="verifier-heading">
-							Mathematical proof before a single contract seals.
+							Mathematical proof before a single wave seals.
 						</h2>
 					</div>
 					<p className="section-intro">
-						Every candidate contract runs through six deterministic verification
-						gates (<code>G0</code>–<code>G5</code>) and 15 dynamic sandbox
-						invariants. Codemods <code>A.1</code>–<code>A.9b</code> heal
-						mechanical faults; <code>@toon_v1</code> repairs structural edges,
-						and Tier-U2 / Budget Holds resolve inline inside Step 6.
+						Every candidate <code>DraftVaultIR</code> lowers into{" "}
+						<code>VaultSchemaIR v2.0</code> and passes six deterministic and
+						critic gates (<code>L1</code>, <code>V1_V5</code>, <code>V6</code>,{" "}
+						<code>V6B</code>, <code>V7</code>, <code>V8</code>),{" "}
+						<code>15/15</code> DuckDB dynamic invariants, and{" "}
+						<code>BRK-01..08</code> future-horizon stress tests.
 					</p>
 				</div>
 
@@ -38,9 +39,9 @@ export function VerifierDeepDiveSection(): React.JSX.Element {
 						margin: "1.75rem 0 0",
 						padding: 0,
 					}}
-					aria-label="Axi-DV Gates G0 to G5"
+					aria-label="CEGAR Gates L1 to V8"
 				>
-					{AXI_GATES.map((gate) => (
+					{VERIFIER_GATES.map((gate) => (
 						<li key={gate.id} className="card">
 							<div className="badge-row" style={{ marginBlockEnd: "0.55rem" }}>
 								<span className="badge badge-pass">{gate.id}</span>

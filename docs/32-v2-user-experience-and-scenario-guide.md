@@ -2,7 +2,7 @@
 
 > **Module:** `docs/32-v2-user-experience-and-scenario-guide.md` · **Revision:** v2.0 (2026-11-21)
 
-> [!NOTE] **Clean-Sheet V2 Update (2026-11-21):** Per-file `LOCAL_ONLY` (`do_not_send_to_agent`, `opendv.term_extractors`, `ExcludedSourceTombstone`) is **retired** in clean-sheet Open-DV V2; privacy enforcement centers on `<MASKED_PII>` sample-value masking in prompts/logs, `sat_*_pii` satellite isolation, selective `view_page_image` on scanned pages only, and `HttpOnly` secret stripping in `.opendv.zip`.
+> [!NOTE] **Clean-Sheet V2 Update (2026-11-25):** Per-file `LOCAL_ONLY` (`do_not_send_to_agent`, `opendv.term_extractors`, `ExcludedSourceTombstone`) and V1 `opendvctl` / `/sessions` / `HttpOnly` cookie vault are **retired** in Open-DV V2; privacy enforcement uses `<MASKED_PII>` sample-value masking in prompts/logs, `sat_*_pii` satellite isolation, selective `view_page_image` on scanned pages only, `KeyringSecretStore` OS secret management (`opendv secrets`), and secret stripping in `.opendv.zip`.
 
 > **Audience:** Business Data Stewards, Domain Analysts, Enterprise Data Architects, Platform Engineers, and QA/UAT Teams.  
 > **Companion Engineering Spec:** [31-v2-e2e-requirements-gaps-and-uat-spec.md](31-v2-e2e-requirements-gaps-and-uat-spec.md) · **Strategy Reference:** [30-enterprise-dv2-modeling-and-loop-engineering.md](30-enterprise-dv2-modeling-and-loop-engineering.md)
@@ -16,7 +16,7 @@ Open-DV turns raw enterprise data (databases, Parquet/CSV feeds, policy document
 ### 1.1 Who Uses Open-DV & How the UI Adapts
 - **Business Data Steward / Domain Analyst (`Default Guided View`):** Wants plain-English explanations (*"What is the AI doing right now? Why does this table exist? If I click Option A vs Option B, what locks forever vs stays flexible?"*) without decoding compiler codes (`DV-DYN`, `BKCC`, `CDK`, `@toon_v1`).
 - **Enterprise Data / Vault Architect (`1-Click Architect Details`):** Inspects FIBO SKOS matches, bidirectional `ontology.yaml`, Data Vault `§545` bipartite topology, DuckDB counterexample rows, 5-dimension Critic rubrics, counterfactual Wave-2+ breakage stress tests, and zero-SQL `UniversalVaultSchemaIR v2.0`.
-- **Platform / Analytics Engineer (`Step 7 v7 & Dual-CLI`):** Controls target storage medium (`Databricks`, `Iceberg`, `Parquet`, `dbt`, `DuckDB Local`), runs safe **Incremental Migrations (`Wave K -> Wave N`)** or **Full Regenerations**, manages encrypted secrets, and automates CI/CD via `opendv` / `opendvctl` + `.opendv.zip` portability.
+- **Platform / Analytics Engineer (`Step 7 v7 & Unified opendv CLI`):** Controls target storage medium (`duckdb_local`, `databricks_uc`, `snowflake`, `postgres`, `bigquery`, `sqlserver_fabric`, `redshift`, `clickhouse`, `iceberg`, `parquet`, `dbt`), runs safe **Incremental Migrations (`Wave K -> Wave N`)** or **Full Regenerations**, manages keyring secrets (`opendv secrets`), and automates CI/CD via unified `opendv` + `.opendv.zip` portability.
 
 ### 1.2 End-to-End 7-Step Journey Overview
 
@@ -40,7 +40,7 @@ flowchart LR
 | **DV Model & Evolution Lock** | `final_contract.yaml` & `deployed_contract.yaml` *(auto-bound)* | Physical Data Vault blueprint (`hub_*`, `lnk_*`, `sat_*`, `mas_*`, `esat_*`, `sal_*`, `ref_*`, `pit_*`) plus immutable Wave-1..K lock preventing breaking changes. | Auto-synthesized by Step 6 (only reviewed or waived via Decisions). |
 | **Certified Schema IR** | `head_schema_ir` (`UniversalVaultSchemaIR v2.0`) | Zero-SQL universal blueprint (`FIXED_BINARY(32)`, monotonic `field_id`s, `PredicateAST`, Zero/Ghost seeds, layout hints). | Output of Step 6; input to Step 7 (`v7`). |
 | **Target Materialization (Tier 2)** | `targets/<target_id>/` (`target_manifest.json`, `V001..V00N.sql`, `demo_vault.duckdb`) | Engine-specific DDL, Iceberg/Parquet/dbt outputs, and built-in local DuckDB demo database. Completely regenerable from Tier 1. | Generated & executed in Step 7 (`v7`). |
-| **Portable Project Archive** | `<project>.core.opendv.zip` **(Default)** or `.full_demo.opendv.zip` | Signed zip package sharing projects safely across Git, teammates, or laptops with secrets & `Local Only` data automatically stripped. | Exported/imported via Header, Step 1, Step 7, or CLI. |
+| **Portable Project Archive** | `<project>.core.opendv.zip` **(Default)** or `.full_demo.opendv.zip` | Signed zip package sharing projects safely across Git, teammates, or laptops with keyring secrets stripped (`0` secret leakage). | Exported/imported via Header, Step 1, Step 7, or CLI. |
 
 ---
 
@@ -48,23 +48,23 @@ flowchart LR
 
 ### 2.1 Global Header Bar & Active Project Switcher
 Across Steps 1–7, `DV Schema Explorer`, `Run Explorer`, and `Settings`:
-- Top `54px` header always shows **`SPIKE_MARK_SVG` + `open-dv`** ➔ **`Ontology & Pipeline` | `DV Schema Explorer` | `Run Explorer` | `Settings`** ➔ **Active Project Switcher Pill (`am-ibor-2026 · v1.1.0 · asset_management`)** ➔ **`Export / Import` button**.
+- Top `54px` header always shows **`SPIKE_MARK_SVG` + `open-dv`** ➔ **`Project Workflow` | `DV Schema Explorer` | `Run Explorer` | `Settings`** ➔ **Active Project Switcher Pill (`am-ibor-2026 · v1.1.0 · asset_management`)** ➔ **`Export / Import` button**.
 - Switching Projects in the dropdown swaps Sources, Ontology History, Stage 6 Wave Timeline, and Step 7 Targets in place without losing work or contaminating another project's baseline.
 
 ### 2.2 Platform Settings Hub (`/settings`) & Databricks UC Setup
 Before connecting remote warehouses or switching LLM providers, stewards/engineers configure workspace defaults in 3 clean tabs:
-1. **`AI Agent Harness & CEGAR Policy`:** Choose execution provider (`agy`, `claude-cli`, `claude`, `gemini`, `deterministic`), configure frontier critic tier (`ModelTier.FRONTIER_CRITIC`), token/USD budget, and default Step 6 CEGAR strictness (`Fast Dev`, `Balanced Enterprise` [default], `Strict Regulated`, `Symbolic-Only`).
-2. **`Data Connections & Secrets`:** Store non-sensitive connection profiles (`host`, `http_path`, `default_catalog`, `default_schema`, `credentials_ref`), test connectivity, read the built-in **`How to Configure Databricks Unity Catalog`** guide (`CAN USE`, `GRANT USE CATALOG/SCHEMA/SELECT`, `'pii'='true'` column tags, `OPENDV_ALLOWED_HOSTS`, `uv sync --extra databricks`), and save tokens inside the **`HttpOnly` `AES-256-GCM` Cookie Secret Vault** (`0` plaintext written to disk or `.env`, overriding env vars on-demand).
-3. **`Plugins, Agents & Extensions`:** Inspect loaded Source Adapters (`opendv.source_adapters`), Document Page Readers (`opendv.document_parsers`), offline `Local Only` term extractors (`opendv.term_extractors`), Storage Emitters (`opendv.storage_emitters`), and Agent Packages (`agent.yaml` + `SKILL.md` + MCP tools) with `Reload All`.
+1. **`AI Agent Harness & CEGAR Policy`:** Choose execution provider (`agy`, `claude-cli`, `claude`, `gemini`), configure frontier critic tier (`ModelTier.FRONTIER_CRITIC`), `Budget Meter` defaults (`Turns · Tokens · Active Seconds`), and default Step 6 CEGAR strictness (`Fast Dev`, `Balanced Enterprise` [default], `Strict Regulated`, `Symbolic-Only`).
+2. **`Data Connections & Secrets`:** Store non-sensitive connection profiles (`host`, `http_path`, `default_catalog`, `default_schema`, `credentials_ref`), test connectivity, read the built-in **`How to Configure Databricks Unity Catalog`** guide (`CAN USE`, `GRANT USE CATALOG/SCHEMA/SELECT`, `'pii'='true'` column tags, `OPENDV_ALLOWED_HOSTS`, `uv sync --extra databricks`), and save tokens inside **`KeyringSecretStore`** (`opendv secrets` / `/api/v1/secrets` OS keyring vault, `0` plaintext written to disk or `.opendv.zip`).
+3. **`External MCP, Adapters & Agent Packs`:** Inspect static `SOURCE_ADAPTERS`, `DocumentMapBuilder` readers, `11` Storage Targets, configured `ExternalMcpServerSpec` servers (including `approved_scan_pages` / `allow_unredacted_external_ocr` gates), and `6` single-format Markdown `SKILL.md` agent packs (`src/opendv/agents/packs/`).
 
 ![Settings Hub Layout (Mockup 8A)](assets/unified-wizard/studio_mockup_08_settings_hub_v2.png)
 ![Settings Plugins & Step 2 Connection Gates (Mockup 8B)](assets/unified-wizard/studio_mockup_08b_settings_plugins_and_gates.png)
 
 ### 2.3 Portable Project Export & Import (`.opendv.zip` · `Core Project State` Default)
 Accessible from the **Global Header**, **Step 1 Option B**, **Step 7 Footer**, or `opendv project export|import`:
-- **Default Export Profile (`Core Project State` / `core_project_state`):** Confirmed default pre-selected everywhere across UI & CLI (`~12.6 KB`). Exports Tier-1 `project.json`, `cas/` (`Graph B` profiles, Ontology snapshots, certified `UniversalVaultSchemaIR v2.0`, `SchemaWaveDelta`s), `horizon_assumptions.json`, and signed `audit.jsonl`. Perfect for Git and cross-team handoff.
-- **Opt-In Demo Profile (`Full Self-Contained Demo` / `full_demo`):** Explicitly selectable when sending a ready-to-query local bundle; embeds `targets/duckdb_local/demo_vault.duckdb` (`ZIP_STORED`), generated `V001..V00N` / full SQL, and all non-`Local Only` uploaded source files (`<= 250 MB`) so Step 3b/4 citations and Step 7 real-data regeneration work out of the box.
-- **Built-In Safety Shield:** Automatically strips all secret values (`credentials_ref: DATABRICKS_TOKEN` name kept only) and replaces `Local Only` documents with redacted tombstones. On import into a new machine, verifies ZIP traversal & SHA-256 integrity, re-anchors the HMAC audit ledger with local `K_audit_B` (`IMPORT_REANCHOR`), resolves duplicate names (`am-ibor-2026-copy` or `409`), and marks all Steps 1–7 **`READY_OFFLINE`** immediately (prompting to bind `DATABRICKS_TOKEN` in Settings *only* when live warehouse inspection is needed).
+- **Default Export Profile (`Core Project State` / `core_project_state`):** Confirmed default pre-selected everywhere across UI & CLI (`~12.6 KB`). Exports Tier-1 `project.sqlite` snapshot + `cas/` (`Graph B` profiles, Ontology snapshots, certified `VaultSchemaIR v2.0`, `SchemaWaveDelta`s), `horizon_assumptions`, `ocr_receipts.jsonl`, and `vault_waivers.json`. Perfect for Git and cross-team handoff.
+- **Opt-In Demo Profile (`Full Self-Contained Demo` / `full_demo`):** Explicitly selectable when sending a ready-to-query local bundle; embeds `targets/duckdb_local/demo_vault.duckdb` (`ZIP_STORED`), generated `V001..V00N` / full SQL, and uploaded source files (`<= 250 MB`) so Step 3b/4 citations and Step 7 real-data regeneration work out of the box.
+- **Built-In Safety Shield:** Automatically strips all secret values (`credentials_ref: DATABRICKS_TOKEN` name kept only; `KeyringSecretStore` tokens stay on the host). On import into a new workspace, `zip_guard.py` validates ZIP traversal/ADS/decompression ratios & SHA-256 integrity, resolves duplicate names (`am-ibor-2026-copy` or `409`), and marks Steps 1–7 **`READY_OFFLINE`** immediately (prompting to bind `DATABRICKS_TOKEN` in Settings *only* when live warehouse inspection is needed).
 
 ![Portable Project Export & Zero-Trust Cross-Workspace Import (Mockup 1C)](assets/unified-wizard/studio_mockup_01c_project_export_import_modal_v2.png)
 
@@ -93,9 +93,9 @@ Accessible from the **Global Header**, **Step 1 Option B**, **Step 7 Footer**, o
   - Badge reads **`Deterministic Local Profiling · No AI Agent Used`**.
   - **Zone 1 (`Structured Databases & Files`):** Click dynamic adapter tiles from `SourceAdapterRegistry` (`SQLite`, `DuckDB`, `Parquet/CSV/XLSX`, `Databricks UC`, or custom imported plugins via **`Import / Manage Adapters`**):
     - File/DB connectors offer both **Pick Local File** and **URI/Path**.
-    - Connector modal renders only relevant fields from contract (`Catalog` & `Credentials Ref` cleanly disabled with hover reasons on SQLite; `host`, `http_path`, `Catalog`, `Schema` dropdowns, SSRF validation, and Settings readiness gate on Databricks UC — plus inline **Missing Credentials Prompt** if a cookie token cleared).
+    - Connector modal renders only relevant fields from contract (`Catalog` & `Credentials Ref` cleanly disabled with hover reasons on SQLite; `host`, `http_path`, `Catalog`, `Schema` dropdowns, SSRF validation, and Settings readiness gate on Databricks UC — plus inline **Bind Secret Token** prompt if `KeyringSecretStore` entry is missing).
     - Expanding a table displays `Column | Type | Keys & Links | Governance` headers with tooltips explaining `PK (#1)` (Hub grain) and `FK ➔ table.col` (Link edge).
-  - **Zone 2 (`Policy Docs & Inline Domain Notes`):** Upload PDFs/DOCX/MD or type a named Inline Domain Note (`Stewardship Domain Notes`) and optionally check **`Do not send to agent (Local Only)`** to keep confidential files completely out of LLM prompts & MCP calls. Clicking Attach indexes **`document_map.json`** (pages/TOC) immediately (`0s` wait, zero chunker knobs).
+  - **Zone 2 (`Policy Docs & Inline Domain Notes`):** Upload PDFs/DOCX/MD or type a named Inline Domain Note (`Stewardship Domain Notes`). Clicking Attach indexes **`document_map`** (pages/TOC) immediately (`0s` wait, zero chunker knobs) and flags any scanned raster pages requiring explicit **`approve-scan`** authorization before Step 4 image inspection.
   - **Zone 3 (`Attached Sources Manager`):** Every attached feed persists its non-sensitive `connector_config`, renders Wave provenance pills (`✓ Modeled in v1.0.0`, `✦ NEW · Unprocessed`, `↻ UPDATED`), and offers **`Preview`**, **`Edit`**, and **`Detach`** (protected if already committed in a version).
 - **Expected Output:** Content-addressed `inputs/manifest.json` + deterministic `Graph B` table profiles (`evidence/tables.jsonl`) + `document_map.json` + zero plaintext secrets on disk.
 
@@ -111,7 +111,7 @@ Accessible from the **Global Header**, **Step 1 Option B**, **Step 7 Footer**, o
 - **What the User Sees & Does:**
   - Header badge confirms **`Deterministic Evidence View · No AI Agent Used`** + Wave **`New / Unprocessed Only`** toggle.
   - **`3a · Structured Tables`:** Searchable Master-Detail Navigator (`Source ➔ Schema ➔ Table`) loads column profiles, PK/FK constraints, FIBO gap hints, and `20`-row paged samples lazily only when clicked. Above the tree, an interactive **Structured Schema Term Cloud** highlights recurring entity/column tokens — clicking filters tables, and clicking **`★ Pin as Concept Seed`** or **`✕ Mute Noise`** saves steward curation directly into `evidence/concept_memory.json`.
-  - **`3b · Document Outlines & Pages` (Flow B):** Displays each document's deterministic `document_map.json` — total pages, extracted TOC/headings, `Table Page` & `Scanned/Raster` page badges, and lazy page previews (or offline lexical summary for `Local Only` docs) without arbitrary 800-char chunk fragmentation.
+  - **`3b · Document Outlines & Pages` (Flow B):** Displays each document's deterministic `document_map` — total pages, extracted TOC/headings, `Table Page` & `Scanned/Raster` page badges, lazy page previews, and `approve-scan` toggle (`OcrPageReceipt`) without arbitrary 800-char chunk fragmentation.
 - **Expected Output:** Verified user confidence in attached schema/document boundaries + optional sticky seed/noise rules persisted in `evidence/concept_memory.json`.
 
 ![Step 3a Master-Detail Table Navigator & Structured Schema Term Cloud (Mockup 3A)](assets/unified-wizard/studio_mockup_03a_structured_preview_v2.png)
@@ -122,7 +122,7 @@ Accessible from the **Global Header**, **Step 1 Option B**, **Step 7 Footer**, o
 - **Objective:** Extract and enrich Canonical Business Concepts (`hub_*`), typed attributes, links (`lnk_*`), 3-tier business keys, reference enumerations, and PII governance rules across structured tables and policy documents.
 - **What the User Sees & Does:**
   - **Pre-Run Baseline & Mode Picker (Wave 2+):** Displays **`Existing Baseline: v1.0.0`** + `🔒 Deployed in Vault` indicators alongside **`Discovery Mode`**: **`Incremental · New & Updated Sources`** *(default on continuation)*, **`Incremental · Re-verify Full`**, or **`Redo from Scratch · Clean Rebuild`**.
-  - **Live Agent Workbench (`Mockup 4A`):** As agents run (`@ontology-first-mate` ➔ `@doc-ontology-scout` / `@page-range-scout` / `@table-cluster-scout` ➔ `@domain-clarifier` ➔ `@ontology-architect` via `opendv-mcp` or SDK `bridge.py`):
+  - **Live Agent Workbench (`Mockup 4A`):** As agents run (`@ontology-first-mate` ➔ `@page-range-scout` / `@table-cluster-scout` via `JobMcpBroker` / `opendv mcp serve` or SDK runner):
     - Top strip animates live stage/persona transitions, elapsed cost/tokens, and **`View Agent I/O (stdin / stdout)`**.
     - Coverage matrix tracks `tables_inspected / total_tables` and `pages_inspected / content_pages` (`0` silent eviction).
     - Progressive cards materialize in real time (`● CONSTRUCTING…`, `✦ NEW`, `⊕ EXTENDS v1.0.0`) alongside interactive **Clarification Question** prompts when overloaded terms conflict.
@@ -204,17 +204,17 @@ Clicking **`Architect Details`** (or expanding **`Show Technical Rule ▾`** on 
   - **Left Target Engine & Mode Panel:** Select target medium (**DuckDB Local** [built-in demo/test default], **Databricks UC Delta**, **Apache Iceberg v2/v3**, **Pure Parquet/Arrow**, **dbt/AutomateDV**, or Tier-2 **Snowflake** / **PostgreSQL** / **BigQuery** / **SQL Server / Fabric** / **Redshift** / **ClickHouse**) and choose deployment mode:
     - **`Incremental Migration (Wave K ➔ Wave N)`:** Emits `V002__wave_2_incremental.sql` (or additive schema update) creating *only* new Hubs/Links/companion Satellites (`sat_*_ext_v2`, `sal_*`, `pit_*`) + non-destructive `CREATE OR REPLACE VIEW` (`stg_*`, `vw_*`) while leaving 100% of existing Wave-1 Raw Vault tables and historical rows intact.
     - **`Full Schema Regeneration (Waves 1..N)`:** Re-emits the complete schema cleanly from `Tier-1 head_schema_ir`, guaranteed `100%` catalog-identical to cumulative incremental waves.
-  - **Right Live SQL / Artifact & Built-In `duckdb_local` Demo Runner:** Inspect generated SQL/Iceberg JSON/Parquet manifests (local DDL/ELT execution runs strictly on **`duckdb_local`** and local **Parquet**, while cloud targets generate verified SQL/metadata/`dbt` scripts with zero remote writes), click **`Apply Migration to duckdb_local`**, **`Load Real Attached Wave Data`** (loads real rows strictly from attached Step 2 source files with zero invisible synthetic fallback; materializes Zero/Ghost records only when source binaries are absent), run live SQL queries against `information_mart.vw_issuer_stewardship_360`, test **`[↺ Reset & Test Full Regen]`**, or export the project (defaults to **`Core Project State`**, or select **`Full Self-Contained Demo`** to bundle `demo_vault.duckdb` + non-`Local Only` source files).
+  - **Right Live SQL / Artifact & Built-In `duckdb_local` Demo Runner:** Inspect generated SQL/Iceberg JSON/Parquet manifests (local DDL/ELT execution runs strictly on **`duckdb_local`** and local **Parquet**, while cloud targets generate verified SQL/metadata/`dbt` scripts with zero remote writes), click **`Apply Migration to duckdb_local`**, **`Load Real Attached Wave Data`** (loads real rows strictly from attached Step 2 source files with zero invisible synthetic fallback; materializes Zero/Ghost records only when source binaries are absent), run live SQL queries against `information_mart.vw_issuer_stewardship_360`, test **`[↺ Reset & Test Full Regen]`**, or export the project (defaults to **`Core Project State`**, or select **`Full Self-Contained Demo`** to bundle `demo_vault.duckdb` + uploaded source files).
 - **Expected Output:** Updated **Tier-2 `targets/<target_id>/`** (`target_manifest.json`, cached `migrations/`, cached `full_regeneration/`, persistent `demo_vault.duckdb`) without mutating Tier-1 `ProjectState`.
 
 ![Step 7 Decoupled Target Storage, Incremental/Full SQL & Local DuckDB Demo (Mockup 07)](assets/unified-wizard/studio_mockup_07_step7_storage_and_local_demo_v2.png)
 
 ---
 
-### Auxiliary End-State Views (`DV Schema Explorer`, `Run Explorer`, `Dual-CLI` & `Standalone Agents`)
-- **Standalone DV Schema Explorer (`/dv-schema`):** Shares Step 6's `<DvBipartiteGraphTab />`, `"Why Does This Table Exist?"` explanations, 4-mode inspector, and `UniversalVaultSchemaIR` viewer for deep cross-run schema browsing.
-- **Run Explorer (`/explorer` & `SessionLogsInspector`):** Replays any run's CEGAR Causal Iteration Storyboard, `View Agent I/O (stdin / stdout)`, DuckDB counterexamples, Horizon Stress report, and Readiness Brief deterministically from `.jsonl` ledgers.
-- **Dual-CLI (`opendv` / `opendvctl` / `opendv mcp serve`) & Standalone Agent Skills:** Enables headless scripting (`opendv agent run`, `opendv project export|import` defaulting to `--profile core`, `opendv export-storage`, `opendv storage migrate|regenerate|demo`) and direct inside-IDE use (`Claude Code` / `Antigravity`).
+### Auxiliary End-State Views (`DV Schema Explorer`, `Run Explorer`, `Unified opendv CLI` & `Standalone MCP`)
+- **Standalone DV Schema Explorer (`/projects/:id/explorer`):** 4-View schema browser (**Lineage Graph**, **Table Catalog**, **SQL & DDL**, **5-Zone Matrix**) with plain-English `"Why Does This Table Exist?"` notes and `VaultSchemaIR v2.0` inspection.
+- **Run Explorer (`/projects/:id/runs`):** Replays any run's CEGAR attempt timeline, `Budget Meter` (`Turns · Tokens · Active Seconds`), W3C SSE logs (`GET .../runs/{rid}/logs`), DuckDB counterexamples, and Horizon Critic (`v7`/`v8`) review actions.
+- **Unified `opendv` CLI & Read-Only MCP (`opendv` / `opendv mcp serve`):** Enables headless automation (`opendv vault build`, `opendv project export|import` defaulting to `core_project_state`, `opendv storage compile|migrate|regenerate|query`, `opendv mcp serve`) and direct inside-IDE use (`Antigravity` / `Claude Code`).
 
 ---
 
@@ -259,10 +259,10 @@ Clicking **`Architect Details`** (or expanding **`Show Technical Rule ▾`** on 
 - **Flow:** `GovernanceValidator.validate_grounding` blocks auto-promotion (`UngroundedConceptError` HTTP `422`), quarantining candidate into `evidence/staged_candidates.json` (`+ concept_memory.json`). Non-admin waiver attempts fail closed (`InvalidGroundingWaiverError`).
 - **Expected Outputs:** UI shows **`Ungrounded · Evidence or Admin Waiver Required`**; only attaching verified table/doc evidence OR executing an Admin `StewardWaiverRecord` (`rationale >= 10` chars) permits commit.
 
-#### `SCEN-08`: `Local Only` Confidential Document & Column PII Isolation
-- **Inputs:** `am_restricted_client_override_local_only.md` (`CLIENT_OVERRIDE_99`, `\$50M` rule) checked **`Do not send to agent (Local Only)`**, plus `stewardship_officer_email` / UC `'pii'='true'` column tags.
-- **Flow:** MCP tools (`get_document_map`, `read_document_pages`, `view_page_image`, `search_document`) & prompt builder exclude the tainted source (`0` bytes leave locally; local deterministic extractor indexes headings/tokens instead). Non-restricted PII values mask as `<MASKED_PII>` (`<= 5` sample rows) and route to `sat_*_pii`.
-- **Expected Outputs:** `View Agent I/O (stdin/stdout)` contains **`0`** matches of `CLIENT_OVERRIDE_99` or raw email/threshold; Step 6 renders dashed Terracotta `sat_proxy_ballot_pii` with PII Mask enabled.
+#### `SCEN-08`: `<MASKED_PII>` Privacy Containment, `sat_*_pii` Isolation & Scanned-Page Gate
+- **Inputs:** Sources containing `stewardship_officer_email` / UC `'pii'='true'` / high-entropy secret columns (`src/opendv/sources/pii.py`) plus scanned raster PDF pages (`institutional_scanned_schedule_ocr_test.pdf` / `am_custody_and_voting_guide.pdf` page 4; V1 `LOCAL_ONLY` / `am_restricted_client_override_local_only.md` retired).
+- **Flow:** Profiler masks PII values as `<MASKED_PII>` (`<= 5` sample rows) before agent prompts/logs; `view_page_image` and external OCR calls stay blocked on rasterized pages until explicit `approve-scan` (`OcrPageReceipt` recorded). Step 6 isolates PII columns into `sat_*_pii`.
+- **Expected Outputs:** `AgentIoDrawer` (`Run Explorer` logs) contains **`0`** raw email/SSN/secret values; Step 6 renders dashed Terracotta `sat_proxy_ballot_pii` with PII Mask enabled, and `V4` checks `OcrPageReceipt` integrity cleanly.
 
 #### `SCEN-09`: Multi-Wave Ontology Evolution (`Incremental` vs `Redo from Scratch` & Deployed Contract Guard)
 - **Inputs:** Wave-1 committed `v1.0.0` + Wave-2 Parquet (`SUSTAINALYTICS 2025`), new doc (`✦ NEW`), and edited inline note (`↻ UPDATED`).
@@ -313,24 +313,24 @@ Clicking **`Architect Details`** (or expanding **`Show Technical Rule ▾`** on 
 ### Group C — Portability, Recovery & Headless Operations Scenarios (`OPS-01` .. `OPS-04`)
 
 #### `OPS-01`: Default Git-Safe Export & Cross-Laptop Import (`Core Project State`)
-- **Inputs:** Certified Wave-2 project (`am-ibor-2026`) containing `DATABRICKS_TOKEN` in cookie vault + `am_restricted_client_override_local_only.md` (`LOCAL_ONLY`).
-- **Flow:** Click `Export / Import` (defaults automatically to **`Core Project State`**) or run `opendv project export am-ibor-2026` (no `--profile` needed since `core` is default). Import on Teammate's laptop (`Mockup 1C` / Step 1 Option B / `opendv project import`).
-- **Expected Outputs:** Creates **`~12.6 KB` `.core.opendv.zip`** (`0` secret bytes, `Local Only` raw file stripped to tombstone). Import validates traversal/SHA-256, appends `IMPORT_REANCHOR` under local `K_audit_B`, handles existing name (`am-ibor-2026-copy` or `409`), restores identical `head_schema_ir` & `horizon_assumptions`, and runs Steps 4–7 **`READY_OFFLINE`** immediately (`DATABRICKS_TOKEN` flagged optional `NEEDS_LOCAL_SECRET_BINDING` for live Step 2 sync only).
+- **Inputs:** Certified Wave-2 project (`am-ibor-2026`) using `DATABRICKS_TOKEN` bound in `KeyringSecretStore` (`opendv secrets`).
+- **Flow:** Click `Export / Import` (defaults automatically to **`Core Project State`**) or run `uv run opendv project export --project am-ibor-2026 --out am-ibor-2026.core.opendv.zip` (`core_project_state` is default). Import on Teammate's laptop (`Mockup 1C` / Step 1 Option B / `opendv project import`).
+- **Expected Outputs:** Creates **`~12.6 KB` `.core.opendv.zip`** (`0` secret bytes). `zip_guard.py` validates traversal/ADS/ratio/SHA-256, handles existing name (`am-ibor-2026-copy` or `409`), restores identical `head_schema_ir` & `horizon_assumptions`, and runs Steps 4–7 **`READY_OFFLINE`** immediately (`DATABRICKS_TOKEN` flagged optional `NEEDS_LOCAL_SECRET_BINDING` for live Step 2 sync only).
 
 #### `OPS-02`: Self-Contained Demo Export & Instant Zero-Rebuild Query (`Full Demo`)
 - **Inputs:** Same project materialized into `targets/duckdb_local/demo_vault.duckdb` in Step 7 (`v7`).
-- **Flow:** Explicitly select **`Full Self-Contained Demo`** in Export modal or pass `--profile full_demo`; import into Workspace C (`Demo Laptop`) and open Step 7 / `opendv storage demo --query`.
-- **Expected Outputs:** Creates **`.full_demo.opendv.zip`** (`demo_vault.duckdb` stored with `ZIP_STORED` so `>100:1` DEFLATE ratio guards stay intact + all non-`LOCAL_ONLY` uploaded source binaries/docs `<= 250 MB`; `0` secrets leaked). Workspace C inspects PDF citations AND executes `SELECT * FROM information_mart.vw_issuer_stewardship_360` immediately (`2` rows, **`0` rebuild steps**, and real-data Step 7 regen works standalone).
+- **Flow:** Explicitly select **`Full Self-Contained Demo`** in Export modal or pass `--profile full_demo`; import into Workspace C (`Demo Laptop`) and open Step 7 / `uv run opendv storage query --project am-ibor-2026 --sql "..."`.
+- **Expected Outputs:** Creates **`.full_demo.opendv.zip`** (`demo_vault.duckdb` stored with `ZIP_STORED` so `>100:1` DEFLATE ratio guards stay intact + uploaded source binaries/docs `<= 250 MB`; `0` secrets leaked). Workspace C inspects PDF citations AND executes `SELECT * FROM information_mart.vw_issuer_stewardship_360` immediately (`2` rows, **`0` rebuild steps**, and real-data Step 7 regen works standalone).
 
-#### `OPS-03`: Cookie Expiry / Server Restart Credential Recovery on Remote Connectors
-- **Inputs:** Project with attached Databricks UC tables after browser restart cleared session cookies (`opendv_secrets` absent, `env:DATABRICKS_TOKEN` unset).
-- **Flow:** Open Step 2 and click **`Edit`** or **`Re-Profile`** on attached Databricks source (`Mockup 8B`).
-- **Expected Outputs:** Service returns `MISSING_CREDENTIALS`; modal renders inline **Missing Credentials Prompt** pre-filling saved non-sensitive `host`, `http_path`, `catalog`, `schema_name`, `selected_tables` from `inputs/manifest.json`; re-entering token seals a fresh `HttpOnly` `AES-256-GCM` cookie and resumes table inspection immediately.
+#### `OPS-03`: Missing Keyring Secret Recovery on Remote Connectors
+- **Inputs:** Project with attached Databricks UC tables when `KeyringSecretStore` entry `DATABRICKS_TOKEN` is absent and `env:DATABRICKS_TOKEN` is unset.
+- **Flow:** Open Step 2 and click **`Bind Secret Token`** or **`Edit`** on attached Databricks source (`Mockup 8B`).
+- **Expected Outputs:** Service returns `MISSING_CREDENTIALS` (`422`); modal renders inline **Bind Secret Token** prompt pre-filling saved non-sensitive `host`, `http_path`, `catalog`, `schema_name`, `selected_tables`; entering token stores it via `POST /api/v1/secrets` (`KeyringSecretStore`) and resumes table inspection immediately.
 
 #### `OPS-04`: Headless CI/CD & Standalone Coding-Agent Workflow (`Claude Code` / `Antigravity`)
 - **Inputs:** Same project inputs in CI pipeline or local `Claude Code` / `Antigravity` session without launching Web UI.
-- **Flow:** Execute `opendv agent run doc-ontology-scout ...`, `opendv ontology studio construct --discovery-mode incremental_new --cegar-profile strict`, `opendv project export am-ibor-2026` (defaults to `core`), and `opendv storage migrate --target duckdb_local|iceberg|databricks`.
-- **Expected Outputs:** CLI mounts `opendv mcp serve` parity (`0` Windows `L5` lock deadlocks), respects `core` export default & `V1–V6` floor, emits identical `UniversalVaultSchemaIR v2.0` + Tier-2 storage outputs, and updates `ProjectState` cleanly for subsequent Web UI inspection.
+- **Flow:** Execute `uv run opendv ontology construct --project am-ibor-2026 --discovery-mode incremental_new --wait`, `uv run opendv vault build --project am-ibor-2026 --policy strict --wait`, `uv run opendv project export --project am-ibor-2026 --out am-ibor-2026.core.opendv.zip` (defaults to `core_project_state`), `uv run opendv storage compile --project am-ibor-2026 --target duckdb_local --verify-runtime`, and `uv run opendv storage migrate --project am-ibor-2026 --target duckdb_local`.
+- **Expected Outputs:** CLI mounts `opendv mcp serve --transport stdio` parity (`0` Windows lock deadlocks), respects `core_project_state` export default & `V1–V6` floor, emits identical `VaultSchemaIR v2.0` + Tier-2 storage outputs, and updates `project.sqlite` cleanly for subsequent Web UI inspection.
 
 ---
 
@@ -338,12 +338,12 @@ Clicking **`Architect Details`** (or expanding **`Show Technical Rule ▾`** on 
 
 | Path Under `.opendv/projects/<project_id>/` | Tier & Role | Owner Step | Included in `Core` (Default) | Included in `Full Demo` | Security / Special Handling |
 | :--- | :---: | :---: | :---: | :---: | :--- |
-| `project.json` | Tier 1 (Authoritative) | Steps 1–6 | **Yes** | **Yes** | Strips any plaintext credentials (`credentials_ref` names only). |
-| `cas/` (`tables.jsonl`, `document_map.json`, `concept_memory.json`, `staged_candidates.json`, `versions/vX.Y.Z/`, `head_schema_ir`, `wave_*.yaml`) | Tier 1 (Authoritative CAS) | Steps 2–6 | **Yes** | **Yes** | `LOCAL_ONLY` raw blobs excluded & replaced by redacted tombstone + taint metadata (SHA-256 verified). |
+| `project.sqlite` (5 tables) | Tier 1 (Authoritative WAL) | Steps 1–6 | **Yes** | **Yes** | Strips any plaintext credentials (`credentials_ref` names only). |
+| `cas/` (`tables.jsonl`, `document_map`, `concept_memory`, `versions/`, `head_schema_ir`, `ocr_receipts.jsonl`, `vault_waivers.json`) | Tier 1 (Authoritative CAS) | Steps 2–6 | **Yes** | **Yes** | `<MASKED_PII>` redaction in samples/telemetry; SHA-256 verified. |
 | `waves/W001..W00N_delta.json` (`SchemaWaveDelta`, `evolution_locks`) | Tier 1 (Authoritative Locks) | Step 6 (`v6`) | **Yes** | **Yes** | Locks `field_id` HWM, companion `epoch_tag` (`v2`, `v3`), & Hub BKs. |
 | `horizon_assumptions.json` (`ProjectState.horizon_assumptions[]`) | Tier 1 (Authoritative Decisions) | Step 6 (`V8`) | **Yes** | **Yes** | Prevents repeated counterfactual prompts across restarts/waves. |
-| `audit.jsonl` (HMAC Ledger) | Tier 1 (Authoritative Ledger) | Steps 1–7 | **Yes** | **Yes** | Verified on import & extended with `IMPORT_REANCHOR` signed by target `K_audit`. |
+| `audit.jsonl` (Ledger) | Tier 1 (Authoritative Ledger) | Steps 1–7 | **Yes** | **Yes** | Verified cleanly on `.opendv.zip` import. |
 | `targets/duckdb_local/demo_vault.duckdb` | Tier 2 (Derived / Regenerable) | Step 7 (`v7`) | **No** *(Git-safe)* | **Yes** (`ZIP_STORED`) | Stored uncompressed (`ZIP_STORED`) so sparse pages never trip `>100:1` zip-bomb checks. |
-| `inputs/blobs/*` *(non-`LOCAL_ONLY` uploaded `.sqlite`/`.parquet`/`.csv`/`.pdf`/`.md` `<= 250 MB`)* | Source Inputs | Step 2 | **No** *(Git-safe)* | **Yes** | Strips `LOCAL_ONLY` sources to redacted tombstones; enables standalone Step 3b/4 citations & Step 7 real-data regeneration. |
-| `targets/<target>/migrations/V*.sql` & `full_regeneration/*` & `target_manifest.json` | Tier 2 (Derived / Regenerable) | Step 7 (`v7`) | **No** | **Yes** | Bit-for-bit regenerable anytime from Tier-1 `cas/` + `project.json`. |
-| `.odv_workspace_secret` & `HttpOnly` `opendv_secrets` cookie | Local Workspace Keys / Secrets | Runtime Only | **NEVER** | **NEVER** | Secret values never leave the active machine/session boundary. |
+| `inputs/blobs/*` *(uploaded `.sqlite`/`.parquet`/`.csv`/`.pdf`/`.md` `<= 250 MB`)* | Source Inputs | Step 2 | **No** *(Git-safe)* | **Yes** | Enables standalone Step 3b/4 citations & Step 7 real-data regeneration. |
+| `targets/<target>/migrations/V*.sql` & `full_regeneration/*` & `target_manifest.json` | Tier 2 (Derived / Regenerable) | Step 7 (`v7`) | **No** | **Yes** | Bit-for-bit regenerable anytime from Tier-1 `project.sqlite` + `cas/`. |
+| `KeyringSecretStore` OS keyring entries | OS Credential Store | Runtime Only | **NEVER** | **NEVER** | Secret values never enter `project.sqlite` or `.opendv.zip`. |
