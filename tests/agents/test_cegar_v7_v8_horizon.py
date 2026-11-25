@@ -15,7 +15,8 @@ from opendv.agents import (
     run_v8_horizon_critic,
     run_v8_horizon_review,
 )
-from opendv.agents.ports import AgentTurnRequest
+from opendv.agents._cegar_helpers import run_ship_vault_synthesis
+from opendv.agents.ports import AgentTurnRequest, AgentTurnResult, RunEventSink, ScoutToolDispatcher
 from opendv.models.diagnostics import (
     AntiPatternJustification,
     ClarificationQuestion,
@@ -31,7 +32,7 @@ from opendv.models.ontology import (
 )
 from opendv.models.ontology_deltas import AddConcept
 from opendv.models.policy import HarnessBudget
-from opendv.models.project import EvolutionLockSpec
+from opendv.models.project import EvolutionLockSpec, HarnessProvider
 from opendv.models.sources import SourceProfile
 from opendv.models.vault_ir import (
     BusinessKeyPart,
@@ -3863,3 +3864,134 @@ async def test_locked_crosswalk_preexisting_canonical_and_unbound_link_table_duc
     assert len(prov_1c.dyn_results) == 15 and all(prov_1c.dyn_results.values()), prov_1c.counterexamples
 
 
+@pytest.mark.asyncio
+async def test_ship_vault_synthesis_retries_once_on_invalid_structured_json(tmp_path: Path) -> None:
+    """run_ship_vault_synthesis retries once on invalid structured output and fails closed on 2nd failure."""
+    csv_path = tmp_path / "acct_retry.csv"
+    csv_path.write_text("account_id,acct_name\nA1,Alpha\n", encoding="utf-8")
+    prof = profile_source("src_retry", "csv", str(csv_path))
+    tbl_id = prof.tables[0].table_id
+    onto = _build_12trap_ontology()
+    valid_draft = DraftVaultIR(
+        project_id="proj_retry",
+        ontology_version="1.0.0",
+        wave_number=1,
+        hubs=[
+            DraftHubSpec(
+                hub_name="hub_account",
+                key_tier="TIER_3_LOCAL_SCOPED",
+                business_keys=[
+                    BusinessKeyPart(
+                        table_id=tbl_id,
+                        col_name="account_id",
+                        source_id="src_retry",
+                        key_tier="TIER_3_LOCAL_SCOPED",
+                        bkcc_value="CRM",
+                    )
+                ],
+                source_bindings=[
+                    DraftSourceBinding(
+                        source_id="src_retry", table_id=tbl_id, col_mappings={"account_id": "account_id"}
+                    )
+                ],
+            )
+        ],
+        satellites=[
+            DraftSatelliteSpec(
+                sat_name="sat_account_core",
+                sat_kind="STANDARD",
+                parent_name="hub_account",
+                source_bindings=[
+                    DraftSourceBinding(
+                        source_id="src_retry", table_id=tbl_id, col_mappings={"acct_name": "acct_name"}
+                    )
+                ],
+                attributes=[
+                    DraftField(name="acct_name", logical_type="UTF8_STRING", nullable=True, is_pii=False)
+                ],
+            )
+        ],
+        column_triage=_triage_all([prof]),
+    )
+
+    class _ScriptedShipHarness:
+        def __init__(self, outcomes: list[DraftVaultIR | OpenDVError]) -> None:
+            self._outcomes = list(outcomes)
+            self.calls: list[AgentTurnRequest] = []
+
+        @property
+        def provider_name(self) -> HarnessProvider:
+            return "agy"
+
+        async def run_turn(
+            self,
+            request: AgentTurnRequest,
+            *,
+            event_sink: RunEventSink | None = None,
+            scout_dispatcher: ScoutToolDispatcher | None = None,
+        ) -> AgentTurnResult:
+            self.calls.append(request)
+            item = self._outcomes.pop(0)
+            if isinstance(item, OpenDVError):
+                raise item
+            return AgentTurnResult(
+                agent_id=request.agent_id,
+                provider="agy",
+                model_id="gemini-3.8-flash-high",
+                structured_output=item,
+                turns_used=1,
+                total_tokens=100,
+                token_count_source="reported",
+            )
+
+    err1 = OpenDVError(
+        "agy CLI returned invalid structured output for DraftVaultIR: expected ':' at line 412",
+        error_code=ErrorCode.AGENT_EXECUTION_FAILED,
+    )
+    ok_harness = _ScriptedShipHarness([err1, valid_draft])
+    draft, _, turns, _, _ = await run_ship_vault_synthesis(
+        run_id="run-retry-ok",
+        project_id="proj_retry",
+        wave_number=1,
+        attempt=1,
+        ontology=onto,
+        profiles=[prof],
+        clusters=[],
+        locks=None,
+        prior_report=None,
+        hints=[],
+        hold_answers=None,
+        policy="fast",
+        budget=HarnessBudget(max_turns=2, max_tokens=50000, timeout_seconds=30),
+        harness=ok_harness,
+    )
+    assert draft == valid_draft
+    assert turns >= 2
+    assert len(ok_harness.calls) == 2
+    assert "PREVIOUS OUTPUT INVALID" in ok_harness.calls[1].prompt
+    assert "compact minified JSON" in ok_harness.calls[1].prompt
+
+    err2 = OpenDVError(
+        "agy CLI returned invalid structured output for DraftVaultIR: truncated JSON",
+        error_code=ErrorCode.AGENT_EXECUTION_FAILED,
+    )
+    fail_harness = _ScriptedShipHarness([err1, err2])
+    with pytest.raises(OpenDVError) as exc_fail:
+        await run_ship_vault_synthesis(
+            run_id="run-retry-fail",
+            project_id="proj_retry",
+            wave_number=1,
+            attempt=1,
+            ontology=onto,
+            profiles=[prof],
+            clusters=[],
+            locks=None,
+            prior_report=None,
+            hints=[],
+            hold_answers=None,
+            policy="fast",
+            budget=HarnessBudget(max_turns=2, max_tokens=50000, timeout_seconds=30),
+            harness=fail_harness,
+        )
+    assert exc_fail.value.error_code == ErrorCode.AGENT_EXECUTION_FAILED
+    assert len(fail_harness.calls) == 2

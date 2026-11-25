@@ -16,6 +16,11 @@ from opendv.models.vault_ir import (
     ColumnTriageEntry,
     DecimalType,
     DraftField,
+    DraftHubSpec,
+    DraftLinkSpec,
+    DraftSatelliteSpec,
+    DraftSourceBinding,
+    DraftVaultIR,
     LinkParticipantSpec,
     PredicateLeaf,
 )
@@ -41,8 +46,10 @@ from opendv.storage.prover import (
     run_all_dyn_invariants,
 )
 from opendv.storage.prover.edge_batches import AdversarialBatchSummary
+from opendv.sources.profiler import profile_source
 from opendv.storage.sql_ast_verifier import SqlAstVerifier
 from opendv.storage.sql_compiler import SqlGlotVaultCompiler
+from opendv.verifier import run_l1_codemods
 from opendv.verifier.ports import IRRuntimeProver, VerifierContext
 from opendv.verifier.v2_5_gates import run_v1_to_v6_gates
 
@@ -1974,3 +1981,160 @@ def test_duckdb_prover_catches_binder_error_as_counterexample() -> None:
     assert rep.dyn_results.get("DV-DYN-004") is False
     assert rep.counterexamples
     assert "hk_missing_from_stg" in str(rep.counterexamples[0])
+
+
+def test_link_participant_missing_hub_recipe_synthesized_in_staging(tmp_path: Path) -> None:
+    """Link referencing a Hub not bound to the Link's table synthesizes HUB_HK in staging."""
+    sec_csv = tmp_path / "securities.csv"
+    hold_csv = tmp_path / "holdings_13f.csv"
+    sec_csv.write_text("ticker,issuer_name\nAAPL,Apple Inc.\nMSFT,Microsoft Corp.\n", encoding="utf-8")
+    hold_csv.write_text("holding_id,ticker,shares\nH1,AAPL,100\nH2,MSFT,200\n", encoding="utf-8")
+    sec_prof = profile_source("src_sec", "csv", str(sec_csv))
+    hold_prof = profile_source("src_hold", "csv", str(hold_csv))
+    sec_tbl = sec_prof.tables[0].table_id
+    hold_tbl = hold_prof.tables[0].table_id
+
+    triage = [
+        ColumnTriageEntry(
+            table_id=t.table_id,
+            col_name=c.col_name,
+            disposition="MODELED",
+            target_ref="modeled",
+            rationale="",
+        )
+        for p in (sec_prof, hold_prof)
+        for t in p.tables
+        for c in t.columns
+    ]
+    draft = DraftVaultIR(
+        project_id="proj_link_hk_synth",
+        ontology_version="1.0.0",
+        wave_number=1,
+        hubs=[
+            DraftHubSpec(
+                hub_name="hub_security",
+                key_tier="TIER_1_GLOBAL_STANDARD",
+                business_keys=[
+                    BusinessKeyPart(
+                        table_id=sec_tbl,
+                        col_name="ticker",
+                        source_id="src_sec",
+                        key_tier="TIER_1_GLOBAL_STANDARD",
+                        bkcc_value="GLOBAL",
+                    )
+                ],
+                source_bindings=[
+                    DraftSourceBinding(
+                        source_id="src_sec", table_id=sec_tbl, col_mappings={"ticker": "ticker"}
+                    )
+                ],
+            ),
+            DraftHubSpec(
+                hub_name="hub_holding",
+                key_tier="TIER_2_ENTERPRISE_SOR",
+                business_keys=[
+                    BusinessKeyPart(
+                        table_id=hold_tbl,
+                        col_name="holding_id",
+                        source_id="src_hold",
+                        key_tier="TIER_2_ENTERPRISE_SOR",
+                        bkcc_value="SEC_13F",
+                    )
+                ],
+                source_bindings=[
+                    DraftSourceBinding(
+                        source_id="src_hold",
+                        table_id=hold_tbl,
+                        col_mappings={"holding_id": "holding_id"},
+                    )
+                ],
+            ),
+        ],
+        links=[
+            DraftLinkSpec(
+                link_name="lnk_holding_security",
+                link_kind="STANDARD",
+                participants=[
+                    LinkParticipantSpec(
+                        hub_name="hub_holding",
+                        fk_col_name="hk_holding",
+                        role_name="HOLDING",
+                        source_col_names=["holding_id"],
+                    ),
+                    LinkParticipantSpec(
+                        hub_name="hub_security",
+                        fk_col_name="hk_security",
+                        role_name="SECURITY",
+                        source_col_names=["ticker"],
+                    ),
+                ],
+                source_bindings=[
+                    DraftSourceBinding(
+                        source_id="src_hold",
+                        table_id=hold_tbl,
+                        col_mappings={"hk_holding": "hk_holding", "hk_security": "hk_security"},
+                    )
+                ],
+            )
+        ],
+        satellites=[
+            DraftSatelliteSpec(
+                sat_name="sat_security_core",
+                sat_kind="STANDARD",
+                parent_name="hub_security",
+                source_bindings=[
+                    DraftSourceBinding(
+                        source_id="src_sec",
+                        table_id=sec_tbl,
+                        col_mappings={"issuer_name": "issuer_name"},
+                    )
+                ],
+                attributes=[
+                    DraftField(
+                        name="issuer_name", logical_type="UTF8_STRING", nullable=True, is_pii=False
+                    )
+                ],
+            ),
+            DraftSatelliteSpec(
+                sat_name="sat_holding_qty",
+                sat_kind="STANDARD",
+                parent_name="hub_holding",
+                source_bindings=[
+                    DraftSourceBinding(
+                        source_id="src_hold", table_id=hold_tbl, col_mappings={"shares": "shares"}
+                    )
+                ],
+                attributes=[
+                    DraftField(name="shares", logical_type="INT64", nullable=False, is_pii=False)
+                ],
+            ),
+        ],
+        column_triage=triage,
+    )
+    _, cert_ir, bkt = run_l1_codemods(draft, profiles=[sec_prof, hold_prof])
+    assert bkt is None or not bkt.requires_bucket_b
+    stg_hold = next(s for s in cert_ir.staging_views if s.view_name == "stg_holdings_13f")
+    hk_sec_recipes = [r for r in stg_hold.hash_recipes if r.target_col == "hk_security"]
+    assert len(hk_sec_recipes) == 1
+    assert hk_sec_recipes[0].recipe_kind == "HUB_HK"
+    assert hk_sec_recipes[0].bkcc_literal == "GLOBAL"
+
+    rep = DuckDbProverAdapter().prove(
+        cert_ir,
+        [sec_prof, hold_prof],
+        source_rows_by_table={
+            sec_tbl: [
+                {"ticker": "AAPL", "issuer_name": "Apple Inc."},
+                {"ticker": "MSFT", "issuer_name": "Microsoft Corp."},
+            ],
+            hold_tbl: [
+                {"holding_id": "H1", "ticker": "AAPL", "shares": 100},
+                {"holding_id": "H2", "ticker": "MSFT", "shares": 200},
+            ],
+        },
+    )
+    assert rep.dyn_results.get("DV-DYN-002") is True, rep.counterexamples
+    assert rep.dyn_results.get("DV-DYN-004") is True, rep.counterexamples
+    assert all(rep.dyn_results.values()), (rep.dyn_results, rep.counterexamples)
+    assert not any("binder" in str(c).lower() for c in rep.counterexamples)
+

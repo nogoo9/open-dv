@@ -35,13 +35,24 @@ _NON_RESULT_STREAM_TYPES: frozenset[str] = frozenset(
 )
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL | re.IGNORECASE)
+_EMBEDDED_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL | re.IGNORECASE)
 
 
 def strip_markdown_json_fences(raw_text: str) -> str:
-    """Remove optional ```json ... ``` wrapper fences around structured output."""
+    """Remove optional ```json ... ``` wrapper fences or surrounding prose around JSON."""
     stripped = raw_text.strip()
     match = _FENCE_RE.match(stripped)
-    return match.group(1).strip() if match else stripped
+    if match:
+        return match.group(1).strip()
+    if not stripped.startswith("{"):
+        embedded = _EMBEDDED_FENCE_RE.search(stripped)
+        if embedded:
+            return embedded.group(1).strip()
+        first_brace = stripped.find("{")
+        last_brace = stripped.rfind("}")
+        if 0 <= first_brace < last_brace:
+            return stripped[first_brace : last_brace + 1].strip()
+    return stripped
 
 
 def is_non_result_stream_event(obj: dict[str, Any]) -> bool:
