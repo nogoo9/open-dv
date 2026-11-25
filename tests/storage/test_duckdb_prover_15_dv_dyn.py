@@ -1724,3 +1724,253 @@ def test_iter12_prover_non_string_masked_pii_samples() -> None:
     rep = DuckDbProverAdapter().prove(ir, [prof])
     assert len(rep.dyn_results) == 15
     assert all(rep.dyn_results.values()), (rep.dyn_results, rep.counterexamples)
+
+
+def test_probe_batch4_bitemporal_varchar_iso_date() -> None:
+    """Verify Batch-4 bitemporal proof handles UTF8_STRING applied_dts_col (SQLite TEXT dates)."""
+    b_cols = [
+        IRField(field_id=1, name="curve_id", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+        IRField(field_id=2, name="observation_date", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+        IRField(field_id=3, name="rate_2y", logical_type=DecimalType(precision=18, scale=4), nullable=False, is_pii=False),
+    ]
+    r_hk = HashRecipeSpec(
+        target_col="hk_yield_curve",
+        recipe_kind="HUB_HK",
+        bkcc_literal="GLOBAL",
+        source_columns=["curve_id"],
+        sort_alphabetically=False,
+        key_columns=["curve_id"],
+    )
+    r_hd = HashRecipeSpec(
+        target_col="hash_diff",
+        recipe_kind="SAT_HASH_DIFF",
+        source_columns=["observation_date", "rate_2y"],
+        sort_alphabetically=True,
+        key_columns=["hk_yield_curve"],
+    )
+    ir = CertifiedVaultIR(
+        project_id="proj_bitemp_varchar",
+        ontology_version="1.0.0",
+        wave_number=1,
+        bronze_tables=[
+            BronzeTableSpec(
+                table_name="bronze_yield_curves",
+                source_id="src_yc",
+                source_table_id="src_yc:yield_curves",
+                columns=b_cols,
+            )
+        ],
+        staging_views=[
+            StagingViewSpec(
+                view_name="stg_yield_curves",
+                source_id="src_yc",
+                source_table_id="src_yc:yield_curves",
+                col_lineage_mappings={c.name: c.name for c in b_cols},
+                hash_recipes=[r_hk, r_hd],
+                projected_fields=b_cols,
+            )
+        ],
+        hubs=[
+            CertifiedHubSpec(
+                hub_name="hub_yield_curve",
+                key_tier="TIER_1_GLOBAL_STANDARD",
+                business_keys=[
+                    BusinessKeyPart(
+                        table_id="src_yc:yield_curves",
+                        col_name="curve_id",
+                        source_id="src_yc",
+                        key_tier="TIER_1_GLOBAL_STANDARD",
+                        bkcc_value="GLOBAL",
+                    )
+                ],
+                source_bindings=[
+                    SourceBindingSpec(
+                        source_id="src_yc",
+                        table_id="src_yc:yield_curves",
+                        col_mappings={},
+                        hash_recipe=r_hk,
+                    )
+                ],
+                columns=[
+                    IRField(field_id=1, name="hk_yield_curve", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
+                    IRField(field_id=2, name="bkcc", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+                    IRField(field_id=3, name="load_dts", logical_type="TIMESTAMP_UTC_US", nullable=False, is_pii=False),
+                    IRField(field_id=4, name="rec_src", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+                    IRField(field_id=5, name="curve_id", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+                ],
+                hash_recipe=r_hk,
+                physical_hints=PhysicalLayoutHints(cluster_by_cols=["hk_yield_curve"]),
+            )
+        ],
+        satellites=[
+            CertifiedSatelliteSpec(
+                sat_name="sat_yield_curves",
+                sat_kind="STANDARD",
+                parent_name="hub_yield_curve",
+                source_id="src_yc",
+                source_table_id="src_yc:yield_curves",
+                is_bitemporal=True,
+                applied_dts_col="observation_date",
+                attributes=[
+                    DraftField(name="observation_date", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+                    DraftField(name="rate_2y", logical_type=DecimalType(precision=18, scale=4), nullable=False, is_pii=False),
+                ],
+                columns=[
+                    IRField(field_id=1, name="hk_yield_curve", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
+                    IRField(field_id=2, name="load_dts", logical_type="TIMESTAMP_UTC_US", nullable=False, is_pii=False),
+                    IRField(field_id=3, name="rec_src", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+                    IRField(field_id=4, name="hash_diff", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
+                    IRField(field_id=5, name="observation_date", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+                    IRField(field_id=6, name="rate_2y", logical_type=DecimalType(precision=18, scale=4), nullable=False, is_pii=False),
+                ],
+                hash_recipe=r_hd,
+                physical_hints=PhysicalLayoutHints(cluster_by_cols=["hk_yield_curve", "load_dts"]),
+            )
+        ],
+    )
+    rows = [{"curve_id": "UST", "observation_date": "2026-01-02", "rate_2y": "4.2500"}]
+    rep = DuckDbProverAdapter().prove(ir, [], source_rows_by_table={"src_yc:yield_curves": rows})
+    assert all(rep.dyn_results.values()), (rep.dyn_results, rep.counterexamples)
+
+
+def test_duckdb_prover_catches_binder_error_as_counterexample() -> None:
+    """Verify mismatched Link participant column vs staging returns DV-DYN-004 counterexample, not 500."""
+    b_cols = [
+        IRField(field_id=1, name="h_id", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+        IRField(field_id=2, name="f_id", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+    ]
+    r_h = HashRecipeSpec(
+        target_col="hk_hold",
+        recipe_kind="HUB_HK",
+        bkcc_literal="GLOBAL",
+        source_columns=["h_id"],
+        sort_alphabetically=False,
+        key_columns=["h_id"],
+    )
+    r_f = HashRecipeSpec(
+        target_col="hk_filer",
+        recipe_kind="HUB_HK",
+        bkcc_literal="GLOBAL",
+        source_columns=["f_id"],
+        sort_alphabetically=False,
+        key_columns=["f_id"],
+    )
+    r_lnk = HashRecipeSpec(
+        target_col="hk_link",
+        recipe_kind="LINK_HK",
+        bkcc_literal="GLOBAL",
+        source_columns=["h_id", "f_id"],
+        sort_alphabetically=True,
+        key_columns=["h_id", "f_id"],
+    )
+    ir = CertifiedVaultIR(
+        project_id="proj_binder_catch",
+        ontology_version="1.0.0",
+        wave_number=1,
+        bronze_tables=[
+            BronzeTableSpec(
+                table_name="bronze_hl",
+                source_id="src_hl",
+                source_table_id="src_hl:hl",
+                columns=b_cols,
+            )
+        ],
+        staging_views=[
+            StagingViewSpec(
+                view_name="stg_hl",
+                source_id="src_hl",
+                source_table_id="src_hl:hl",
+                col_lineage_mappings={c.name: c.name for c in b_cols},
+                hash_recipes=[r_h, r_f, r_lnk],
+                projected_fields=b_cols,
+            )
+        ],
+        hubs=[
+            CertifiedHubSpec(
+                hub_name="hub_hold",
+                key_tier="TIER_1_GLOBAL_STANDARD",
+                business_keys=[
+                    BusinessKeyPart(
+                        table_id="src_hl:hl", col_name="h_id", source_id="src_hl",
+                        key_tier="TIER_1_GLOBAL_STANDARD", bkcc_value="GLOBAL",
+                    )
+                ],
+                source_bindings=[
+                    SourceBindingSpec(
+                        source_id="src_hl", table_id="src_hl:hl", col_mappings={}, hash_recipe=r_h
+                    )
+                ],
+                columns=[
+                    IRField(field_id=1, name="hk_hold", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
+                    IRField(field_id=2, name="bkcc", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+                    IRField(field_id=3, name="load_dts", logical_type="TIMESTAMP_UTC_US", nullable=False, is_pii=False),
+                    IRField(field_id=4, name="rec_src", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+                    IRField(field_id=5, name="h_id", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+                ],
+                hash_recipe=r_h,
+                physical_hints=PhysicalLayoutHints(cluster_by_cols=["hk_hold"]),
+            ),
+            CertifiedHubSpec(
+                hub_name="hub_filer",
+                key_tier="TIER_1_GLOBAL_STANDARD",
+                business_keys=[
+                    BusinessKeyPart(
+                        table_id="src_hl:hl", col_name="f_id", source_id="src_hl",
+                        key_tier="TIER_1_GLOBAL_STANDARD", bkcc_value="GLOBAL",
+                    )
+                ],
+                source_bindings=[
+                    SourceBindingSpec(
+                        source_id="src_hl", table_id="src_hl:hl", col_mappings={}, hash_recipe=r_f
+                    )
+                ],
+                columns=[
+                    IRField(field_id=1, name="hk_filer", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
+                    IRField(field_id=2, name="bkcc", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+                    IRField(field_id=3, name="load_dts", logical_type="TIMESTAMP_UTC_US", nullable=False, is_pii=False),
+                    IRField(field_id=4, name="rec_src", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+                    IRField(field_id=5, name="f_id", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+                ],
+                hash_recipe=r_f,
+                physical_hints=PhysicalLayoutHints(cluster_by_cols=["hk_filer"]),
+            ),
+        ],
+        links=[
+            CertifiedLinkSpec(
+                link_name="lnk_hold_filer",
+                link_kind="STANDARD",
+                participants=[
+                    LinkParticipantSpec(
+                        hub_name="hub_hold",
+                        fk_col_name="hk_missing_from_stg",
+                        role_name="hold",
+                        source_col_names=["h_id"],
+                    ),
+                    LinkParticipantSpec(
+                        hub_name="hub_filer",
+                        fk_col_name="hk_filer",
+                        role_name="filer",
+                        source_col_names=["f_id"],
+                    ),
+                ],
+                source_bindings=[
+                    SourceBindingSpec(
+                        source_id="src_hl", table_id="src_hl:hl", col_mappings={}, hash_recipe=r_lnk
+                    )
+                ],
+                columns=[
+                    IRField(field_id=1, name="hk_link", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
+                    IRField(field_id=2, name="hk_missing_from_stg", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
+                    IRField(field_id=3, name="hk_filer", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
+                    IRField(field_id=4, name="load_dts", logical_type="TIMESTAMP_UTC_US", nullable=False, is_pii=False),
+                    IRField(field_id=5, name="rec_src", logical_type="UTF8_STRING", nullable=False, is_pii=False),
+                ],
+                hash_recipe=r_lnk,
+                physical_hints=PhysicalLayoutHints(cluster_by_cols=["hk_link"]),
+            )
+        ],
+    )
+    rep = DuckDbProverAdapter().prove(ir, [], source_rows_by_table={"src_hl:hl": [{"h_id": "H1", "f_id": "F1"}]})
+    assert rep.dyn_results.get("DV-DYN-004") is False
+    assert rep.counterexamples
+    assert "hk_missing_from_stg" in str(rep.counterexamples[0])

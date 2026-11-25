@@ -321,16 +321,19 @@ def test_v2_module_token_budget(surface: str) -> None:
         targets = sorted(helpers_dir.rglob("*.py"))
     elif surface == "web_src":
         web_src_dir = REPO_ROOT / "web" / "src"
-        if not web_src_dir.is_dir():
-            return
+        assert web_src_dir.is_dir(), f"V2 web/src directory missing: {web_src_dir}"
         targets = [
             p
             for p in sorted(web_src_dir.rglob("*"))
             if p.is_file()
             and p.suffix in (".ts", ".tsx")
             and "e2e" not in p.parts
+            and "tests" not in p.parts
+            and p.name != "playwright.config.ts"
             and p.relative_to(REPO_ROOT).as_posix() != "web/src/api/types.generated.ts"
+            and not p.relative_to(REPO_ROOT).as_posix().startswith("src/opendv/api/static/")
         ]
+        assert targets, f"No TypeScript modules found under {web_src_dir}"
 
     violations: list[str] = []
     for mod in targets:

@@ -138,7 +138,15 @@ def detect_batch3_churn(
         )
         orig_sql = ""
         if has_z0_dts:
-            conn.execute(f"UPDATE {b_full} SET load_dts = load_dts + INTERVAL '1 hour'")
+            ld_col = next(c for c in bronze.columns if c.name == "load_dts")
+            ld_expr = _bump_time_sql(
+                "load_dts",
+                ld_col.logical_type,
+                interval_sql="INTERVAL '1 hour'",
+                int_delta=1,
+                fallback_suffix="_v2",
+            )
+            conn.execute(f"UPDATE {b_full} SET load_dts = {ld_expr}")
         else:
             orig_sql = _bump_staging_clock(
                 conn, ir, bundle.physical_aliases, sat.source_table_id
@@ -229,6 +237,31 @@ def probe_delimiter_and_utf8_parity(conn: duckdb.DuckDBPyConnection) -> bool:
     )
 
 
+def _bump_time_sql(
+    expr: str,
+    ltype: PortableLogicalType,
+    *,
+    interval_sql: str,
+    int_delta: int,
+    fallback_suffix: str,
+) -> str:
+    """Return SQL expression advancing a date, timestamp, integer, or ISO string time value."""
+    if ltype == "DATE32":
+        return f"CAST(COALESCE({expr}, DATE '2026-01-01') + {interval_sql} AS DATE)"
+    if ltype == "TIMESTAMP_UTC_US":
+        return f"COALESCE({expr}, TIMESTAMPTZ '2026-01-01 00:00:00Z') + {interval_sql}"
+    if ltype in ("INT32", "INT64") or isinstance(ltype, DecimalType):
+        return f"COALESCE({expr}, 0) + {int_delta}"
+    return (
+        f"(CASE WHEN POSITION(':' IN COALESCE(CAST({expr} AS VARCHAR), '')) = 0 "
+        f"AND TRY_CAST({expr} AS DATE) IS NOT NULL "
+        f"THEN STRFTIME(TRY_CAST({expr} AS DATE) + {interval_sql}, '%Y-%m-%d') "
+        f"WHEN TRY_CAST({expr} AS TIMESTAMP) IS NOT NULL "
+        f"THEN CAST(TRY_CAST({expr} AS TIMESTAMP) + {interval_sql} AS VARCHAR) "
+        f"ELSE COALESCE(CAST({expr} AS VARCHAR), '2026-01-01') || '{fallback_suffix}' END)"
+    )
+
+
 def _mutate_col_sql(col_name: str, ltype: PortableLogicalType) -> str:
     if ltype in ("INT32", "INT64") or isinstance(ltype, DecimalType):
         return f"COALESCE({col_name}, 0) + 1"
@@ -305,12 +338,25 @@ def probe_batch4_bitemporal(
         sel_exprs: list[str] = []
         for c in bronze.columns:
             if c.name == app_col:
-                nxt_app = f"(SELECT MAX({app_col}) + INTERVAL '31 days' FROM {b_full})"
                 sel_exprs.append(
-                    f"CAST({nxt_app} AS DATE)" if c.logical_type == "DATE32" else nxt_app
+                    _bump_time_sql(
+                        f"(SELECT MAX({app_col}) FROM {b_full})",
+                        c.logical_type,
+                        interval_sql="INTERVAL '31 days'",
+                        int_delta=31,
+                        fallback_suffix="_next",
+                    )
                 )
             elif c.name == "load_dts":
-                sel_exprs.append(f"(SELECT MAX(load_dts) + INTERVAL '1 hour' FROM {b_full})")
+                sel_exprs.append(
+                    _bump_time_sql(
+                        f"(SELECT MAX(load_dts) FROM {b_full})",
+                        c.logical_type,
+                        interval_sql="INTERVAL '1 hour'",
+                        int_delta=1,
+                        fallback_suffix="_v2",
+                    )
+                )
             elif c.name == mut_col:
                 sel_exprs.append(_mutate_col_sql(c.name, c.logical_type))
             else:
@@ -381,13 +427,14 @@ def probe_batch4_bitemporal(
             if tgt_info is None:
                 return False
             _, hk_col, ldts_col, pit_app_col, app_ltype = tgt_info
+            cast_ts = app_ltype in ("DATE32", "UTF8_STRING")
             snap_max = (
-                f"CAST((SELECT MAX({app_col}) FROM {b_full}) AS TIMESTAMPTZ)"
-                if app_ltype == "DATE32"
+                f"TRY_CAST((SELECT MAX({app_col}) FROM {b_full}) AS TIMESTAMPTZ)"
+                if cast_ts
                 else f"(SELECT MAX({app_col}) FROM {b_full})"
             )
             s_app_expr = (
-                f"CAST(s.{app_col} AS TIMESTAMPTZ)" if app_ltype == "DATE32" else f"s.{app_col}"
+                f"TRY_CAST(s.{app_col} AS TIMESTAMPTZ)" if cast_ts else f"s.{app_col}"
             )
             pit_app_chk = f" AND p.{pit_app_col} = s.{app_col}" if pit_app_col else ""
             pit_hit = conn.execute(

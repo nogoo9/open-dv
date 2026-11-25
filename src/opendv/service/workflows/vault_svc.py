@@ -71,6 +71,22 @@ def _require_step6_run(
     return state
 
 
+def _carry_prior_proposals(
+    prior_res: CegarRunResult | None,
+    current: CegarRunResult,
+) -> CegarRunResult:
+    """Carry unseen prior ontology proposals across HOLD/Horizon resumes."""
+    if prior_res is None or not prior_res.ontology_proposals:
+        return current
+    seen_ids = {p.proposal_id for p in current.ontology_proposals}
+    carried = [p for p in prior_res.ontology_proposals if p.proposal_id not in seen_ids]
+    if not carried:
+        return current
+    return current.model_copy(
+        update={"ontology_proposals": [*carried, *current.ontology_proposals]}
+    )
+
+
 class VaultService:
     """Step 6 Vault CEGAR synthesis, Horizon review, waivers, verification, and Guided UX."""
 
@@ -230,7 +246,9 @@ class VaultService:
                 cegar_req = cegar_req.model_copy(
                     update={"horizon_assumptions": [*cegar_req.horizon_assumptions, saved]}
                 )
-            upgraded = await run_v8_horizon_review(cegar_req, prior_res)
+            upgraded = _carry_prior_proposals(
+                prior_res, await run_v8_horizon_review(cegar_req, prior_res)
+            )
             return persist_cegar_result(
                 self._state,
                 project_id=project_id,
@@ -291,7 +309,7 @@ class VaultService:
                 cegar_req = cegar_req.model_copy(
                     update={"horizon_assumptions": [*cegar_req.horizon_assumptions, saved]}
                 )
-            resumed = await run_step6_cegar(cegar_req)
+            resumed = _carry_prior_proposals(prior_res, await run_step6_cegar(cegar_req))
             return persist_cegar_result(
                 self._state,
                 project_id=project_id,

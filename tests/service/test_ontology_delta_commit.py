@@ -1009,3 +1009,89 @@ def test_load_verifier_inputs_mixed_absent_and_present_docs(tmp_path: Path) -> N
         ],
     )
     assert verify_v4_unstructured(ir, ctx) == []
+
+
+def test_step6_persist_cegar_proposals_across_hold_and_preserves_statuses(tmp_path: Path) -> None:
+    """Step 6 CEGAR proposals persist via persist_cegar_result, survive HOLD carry-over, and keep statuses."""
+    from opendv.agents import CegarRunResult
+    from opendv.models.project import OntologyProposalSpec
+    from opendv.service.workflows._vault_helpers import persist_cegar_result
+    from opendv.service.workflows.vault_svc import _carry_prior_proposals
+
+    svc = _make_service(tmp_path)
+    proj = svc.init_project(
+        ProjectInitReq(project_id="prop-persist", domain_namespace="asset_mgmt")
+    )
+    svc.commit_ontology(
+        "prop-persist",
+        OntologyCommitReq(
+            operations=_seeded_concept_ops(),
+            base_revision_id=proj.active_ontology_rev_id,
+            rationale="Seed baseline concept for Step 6 proposal persistence test.",
+        ),
+    )
+    proj = svc.get_project("prop-persist")
+    p_keep = OntologyProposalSpec(
+        proposal_id="prop-w2-keep",
+        summary="Propose Custodian entity.",
+        wave_number=2,
+        status="PENDING_STEWARD",
+        delta_ops=[],
+    )
+    p_new = OntologyProposalSpec(
+        proposal_id="prop-w2-new",
+        summary="Propose Broker entity.",
+        wave_number=2,
+        status="PENDING_STEWARD",
+        delta_ops=[],
+    )
+    prior_res = CegarRunResult(
+        run_id="run-prop-1",
+        status="HOLD_CHECKPOINTED",
+        policy="balanced",
+        wave_number=2,
+        attempts_used=1,
+        ontology_proposals=[p_keep],
+    )
+    persist_cegar_result(
+        svc.state_manager,
+        project_id="prop-persist",
+        run_id="run-prop-1",
+        policy="balanced",
+        ontology_rev_id=proj.active_ontology_rev_id,
+        prior_wave_rev_id=proj.active_wave_id,
+        result=prior_res,
+    )
+    svc.commit_ontology(
+        "prop-persist",
+        OntologyCommitReq(
+            operations=[],
+            base_revision_id=proj.active_ontology_rev_id,
+            rationale="Accept prop-w2-keep so its COMMITTED status must remain intact on re-persist.",
+            committed_proposal_ids=["prop-w2-keep"],
+        ),
+    )
+    resumed_raw = CegarRunResult(
+        run_id="run-prop-1",
+        status="UNCERTIFIED_DRAFT",
+        policy="balanced",
+        wave_number=2,
+        attempts_used=2,
+        ontology_proposals=[p_new],
+    )
+    carried = _carry_prior_proposals(prior_res, resumed_raw)
+    assert [p.proposal_id for p in carried.ontology_proposals] == ["prop-w2-keep", "prop-w2-new"]
+    persist_cegar_result(
+        svc.state_manager,
+        project_id="prop-persist",
+        run_id="run-prop-1",
+        policy="balanced",
+        ontology_rev_id=proj.active_ontology_rev_id,
+        prior_wave_rev_id=proj.active_wave_id,
+        result=carried,
+    )
+    statuses = {
+        p.proposal_id: p.status for p in svc.get_ontology_bundle("prop-persist").ontology_proposals
+    }
+    assert statuses == {"prop-w2-keep": "COMMITTED", "prop-w2-new": "PENDING_STEWARD"}
+

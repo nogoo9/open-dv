@@ -87,6 +87,13 @@ class DuckDbProverAdapter(IRRuntimeProver):
                 empirical_smells=batch_summary.empirical_smells,
                 counterexamples=counterexamples[:25],
             )
+        except duckdb.Error as exc:
+            return IRProverReport(
+                dyn_results={"DV-DYN-004": False},
+                ast_violations=ast_violations,
+                empirical_smells=[],
+                counterexamples=[{"rule_id": "DV-DYN-004", "error": str(exc)[:500]}],
+            )
         finally:
             timer.cancel()
             conn.close()
