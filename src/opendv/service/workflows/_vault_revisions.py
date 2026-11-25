@@ -237,6 +237,27 @@ def persist_cegar_result(
                 ),
             )
 
+    for prop in result.ontology_proposals:
+        if (
+            state_manager.get_revision_by_key(
+                project_id, "ontology_proposal", prop.proposal_id
+            )
+            is None
+        ):
+            state_manager.save_revision(
+                project_id,
+                revision_id=f"prop-{prop.proposal_id}-{uuid.uuid4().hex[:6]}",
+                rev_kind="ontology_proposal",
+                rev_key=prop.proposal_id,
+                parent_rev_id=ontology_rev_id,
+                payload=prop,
+                metadata=RevisionMetadata(
+                    actor="agent",
+                    reason=f"Step 6 CEGAR proposal {prop.proposal_id} (wave {result.wave_number})",
+                    base_revision_id=ontology_rev_id,
+                ),
+            )
+
     pending = list(result.checkpoint.pending_questions) if result.checkpoint is not None else []
     phase_map: dict[CegarStatus, str] = {
         "CERTIFIED": "wave_certified",

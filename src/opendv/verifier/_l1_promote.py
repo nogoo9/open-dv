@@ -10,7 +10,7 @@ from typing import Literal
 
 from opendv.models.project import EvolutionLockSpec
 from opendv.models.sources import SourceProfile
-from opendv.models.vault_ir import DraftVaultIR, PredicateNode
+from opendv.models.vault_ir import DraftVaultIR, LinkParticipantSpec, PredicateNode
 from opendv.models.vault_ir_certified import (
     CertifiedHubSpec,
     CertifiedLinkSpec,
@@ -34,6 +34,36 @@ from opendv.verifier._l1_zone_builders import (
     collect_prior_field_ids,
     dedup_field_specs,
 )
+
+
+def _sanitize_link_col_mappings(
+    raw_maps: Mapping[str, str],
+    *,
+    hk_col: str,
+    participants: Sequence[LinkParticipantSpec],
+    table_recipes: Sequence[HashRecipeSpec],
+) -> dict[str, str]:
+    """Ensure Link HK/FK col_mappings reference hashed staging targets, never raw columns."""
+    hash_targets = {r.target_col for r in table_recipes}
+    hub_recipes = [r for r in table_recipes if r.recipe_kind == "HUB_HK"]
+    part_by_fk = {p.fk_col_name: p for p in participants}
+    link_hash_cols = {hk_col, *part_by_fk}
+    out: dict[str, str] = {}
+    for k, v in raw_maps.items():
+        if k not in link_hash_cols or v in hash_targets:
+            out[k] = v
+            continue
+        if k == hk_col:
+            continue
+        part = part_by_fk[k]
+        cand_cols = set(part.source_col_names) | {v}
+        matched = next((r for r in hub_recipes if cand_cols & set(r.source_columns)), None)
+        if matched is None:
+            hub_hk = f"hk_{part.hub_name.removeprefix('hub_')}"
+            matched = next((r for r in hub_recipes if r.target_col == hub_hk), None)
+        if matched is not None and matched.target_col != k:
+            out[k] = matched.target_col
+    return out
 
 
 def promote_draft_to_certified(
@@ -134,12 +164,18 @@ def promote_draft_to_certified(
         )
         bindings_l: list[SourceBindingSpec] = []
         for bl in lnk.source_bindings:
-            hub_recipes_by_table.setdefault(bl.table_id, []).append(lnk_recipe)
+            table_recipes = hub_recipes_by_table.setdefault(bl.table_id, [])
+            table_recipes.append(lnk_recipe)
             bindings_l.append(
                 SourceBindingSpec(
                     source_id=bl.source_id,
                     table_id=bl.table_id,
-                    col_mappings=dict(bl.col_mappings),
+                    col_mappings=_sanitize_link_col_mappings(
+                        bl.col_mappings,
+                        hk_col=hk_col,
+                        participants=lnk.participants,
+                        table_recipes=table_recipes,
+                    ),
                     hash_recipe=lnk_recipe,
                     load_semantics=LoadSemanticsSpec(
                         source_table_id=bl.table_id,
@@ -199,7 +235,13 @@ def promote_draft_to_certified(
             if sat.parent_name in hub_names
             else f"hk_{sat.parent_name.removeprefix('lnk_').removeprefix('t_lnk_')}"
         )
-        payload_cols = sorted(a.name for a in sat.attributes)
+        bitemp_col = sat.applied_dts_col if (sat.is_bitemporal and sat.applied_dts_col) else None
+        sat_attrs = (
+            [a for a in sat.attributes if a.name != bitemp_col]
+            if bitemp_col
+            else list(sat.attributes)
+        )
+        payload_cols = sorted(a.name for a in sat_attrs)
         sat_recipe = (
             HashRecipeSpec(
                 target_col="hash_diff",
@@ -245,7 +287,7 @@ def promote_draft_to_certified(
             col_specs_s.append(
                 (sat.applied_dts_col, "TIMESTAMP_UTC_US", False, False, "APPLIED_DTS")
             )
-        for a in sat.attributes:
+        for a in sat_attrs:
             col_specs_s.append(
                 (a.name, a.logical_type, a.nullable, a.is_pii, a.classification_tag)
             )
@@ -266,7 +308,7 @@ def promote_draft_to_certified(
                 child_dependent_keys=list(sat.child_dependent_keys),
                 driving_keys=list(sat.driving_keys),
                 immutable_payload_fields=list(sat.immutable_payload_fields),
-                attributes=list(sat.attributes),
+                attributes=sat_attrs,
                 columns=assign_ir_fields(
                     sat.sat_name,
                     dedup_field_specs(col_specs_s),

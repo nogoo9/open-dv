@@ -44,3 +44,10 @@ artifacts/vault-ledger.jsonl
 artifacts/vault_blueprint.yaml
 artifacts/wave_0_ontology_coverage.json
 artifacts/waves/
+
+# V2 Web Workbench build & Playwright artifacts (preserve static/.gitkeep)
+/web/dist/
+/src/opendv/api/static/*
+!/src/opendv/api/static/.gitkeep
+web/playwright-report/
+web/test-results/

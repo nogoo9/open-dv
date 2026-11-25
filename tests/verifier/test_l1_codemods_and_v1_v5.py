@@ -2431,3 +2431,174 @@ def test_iter3_alg_a1_unique_sat_name_v1_dup_and_pii_epoch_lock() -> None:
     assert locks_pii_comp.sat_epochs["sat_a"] == 2
 
 
+def test_l1_promote_sanitizes_link_raw_fk_mappings_and_bitemporal_applied_dts() -> None:
+    """Link raw col_mappings resolve to HUB_HK targets and bitemporal applied_dts_col leaves hash_diff."""
+    tbl_id = "s:positions"
+    prof = SourceProfile(
+        source_id="s",
+        schema_fingerprint="fp-link-bitemp",
+        table_count=1,
+        tables=[
+            TableProfile(
+                table_id=tbl_id,
+                table_name="positions",
+                row_count_est=2,
+                columns=[
+                    ColumnProfile(
+                        col_name="holding_id",
+                        sql_type="VARCHAR",
+                        nullable=False,
+                        null_ratio=0.0,
+                        distinct_count_est=2,
+                        is_pk=True,
+                        sample_values=["HLD_001", "HLD_002"],
+                    ),
+                    ColumnProfile(
+                        col_name="ticker",
+                        sql_type="VARCHAR",
+                        nullable=False,
+                        is_pk=False,
+                        null_ratio=0.0,
+                        distinct_count_est=2,
+                        sample_values=["AAPL", "MSFT"],
+                    ),
+                    ColumnProfile(
+                        col_name="observation_date",
+                        sql_type="TIMESTAMP",
+                        nullable=False,
+                        is_pk=False,
+                        null_ratio=0.0,
+                        distinct_count_est=1,
+                        sample_values=["2025-01-02T00:00:00Z"],
+                    ),
+                    ColumnProfile(
+                        col_name="yield_pct",
+                        sql_type="DECIMAL(18,4)",
+                        nullable=False,
+                        is_pk=False,
+                        null_ratio=0.0,
+                        distinct_count_est=2,
+                        sample_values=["4.1250", "4.3750"],
+                    ),
+                ],
+            )
+        ],
+    )
+    draft = DraftVaultIR(
+        project_id="p_promote",
+        ontology_version="0.1.0",
+        wave_number=1,
+        hubs=[
+            DraftHubSpec(
+                hub_name="hub_holding",
+                key_tier="TIER_2_ENTERPRISE_SOR",
+                business_keys=[
+                    BusinessKeyPart(
+                        table_id=tbl_id,
+                        col_name="holding_id",
+                        source_id="s",
+                        key_tier="TIER_2_ENTERPRISE_SOR",
+                        bkcc_value="SOR",
+                    )
+                ],
+                source_bindings=[
+                    DraftSourceBinding(source_id="s", table_id=tbl_id, col_mappings={"holding_id": "holding_id"})
+                ],
+            ),
+            DraftHubSpec(
+                hub_name="hub_security",
+                key_tier="TIER_1_GLOBAL_STANDARD",
+                business_keys=[
+                    BusinessKeyPart(
+                        table_id=tbl_id,
+                        col_name="ticker",
+                        source_id="s",
+                        key_tier="TIER_1_GLOBAL_STANDARD",
+                        bkcc_value="GLOBAL",
+                    )
+                ],
+                source_bindings=[
+                    DraftSourceBinding(source_id="s", table_id=tbl_id, col_mappings={"ticker": "ticker"})
+                ],
+            ),
+        ],
+        links=[
+            DraftLinkSpec(
+                link_name="lnk_holding_security",
+                link_kind="STANDARD",
+                participants=[
+                    LinkParticipantSpec(
+                        hub_name="hub_holding",
+                        role_name="HOLDING",
+                        fk_col_name="hk_holding",
+                        source_col_names=["holding_id"],
+                    ),
+                    LinkParticipantSpec(
+                        hub_name="hub_security",
+                        role_name="PRIMARY_SEC",
+                        fk_col_name="hk_sec_role",
+                        source_col_names=["ticker"],
+                    ),
+                ],
+                source_bindings=[
+                    DraftSourceBinding(
+                        source_id="s",
+                        table_id=tbl_id,
+                        col_mappings={
+                            "hk_holding_security": "holding_id",
+                            "hk_holding": "holding_id",
+                            "hk_sec_role": "ticker",
+                        },
+                    )
+                ],
+            )
+        ],
+        satellites=[
+            DraftSatelliteSpec(
+                sat_name="sat_holding",
+                sat_kind="STANDARD",
+                parent_name="hub_holding",
+                source_bindings=[
+                    DraftSourceBinding(
+                        source_id="s",
+                        table_id=tbl_id,
+                        col_mappings={"observation_date": "observation_date", "yield_pct": "yield_pct"},
+                    )
+                ],
+                is_bitemporal=True,
+                applied_dts_col="observation_date",
+                attributes=[
+                    DraftField(
+                        name="observation_date",
+                        logical_type="TIMESTAMP_UTC_US",
+                        nullable=False,
+                        is_pii=False,
+                    ),
+                    DraftField(
+                        name="yield_pct",
+                        logical_type=DecimalType(precision=18, scale=4),
+                        nullable=False,
+                        is_pii=False,
+                    ),
+                ],
+            )
+        ],
+        column_triage=[
+            ColumnTriageEntry(table_id=tbl_id, col_name="holding_id", disposition="MODELED", target_ref="hub_holding", rationale=""),
+            ColumnTriageEntry(table_id=tbl_id, col_name="ticker", disposition="MODELED", target_ref="hub_security", rationale=""),
+            ColumnTriageEntry(table_id=tbl_id, col_name="observation_date", disposition="MODELED", target_ref="sat_holding", rationale=""),
+            ColumnTriageEntry(table_id=tbl_id, col_name="yield_pct", disposition="MODELED", target_ref="sat_holding", rationale=""),
+        ],
+    )
+    _, cert, _ = run_l1_codemods(draft, profiles=[prof])
+    lnk_maps = cert.links[0].source_bindings[0].col_mappings
+    assert lnk_maps == {"hk_sec_role": "hk_security"}
+    sat = cert.satellites[0]
+    assert sat.hash_recipe is not None and sat.hash_recipe.source_columns == ["yield_pct"]
+    assert [a.name for a in sat.attributes] == ["yield_pct"]
+    assert any(c.name == "observation_date" and c.classification_tag == "APPLIED_DTS" for c in sat.columns)
+    rep = run_v1_to_v6_gates(cert)
+    assert rep.v1_v6_fail_count == 0, rep.v1_v6_diagnostics
+    prov = DuckDbProverAdapter().prove(cert, [prof])
+    assert len(prov.dyn_results) == 15 and all(prov.dyn_results.values()), prov.counterexamples
+
