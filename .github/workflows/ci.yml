@@ -44,8 +44,10 @@ jobs:
         with:
           bun-version: "1.3.13"
 
-      - name: Install Python dependencies (uv sync --locked)
-        run: uv sync --locked --group dev
+      - name: Verify uv lockfile & install Python dependencies
+        run: |
+          uv lock --check
+          uv sync --locked --group dev
 
       - name: Install Web Workbench dependencies
         run: bun install --cwd web --frozen-lockfile
@@ -57,11 +59,60 @@ jobs:
           bun run --cwd web build
           bun run --cwd web test
 
+      - name: Marketing Website typecheck, lint, build & unit tests
+        shell: bash
+        run: |
+          bun install --cwd apps/opendv-website --frozen-lockfile
+          bun run --cwd apps/opendv-website typecheck
+          bun run --cwd apps/opendv-website lint
+          OPENDV_SITE_BASE_PATH=/open-dv bun run --cwd apps/opendv-website build
+          bun test apps/opendv-website/tests
+
+      - name: Build & verify isolated wheel outside repo root
+        shell: bash
+        run: |
+          set -euo pipefail
+          WHEEL_DIR="$RUNNER_TEMP/opendv_wheel_check"
+          rm -rf "$WHEEL_DIR" && mkdir -p "$WHEEL_DIR"
+          uv build --wheel --out-dir "$WHEEL_DIR"
+          WHL="$(ls "$WHEEL_DIR"/opendv-*.whl | head -n 1)"
+          uv run --no-sync python - "$WHL" <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as zf:
+              names = set(zf.namelist())
+          assert "opendv/api/static/index.html" in names, "Missing web static index.html in wheel"
+          assert "opendv/sources/fibo/fibo-core-pack.json" in names, "Missing fibo-core-pack.json in wheel"
+          packs = [n for n in names if n.startswith("opendv/agents/packs/") and n.endswith("/SKILL.md")]
+          assert len(packs) == 6, f"Expected 6 SKILL.md packs, got {len(packs)}: {packs}"
+          for rel in ("cli-spec.json", "error-codes.json", "openapi.json", "baseline-digests.json", "matchers/bm25_fibo_v1.json"):
+              assert f"opendv/schemas/v2/{rel}" in names, f"Missing opendv/schemas/v2/{rel} in wheel"
+          PY
+          uv venv "$WHEEL_DIR/venv" --python 3.12
+          if [ -x "$WHEEL_DIR/venv/Scripts/python.exe" ]; then
+            VENV_BIN="$WHEEL_DIR/venv/Scripts"
+            VENV_PY="$VENV_BIN/python.exe"
+          else
+            VENV_BIN="$WHEEL_DIR/venv/bin"
+            VENV_PY="$VENV_BIN/python"
+          fi
+          uv pip install --python "$VENV_PY" "$WHL"
+          (
+            cd "$WHEEL_DIR"
+            export PATH="$VENV_BIN:$PATH"
+            export OPENDV_HOME="$WHEEL_DIR/opendv_home"
+            export LOCALAPPDATA="$WHEEL_DIR/state"
+            export XDG_STATE_HOME="$WHEEL_DIR/state"
+            opendv --help >/dev/null
+            opendv --json agents list | python -c "import json, sys; d = json.load(sys.stdin); assert d['ok'] is True and len(d['data']) == 6"
+            python -c "from pathlib import Path; import opendv; from opendv.sources.fibo.loader import FiboReferenceOntologyLoader; p = Path(opendv.__file__).parent; assert (p / 'api/static/index.html').is_file(); assert (p / 'sources/fibo/fibo-core-pack.json').is_file(); assert (p / 'schemas/v2/openapi.json').is_file(); assert len(FiboReferenceOntologyLoader().search_candidates('Legal Entity', limit=1)) == 1; print('WHEEL_OK')"
+          )
+          rm -rf "$WHEEL_DIR"
+
       - name: Run Ruff static analysis
         run: uv run ruff check src tests scripts
 
       - name: Run Mypy strict typecheck
-        run: uv run mypy src
+        run: uv run mypy src tests/helpers
 
       - name: Verify contracts, schemas/v2, error codes & CLI reference docs
         run: |
@@ -70,8 +121,20 @@ jobs:
           uv run python scripts/generate_cli_reference.py
           git diff --exit-code docs/16-cli-reference.md
 
-      - name: Run V2 Python test suite (non-live)
-        run: uv run pytest -m "not live_provider" -ra
+      - name: Run V2 Python test suite (non-live, 0-skip gate)
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOG_FILE="$RUNNER_TEMP/pytest-nonlive.log"
+          uv run pytest tests/ -m "not live_provider" -o addopts="" -q -rs | tee "$LOG_FILE"
+          uv run --no-sync python - "$LOG_FILE" <<'PY'
+          import pathlib, re, sys
+          txt = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          m = re.search(r"(\d+)\s+skipped\b", txt)
+          if m and int(m.group(1)) > 0:
+              sys.exit(f"0-skip gate failed: {m.group(1)} test(s) skipped")
+          PY
+          rm -f "$LOG_FILE"
 
       - name: Install Playwright Chromium & run Web Workbench E2E
         shell: bash

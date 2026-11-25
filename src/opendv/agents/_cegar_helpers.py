@@ -388,6 +388,44 @@ def build_ship_vault_prompt(
     return json.dumps(payload, separators=(",", ":"))
 
 
+async def _run_structured_turn_with_retry[TModel: (DraftShardIR, DraftVaultIR)](
+    *,
+    harness: AgentHarnessPort,
+    request: AgentTurnRequest,
+    schema_cls: type[TModel],
+    event_sink: RunEventSink | None,
+) -> tuple[TModel, AgentTurnResult, int]:
+    """Run one Ship-Vault structured turn, retrying once on invalid structured JSON."""
+    failed_turns = 0
+    try:
+        res = await harness.run_turn(request, event_sink=event_sink)
+    except OpenDVError as exc:
+        err_msg = str(exc)
+        if (
+            request.budget.max_turns <= 1
+            or exc.error_code != ErrorCode.AGENT_EXECUTION_FAILED
+            or "invalid structured output" not in err_msg.lower()
+        ):
+            raise
+        failed_turns = 1
+        retry_prompt = (
+            f"{request.prompt}\n\n"
+            "PREVIOUS OUTPUT INVALID — RETRY CORRECTION:\n"
+            f"Error: {err_msg[:240]}\n"
+            "Return ONLY one valid compact minified JSON object matching the schema."
+        )
+        res = await harness.run_turn(
+            request.model_copy(update={"prompt": retry_prompt}),
+            event_sink=event_sink,
+        )
+    parsed = (
+        res.structured_output
+        if isinstance(res.structured_output, schema_cls)
+        else schema_cls.model_validate(res.structured_output)
+    )
+    return parsed, res, failed_turns
+
+
 async def run_ship_vault_synthesis(
     *,
     run_id: str,
@@ -419,6 +457,34 @@ async def run_ship_vault_synthesis(
     ovr = model_overrides or {}
     ship_override = (ovr.get("ship-vault") or ovr.get("STANDARD_WORKER") or "").strip() or None
 
+    def _build_req(
+        turn_prompt: str,
+        schema_cls: type[DraftShardIR] | type[DraftVaultIR],
+        *,
+        cluster_id: str | None = None,
+    ) -> AgentTurnRequest:
+        return AgentTurnRequest(
+            run_id=run_id,
+            agent_id="ship-vault",
+            step="step6",
+            prompt=turn_prompt,
+            system_instructions=pack.markdown_body,
+            output_schema=schema_cls,
+            model_tier="STANDARD_WORKER",
+            model_override=ship_override,
+            cegar_policy=policy,
+            role_kind="none",
+            allowed_tools=[],
+            budget=budget,
+            attempt=attempt,
+            cluster_id=cluster_id,
+            metadata={
+                "model_overrides": dict(ovr),
+                "preallocated_hubs": preallocated_hubs,
+                "sharded": cluster_id is not None,
+            },
+        )
+
     if total_tables > 40:
         assignments = resolve_cluster_assignments(profiles, clusters)
         shards: list[DraftShardIR] = []
@@ -437,39 +503,16 @@ async def run_ship_vault_synthesis(
                 cluster_tables=c_tables,
                 prior_v7_verdict=prior_v7_verdict,
             )
-            res = await harness.run_turn(
-                AgentTurnRequest(
-                    run_id=run_id,
-                    agent_id="ship-vault",
-                    step="step6",
-                    prompt=prompt,
-                    system_instructions=pack.markdown_body,
-                    output_schema=DraftShardIR,
-                    model_tier="STANDARD_WORKER",
-                    model_override=ship_override,
-                    cegar_policy=policy,
-                    role_kind="none",
-                    allowed_tools=[],
-                    budget=budget,
-                    attempt=attempt,
-                    cluster_id=cid,
-                    metadata={
-                        "model_overrides": dict(model_overrides or {}),
-                        "preallocated_hubs": preallocated_hubs,
-                        "sharded": True,
-                    },
-                ),
+            shard, res, failed = await _run_structured_turn_with_retry(
+                harness=harness,
+                request=_build_req(prompt, DraftShardIR, cluster_id=cid),
+                schema_cls=DraftShardIR,
                 event_sink=event_sink,
             )
-            turns += res.turns_used
+            turns += res.turns_used + failed
             tokens += res.total_tokens
             if res.token_count_source == "reported":
                 tok_source = "reported"
-            shard = (
-                res.structured_output
-                if isinstance(res.structured_output, DraftShardIR)
-                else DraftShardIR.model_validate(res.structured_output)
-            )
             shards.append(shard)
             proposals.extend(collect_ontology_proposals(res, wave_number=wave_number))
 
@@ -493,37 +536,15 @@ async def run_ship_vault_synthesis(
         preallocated_hubs=preallocated_hubs,
         prior_v7_verdict=prior_v7_verdict,
     )
-    res = await harness.run_turn(
-        AgentTurnRequest(
-            run_id=run_id,
-            agent_id="ship-vault",
-            step="step6",
-            prompt=prompt,
-            system_instructions=pack.markdown_body,
-            output_schema=DraftVaultIR,
-            model_tier="STANDARD_WORKER",
-            model_override=ship_override,
-            cegar_policy=policy,
-            role_kind="none",
-            allowed_tools=[],
-            budget=budget,
-            attempt=attempt,
-            metadata={
-                "model_overrides": dict(model_overrides or {}),
-                "preallocated_hubs": preallocated_hubs,
-                "sharded": False,
-            },
-        ),
+    draft, res, failed = await _run_structured_turn_with_retry(
+        harness=harness,
+        request=_build_req(prompt, DraftVaultIR),
+        schema_cls=DraftVaultIR,
         event_sink=event_sink,
     )
-    turns += res.turns_used
+    turns += res.turns_used + failed
     tokens += res.total_tokens
     tok_source = res.token_count_source
-    draft = (
-        res.structured_output
-        if isinstance(res.structured_output, DraftVaultIR)
-        else DraftVaultIR.model_validate(res.structured_output)
-    )
     proposals.extend(collect_ontology_proposals(res, wave_number=wave_number))
     return draft, proposals, turns, tokens, tok_source
 

@@ -59,7 +59,11 @@ def build_stateless_turn_prompt(
         )
         parts.append(f"STATELESS HOLD RESUME CONTEXT:\n{resume_blob}")
     if inline_schema_json:
-        parts.append(f"Return ONLY valid JSON conforming to schema:\n{inline_schema_json}")
+        parts.append(
+            "Return ONLY valid compact minified JSON (single JSON object, no markdown fences, "
+            "no commentary, no pretty-print indentation) conforming to schema:\n"
+            f"{inline_schema_json}"
+        )
     parts.append(request.prompt.strip())
     return "\n\n".join(p for p in parts if p)
 

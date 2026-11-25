@@ -126,15 +126,28 @@ def build_staging_view_ddl(
     col_types: dict[str, PortableLogicalType] = {c.name: c.logical_type for c in bronze.columns}
     col_names = {c.name for c in bronze.columns}
 
+    hub_tier_by_name = {h.hub_name: h.key_tier for h in ir.hubs if not h.is_planned_concept}
     hub_tier_by_col: dict[str, str] = {}
     for h in ir.hubs:
         if h.is_planned_concept:
             continue
+        if h.hash_recipe is not None:
+            hub_tier_by_col[h.hash_recipe.target_col] = h.key_tier
         for sb in h.source_bindings:
             if sb.table_id == stg.source_table_id and sb.hash_recipe is not None:
                 hub_tier_by_col[sb.hash_recipe.target_col] = h.key_tier
 
-    _, _, excluded_sats = planned_exclusion_sets(ir)
+    _, excluded_links, excluded_sats = planned_exclusion_sets(ir)
+    for lnk in ir.links:
+        if lnk.link_name in excluded_links:
+            continue
+        for sb in lnk.source_bindings:
+            if sb.table_id != stg.source_table_id:
+                continue
+            for p in lnk.participants:
+                if p.hub_name in hub_tier_by_name:
+                    fk_target = sb.col_mappings.get(p.fk_col_name, p.fk_col_name)
+                    hub_tier_by_col[fk_target] = hub_tier_by_name[p.hub_name]
     sats_for_tbl = [
         s
         for s in ir.satellites

@@ -233,10 +233,9 @@ async function runLiveSmoke(): Promise<void> {
 	proc.stdout.on("data", (d: Buffer) => serverLogs.push(d.toString()));
 	proc.stderr.on("data", (d: Buffer) => serverLogs.push(d.toString()));
 
+	const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
 	const browser = await chromium.launch({
-		executablePath:
-			process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
-			"C:\\Users\\etern\\AppData\\Local\\ms-playwright\\chromium-1255\\chrome-win64\\chrome.exe",
+		...(executablePath ? { executablePath } : {}),
 		headless: true,
 	});
 

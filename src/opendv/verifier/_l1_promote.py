@@ -66,6 +66,52 @@ def _sanitize_link_col_mappings(
     return out
 
 
+def _synthesize_link_fk_recipe(
+    *,
+    needed_col: str,
+    participant: LinkParticipantSpec,
+    col_mappings: Mapping[str, str],
+    ref_hub: CertifiedHubSpec | None,
+    tbl_cols: set[str],
+) -> HashRecipeSpec | None:
+    """Synthesize a missing Link participant HUB_HK recipe on a staging table."""
+
+    def _cols_ok(cols: Sequence[str]) -> bool:
+        return bool(cols) and (not tbl_cols or all(c in tbl_cols for c in cols))
+
+    fk_src_cols: list[str] = []
+    if _cols_ok(participant.source_col_names):
+        fk_src_cols = list(participant.source_col_names)
+    elif (mapped := col_mappings.get(participant.fk_col_name)) and _cols_ok([mapped]):
+        fk_src_cols = [mapped]
+    elif ref_hub is not None and _cols_ok([bk.col_name for bk in ref_hub.business_keys]):
+        fk_src_cols = [bk.col_name for bk in ref_hub.business_keys]
+    if not fk_src_cols:
+        return None
+    hub_recipe = ref_hub.hash_recipe if ref_hub is not None else None
+    bkcc_col = (
+        hub_recipe.bkcc_col
+        if hub_recipe is not None
+        and hub_recipe.bkcc_col
+        and (not tbl_cols or hub_recipe.bkcc_col in tbl_cols)
+        else None
+    )
+    bkcc_lit = (
+        hub_recipe.bkcc_literal
+        if hub_recipe is not None and hub_recipe.bkcc_literal
+        else (None if bkcc_col is not None else "GLOBAL")
+    )
+    return HashRecipeSpec(
+        target_col=needed_col,
+        recipe_kind="HUB_HK",
+        bkcc_literal=bkcc_lit,
+        bkcc_col=bkcc_col,
+        source_columns=fk_src_cols,
+        sort_alphabetically=False,
+        key_columns=fk_src_cols,
+    )
+
+
 def promote_draft_to_certified(
     draft: DraftVaultIR,
     *,
@@ -84,6 +130,9 @@ def promote_draft_to_certified(
     z1_ovr = z1_lineage_overrides or {}
     dedup_map = dedup_order_cols_by_sat or {}
     hub_recipes_by_table: dict[str, list[HashRecipeSpec]] = {}
+    profile_cols_by_table = {
+        t.table_id: {c.col_name for c in t.columns} for p in profiles for t in p.tables
+    }
 
     hubs_cert: list[CertifiedHubSpec] = []
     for h in draft.hubs:
@@ -135,6 +184,7 @@ def promote_draft_to_certified(
             )
         )
 
+    hub_cert_by_name = {h.hub_name: h for h in hubs_cert}
     links_cert: list[CertifiedLinkSpec] = []
     for lnk in draft.links:
         slug = lnk.link_name.removeprefix("lnk_").removeprefix("t_lnk_").removeprefix("sal_")
@@ -166,16 +216,33 @@ def promote_draft_to_certified(
         for bl in lnk.source_bindings:
             table_recipes = hub_recipes_by_table.setdefault(bl.table_id, [])
             table_recipes.append(lnk_recipe)
+            sanitized_maps = _sanitize_link_col_mappings(
+                bl.col_mappings,
+                hk_col=hk_col,
+                participants=lnk.participants,
+                table_recipes=table_recipes,
+            )
+            tbl_cols = profile_cols_by_table.get(bl.table_id, set())
+            existing_targets = {r.target_col for r in table_recipes}
+            for p in lnk.participants:
+                needed_col = sanitized_maps.get(p.fk_col_name, p.fk_col_name)
+                if needed_col in existing_targets:
+                    continue
+                synth = _synthesize_link_fk_recipe(
+                    needed_col=needed_col,
+                    participant=p,
+                    col_mappings=bl.col_mappings,
+                    ref_hub=hub_cert_by_name.get(p.hub_name),
+                    tbl_cols=tbl_cols,
+                )
+                if synth is not None:
+                    table_recipes.append(synth)
+                    existing_targets.add(needed_col)
             bindings_l.append(
                 SourceBindingSpec(
                     source_id=bl.source_id,
                     table_id=bl.table_id,
-                    col_mappings=_sanitize_link_col_mappings(
-                        bl.col_mappings,
-                        hk_col=hk_col,
-                        participants=lnk.participants,
-                        table_recipes=table_recipes,
-                    ),
+                    col_mappings=sanitized_maps,
                     hash_recipe=lnk_recipe,
                     load_semantics=LoadSemanticsSpec(
                         source_table_id=bl.table_id,

@@ -9,7 +9,8 @@
 		"typecheck": "tsc --noEmit",
 		"lint": "biome check src tests e2e",
 		"test": "bun test tests",
-		"test:e2e": "bun x playwright test"
+		"test:e2e": "bun x playwright test",
+		"test:e2e:live": "node e2e/live_smoke.ts"
 	},
 	"dependencies": {
 		"@xyflow/react": "^12.12.1",

@@ -40,6 +40,7 @@ from opendv.agents.cli_subprocess_base import (
     extract_json_from_stdout,
     redact_telemetry_text,
     stream_cli_subprocess_lines,
+    strip_markdown_json_fences,
     validate_cli_structured_output,
 )
 from opendv.agents.ports import AgentTurnRequest
@@ -2180,6 +2181,44 @@ def test_adjacent_pii_pairs_symmetric_left_context_and_scaling() -> None:
         assert not any(ch.isdigit() for ch in scrubbed)
 
 
+def test_cli_json_fence_and_prose_stripping_fail_closed() -> None:
+    """strip_markdown_json_fences extracts fenced/raw JSON from prose while malformed JSON fails closed."""
+    payload = {
+        "question_id": "q-bk-1",
+        "concept_name": "Account",
+        "title": "Confirm BK",
+        "prompt": "Choose account_id or acct_num",
+        "sample_rows": ["account_id=A1"],
+        "impact_if_locked": "Locks hub_account BK",
+    }
+    prose_fenced = f"Sure, here is the JSON:\n```json\n{json.dumps(payload, indent=2)}\n```\nDone."
+    stripped_fenced = strip_markdown_json_fences(prose_fenced)
+    parsed_fenced = validate_cli_structured_output(
+        ClarificationQuestion,
+        raw_structured=None,
+        raw_response_text=stripped_fenced,
+        cli_label="agy CLI",
+    )
+    assert isinstance(parsed_fenced, ClarificationQuestion)
+    assert parsed_fenced.question_id == "q-bk-1"
 
+    prose_raw = f"Preamble text.\n{json.dumps(payload)}\nTrailing note."
+    stripped_raw = strip_markdown_json_fences(prose_raw)
+    parsed_raw = validate_cli_structured_output(
+        ClarificationQuestion,
+        raw_structured=None,
+        raw_response_text=stripped_raw,
+        cli_label="agy CLI",
+    )
+    assert isinstance(parsed_raw, ClarificationQuestion)
+    assert parsed_raw.concept_name == "Account"
 
+    with pytest.raises(OpenDVError) as exc_bad:
+        validate_cli_structured_output(
+            ClarificationQuestion,
+            raw_structured=None,
+            raw_response_text=strip_markdown_json_fences('Here you go: {"question_id": broken_json}'),
+            cli_label="agy CLI",
+        )
+    assert exc_bad.value.error_code == ErrorCode.AGENT_EXECUTION_FAILED
 
