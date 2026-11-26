@@ -304,7 +304,12 @@ def probe_batch4_bitemporal(
     bitemp_sats = [
         s
         for s in ir.satellites
-        if s.sat_name not in excluded_sats and s.is_bitemporal and s.applied_dts_col
+        if (
+            s.sat_name not in excluded_sats
+            and s.sat_kind != "ESAT"
+            and s.is_bitemporal
+            and s.applied_dts_col
+        )
     ]
     if not bitemp_sats:
         return True
