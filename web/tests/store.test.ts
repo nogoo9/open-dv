@@ -70,12 +70,14 @@ const {
 	useProjectStore,
 } = await import("../src/store/projectStore");
 const { App } = await import("../src/App");
+const { RemediationList } = await import("../src/components/RemediationList");
 const { RunControlDialog } = await import("../src/components/RunControlDialog");
 
 import type {
 	ErrorCode,
 	GraphAOntology,
 	ProjectState,
+	ReadinessResponse,
 	RunStateResp,
 	RunStreamEvent,
 	WorkspaceSettings,
@@ -182,8 +184,10 @@ afterEach(() => {
 		hiddenProposalIds: [],
 		settings: null,
 		settingsDraft: null,
+		readiness: null,
 		guidedView: null,
 		lastProblem: null,
+		liveAnnouncements: { polite: "", assertive: "" },
 		activeStep4Run: null,
 		activeStep6Run: null,
 		activeRunPolicy: "balanced",
@@ -209,6 +213,36 @@ function installMockFetch(urls: string[]) {
 			return new Response(JSON.stringify({ status: "ok", version: "2.0.0" }));
 		if (url === "/api/v1/settings")
 			return new Response(JSON.stringify(mkSettings()));
+		if (url === "/api/v1/agents/readiness") {
+			const body: ReadinessResponse = {
+				providers: (["agy", "claude-cli", "claude", "gemini"] as const).map(
+					(provider) => ({
+						provider,
+						status: "VERIFIED",
+						credential_source:
+							provider === "claude-cli" || provider === "agy"
+								? "cli_login"
+								: "store",
+						missing_prereqs: [],
+						available_models: [
+							{
+								id: `${provider}-frontier`,
+								label: "Frontier",
+								source: "default",
+							},
+							{
+								id: `${provider}-standard`,
+								label: "Standard",
+								source: "default",
+							},
+						],
+						active_run: false,
+						remediation: null,
+					}),
+				),
+			};
+			return new Response(JSON.stringify(body));
+		}
 		if (url === "/api/v1/projects") {
 			return new Response(
 				JSON.stringify([
@@ -885,5 +919,208 @@ describe("ProblemDetails, Readiness, Step 7 Gate & Thin-Client Guards", () => {
 		expect(container.textContent).toContain("v0.3.0 · W002");
 		root.unmount();
 		container.remove();
+	});
+
+	test("Phase 5: 4-tier readiness pill, snapshot budget isolation, non-throwing fetchReadiness, Databricks host fallback, RemediationList & RunControlDialog", async () => {
+		const rem = {
+			summary: "Bind GEMINI_API_KEY to verify gemini.",
+			actions: [
+				{
+					actor: "human" as const,
+					label: "Store key",
+					command: "uv run opendv secrets set GEMINI_API_KEY --prompt",
+					requires_tty: true,
+				},
+			],
+		};
+		const pWithRem = createProblemDetails("AGENT_NOT_CONFIGURED", "No key", {
+			remediation: rem,
+		});
+		expect(pWithRem.remediation).toEqual(rem);
+		expect(createProblemDetails("OK", "ok").remediation).toBeNull();
+
+		expect(
+			buildSourceInspectReq({
+				kind: "databricks_uc",
+				host: "",
+				options: { host: "adb-fallback.azuredatabricks.net/" },
+			}).uri_or_path,
+		).toBe("https://adb-fallback.azuredatabricks.net");
+
+		// Snapshot budget isolation: activeProject with null caps ignores global ws.max_turns
+		useProjectStore.setState({
+			settings: mkSettings({
+				max_turns: 99,
+				max_tokens: 999_000,
+				timeout_seconds: 3600,
+			}),
+			activeProject: mkProject("p1"),
+		});
+		const b4 = useProjectStore
+			.getState()
+			.resolveEffectiveBudget("/projects/p1/step/4");
+		expect(b4.max_turns).toBe(24);
+		expect(b4.max_tokens).toBe(300_000);
+		expect(b4.timeout_seconds).toBe(600);
+
+		// 4-tier deriveReadinessPill precedence
+		useProjectStore.setState({
+			readiness: {
+				providers: [
+					{
+						provider: "agy",
+						status: "CONFIGURED_UNVERIFIED",
+						credential_source: "cli_login",
+						missing_prereqs: [],
+						available_models: [],
+						active_run: false,
+						remediation: null,
+					},
+				],
+			},
+		});
+		expect(useProjectStore.getState().deriveReadinessPill()).toMatchObject({
+			label: "Unverified",
+			tone: "warn",
+			detailLabel: "Unverified · agy",
+		});
+
+		useProjectStore.setState({
+			readiness: {
+				providers: [
+					{
+						provider: "agy",
+						status: "MISSING_PREREQ",
+						credential_source: "none",
+						missing_prereqs: ["agy binary not found"],
+						available_models: [],
+						active_run: false,
+						remediation: rem,
+					},
+				],
+			},
+		});
+		expect(useProjectStore.getState().deriveReadinessPill()).toMatchObject({
+			label: "Action Needed",
+			tone: "danger",
+			detailLabel: "Action Needed · agy",
+		});
+
+		// fetchReadiness is non-throwing and preserves existing state on failure
+		globalThis.fetch = (async () => {
+			throw new Error("network down");
+		}) as unknown as typeof fetch;
+		await useProjectStore.getState().fetchReadiness();
+		expect(useProjectStore.getState().readiness?.providers[0]?.status).toBe(
+			"MISSING_PREREQ",
+		);
+
+		// bootstrapRoute populates readiness
+		installMockFetch([]);
+		await useProjectStore.getState().bootstrapRoute("/", "");
+		expect(useProjectStore.getState().readiness?.providers.length).toBe(4);
+		expect(useProjectStore.getState().deriveReadinessPill().label).toBe(
+			"Ready",
+		);
+
+		// RemediationList inside <dialog>: zero [aria-live] & zero <output>, Copy announces
+		const dlgWrap = win.document.createElement("div");
+		win.document.body.appendChild(dlgWrap);
+		const dlgRoot = createRoot(dlgWrap as unknown as Element);
+		flushSync(() => {
+			dlgRoot.render(
+				createElement(
+					"dialog",
+					{ open: true },
+					createElement(RemediationList, { remediation: rem }),
+				),
+			);
+		});
+		expect(dlgWrap.querySelectorAll("[aria-live], output").length).toBe(0);
+		expect(dlgWrap.textContent).toContain("Interactive terminal");
+		const copyBtn = dlgWrap.querySelector("button");
+		flushSync(() => copyBtn?.click());
+		await new Promise((r) => setTimeout(r, 10));
+		expect(useProjectStore.getState().liveAnnouncements.polite).toContain(
+			"Copied command:",
+		);
+		dlgRoot.unmount();
+		dlgWrap.remove();
+
+		// RunControlDialog: zero <output> even on HOLD_REQUESTED & omits <= 0 fields on raise-budget
+		const postedBodies: Record<string, unknown>[] = [];
+		globalThis.fetch = (async (_u: RequestInfo | URL, init?: RequestInit) => {
+			if (init?.body)
+				postedBodies.push(
+					JSON.parse(String(init.body)) as Record<string, unknown>,
+				);
+			return new Response(JSON.stringify(mkRun({ status: "RUNNING" })));
+		}) as unknown as typeof fetch;
+
+		useProjectStore.setState({ activeProject: mkProject("p1") });
+		const rcWrap = win.document.createElement("div");
+		win.document.body.appendChild(rcWrap);
+		const rcRoot = createRoot(rcWrap as unknown as Element);
+		flushSync(() => {
+			rcRoot.render(
+				createElement(RunControlDialog, {
+					open: true,
+					onClose: () => undefined,
+					run: mkRun({ status: "HOLD_REQUESTED" }),
+				}),
+			);
+		});
+		expect(
+			rcWrap.querySelectorAll("dialog [aria-live], dialog output").length,
+		).toBe(0);
+		rcRoot.unmount();
+
+		const rcRoot2 = createRoot(rcWrap as unknown as Element);
+		flushSync(() => {
+			rcRoot2.render(
+				createElement(RunControlDialog, {
+					open: true,
+					onClose: () => undefined,
+					run: mkRun({ status: "RUNNING" }),
+					initialMode: "raise-budget",
+				}),
+			);
+		});
+		const numInputs = Array.from(
+			rcWrap.querySelectorAll('input[type="number"]'),
+		) as unknown as HTMLInputElement[];
+		expect(numInputs.length).toBe(3);
+		const proto = win.HTMLInputElement.prototype;
+		const setVal = (el: HTMLInputElement, val: string) => {
+			Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(el, val);
+			el.dispatchEvent(
+				new win.Event("input", { bubbles: true }) as unknown as Event,
+			);
+		};
+		flushSync(() => {
+			if (numInputs[1]) setVal(numInputs[1], "0");
+			if (numInputs[2]) setVal(numInputs[2], "0");
+		});
+		const submitBtn = rcWrap.querySelector(
+			'button[type="submit"]',
+		) as HTMLButtonElement | null;
+		expect(submitBtn?.disabled).toBe(false);
+		flushSync(() => {
+			const form = rcWrap.querySelector("form") as unknown as Element | null;
+			form?.dispatchEvent(
+				new win.Event("submit", {
+					bubbles: true,
+					cancelable: true,
+				}) as unknown as Event,
+			);
+		});
+		await new Promise((r) => setTimeout(r, 10));
+		expect(postedBodies[0]).toEqual({ action: "raise-budget", extra_turns: 4 });
+		flushSync(() => {
+			if (numInputs[0]) setVal(numInputs[0], "0");
+		});
+		expect(submitBtn?.disabled).toBe(true);
+		rcRoot2.unmount();
+		rcWrap.remove();
 	});
 });

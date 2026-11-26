@@ -23,25 +23,37 @@ from opendv_stage_commands import (
 TERMINAL_ONTOLOGY_STATUSES = {
     "COMPLETED",
     "FAILED",
-    "CANCELLED",
-    "HOLD_REQUESTED",
-    "BUDGET_EXCEEDED",
+    "HOLD_CHECKPOINTED",
+    "UNCERTIFIED_DRAFT",
 }
 
 
-def cmd_doctor(client: OpenDVClient) -> dict[str, Any]:
-    """Probe loopback health, settings, registered agents, and connector adapters."""
-    health = client.get_json("/api/v1/health")
-    settings = client.get_json("/api/v1/settings")
-    agents = client.get_json("/api/v1/agents")
-    adapters = client.get_json("/api/v1/sources/adapters")
-    return {
-        "api_url": client.api_url,
-        "health": health,
-        "settings": settings,
-        "agents": agents,
-        "source_adapters": adapters,
-    }
+def cmd_doctor(client: OpenDVClient, args: argparse.Namespace) -> dict[str, Any]:
+    """Run read-only `/api/v1/system/doctor`, optionally probing the active harness first."""
+    probed: dict[str, Any] | None = None
+    if args.probe:
+        settings = client.get_json("/api/v1/settings")
+        probed = dict(
+            client.post_json(
+                "/api/v1/agents/readiness/test",
+                {"provider": settings["harness_provider"]},
+            )
+        )
+    doc = dict(client.get_json("/api/v1/system/doctor"))
+    if probed is not None:
+        providers = doc["readiness"]["providers"]
+        orig_rec = next((p for p in providers if p["provider"] == probed["provider"]), None)
+        doc["readiness"]["providers"] = [
+            probed if p["provider"] == probed["provider"] else p for p in providers
+        ]
+        if probed["provider"] == doc["harness_provider"]:
+            remediations = list(doc.get("remediation") or [])
+            if orig_rec and orig_rec.get("remediation") and remediations:
+                remediations = remediations[1:]
+            if probed.get("remediation"):
+                remediations.insert(0, probed["remediation"])
+            doc["remediation"] = remediations
+    return {"api_url": client.api_url, **doc}
 
 
 def cmd_configure_harness(client: OpenDVClient, args: argparse.Namespace) -> dict[str, Any]:
@@ -148,12 +160,14 @@ def cmd_ingest_parse(client: OpenDVClient, args: argparse.Namespace) -> dict[str
 def cmd_discover_commit(client: OpenDVClient, args: argparse.Namespace) -> dict[str, Any]:
     """Run ontology discovery, optional Ask FIBO Q&A, CAS commit, and ontology export."""
     project_id = args.project_id
+    construct_body: dict[str, Any] = {}
+    if args.discovery_mode is not None:
+        construct_body["discovery_mode"] = args.discovery_mode
+    if args.hint:
+        construct_body["hint"] = args.hint
     run_state = client.post_json(
         f"/api/v1/projects/{project_id}/ontology/construct",
-        {
-            "discovery_mode": args.discovery_mode,
-            "hint": args.hint,
-        },
+        construct_body,
     )
     run_id = str(run_state.get("run_id") or "")
     if args.wait and run_id:
@@ -189,6 +203,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_doc = sub.add_parser("doctor")
+    p_doc.add_argument("--probe", action="store_true")
     p_doc.add_argument("--output")
 
     p_cfg = sub.add_parser("configure-harness")
@@ -221,7 +236,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_disc = sub.add_parser("discover-commit")
     p_disc.add_argument("--project-id", required=True)
-    p_disc.add_argument("--discovery-mode", default="incremental_new")
+    p_disc.add_argument("--discovery-mode", default=None)
     p_disc.add_argument("--hint", default="")
     p_disc.add_argument("--fibo-question")
     p_disc.add_argument("--export-format", default="yaml", choices=["yaml", "json", "ttl"])
@@ -231,7 +246,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_vault = sub.add_parser("evolve-vault")
     p_vault.add_argument("--project-id", required=True)
-    p_vault.add_argument("--policy", default="balanced")
+    p_vault.add_argument("--policy", default=None)
     p_vault.add_argument("--targets", default="")
     p_vault.add_argument("--dbt-dialect", default="postgres")
     p_vault.add_argument("--run-id")
@@ -276,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
     client = OpenDVClient(args.api_url, rps=args.rps)
     try:
         dispatch = {
-            "doctor": lambda: cmd_doctor(client),
+            "doctor": lambda: cmd_doctor(client, args),
             "configure-harness": lambda: cmd_configure_harness(client, args),
             "list-contracts": lambda: cmd_list_contracts(client, args),
             "ingest-parse": lambda: cmd_ingest_parse(client, args),

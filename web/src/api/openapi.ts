@@ -131,6 +131,13 @@ export type SqlQueryReq = S["SqlQueryReq"];
 export type SqlQueryResult = S["SqlQueryResult"];
 export type ProblemDetails = S["ProblemDetails"];
 export type ErrorCode = S["ErrorCode"];
+export type RemediationAction = S["RemediationAction"];
+export type ErrorRemediation = S["ErrorRemediation"];
+export type ModelOption = S["ModelOption"];
+export type ProviderReadinessRecord = S["ProviderReadinessRecord"];
+export type ReadinessResponse = S["ReadinessResponse"];
+export type ReadinessTestReq = S["ReadinessTestReq"];
+export type RevokeTrustedWorkspaceReq = S["RevokeTrustedWorkspaceReq"];
 
 export type CegarPolicy = NonNullable<RunStateResp["policy"]>;
 export type DiscoveryMode = ProjectSettingsSnapshot["discovery_mode"];
@@ -142,11 +149,14 @@ const P = "/api/v1/projects/{project_id}" as const;
 export const API_ROUTES = {
 	health: "/api/v1/health",
 	settings: "/api/v1/settings",
+	settingsRevokeTrustedWorkspace: "/api/v1/settings/trusted-workspaces/revoke",
 	secrets: "/api/v1/secrets",
 	secret: "/api/v1/secrets/{key}",
 	mcpServers: "/api/v1/mcp/servers",
 	mcpServer: "/api/v1/mcp/servers/{server_id}",
 	agents: "/api/v1/agents",
+	agentsReadiness: "/api/v1/agents/readiness",
+	agentsReadinessTest: "/api/v1/agents/readiness/test",
 	agent: "/api/v1/agents/{agent_id}",
 	fiboQaGlobal: "/api/v1/ontology/fibo-qa",
 	projects: "/api/v1/projects",

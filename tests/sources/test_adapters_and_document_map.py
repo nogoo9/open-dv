@@ -8,7 +8,9 @@ import struct
 import sys
 import time
 import zipfile
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import docx
@@ -17,9 +19,11 @@ import openpyxl
 import pytest
 
 from opendv.models.errors import ErrorCode, OpenDVError
+from opendv.sources._extractors import dispatch_structured_extract
 from opendv.sources.adapters import (
     SOURCE_ADAPTERS,
     UPLOAD_EXT_TO_KIND,
+    extract_structured_source,
     infer_kind_from_filename,
     list_source_adapters,
     open_databricks_connection,
@@ -275,7 +279,10 @@ def test_databricks_ssrf_cidrs_redirects_driver_missing_and_pii_tags() -> None:
         validate_sql_identifier("prod; DROP TABLE x")
     assert id_exc.value.error_code == ErrorCode.SYNTAX_INVALID_ARGUMENT
 
-    with patch("opendv.sources.adapters.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("52.1.2.3", 0))]):
+    with (
+        patch("opendv.sources.adapters.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("52.1.2.3", 0))]),
+        patch("opendv.sources.adapters.import_module", side_effect=ImportError("no databricks.sql")),
+    ):
         with pytest.raises(OpenDVError) as drv_exc:
             open_databricks_connection(
                 host="https://adb-12345.1.azuredatabricks.net",
@@ -555,3 +562,234 @@ def test_corrupt_binary_files_map_to_syntax_invalid_argument(tmp_path: Path) -> 
     with pytest.raises(OpenDVError) as enc_exc:
         profile_source("src_enc_xlsx", "xlsx", str(enc_xlsx))
     assert enc_exc.value.error_code == ErrorCode.SYNTAX_INVALID_ARGUMENT
+
+
+def _make_fake_databricks_module(captured_connects: list[dict[str, Any]]) -> Any:
+    class _FakeDbSqlModule:
+        @staticmethod
+        def connect(*, server_hostname: str, http_path: str, access_token: str | None) -> Any:
+            captured_connects.append(
+                {
+                    "server_hostname": server_hostname,
+                    "http_path": http_path,
+                    "access_token": access_token,
+                }
+            )
+            cur = MagicMock()
+            cur.fetchall.side_effect = [
+                [("clients",)],
+                [("client_id", "STRING", "NO"), ("email", "STRING", "YES")],
+                [],
+                [("C-1", "alice@example.com")],
+            ]
+            cur.fetchone.side_effect = [(1,), (0, 1), (0, 1)]
+            conn = MagicMock()
+            conn.cursor.return_value = cur
+            return conn
+
+    return _FakeDbSqlModule()
+
+
+def test_databricks_access_token_threading_and_host_fallback() -> None:
+    """Phase 1 Layer 2: thread access_token and uri_or_path host fallback across profiler/adapters/_extractors."""
+    captured_connects: list[dict[str, Any]] = []
+    fake_mod = _make_fake_databricks_module(captured_connects)
+
+    def fake_import(name: str) -> Any:
+        assert name == "databricks.sql"
+        return fake_mod
+
+    with (
+        patch(
+            "opendv.sources.adapters.socket.getaddrinfo",
+            return_value=[(2, 1, 6, "", ("52.1.2.3", 0))],
+        ),
+        patch("opendv.sources.adapters.import_module", side_effect=fake_import),
+    ):
+        prof = profile_source(
+            "src_db_prof",
+            "databricks_uc",
+            "  https://adb-uri.azuredatabricks.net  ",
+            options={"catalog": "prod", "schema": "core", "http_path": "/sql/1.0/warehouses/wh1"},
+            secret_refs=[],
+            access_token="dapi-profile-tok",
+        )
+        assert prof.table_count == 1
+        assert captured_connects[-1] == {
+            "server_hostname": "adb-uri.azuredatabricks.net",
+            "http_path": "/sql/1.0/warehouses/wh1",
+            "access_token": "dapi-profile-tok",
+        }
+
+        preview = preview_table(
+            "src_db_prev",
+            "databricks_uc",
+            "https://adb-uri.azuredatabricks.net",
+            "clients",
+            options={"catalog": "prod", "schema": "core", "http_path": "/sql/1.0/warehouses/wh1"},
+            secret_refs=[],
+            access_token="dapi-preview-tok",
+        )
+        assert preview.rows == [["C-1", "<MASKED_PII>"]]
+        assert captured_connects[-1]["access_token"] == "dapi-preview-tok"
+
+        # Whitespace-only or non-str options['host'] falls back to uri_or_path.strip()
+        profile_source(
+            "src_db_ws",
+            "databricks_uc",
+            "https://adb-fallback.azuredatabricks.net",
+            options={
+                "host": "   ",
+                "catalog": "prod",
+                "schema": "core",
+                "http_path": "/sql/1.0/warehouses/wh1",
+            },
+            secret_refs=[],
+            access_token="dapi-ws-tok",
+        )
+        assert captured_connects[-1]["server_hostname"] == "adb-fallback.azuredatabricks.net"
+
+        profile_source(
+            "src_db_nonstr",
+            "databricks_uc",
+            "https://adb-nonstr.azuredatabricks.net",
+            options={
+                "host": 123,
+                "catalog": "prod",
+                "schema": "core",
+                "http_path": "/sql/1.0/warehouses/wh1",
+            },
+            secret_refs=[],
+            access_token="dapi-nonstr-tok",
+        )
+        assert captured_connects[-1]["server_hostname"] == "adb-nonstr.azuredatabricks.net"
+
+        # Explicit non-empty options['host'] takes precedence over uri_or_path
+        profile_source(
+            "src_db_opt",
+            "databricks_uc",
+            "https://adb-uri.azuredatabricks.net",
+            options={
+                "host": "  https://adb-from-opt.azuredatabricks.net  ",
+                "catalog": "prod",
+                "schema": "core",
+                "http_path": "/sql/1.0/warehouses/wh1",
+            },
+            secret_refs=[],
+            access_token="dapi-opt-tok",
+        )
+        assert captured_connects[-1]["server_hostname"] == "adb-from-opt.azuredatabricks.net"
+
+    # Direct dispatch_structured_extract check with typed open_conn_fn
+    open_calls: list[dict[str, Any]] = []
+
+    def fake_open(
+        *,
+        host: str,
+        http_path: str,
+        access_token: str | None = None,
+        secret_refs: Sequence[str] = (),
+        options: Mapping[str, Any] | None = None,
+    ) -> Any:
+        open_calls.append(
+            {
+                "host": host,
+                "http_path": http_path,
+                "access_token": access_token,
+                "secret_refs": list(secret_refs),
+                "options": dict(options or {}),
+            }
+        )
+        return fake_mod.connect(
+            server_hostname=host,
+            http_path=http_path,
+            access_token=access_token,
+        )
+
+    dispatch_structured_extract(
+        "databricks_uc",
+        "https://adb-dispatch.azuredatabricks.net",
+        options={"catalog": "prod", "http_path": "/sql/1.0/warehouses/wh1"},
+        access_token="dapi-dispatch-tok",
+        validate_ident_fn=validate_sql_identifier,
+        open_conn_fn=fake_open,
+    )
+    assert open_calls == [
+        {
+            "host": "https://adb-dispatch.azuredatabricks.net",
+            "http_path": "/sql/1.0/warehouses/wh1",
+            "access_token": "dapi-dispatch-tok",
+            "secret_refs": [],
+            "options": {"catalog": "prod", "http_path": "/sql/1.0/warehouses/wh1"},
+        }
+    ]
+
+
+def test_databricks_required_catalog_http_path_and_secret_ref_policy() -> None:
+    """Databricks requires catalog & http_path, blocks SSRF when host & URI blank, and honors secret policy."""
+    mock_conn = MagicMock()
+    with pytest.raises(OpenDVError) as cat_exc:
+        profile_source(
+            "src_no_cat",
+            "databricks_uc",
+            "databricks://prod/core",
+            options={"schema": "core", "_connection": mock_conn},
+        )
+    assert cat_exc.value.error_code == ErrorCode.SYNTAX_INVALID_ARGUMENT
+
+    with patch(
+        "opendv.sources.adapters.socket.getaddrinfo",
+        return_value=[(2, 1, 6, "", ("52.1.2.3", 0))],
+    ):
+        with pytest.raises(OpenDVError) as blank_host_exc:
+            extract_structured_source(
+                "databricks_uc",
+                "",
+                options={"host": 123, "catalog": "prod", "http_path": "/sql/1.0/warehouses/wh1"},
+                access_token="dapi-ok",
+            )
+        assert blank_host_exc.value.error_code == ErrorCode.DATABRICKS_SSRF_BLOCKED
+
+        with pytest.raises(OpenDVError) as missing_http_exc:
+            extract_structured_source(
+                "databricks_uc",
+                "https://adb-ok.azuredatabricks.net",
+                options={"catalog": "prod"},
+                access_token="dapi-ok",
+            )
+        assert missing_http_exc.value.error_code == ErrorCode.SYNTAX_INVALID_ARGUMENT
+
+        with pytest.raises(OpenDVError) as no_sec_exc:
+            open_databricks_connection(
+                host="https://adb-ok.azuredatabricks.net",
+                http_path="/sql/1.0/warehouses/wh1",
+                access_token=None,
+                secret_refs=[],
+            )
+        assert no_sec_exc.value.error_code == ErrorCode.NEEDS_LOCAL_SECRET_BINDING
+
+        with pytest.raises(OpenDVError) as pt_exc:
+            open_databricks_connection(
+                host="https://adb-ok.azuredatabricks.net",
+                http_path="/sql/1.0/warehouses/wh1",
+                access_token="dapi-ok",
+                secret_refs=[],
+                options={"token": "plaintext"},
+            )
+        assert pt_exc.value.error_code == ErrorCode.SYNTAX_INVALID_ARGUMENT
+
+        # Valid token with secret_refs=[] proceeds past validation to import_module
+        with patch("opendv.sources.adapters.import_module", side_effect=ImportError("missing")):
+            with pytest.raises(OpenDVError) as drv_exc:
+                open_databricks_connection(
+                    host="https://adb-ok.azuredatabricks.net",
+                    http_path="/sql/1.0/warehouses/wh1",
+                    access_token="dapi-ok",
+                    secret_refs=[],
+                )
+            assert drv_exc.value.error_code == ErrorCode.DRIVER_MISSING
+
+    validate_databricks_options({"catalog": "prod"}, secret_refs=[], require_secret_ref=False)
+    with pytest.raises(OpenDVError) as req_ref_exc:
+        validate_databricks_options({"catalog": "prod"}, secret_refs=[])
+    assert req_ref_exc.value.error_code == ErrorCode.NEEDS_LOCAL_SECRET_BINDING

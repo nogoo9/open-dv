@@ -1,8 +1,10 @@
 # Harness Readiness Diagnostics & CLI Configuration Parity
 
 * **Author:** Eterna2
-* **Status:** RFC (Brainstorm Brief)
+* **Status:** Superseded by [harness-readiness-and-cli-parity-design.md](harness-readiness-and-cli-parity-design.md)
 * **Date:** 2026-11-25
+
+> **Supersession Notice:** Superseded by [`harness-readiness-and-cli-parity-design.md`](harness-readiness-and-cli-parity-design.md), which resolves empirical probe findings (Gemini HTTP `400 INVALID_ARGUMENT` / `API_KEY_INVALID` auth mapping, `agy` OAuth non-hijack rule, `claude-cli` API-key remote validation) and locks simplified user-global secrets (`secret_keys.json`), minimal `readiness.json` caching, bounded lease TTLs, `ProblemDetails.remediation`, full `11`-group / `53`-subcommand CLI parity, and Step 4/6 new-run snapshot wiring (retiring `.env` auto-loading, `40s` lease heartbeats, `opendv auth login`, Web OAuth spawning, and dual-scope Web Settings editing).
 
 ## Overview
 

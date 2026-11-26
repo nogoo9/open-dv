@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import threading
 from pathlib import Path
 
@@ -28,14 +27,20 @@ from tests.helpers.secret_backends import (
 )
 
 
-def test_workspace_digest_isolation_and_canonical_paths(tmp_path: Path) -> None:
+def test_user_global_keyring_manifest_flat_secrets_and_env_short_circuit(
+    tmp_path: Path,
+) -> None:
     ws_a = tmp_path / "Workspace_Alpha"
     ws_b = tmp_path / "Workspace_Beta"
     ws_a.mkdir()
     ws_b.mkdir()
     state_dir = tmp_path / "user_state"
+    acl_helper = OwnerAclStateHelper(state_dir)
 
     kr = InMemoryKeyringBackend()
+    assert probe_keyring_available(kr) is True
+    assert ("get", "opendv", "__opendv_probe__") in kr.calls
+
     store_a = KeyringSecretStore(
         ws_a,
         state_dir=state_dir,
@@ -50,41 +55,109 @@ def test_workspace_digest_isolation_and_canonical_paths(tmp_path: Path) -> None:
         keyring_backend=kr,
         environ={},
     )
+    assert store_a.service_name == "opendv"
+    assert store_a.secret_keys_path == acl_helper.secret_keys_path
 
-    store_a.set_secret("DATABRICKS_TOKEN", "dapi-secret-alpha-123")
-    assert store_a.get_secret("DATABRICKS_TOKEN") == "dapi-secret-alpha-123"
-    assert store_b.get_secret("DATABRICKS_TOKEN") is None
+    # Seed stale secrets.json value to verify keyring rotation cleans it up
+    acl_helper.write_secrets_payload({"schema_version": "2.0", "secrets": {"DB_TOKEN": "stale-val"}})
+    store_a.set_secret("DB_TOKEN", "dapi-global-123")
+    assert store_b.get_secret("DB_TOKEN") == "dapi-global-123"
+    assert acl_helper.verify_owner_only(acl_helper.secret_keys_path) is True
+    manifest = json.loads(acl_helper.secret_keys_path.read_text(encoding="utf-8"))
+    assert manifest == {"schema_version": "2.0", "keys": ["DB_TOKEN"]}
+    stale_data = json.loads(acl_helper.secrets_path.read_text(encoding="utf-8"))
+    assert "DB_TOKEN" not in stale_data["secrets"]
 
-    # Canonical alias variant (relative segment + forward slash; case variant on Windows)
-    alias_raw = str(ws_a / ".").replace("\\", "/") + "/"
-    if os.name == "nt":
-        alias_raw = alias_raw.upper()
-    store_a_alias = KeyringSecretStore(
-        alias_raw,
+    # Restart-persistent listing via fresh KeyringSecretStore instance
+    restarted = KeyringSecretStore(
+        ws_b,
         state_dir=state_dir,
         settings=WorkspaceSettings(secret_backend="keyring"),
         keyring_backend=kr,
         environ={},
     )
-    assert store_a_alias.workspace_digest == store_a.workspace_digest
-    assert store_a_alias.get_secret("DATABRICKS_TOKEN") == "dapi-secret-alpha-123"
+    assert [s.key for s in restarted.list_secret_summaries()] == ["DB_TOKEN"]
+    restarted.delete_secret("DB_TOKEN")
+    assert json.loads(acl_helper.secret_keys_path.read_text(encoding="utf-8"))["keys"] == []
 
-    # Also verify isolation in user_state_file mode
-    file_a = KeyringSecretStore(
+    # Legacy workspaces-scoped secrets.json raises clear INTERNAL_SERVER_ERROR
+    acl_helper.write_secrets_payload({"schema_version": "2.0", "workspaces": {"abc": {"K": "V"}}})
+    file_store = KeyringSecretStore(
         ws_a,
         state_dir=state_dir,
         settings=WorkspaceSettings(secret_backend="user_state_file"),
         environ={},
     )
-    file_b = KeyringSecretStore(
-        ws_b,
-        state_dir=state_dir,
-        settings=WorkspaceSettings(secret_backend="user_state_file"),
-        environ={},
+    with pytest.raises(OpenDVError) as leg_exc:
+        file_store.get_secret("K")
+    assert leg_exc.value.error_code == ErrorCode.INTERNAL_SERVER_ERROR
+    assert "workspaces" in leg_exc.value.detail
+
+    # Corrupt secret_keys.json and non-owner ACL fail closed
+    acl_helper.secret_keys_path.write_text("{bad-json", encoding="utf-8")
+    with pytest.raises(OpenDVError) as bad_manifest_exc:
+        restarted.list_secret_summaries()
+    assert bad_manifest_exc.value.error_code == ErrorCode.INTERNAL_SERVER_ERROR
+
+    acl_helper.secret_keys_path.write_text(
+        json.dumps({"schema_version": "2.0", "keys": ["K1"]}), encoding="utf-8"
     )
-    file_a.set_secret("OPENAI_API_KEY", "sk-alpha-file-secret")
-    assert file_a.get_secret("OPENAI_API_KEY") == "sk-alpha-file-secret"
-    assert file_b.get_secret("OPENAI_API_KEY") is None
+    acl_helper.apply_owner_only(acl_helper.secret_keys_path)
+    acl_helper.grant_non_owner_access(acl_helper.secret_keys_path)
+    with pytest.raises(OpenDVError) as acl_exc:
+        restarted.list_secret_summaries()
+    assert acl_exc.value.error_code == ErrorCode.INTERNAL_SERVER_ERROR
+    acl_helper.apply_owner_only(acl_helper.secret_keys_path)
+
+    # env_first short-circuit never touches locked keyring on get_secret_with_source or include_stored=False
+    locked_kr = FailingKeyringBackend(error_cls=keyring.errors.KeyringLocked)
+    env_store = KeyringSecretStore(
+        ws_a,
+        state_dir=state_dir,
+        settings=WorkspaceSettings(secret_backend="keyring", secret_precedence="env_first"),
+        keyring_backend=locked_kr,
+        environ={"ANTHROPIC_API_KEY": "sk-ant-env-only-123"},
+        allow_headless_fallback=False,
+    )
+    assert env_store.get_secret_with_source("ANTHROPIC_API_KEY") == ("sk-ant-env-only-123", "env")
+    env_sums = env_store.list_secret_summaries(["ANTHROPIC_API_KEY"], include_stored=False)
+    assert env_sums[0].backend == "env" and env_sums[0].present is True
+    assert locked_kr.calls == []
+
+    # Headless keyring fallback with non-empty secret_keys.json merges secrets.json keys
+    acl_helper.write_secrets_payload({"schema_version": "2.0", "secrets": {"K2": "v2"}})
+    fallback_kr = FailingKeyringBackend(error_cls=keyring.errors.NoKeyringError)
+    fallback_store = KeyringSecretStore(
+        ws_a,
+        state_dir=state_dir,
+        settings=WorkspaceSettings(secret_backend="keyring"),
+        keyring_backend=fallback_kr,
+        environ={},
+        allow_headless_fallback=True,
+    )
+    merged = {s.key: s for s in fallback_store.list_secret_summaries(include_stored=True)}
+    assert merged["K2"].present is True and merged["K2"].backend == "user_state_file"
+    assert "K1" not in merged
+
+    # Gemini key resolution checks GEMINI_API_KEY before GOOGLE_API_KEY per precedence tier
+    gem_kr = InMemoryKeyringBackend()
+    gem_env = {"GEMINI_API_KEY": "AIzaEnvGem1234567890"}
+    gem_store = KeyringSecretStore(
+        ws_a,
+        state_dir=state_dir,
+        settings=WorkspaceSettings(secret_backend="keyring", secret_precedence="store_first"),
+        keyring_backend=gem_kr,
+        environ=gem_env,
+    )
+    gem_store.set_secret("GOOGLE_API_KEY", "AIzaStoreGoogle1234567890")
+    assert gem_store.resolve_gemini_api_key_with_source() == (
+        "AIzaStoreGoogle1234567890",
+        "keyring",
+    )
+    assert gem_store.resolve_gemini_api_key_with_source(cli_env_first=True) == (
+        "AIzaEnvGem1234567890",
+        "env",
+    )
 
 
 def test_secret_precedence_matrix(tmp_path: Path) -> None:
@@ -268,6 +341,8 @@ def test_missing_secret_binding_preserves_connector_config_and_zero_secrets_on_d
     assert exc_info.value.error_code == ErrorCode.NEEDS_LOCAL_SECRET_BINDING
     assert exc_info.value.http_status == 422
     assert int(exc_info.value.exit_code) == 2
+    assert exc_info.value.remediation is not None
+    assert "DATABRICKS_TOKEN" in exc_info.value.remediation.summary
 
     # Connector config remains intact even when secret is missing
     reloaded = settings_store.load_settings()

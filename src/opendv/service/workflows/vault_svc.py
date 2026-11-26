@@ -29,6 +29,7 @@ from opendv.models.wire_dtos_vault import (
     WaiverSubmitReq,
 )
 from opendv.service.guided_translator import GuidedUxTranslator
+from opendv.service.readiness import HarnessReadinessService
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.state_store import ProjectStateManager
 from opendv.service.workflows._run_adapters import (
@@ -36,6 +37,8 @@ from opendv.service.workflows._run_adapters import (
     ServiceRunCheckpointStore,
     ServiceRunEventSink,
     acquire_project_job_lease,
+    coalesce_snapshot_budget,
+    compute_job_lease_ttl,
     enqueue_control_signal,
     list_run_attempts,
     load_active_certified_ir,
@@ -51,6 +54,7 @@ from opendv.service.workflows._vault_helpers import (
     load_verifier_inputs,
     persist_cegar_result,
     prepare_resume_cegar_request,
+    resolve_step6_v7_tier,
     save_horizon_assumption_revision,
 )
 from opendv.storage.prover.duckdb_prover import DuckDbProverAdapter
@@ -97,11 +101,13 @@ class VaultService:
         secret_store: KeyringSecretStore,
         workspace_root: Path,
         injected_harness: AgentHarnessPort | None = None,
+        readiness_service: HarnessReadinessService | None = None,
     ) -> None:
         self._state = state_manager
         self._secrets = secret_store
         self._workspace_root = workspace_root
         self._injected_harness = injected_harness
+        self._readiness_service = readiness_service
         self._translator = GuidedUxTranslator()
 
     async def build_vault(
@@ -113,6 +119,8 @@ class VaultService:
     ) -> RunStateResp:
         """Start and execute a Step 6 CEGAR synthesis run wired with DuckDbProverAdapter."""
         proj = self._state.get_project(project_id)
+        snap = proj.settings_snapshot
+        effective_policy: CegarPolicy = req.policy or snap.cegar_policy
         (
             ontology,
             profiles,
@@ -122,22 +130,29 @@ class VaultService:
             assumptions,
             ctx,
         ) = load_verifier_inputs(self._state, self._workspace_root, project_id)
-        ctx = ctx.model_copy(update={"policy": req.policy})
+        ctx = ctx.model_copy(update={"policy": effective_policy})
         harness = resolve_harness(
-            proj.settings_snapshot,
+            snap,
             self._secrets,
             injected_harness=self._injected_harness,
+            readiness_service=self._readiness_service,
         )
         eff_run_id = run_id or f"run6-{uuid.uuid4().hex[:10]}"
-        acquire_project_job_lease(self._state, project_id, eff_run_id)
+        budget = coalesce_snapshot_budget(CEGAR_POLICY_SPECS[effective_policy].budget, snap)
+        v7_tier = resolve_step6_v7_tier(effective_policy, snap)
+        acquire_project_job_lease(
+            self._state,
+            project_id,
+            eff_run_id,
+            ttl_seconds=compute_job_lease_ttl(budget.max_turns, budget.timeout_seconds),
+        )
 
-        budget = CEGAR_POLICY_SPECS[req.policy].budget
         running = RunStateResp(
             run_id=eff_run_id,
             project_id=project_id,
             step="step6",
             status="RUNNING",
-            policy=req.policy,
+            policy=effective_policy,
             phase="cegar_synthesis",
             attempt=0,
             budget_turns_used=0,
@@ -155,8 +170,10 @@ class VaultService:
                 ontology=ontology,
                 profiles=profiles,
                 clusters=clusters,
-                policy=req.policy,
+                policy=effective_policy,
                 budget=budget,
+                v7_critic_tier=v7_tier,
+                model_overrides=dict(snap.model_overrides),
                 evolution_locks=locks,
                 prior_certified_ir=prior_ir,
                 verifier_ctx=ctx,
@@ -172,7 +189,7 @@ class VaultService:
                 self._state,
                 project_id=project_id,
                 run_id=eff_run_id,
-                policy=req.policy,
+                policy=effective_policy,
                 ontology_rev_id=proj.active_ontology_rev_id,
                 prior_wave_rev_id=proj.active_wave_id,
                 result=result,
@@ -223,8 +240,12 @@ class VaultService:
         horizon_req: HorizonActionReq | None = None,
     ) -> RunStateResp:
         proj = self._state.get_project(project_id)
+        prior_state = load_latest_run_state(self._state, project_id, run_id)
         harness = resolve_harness(
-            proj.settings_snapshot, self._secrets, injected_harness=self._injected_harness
+            proj.settings_snapshot,
+            self._secrets,
+            injected_harness=self._injected_harness,
+            readiness_service=self._readiness_service,
         )
         ont_rev_id, prior_wave_rev_id, cegar_req = prepare_resume_cegar_request(
             self._state,
@@ -234,11 +255,20 @@ class VaultService:
             policy=prior_res.policy,
             harness=harness,
             prior_res=prior_res,
+            prior_state=prior_state,
         )
-        running_state = load_latest_run_state(self._state, project_id, run_id).model_copy(
+        running_state = prior_state.model_copy(
             update={"status": "RUNNING", "phase": "horizon_review"}
         )
-        acquire_project_job_lease(self._state, project_id, run_id)
+        acquire_project_job_lease(
+            self._state,
+            project_id,
+            run_id,
+            ttl_seconds=compute_job_lease_ttl(
+                prior_state.effective_max_turns,
+                prior_state.effective_timeout_seconds,
+            ),
+        )
         try:
             record_run_state(self._state, project_id, running_state)
             if horizon_req is not None:
@@ -284,9 +314,12 @@ class VaultService:
         ckpt = ckpt_store.load_checkpoint(run_id)
         prior_res = load_cegar_result(self._state, project_id, run_id)
         proj = self._state.get_project(project_id)
-        eff_policy: CegarPolicy = prior_state.policy or "balanced"
+        eff_policy: CegarPolicy = prior_state.policy or proj.settings_snapshot.cegar_policy
         harness = resolve_harness(
-            proj.settings_snapshot, self._secrets, injected_harness=self._injected_harness
+            proj.settings_snapshot,
+            self._secrets,
+            injected_harness=self._injected_harness,
+            readiness_service=self._readiness_service,
         )
         ont_rev_id, prior_wave_rev_id, cegar_req = prepare_resume_cegar_request(
             self._state,
@@ -299,9 +332,18 @@ class VaultService:
             ckpt_store=ckpt_store,
             checkpoint=ckpt,
             hold_answers=req,
+            prior_state=prior_state,
         )
         running_state = prior_state.model_copy(update={"status": "RUNNING", "phase": "resuming"})
-        acquire_project_job_lease(self._state, project_id, run_id)
+        acquire_project_job_lease(
+            self._state,
+            project_id,
+            run_id,
+            ttl_seconds=compute_job_lease_ttl(
+                prior_state.effective_max_turns,
+                prior_state.effective_timeout_seconds,
+            ),
+        )
         try:
             record_run_state(self._state, project_id, running_state)
             if horizon_req is not None:

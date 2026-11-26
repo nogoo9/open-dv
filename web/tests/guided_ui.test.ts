@@ -58,12 +58,16 @@ const { DVSchemaExplorerPage } = await import(
 );
 const { RunExplorerPage } = await import("../src/pages/RunExplorerPage");
 const { SettingsHub } = await import("../src/pages/SettingsHub");
+const { SettingsSecretsTab } = await import(
+	"../src/components/SettingsSecretsTab"
+);
 const { RunControlDialog } = await import("../src/components/RunControlDialog");
 
 import type {
 	CertifiedVaultIR,
 	GuidedRunView,
 	ProjectState,
+	ReadinessResponse,
 	RunStateResp,
 	WorkspaceSettings,
 } from "../src/api/openapi";
@@ -413,6 +417,7 @@ afterEach(() => {
 		failedVerifyWaveId: null,
 		settings: null,
 		settingsDraft: null,
+		readiness: null,
 		sqlQuery: "",
 		lastProblem: null,
 		ontologyBundle: null,
@@ -828,6 +833,78 @@ describe("Track C Guided UX, Observatory, Step 7, Explorers & Settings", () => {
 				if (init?.method === "PUT") return new Response(String(init.body));
 				return new Response(JSON.stringify(mkSettings()));
 			}
+			if (url.endsWith("/settings/trusted-workspaces/revoke")) {
+				return new Response(
+					JSON.stringify(mkSettings({ trusted_workspaces: [] })),
+				);
+			}
+			if (url.endsWith("/agents/readiness")) {
+				const rr: ReadinessResponse = {
+					providers: [
+						{
+							provider: "agy",
+							status: "MISSING_PREREQ",
+							credential_source: "none",
+							missing_prereqs: ["agy binary not found"],
+							available_models: [
+								{ id: "agy-pro", label: "Agy Pro", source: "default" },
+								{ id: "agy-std", label: "Agy Std", source: "default" },
+							],
+							active_run: false,
+							remediation: {
+								summary: "Install agy CLI or switch provider.",
+								actions: [
+									{
+										actor: "human",
+										label: "Install agy",
+										command: null,
+										requires_tty: true,
+									},
+								],
+							},
+						},
+						{
+							provider: "claude-cli",
+							status: "CONFIGURED_UNVERIFIED",
+							credential_source: "cli_login",
+							missing_prereqs: [],
+							available_models: [],
+							active_run: false,
+							remediation: null,
+						},
+						{
+							provider: "claude",
+							status: "VERIFIED",
+							credential_source: "store",
+							missing_prereqs: [],
+							available_models: [],
+							active_run: false,
+							remediation: null,
+						},
+						{
+							provider: "gemini",
+							status: "VERIFIED",
+							credential_source: "store",
+							missing_prereqs: [],
+							available_models: [
+								{
+									id: "gemini-2.5-pro",
+									label: "Gemini 2.5 Pro",
+									source: "default",
+								},
+								{
+									id: "gemini-2.5-flash",
+									label: "Gemini 2.5 Flash",
+									source: "default",
+								},
+							],
+							active_run: false,
+							remediation: null,
+						},
+					],
+				};
+				return new Response(JSON.stringify(rr));
+			}
 			if (url.endsWith("/sources/adapters")) return new Response("[]");
 			if (url.endsWith("/agents")) {
 				return new Response(
@@ -894,5 +971,318 @@ describe("Track C Guided UX, Observatory, Step 7, Explorers & Settings", () => {
 		expect(css).toContain("--primary-active: #a9583e");
 		expect(css).toContain("--primary-ink: #8f442d");
 		expect(css).toContain("--xy-controls-button-background-color: #181715");
+	});
+
+	test("Phase 5 Settings readiness card, <datalist> model matrix, inline bind, Switch to gemini, Tab 2/3 User-Global & Step 6 policy toggle preservation", async () => {
+		const posted: { url: string; body: unknown }[] = [];
+		let readinessCalls = 0;
+		let probeCalls = 0;
+		let listSecretsCalls = 0;
+		const mkReadiness = (
+			agyActiveRun = false,
+			geminiStatus: "MISSING_PREREQ" | "VERIFIED" = "MISSING_PREREQ",
+		): ReadinessResponse => ({
+			providers: [
+				{
+					provider: "agy",
+					status: "MISSING_PREREQ",
+					credential_source: "none",
+					missing_prereqs: ["agy missing"],
+					available_models: [
+						{ id: "agy-frontier", label: "Agy Frontier", source: "default" },
+					],
+					active_run: agyActiveRun,
+					active_run_id: agyActiveRun ? "run4-lock" : null,
+					remediation: {
+						summary: "Install agy or switch to gemini.",
+						actions: [
+							{
+								actor: "agent",
+								label: "Switch to gemini",
+								command: "uv run opendv settings set --harness-provider gemini",
+								requires_tty: false,
+							},
+						],
+					},
+				},
+				{
+					provider: "claude-cli",
+					status: "CONFIGURED_UNVERIFIED",
+					credential_source: "cli_login",
+					missing_prereqs: [],
+					available_models: [],
+					active_run: false,
+					remediation: null,
+				},
+				{
+					provider: "claude",
+					status: "VERIFIED",
+					credential_source: "store",
+					missing_prereqs: [],
+					available_models: [],
+					active_run: false,
+					remediation: null,
+				},
+				{
+					provider: "gemini",
+					status: geminiStatus,
+					credential_source: geminiStatus === "VERIFIED" ? "store" : "none",
+					missing_prereqs:
+						geminiStatus === "VERIFIED" ? [] : ["GEMINI_API_KEY"],
+					available_models: [
+						{
+							id: "gemini-2.5-pro",
+							label: "Gemini 2.5 Pro",
+							source: "default",
+						},
+					],
+					active_run: false,
+					remediation: null,
+				},
+			],
+		});
+
+		let currentGemini: "MISSING_PREREQ" | "VERIFIED" = "MISSING_PREREQ";
+		globalThis.fetch = (async (
+			input: RequestInfo | URL,
+			init?: RequestInit,
+		) => {
+			const url = String(input);
+			if (init?.method === "POST" || init?.method === "PUT") {
+				posted.push({
+					url,
+					body: init.body ? JSON.parse(String(init.body)) : null,
+				});
+			}
+			if (url.endsWith("/settings")) {
+				if (init?.method === "PUT") return new Response(String(init.body));
+				return new Response(
+					JSON.stringify(
+						mkSettings({
+							model_overrides: { FRONTIER_CRITIC: "agy-frontier" },
+						}),
+					),
+				);
+			}
+			if (url.endsWith("/agents/readiness")) {
+				readinessCalls += 1;
+				return new Response(JSON.stringify(mkReadiness(false, currentGemini)));
+			}
+			if (url.endsWith("/agents/readiness/test")) {
+				probeCalls += 1;
+				return new Response(
+					JSON.stringify({
+						type: "urn:opendv:error:project-job-active",
+						title: "Project Job Active",
+						status: 409,
+						detail: "Run active",
+						error_code: "PROJECT_JOB_ACTIVE",
+						category: "Resolution",
+						waivable: false,
+						rationale_required: false,
+						instance: null,
+						run_id: null,
+						diagnostics: [],
+						defect_report: null,
+						remediation: { summary: "Wait for active run.", actions: [] },
+					}),
+					{ status: 409 },
+				);
+			}
+			if (url.endsWith("/secrets") && init?.method === "POST") {
+				currentGemini = "VERIFIED";
+				return new Response(
+					JSON.stringify({
+						key: "GEMINI_API_KEY",
+						backend: "keyring",
+						present: true,
+					}),
+				);
+			}
+			if (url.includes("/secrets")) {
+				listSecretsCalls += 1;
+				return new Response("[]");
+			}
+			if (url.endsWith("/sources/adapters")) return new Response("[]");
+			if (url.endsWith("/agents")) {
+				return new Response(
+					JSON.stringify([
+						{
+							agent_id: "dv-horizon-critic",
+							name: "Horizon Critic",
+							role: "V8 Horizon Critic",
+							sha256: "abc",
+							source: "builtin",
+							stage: "step6",
+						},
+					]),
+				);
+			}
+			if (url.endsWith("/mcp/servers")) return new Response("[]");
+			if (url.endsWith("/sources/inspect")) {
+				return new Response(
+					JSON.stringify({
+						type: "urn:opendv:error:needs-local-secret-binding",
+						title: "Needs Local Secret Binding",
+						status: 422,
+						detail: "Missing DATABRICKS_TOKEN",
+						error_code: "NEEDS_LOCAL_SECRET_BINDING",
+						category: "Preconditions",
+						waivable: false,
+						rationale_required: false,
+						instance: null,
+						run_id: null,
+						diagnostics: [],
+						defect_report: null,
+						remediation: {
+							summary: "Bind DATABRICKS_TOKEN locally.",
+							actions: [
+								{
+									actor: "human",
+									label: "Bind token",
+									command:
+										"uv run opendv secrets set DATABRICKS_TOKEN --prompt",
+									requires_tty: true,
+								},
+							],
+						},
+					}),
+					{ status: 422 },
+				);
+			}
+			if (url.endsWith("/runs?step=step6"))
+				return new Response(JSON.stringify([mkRun({ policy: "balanced" })]));
+			if (url.endsWith("/guided-view"))
+				return new Response(JSON.stringify(mkGuidedView()));
+			if (url.endsWith("/vault/ir"))
+				return new Response(JSON.stringify(mkIr()));
+			return new Response("{}");
+		}) as unknown as typeof fetch;
+
+		useProjectStore.setState({
+			currentUrl: "/settings?tab=provider",
+		});
+		const hub = mount(createElement(SettingsHub));
+		await flush();
+		expect(readinessCalls).toBe(1);
+		expect(hub.container.textContent).toContain(
+			"Harness Readiness Diagnostics",
+		);
+		expect(hub.container.textContent).not.toContain("deterministic");
+		// agy MUST NOT render inline API key binder
+		expect(
+			hub.container.querySelector('input[aria-label^="API key for"]'),
+		).toBeNull();
+		// datalist + effectiveTier placeholder
+		expect(hub.container.querySelectorAll("datalist option").length).toBe(1);
+		const modelInput = hub.container.querySelector(
+			'input[aria-label="Model override for dv-horizon-critic"]',
+		) as HTMLInputElement | null;
+		expect(modelInput?.placeholder).toContain(
+			"Inherited (FRONTIER_CRITIC): agy-frontier",
+		);
+		// Test button calls testAgentReadiness AND settles with fetchReadiness even on 409
+		const testBtn = findBtn(hub.container, "Test", true);
+		flushSync(() => testBtn.click());
+		await flush();
+		expect(probeCalls).toBe(1);
+		expect(readinessCalls).toBe(2);
+		expect(hub.container.textContent).toContain("PROJECT_JOB_ACTIVE");
+		// Switch to gemini button appears only for agy when MISSING_PREREQ/AUTH_FAILED
+		const switchBtn = findBtn(hub.container, "Switch to gemini");
+		flushSync(() => switchBtn.click());
+		await flush();
+		const keepBtn = findBtn(hub.container, "Keep Overrides");
+		flushSync(() => keepBtn.click());
+		await flush();
+		// Now gemini shows inline GEMINI_API_KEY password binder
+		const keyInput = qEl<HTMLInputElement>(
+			hub.container,
+			'input[aria-label="API key for GEMINI_API_KEY"]',
+		);
+		expect(keyInput.type).toBe("password");
+		flushSync(() => setCtrlVal(keyInput, "gem-secret-val"));
+		const bindForm = keyInput.closest("form") as unknown as HTMLFormElement;
+		flushSync(() => {
+			bindForm.dispatchEvent(
+				new win.Event("submit", {
+					bubbles: true,
+					cancelable: true,
+				}) as unknown as Event,
+			);
+		});
+		await flush();
+		expect(
+			posted.some(
+				(p) =>
+					p.url.endsWith("/secrets") &&
+					(p.body as Record<string, unknown>).key === "GEMINI_API_KEY",
+			),
+		).toBe(true);
+		expect(readinessCalls).toBe(3);
+
+		// Save Settings triggers fetchReadiness()
+		const saveBtn = findBtn(hub.container, "Save Settings");
+		flushSync(() => saveBtn.click());
+		await flush();
+		expect(readinessCalls).toBe(4);
+		hub.unmount();
+
+		// Tab 2 User-Global copy, host fallback, databricks_uc skips client listSecrets & renders RemediationList
+		const secCallsBefore = listSecretsCalls;
+		const secTab = mount(
+			createElement(SettingsSecretsTab, {
+				draft: mkSettings({
+					connection_profiles: {
+						db_prof: {
+							adapter_id: "databricks_uc",
+							display_name: "DB",
+							uri_or_path: "",
+							options: { host: "adb-host.example.com" },
+							secret_refs: ["DATABRICKS_TOKEN"],
+							profile_timeout_seconds: 30,
+						},
+					},
+				}),
+				secrets: [],
+				onRefreshSecrets: async () => undefined,
+				onChangeDraft: () => undefined,
+			}),
+		);
+		expect(secTab.container.textContent).toContain("User-Global");
+		expect(secTab.container.textContent).toContain("store_first (Store > Env)");
+		expect(secTab.container.textContent).toContain("adb-host.example.com");
+		const testConnBtn = findBtn(secTab.container, "Test Connection");
+		flushSync(() => testConnBtn.click());
+		await flush();
+		expect(listSecretsCalls).toBe(secCallsBefore);
+		expect(
+			secTab.container.querySelector(".banner-danger")?.textContent,
+		).toContain("Bind DATABRICKS_TOKEN locally.");
+		secTab.unmount();
+
+		// Step 6 Guided <-> Observatory toggle preserves user-selected policy radio
+		useProjectStore.setState({
+			activeProject: mkProject({
+				settings_snapshot: {
+					...mkProject().settings_snapshot,
+					cegar_policy: "balanced",
+				},
+			}),
+			currentUrl: "/projects/am-ibor-2026/step/6",
+		});
+		const s6 = mount(createElement(Step6Vault));
+		await flush();
+		const strictRadio = qEl<HTMLInputElement>(
+			s6.container,
+			'input[type="radio"][value="strict"]',
+		);
+		flushSync(() => strictRadio.click());
+		expect(useProjectStore.getState().activeRunPolicy).toBe("strict");
+		const obsBtn = findBtn(s6.container, "Architect Observatory");
+		flushSync(() => obsBtn.click());
+		await flush();
+		expect(useProjectStore.getState().activeRunPolicy).toBe("strict");
+		s6.unmount();
 	});
 });

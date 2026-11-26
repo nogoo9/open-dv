@@ -6,6 +6,7 @@ import re
 from collections import deque
 
 from opendv.agents._pii_patterns import (
+    _CREDENTIAL_SUB_PATTERNS,
     _RE_ABA_CTX,
     _RE_ABA_DIGITS,
     _RE_ABA_PHRASE,
@@ -228,10 +229,12 @@ def _sub_skipping_pan_overlaps(rx: re.Pattern[str], text: str) -> str:
 
 
 def redact_telemetry_text(text: str) -> str:
-    """Scrub <MASKED_PII> and raw PII (SSN, email, ABA, EIN, phone, IBAN, CC PAN)."""
+    """Scrub <MASKED_PII>, credentials, and raw PII (SSN, email, ABA, EIN, phone, IBAN, PAN)."""
     if not text:
         return text
     out = text.replace("<MASKED_PII>", "[REDACTED]")
+    for rx, repl in _CREDENTIAL_SUB_PATTERNS:
+        out = rx.sub(repl, out)
     out = _RE_ABA_PHRASE.sub("[REDACTED]", out)
     aba_chunks: list[str] = []
     aba_emit = 0

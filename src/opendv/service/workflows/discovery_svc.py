@@ -45,6 +45,7 @@ from opendv.models.wire_dtos_discovery import (
 )
 from opendv.service.bm25_matcher import Bm25ConceptMatcher
 from opendv.service.citations import resolve_citation
+from opendv.service.readiness import HarnessReadinessService
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.settings_store import SettingsStore
 from opendv.service.state_store import ProjectStateManager
@@ -141,6 +142,7 @@ class DiscoveryService:
         workspace_root: Path,
         matcher: Bm25ConceptMatcher | None = None,
         injected_harness: AgentHarnessPort | None = None,
+        readiness_service: HarnessReadinessService | None = None,
     ) -> None:
         self._state = state_manager
         self._matcher = matcher or Bm25ConceptMatcher()
@@ -154,6 +156,7 @@ class DiscoveryService:
             matcher=self._matcher,
             workspace_root=workspace_root,
             injected_harness=injected_harness,
+            readiness_service=readiness_service,
         )
 
     def list_adapters(self) -> list[ConnectorAdapterSpec]:

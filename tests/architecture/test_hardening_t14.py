@@ -59,7 +59,7 @@ ALLOWLISTED_EXPANDER_MODULES = {
     "src/opendv/cli/_client.py",
     "src/opendv/cli/_commands_sources.py",
     "src/opendv/cli/_output.py",
-    "src/opendv/service/workflows/projects_svc.py",
+    "src/opendv/service/settings_svc.py",
     "src/opendv/service/os_platform.py",
 }
 

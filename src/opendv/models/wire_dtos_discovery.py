@@ -171,7 +171,7 @@ class ConceptMemoryUpdate(StrictModel):
 class OntologyConstructReq(StrictModel):
     """Request payload for POST /api/v1/projects/{id}/ontology/construct."""
 
-    discovery_mode: DiscoveryMode = "incremental_new"
+    discovery_mode: DiscoveryMode | None = None
     hint: str | None = None
 
 
@@ -180,9 +180,9 @@ class RunControlReq(StrictModel):
 
     action: Literal["pause", "hint", "accept-best", "raise-budget", "horizon-review"]
     hint: str | None = None
-    extra_turns: int | None = Field(default=None, ge=1)
+    extra_turns: int | None = Field(default=None, ge=1, le=500)
     extra_tokens: int | None = Field(default=None, ge=1)
-    extra_timeout_seconds: int | None = Field(default=None, ge=1)
+    extra_timeout_seconds: int | None = Field(default=None, ge=1, le=7200)
 
 
 class HoldAnswersReq(StrictModel):

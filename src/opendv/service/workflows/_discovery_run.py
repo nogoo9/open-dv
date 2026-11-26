@@ -6,7 +6,7 @@ import json
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import Field, TypeAdapter, ValidationError
 
@@ -24,6 +24,7 @@ from opendv.models.events import RunCheckpointRecord, RunStreamEvent
 from opendv.models.ontology import GraphAOntology
 from opendv.models.ontology_deltas import AGENT_ADDITIVE_OPS, OntologyDelta
 from opendv.models.policy import STEP4_DEFAULT_BUDGET
+from opendv.models.project import DiscoveryMode
 from opendv.models.wire_dtos_discovery import (
     ClientAdditiveOp,
     HoldAnswersReq,
@@ -33,6 +34,7 @@ from opendv.models.wire_dtos_discovery import (
 )
 from opendv.service._mcp_tools import coord_propose_ontology_delta
 from opendv.service.bm25_matcher import Bm25ConceptMatcher
+from opendv.service.readiness import HarnessReadinessService
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.settings_store import SettingsStore
 from opendv.service.state_store import ProjectStateManager
@@ -48,6 +50,9 @@ from opendv.service.workflows._run_adapters import (
     ServiceRunEventSink,
     acquire_project_job_lease,
     append_audit_log,
+    coalesce_prior_state_budget,
+    coalesce_snapshot_budget,
+    compute_job_lease_ttl,
     enqueue_control_signal,
     load_latest_run_state,
     mark_run_failed_from_exception,
@@ -80,6 +85,7 @@ class DiscoveryRunHelper:
         matcher: Bm25ConceptMatcher,
         workspace_root: Path,
         injected_harness: AgentHarnessPort | None = None,
+        readiness_service: HarnessReadinessService | None = None,
     ) -> None:
         self._state = state_manager
         self._settings = settings_store
@@ -87,6 +93,7 @@ class DiscoveryRunHelper:
         self._matcher = matcher
         self._workspace_root = workspace_root
         self._injected_harness = injected_harness
+        self._readiness_service = readiness_service
 
     async def start_construction(
         self,
@@ -137,14 +144,21 @@ class DiscoveryRunHelper:
                 }
             }
         )
+        raw_mode = ckpt.resume_payload.get("discovery_mode")
+        mode: DiscoveryMode | None = (
+            cast(DiscoveryMode, raw_mode)
+            if raw_mode in ("incremental_new", "incremental_reverify", "full_rebuild")
+            else None
+        )
         return await self._execute_turn(
             project_id=project_id,
             run_id=run_id,
-            discovery_mode=str(ckpt.resume_payload.get("discovery_mode", "incremental_new")),
+            discovery_mode=mode,
             hint=None,
             checkpoint=next_ckpt,
             answers=req.answers,
             attempt=prior.attempt + 1,
+            prior_state=prior,
         )
 
     def control_run(
@@ -182,20 +196,34 @@ class DiscoveryRunHelper:
         *,
         project_id: str,
         run_id: str,
-        discovery_mode: str,
+        discovery_mode: DiscoveryMode | None,
         hint: str | None,
         checkpoint: RunCheckpointRecord | None,
         answers: dict[str, str] | None,
         attempt: int,
+        prior_state: RunStateResp | None = None,
     ) -> RunStateResp:
         proj = self._state.get_project(project_id)
+        snap = proj.settings_snapshot
+        eff_mode: DiscoveryMode = discovery_mode or snap.discovery_mode
+        budget = (
+            coalesce_prior_state_budget(STEP4_DEFAULT_BUDGET, prior_state)
+            if checkpoint is not None and prior_state is not None
+            else coalesce_snapshot_budget(STEP4_DEFAULT_BUDGET, snap)
+        )
         ws_settings = self._settings.load_settings()
         harness = resolve_harness(
-            proj.settings_snapshot,
+            snap,
             self._secrets,
             injected_harness=self._injected_harness,
+            readiness_service=self._readiness_service,
         )
-        acquire_project_job_lease(self._state, project_id, run_id)
+        acquire_project_job_lease(
+            self._state,
+            project_id,
+            run_id,
+            ttl_seconds=compute_job_lease_ttl(budget.max_turns, budget.timeout_seconds),
+        )
 
         running_state = RunStateResp(
             run_id=run_id,
@@ -206,9 +234,9 @@ class DiscoveryRunHelper:
             attempt=attempt,
             budget_turns_used=0,
             budget_tokens_used=0,
-            effective_max_turns=STEP4_DEFAULT_BUDGET.max_turns,
-            effective_max_tokens=STEP4_DEFAULT_BUDGET.max_tokens,
-            effective_timeout_seconds=STEP4_DEFAULT_BUDGET.timeout_seconds,
+            effective_max_turns=budget.max_turns,
+            effective_max_tokens=budget.max_tokens,
+            effective_timeout_seconds=budget.timeout_seconds,
         )
         broker: JobMcpBroker | None = None
         try:
@@ -243,7 +271,7 @@ class DiscoveryRunHelper:
                 state_store=self._state,
                 bm25_matcher=self._matcher,
                 external_gateway=ext_gateway,
-                budget=STEP4_DEFAULT_BUDGET,
+                budget=budget,
                 event_sink=sink,
                 workspace_seeds=build_workspace_seed_concepts(
                     self._state, project_id, self._workspace_root
@@ -251,11 +279,16 @@ class DiscoveryRunHelper:
                 parsed_pages=parsed_pages,
                 ontology_rev_id=proj.active_ontology_rev_id,
                 sources_fingerprint=fp,
+                discovery_mode=eff_mode,
             )
             prior_events = self._state.tail_run_stream_events(project_id, run_id, since_seq=0)
             broker.hold_coord.seq = max((ev.seq for ev in prior_events.events), default=0)
             await broker.start()
-            dispatcher = broker.build_scout_dispatcher(harness, event_sink=sink)
+            dispatcher = broker.build_scout_dispatcher(
+                harness,
+                event_sink=sink,
+                model_overrides=snap.model_overrides,
+            )
             pack_detail, pack_cfg = load_agent_pack_with_config(
                 "ontology-first-mate",
                 workspace_root=self._workspace_root,
@@ -266,7 +299,7 @@ class DiscoveryRunHelper:
                 ontology=ontology,
                 profiles=profiles,
                 doc_summaries=doc_summaries,
-                discovery_mode=discovery_mode,
+                discovery_mode=eff_mode,
                 hint=hint,
                 answers=answers,
             )
@@ -282,10 +315,13 @@ class DiscoveryRunHelper:
                 role_token=broker.coord_token,
                 broker_url=broker.coord_url,
                 allowed_tools=list(pack_cfg.allowed_tools),
-                budget=STEP4_DEFAULT_BUDGET,
+                budget=budget,
                 checkpoint=checkpoint,
                 attempt=attempt,
-                metadata={"discovery_mode": discovery_mode},
+                metadata={
+                    "discovery_mode": eff_mode,
+                    "model_overrides": dict(snap.model_overrides),
+                },
             )
             pre_ckpt_count = len(
                 self._state.list_events_or_receipts(
@@ -385,7 +421,7 @@ class DiscoveryRunHelper:
                         budget_turns_used=turn_res.turns_used,
                         budget_tokens_used=turn_res.total_tokens,
                         token_count_source=turn_res.token_count_source,
-                        resume_payload={"discovery_mode": discovery_mode},
+                        resume_payload={"discovery_mode": eff_mode},
                     )
                 )
 

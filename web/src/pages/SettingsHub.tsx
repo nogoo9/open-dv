@@ -26,10 +26,12 @@ export function SettingsHub() {
 	const healthVersion = useProjectStore((s) => s.healthVersion);
 	const settings = useProjectStore((s) => s.settings);
 	const settingsDraft = useProjectStore((s) => s.settingsDraft);
+	const readiness = useProjectStore((s) => s.readiness);
 	const dirtySettings = useProjectStore((s) => s.dirtyFlags.settings);
 	const navigate = useProjectStore((s) => s.navigate);
 	const setSettings = useProjectStore((s) => s.setSettings);
 	const setSettingsDraft = useProjectStore((s) => s.setSettingsDraft);
+	const fetchReadiness = useProjectStore((s) => s.fetchReadiness);
 	const applyDiscardReset = useProjectStore((s) => s.applyDiscardReset);
 	const setLastProblem = useProjectStore((s) => s.setLastProblem);
 	const announce = useProjectStore((s) => s.announce);
@@ -46,9 +48,9 @@ export function SettingsHub() {
 	const [busy, setBusy] = useState(false);
 
 	const refreshSecrets = useCallback(async () => {
-		const list = await api.listSecrets();
+		const [list] = await Promise.all([api.listSecrets(), fetchReadiness()]);
 		setSecrets(list);
-	}, []);
+	}, [fetchReadiness]);
 
 	const refreshMcp = useCallback(async () => {
 		const list = await api.listMcpServers();
@@ -64,6 +66,7 @@ export function SettingsHub() {
 				api.listAgents(ac.signal),
 				api.listMcpServers(ac.signal),
 				api.listSecrets(undefined, ac.signal),
+				fetchReadiness(),
 			]);
 			if (ac.signal.aborted) return;
 			setSettings(ws);
@@ -79,7 +82,7 @@ export function SettingsHub() {
 			if (!ac.signal.aborted) setLastProblem(parseProblemDetails(err));
 		});
 		return () => ac.abort();
-	}, [setSettings, setSettingsDraft, setLastProblem]);
+	}, [setSettings, setSettingsDraft, setLastProblem, fetchReadiness]);
 
 	const saveSettings = async () => {
 		if (!settingsDraft || busy) return;
@@ -92,6 +95,7 @@ export function SettingsHub() {
 			const saved = await api.putSettings(merged);
 			setSettings(saved);
 			setSettingsDraft(structuredClone(saved), false);
+			await fetchReadiness();
 			announce("polite", "Settings saved");
 		} catch (err) {
 			setLastProblem(parseProblemDetails(err));
@@ -189,6 +193,8 @@ export function SettingsHub() {
 					<SettingsProviderTab
 						draft={draft}
 						agents={agents}
+						readiness={readiness}
+						onRefreshSecrets={refreshSecrets}
 						onChangeDraft={(next) => setSettingsDraft(next, true)}
 					/>
 				) : activeTab === "secrets" ? (

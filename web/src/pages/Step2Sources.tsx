@@ -9,6 +9,7 @@ import {
 	type SourceSummary,
 	inferUploadKind,
 } from "../api/openapi";
+import { RemediationList } from "../components/RemediationList";
 import {
 	type RecoveryDialogMode,
 	SourceRecoveryDialogs,
@@ -311,9 +312,12 @@ export function Step2Sources() {
 			</div>
 
 			{problem && (
-				<div className="banner banner-danger" role="alert">
-					<strong>{problem.title}</strong> ({problem.error_code}):{" "}
-					{problem.detail}
+				<div className="banner banner-danger stack-sm" role="alert">
+					<div>
+						<strong>{problem.title}</strong> ({problem.error_code}):{" "}
+						{problem.detail}
+					</div>
+					<RemediationList remediation={problem.remediation} />
 				</div>
 			)}
 

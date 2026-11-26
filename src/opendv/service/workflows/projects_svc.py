@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from pathlib import Path
 
-from opendv.agents import compute_workspace_agents_sha256
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.json_hasher import sha256_jcs
 from opendv.models.project import (
@@ -18,8 +16,6 @@ from opendv.models.project import (
     ProjectState,
     ProjectSummary,
     RevisionMetadata,
-    TrustedWorkspaceSpec,
-    WorkspaceSettings,
 )
 from opendv.models.wire_dtos_discovery import (
     ConceptMemoryUpdate,
@@ -90,6 +86,7 @@ class ProjectsService:
         ws_settings = self.settings_store.load_settings()
         snapshot = ProjectSettingsSnapshot(
             harness_provider=ws_settings.harness_provider,
+            model_overrides=dict(ws_settings.model_overrides),
             v7_critic_tier=ws_settings.v7_critic_tier,
             cegar_policy=ws_settings.cegar_policy,
             dbt_sql_dialect=ws_settings.dbt_sql_dialect,
@@ -251,32 +248,6 @@ class ProjectsService:
             metadata=RevisionMetadata(actor="human", reason=f"concept_memory:{spec.state}"),
         )
         return spec
-
-    def trust_workspace_path(self, path: Path | str | None = None) -> WorkspaceSettings:
-        """Record the SHA-256 digest of workspace .opendv/agents/*/SKILL.md overrides."""
-        ws = Path(path if path is not None else self.workspace_root).expanduser().resolve()
-        if not ws.is_dir():
-            raise OpenDVError(
-                f"Workspace directory '{ws}' does not exist.",
-                error_code=ErrorCode.RESOURCE_NOT_FOUND,
-            )
-        digest = compute_workspace_agents_sha256(ws) or ""
-        settings = self.settings_store.load_settings()
-        kept = [
-            spec
-            for spec in settings.trusted_workspaces
-            if Path(spec.workspace_root).resolve() != ws
-        ]
-        kept.append(
-            TrustedWorkspaceSpec(
-                workspace_root=str(ws),
-                agent_pack_sha256=digest,
-                trusted_at=datetime.now(tz=UTC).isoformat(),
-            )
-        )
-        return self.settings_store.save_settings(
-            settings.model_copy(update={"trusted_workspaces": kept})
-        )
 
 
 __all__ = ["ProjectsService"]

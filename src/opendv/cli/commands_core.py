@@ -1,13 +1,11 @@
-"""Core Open-DV CLI subcommands: serve, doctor, settings, agents, mcp, secrets, project."""
+"""Core Open-DV CLI subcommands: serve, doctor, agents, mcp, secrets, project."""
 
 from __future__ import annotations
 
 import os
-import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any
-from urllib.parse import urlparse
 
 import httpx
 import typer
@@ -136,14 +134,6 @@ def serve_command(
     run_cli_action(ctx, _run_serve, plain_formatter=lambda _: f"Serving on {host}:{port}")
 
 
-def _resolve_binary(env_var: str, binary_name: str) -> str | None:
-    override = os.environ.get(env_var, "").strip()
-    if override:
-        resolved = shutil.which(override)
-        return resolved or (override if Path(override).is_file() else None)
-    return shutil.which(binary_name)
-
-
 def doctor_command(
     ctx: typer.Context,
     check_agents: Annotated[
@@ -154,120 +144,29 @@ def doctor_command(
         bool,
         typer.Option("--check-mcp", help="Inspect registered external MCP endpoints and secrets."),
     ] = False,
+    probe: Annotated[
+        bool,
+        typer.Option(
+            "--probe",
+            help="Run live Tier-2 authentication probe on active harness_provider.",
+        ),
+    ] = False,
 ) -> None:
     """Run Layer-4 diagnostic checks across service health, agent harnesses, and MCP servers."""
 
     def _run(client: CliClient) -> dict[str, Any]:
-        health = client.get_health()
-        settings = client.get_settings()
-        report: dict[str, Any] = {
-            "status": health.status,
-            "version": health.version,
-            "workspace_root": str(client.workspace_root),
-            "harness_provider": settings.harness_provider,
-            "cegar_policy": settings.cegar_policy,
-            "secret_precedence": settings.secret_precedence,
-        }
-        run_all = not check_agents and not check_mcp
-        if check_agents or run_all:
-            agy_bin = _resolve_binary("OPENDV_AGY_CLI_BIN", "agy")
-            claude_bin = _resolve_binary("OPENDV_CLAUDE_CLI_BIN", "claude")
-            packs = client.list_agents()
-            secrets = client.list_secrets(
-                ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
-            )
-            report["agents"] = {
-                "binaries": {"agy": agy_bin, "claude_cli": claude_bin},
-                "pack_count": len(packs),
-                "provider_secrets": [s.model_dump(mode="json") for s in secrets],
-            }
-        if check_mcp or run_all:
-            servers = client.list_mcp_servers()
-            mcp_checks: list[dict[str, Any]] = []
-            for spec in servers:
-                secret_status = (
-                    [s.model_dump(mode="json") for s in client.list_secrets(spec.secret_refs)]
-                    if spec.secret_refs
-                    else []
-                )
-                ready = spec.enabled and all(s["present"] for s in secret_status)
-                if spec.transport == "stdio" and spec.command:
-                    cmd = spec.command[0]
-                    ready = ready and bool(shutil.which(cmd) or Path(cmd).is_file())
-                elif spec.transport == "streamable_http" and spec.url:
-                    parsed = urlparse(spec.url)
-                    ready = ready and bool(parsed.scheme and parsed.netloc)
-                mcp_checks.append(
-                    {
-                        "server_id": spec.server_id,
-                        "transport": spec.transport,
-                        "enabled": spec.enabled,
-                        "ready": ready,
-                        "secret_status": secret_status,
-                    }
-                )
-            report["mcp_servers"] = mcp_checks
-        return report
+        doc = client.run_doctor(
+            check_agents=check_agents,
+            check_mcp=check_mcp,
+            probe=probe,
+        )
+        payload = doc.model_dump(mode="json")
+        for key in ("agents", "mcp_servers"):
+            if payload.get(key) is None:
+                payload.pop(key, None)
+        return payload
 
     run_cli_action(ctx, _run)
-
-
-# ---- settings ----
-settings_app = typer.Typer(
-    name="settings", help="Inspect and update workspace settings.", no_args_is_help=True
-)
-
-
-@settings_app.command("show")
-def settings_show(ctx: typer.Context) -> None:
-    """Show persisted workspace settings."""
-    run_cli_action(ctx, lambda c: c.get_settings())
-
-
-@settings_app.command("set")
-def settings_set(
-    ctx: typer.Context,
-    harness_provider: Annotated[str | None, typer.Option("--harness-provider")] = None,
-    cegar_policy: Annotated[str | None, typer.Option("--cegar-policy")] = None,
-    secret_precedence: Annotated[str | None, typer.Option("--secret-precedence")] = None,
-    secret_backend: Annotated[str | None, typer.Option("--secret-backend")] = None,
-    v7_critic_tier: Annotated[str | None, typer.Option("--v7-critic-tier")] = None,
-    dbt_sql_dialect: Annotated[str | None, typer.Option("--dbt-sql-dialect")] = None,
-) -> None:
-    """Update workspace-level defaults with strict schema validation."""
-
-    def _run(client: CliClient) -> Any:
-        updates = {
-            k: v
-            for k, v in {
-                "harness_provider": harness_provider,
-                "cegar_policy": cegar_policy,
-                "secret_precedence": secret_precedence,
-                "secret_backend": secret_backend,
-                "v7_critic_tier": v7_critic_tier,
-                "dbt_sql_dialect": dbt_sql_dialect,
-            }.items()
-            if v is not None
-        }
-        if not updates:
-            raise OpenDVError(
-                "At least one setting flag must be provided.",
-                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
-            )
-        current = client.get_settings()
-        updated = current.model_validate({**current.model_dump(mode="python"), **updates})
-        return client.update_settings(updated)
-
-    run_cli_action(ctx, _run)
-
-
-@settings_app.command("trust-workspace")
-def settings_trust_workspace(
-    ctx: typer.Context,
-    path: Annotated[Path, typer.Option("--path", help="Workspace directory path to trust.")],
-) -> None:
-    """Approve SHA-256 hashes for `.opendv/agents/*/SKILL.md` workspace overrides."""
-    run_cli_action(ctx, lambda c: c.trust_workspace(path))
 
 
 # ---- agents ----

@@ -32,12 +32,13 @@ List built-in and workspace agent packs.
 
 Run Layer-4 diagnostic checks across service health, agent harnesses, and MCP servers.
 
-- **HTTP Route:** `GET /api/v1/health`
+- **HTTP Route:** `GET /api/v1/system/doctor`
 
 | Option | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `--check-agents` | `boolean` | no | `False` | Probe CLI harness binaries, packs, and secrets. |
 | `--check-mcp` | `boolean` | no | `False` | Inspect registered external MCP endpoints and secrets. |
+| `--probe` | `boolean` | no | `False` | Run live Tier-2 authentication probe on active harness_provider. |
 
 ### `opendv mcp list`
 
@@ -118,7 +119,7 @@ Start Step 4 ontology construction discovery run.
 | Option | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `--project` | `string` | yes | — | Project identifier. |
-| `--discovery-mode` | `string` | no | `incremental_new` | incremental_new, incremental_reverify, or full_rebuild. |
+| `--discovery-mode` | `string` | no | — | incremental_new, incremental_reverify, or full_rebuild. |
 | `--hint` | `string` | no | — | Optional steering hint. |
 | `--wait` | `boolean` | no | `False` | Poll until run finishes or pauses. |
 
@@ -230,6 +231,38 @@ List all projects in the workspace.
 
 - **HTTP Route:** `GET /api/v1/projects`
 
+### `opendv project settings set`
+
+Atomically patch per-project execution settings for future runs.
+
+- **HTTP Route:** `PATCH /api/v1/projects/{project_id}/settings`
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--project` | `string` | yes | — | Project identifier. |
+| `--harness-provider` | `choice` | no | — | Default agent harness provider. |
+| `--cegar-policy` | `choice` | no | — | Default CEGAR verification policy. |
+| `--v7-critic-tier` | `choice` | no | — | Default V7 semantic critic tier. |
+| `--dbt-sql-dialect` | `choice` | no | — | Default dbt SQL dialect. |
+| `--secret-precedence` | `choice` | no | — | Secret resolution order. |
+| `--max-turns` | `integer` | no | — | Max agent turns per run (1..500). |
+| `--max-tokens` | `integer` | no | — | Max token budget per run (>= 1). |
+| `--timeout-seconds` | `integer` | no | — | Per-turn timeout in seconds (1..7200). |
+| `--discovery-mode` | `choice` | no | — | Default Step 4 ontology discovery mode. |
+| `--model-override` | `string` | no | — | Set TARGET=MODEL override (repeatable). |
+| `--clear-model-override` | `string` | no | — | Clear TARGET model override (repeatable). |
+| `--clear` | `choice` | no | — | Clear nullable fields (repeatable). |
+
+### `opendv project settings show`
+
+Show persisted execution settings snapshot for a project.
+
+- **HTTP Route:** `GET /api/v1/projects/{project_id}`
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--project` | `string` | yes | — | Project identifier. |
+
 ### `opendv project show`
 
 Show full metadata for one project.
@@ -285,6 +318,59 @@ Launch the local `:8420` FastAPI Open-DV Workbench server (fail closed on remote
 | `--allow-remote-unauthenticated` | `boolean` | no | `False` | Explicit opt-in required before binding a non-loopback host. |
 | `--trust-workspace` | `path` | no | — | Trust workspace agent overrides before serving. |
 
+### `opendv settings models`
+
+List offline default model suggestions for the active or specified provider.
+
+- **HTTP Route:** `GET /api/v1/agents/readiness`
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--provider` | `choice` | no | — | Provider id (defaults to active harness_provider). |
+
+### `opendv settings profile delete`
+
+Delete a saved user-global connection profile.
+
+- **HTTP Route:** `PUT /api/v1/settings`
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--name` | `string` | yes | — | Connection profile name to delete. |
+
+### `opendv settings profile list`
+
+List user-global saved connection profiles.
+
+- **HTTP Route:** `GET /api/v1/settings`
+
+### `opendv settings profile set`
+
+Create or replace a named user-global connection profile.
+
+- **HTTP Route:** `PUT /api/v1/settings`
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--name` | `string` | yes | — | Unique connection profile name. |
+| `--adapter` | `choice` | yes | — | Structured connector adapter identifier. |
+| `--display-name` | `string` | no | — | Human-readable label (defaults to --name). |
+| `--uri` | `string` | no | — | Source path or host URI (optional for databricks_uc when options.host is set). |
+| `--options-json` | `string` | no | — | Connector options JSON object or file path. |
+| `--secret-ref` | `string` | no | — | Secret key referenced by connector or MCP server. |
+| `--selected-tables` | `string` | no | — | Selected table filter (repeatable). |
+| `--timeout-seconds` | `integer` | no | `30` | Profile inspection timeout in seconds. |
+
+### `opendv settings profile test`
+
+Inspect and validate a saved connection profile via `sources/inspect`.
+
+- **HTTP Route:** `POST /api/v1/sources/inspect`
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--name` | `string` | yes | — | Connection profile name to test. |
+
 ### `opendv settings set`
 
 Update workspace-level defaults with strict schema validation.
@@ -293,12 +379,18 @@ Update workspace-level defaults with strict schema validation.
 
 | Option | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `--harness-provider` | `string` | no | — |  |
-| `--cegar-policy` | `string` | no | — |  |
-| `--secret-precedence` | `string` | no | — |  |
-| `--secret-backend` | `string` | no | — |  |
-| `--v7-critic-tier` | `string` | no | — |  |
-| `--dbt-sql-dialect` | `string` | no | — |  |
+| `--harness-provider` | `choice` | no | — | Default agent harness provider. |
+| `--cegar-policy` | `choice` | no | — | Default CEGAR verification policy. |
+| `--v7-critic-tier` | `choice` | no | — | Default V7 semantic critic tier. |
+| `--dbt-sql-dialect` | `choice` | no | — | Default dbt SQL dialect. |
+| `--secret-backend` | `choice` | no | — | Secret backend (keyring or user_state_file). |
+| `--secret-precedence` | `choice` | no | — | Secret resolution order. |
+| `--max-turns` | `integer` | no | — | Max agent turns per run (1..500). |
+| `--max-tokens` | `integer` | no | — | Max token budget per run (>= 1). |
+| `--timeout-seconds` | `integer` | no | — | Per-turn timeout in seconds (1..7200). |
+| `--model-override` | `string` | no | — | Set TARGET=MODEL override (repeatable). |
+| `--clear-model-override` | `string` | no | — | Clear TARGET model override (repeatable). |
+| `--clear` | `choice` | no | — | Clear nullable fields (repeatable). |
 
 ### `opendv settings show`
 
@@ -308,13 +400,14 @@ Show persisted workspace settings.
 
 ### `opendv settings trust-workspace`
 
-Approve SHA-256 hashes for `.opendv/agents/*/SKILL.md` workspace overrides.
+Approve or revoke SHA-256 hashes for `.opendv/agents/*/SKILL.md` overrides.
 
 - **HTTP Route:** `PUT /api/v1/settings`
 
 | Option | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `--path` | `path` | yes | — | Workspace directory path to trust. |
+| `--path` | `string` | yes | — | Workspace directory path to trust or revoke. |
+| `--revoke` | `boolean` | no | `False` | Revoke workspace trust via POST /api/v1/settings/trusted-workspaces/revoke. |
 
 ### `opendv source adapters`
 
@@ -469,7 +562,7 @@ Launch Step 6 Data Vault 2.0 synthesis (`VaultBuildReq` carries only `policy`).
 | Option | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `--project` | `string` | yes | — | Project identifier. |
-| `--policy` | `string` | no | `balanced` | balanced, strict, fast, or symbolic_only. |
+| `--policy` | `string` | no | — | balanced, strict, fast, or symbolic_only. |
 | `--wait` | `boolean` | no | `False` | Poll until run finishes or pauses. |
 
 ### `opendv vault control`

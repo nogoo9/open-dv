@@ -12,6 +12,7 @@ import {
 import { AgentIoDrawer } from "../components/AgentIoDrawer";
 import { AskFiboDrawer } from "../components/AskFiboDrawer";
 import { CitationInspectorDrawer } from "../components/CitationInspectorDrawer";
+import { RemediationList } from "../components/RemediationList";
 import {
 	RunControlDialog,
 	type RunControlMode,
@@ -47,6 +48,7 @@ export function Step4Discovery() {
 		documentMaps,
 		ontologyBundle,
 		activeStep4Run,
+		setActiveProject,
 		setActiveStep4Run,
 		setOntologyBundle,
 		setDirtyFlag,
@@ -66,7 +68,9 @@ export function Step4Discovery() {
 	const tab4aRef = useRef<HTMLButtonElement>(null);
 	const tab4bRef = useRef<HTMLButtonElement>(null);
 	const abandonDlg = useRef<HTMLDialogElement>(null);
-	const [mode, setMode] = useState<DiscoveryMode>("incremental_new");
+	const [mode, setMode] = useState<DiscoveryMode>(
+		activeProject?.settings_snapshot?.discovery_mode ?? "incremental_new",
+	);
 	const [hint, setHint] = useState("");
 	const [receipts, setReceipts] = useState<ExternalMcpReceipt[]>([]);
 	const [busy, setBusy] = useState(false);
@@ -81,9 +85,11 @@ export function Step4Discovery() {
 			api.listRuns(pid, "step4"),
 			api.getOntologyBundle(pid).catch(() => null),
 			api.listReceipts(pid).catch(() => [] as ExternalMcpReceipt[]),
+			api.getProject(pid).catch(() => null),
 		])
-			.then(async ([runs, ob, rc]) => {
+			.then(async ([runs, ob, rc, proj]) => {
 				if (!ok) return;
+				if (proj?.project_id) setActiveProject(proj);
 				if (ob) setOntologyBundle(ob);
 				setReceipts(rc);
 				const chosen: RunStateResp | null = urlRunId
@@ -100,7 +106,13 @@ export function Step4Discovery() {
 		return () => {
 			ok = false;
 		};
-	}, [pid, urlRunId, setActiveStep4Run, setOntologyBundle]);
+	}, [pid, urlRunId, setActiveProject, setActiveStep4Run, setOntologyBundle]);
+
+	const snapProjectId = activeProject?.project_id;
+	const snapMode = activeProject?.settings_snapshot?.discovery_mode;
+	useEffect(() => {
+		if (snapProjectId && snapMode) setMode(snapMode);
+	}, [snapProjectId, snapMode]);
 
 	const runStatus = activeStep4Run?.status;
 	useEffect(() => {
@@ -382,6 +394,7 @@ export function Step4Discovery() {
 						<strong>{problem.title}</strong> ({problem.error_code}):{" "}
 						{problem.detail}
 					</div>
+					<RemediationList remediation={problem.remediation} />
 					{problem.error_code === "NEEDS_LOCAL_SECRET_BINDING" && (
 						<form className="row" onSubmit={bindSec}>
 							<input

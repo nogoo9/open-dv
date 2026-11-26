@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import os
@@ -20,15 +21,22 @@ from opendv.models import (
     AgentPackSummary,
     BundleManifest,
     ConnectorAdapterSpec,
+    DoctorResponse,
     ErrorCode,
     ExternalMcpServerSpec,
+    HarnessProvider,
     HealthResp,
     ImportReadinessReport,
     OpenDVError,
     ProblemDetails,
     ProjectInitReq,
+    ProjectSettingsPatchReq,
     ProjectState,
     ProjectSummary,
+    ProviderReadinessRecord,
+    ReadinessResponse,
+    ReadinessTestReq,
+    RevokeTrustedWorkspaceReq,
     ScanApprovalReq,
     SecretSummary,
     SecretWriteReq,
@@ -87,6 +95,7 @@ def _error_from_http_response(response: httpx.Response) -> OpenDVError:
                 diagnostics=problem.diagnostics,
                 defect_report=problem.defect_report,
                 run_id=problem.run_id,
+                remediation=problem.remediation,
             )
         except ValidationError:
             raw_code = str(payload.get("error_code", ""))
@@ -109,6 +118,16 @@ def _error_from_http_response(response: httpx.Response) -> OpenDVError:
     detail = payload.get("detail") if isinstance(payload, dict) else None
     msg = str(detail) if detail else f"HTTP {status}: {response.text.strip() or 'request failed'}"
     return OpenDVError(msg, error_code=fallback)
+
+
+def _validate_workspace_arg(path: Path | str) -> str:
+    try:
+        return RevokeTrustedWorkspaceReq(workspace_root=os.fspath(path)).workspace_root
+    except ValidationError as exc:
+        raise OpenDVError(
+            f"Invalid workspace path: {exc}",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        ) from exc
 
 
 class CliClient(CliWorkflowMixin):
@@ -208,9 +227,10 @@ class CliClient(CliWorkflowMixin):
             json_body=settings.model_dump(mode="json"),
         )
 
-    def trust_workspace(self, path: Path) -> WorkspaceSettings:
+    def trust_workspace(self, path: Path | str) -> WorkspaceSettings:
         """Trust workspace `.opendv/agents/*/SKILL.md` overrides."""
-        resolved = path.expanduser().resolve()
+        cleaned = _validate_workspace_arg(path)
+        resolved = Path(cleaned).expanduser().resolve()
         if not self.is_remote:
             return self.service().trust_workspace_path(resolved)
         if not resolved.is_dir():
@@ -220,10 +240,11 @@ class CliClient(CliWorkflowMixin):
             )
         digest = compute_local_workspace_agents_sha256(resolved)
         settings = self.get_settings()
+        norm_resolved = os.path.normcase(str(resolved))
         kept = [
             spec
             for spec in settings.trusted_workspaces
-            if Path(spec.workspace_root).resolve() != resolved
+            if os.path.normcase(spec.workspace_root.strip()) != norm_resolved
         ]
         kept.append(
             TrustedWorkspaceSpec(
@@ -233,6 +254,97 @@ class CliClient(CliWorkflowMixin):
             )
         )
         return self.update_settings(settings.model_copy(update={"trusted_workspaces": kept}))
+
+    def revoke_trusted_workspace(self, path: Path | str) -> WorkspaceSettings:
+        """Remove a trusted workspace entry matching exact or normalized path."""
+        cleaned = _validate_workspace_arg(path)
+        req = RevokeTrustedWorkspaceReq(workspace_root=cleaned)
+        return self._call(
+            lambda s: s.revoke_trusted_workspace(req.workspace_root),
+            WorkspaceSettings,
+            "POST",
+            "/api/v1/settings/trusted-workspaces/revoke",
+            json_body=req.model_dump(mode="json"),
+        )
+
+    def get_agent_readiness(self) -> ReadinessResponse:
+        """Fetch Tier-1 and cached Tier-2 harness readiness across all providers."""
+        return self._call(
+            lambda s: s.get_agent_readiness(),
+            ReadinessResponse,
+            "GET",
+            "/api/v1/agents/readiness",
+        )
+
+    def test_agent_readiness(self, provider: HarnessProvider) -> ProviderReadinessRecord:
+        """Execute opt-in Tier-2 authentication verification probe for a provider."""
+        req = ReadinessTestReq(provider=provider)
+        if self.is_remote:
+            return ProviderReadinessRecord.model_validate(
+                self._http(
+                    "POST",
+                    "/api/v1/agents/readiness/test",
+                    json_body=req.model_dump(mode="json"),
+                ).json()
+            )
+        return asyncio.run(self.service().test_agent_readiness(req.provider))
+
+    def run_doctor(
+        self,
+        *,
+        check_agents: bool = False,
+        check_mcp: bool = False,
+        probe: bool = False,
+    ) -> DoctorResponse:
+        """Fetch system diagnostics, optionally probing the active harness provider first."""
+        params: dict[str, bool] = {"check_agents": check_agents, "check_mcp": check_mcp}
+        if not probe:
+            return self._call(
+                lambda s: s.run_doctor(check_agents=check_agents, check_mcp=check_mcp),
+                DoctorResponse,
+                "GET",
+                "/api/v1/system/doctor",
+                params=params,
+            )
+        settings = self.get_settings()
+        probed = self.test_agent_readiness(settings.harness_provider)
+        doc = self._call(
+            lambda s: s.run_doctor(check_agents=check_agents, check_mcp=check_mcp),
+            DoctorResponse,
+            "GET",
+            "/api/v1/system/doctor",
+            params=params,
+        )
+        orig_rec = next(
+            (p for p in doc.readiness.providers if p.provider == probed.provider), None
+        )
+        providers = [
+            probed if p.provider == probed.provider else p for p in doc.readiness.providers
+        ]
+        remediations = list(doc.remediation)
+        if probed.provider == doc.harness_provider:
+            if orig_rec is not None and orig_rec.remediation is not None and remediations:
+                remediations = remediations[1:]
+            if probed.remediation is not None:
+                remediations.insert(0, probed.remediation)
+        return doc.model_copy(
+            update={
+                "readiness": doc.readiness.model_copy(update={"providers": providers}),
+                "remediation": remediations,
+            }
+        )
+
+    def update_project_settings(
+        self, project_id: str, patch: ProjectSettingsPatchReq
+    ) -> ProjectState:
+        """Atomically patch per-project execution settings for future runs."""
+        return self._call(
+            lambda s: s.update_project_settings(project_id, patch),
+            ProjectState,
+            "PATCH",
+            proj_route(project_id, "/settings"),
+            json_body=patch.model_dump(mode="json", exclude_unset=True),
+        )
 
     def list_agents(self) -> list[AgentPackSummary]:
         """List discovered agent packs."""

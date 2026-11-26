@@ -112,6 +112,7 @@ def profile_source(
     secret_refs: Sequence[str] = (),
     selected_tables: Sequence[str] | None = None,
     profile_timeout_seconds: int = 30,
+    access_token: str | None = None,
 ) -> SourceProfile:
     """Profile a structured source in a bounded threadpool (zero LLM calls)."""
     raw_tables: list[RawTableData] = _run_with_timeout(
@@ -122,6 +123,7 @@ def profile_source(
         options=options,
         secret_refs=secret_refs,
         selected_tables=selected_tables,
+        access_token=access_token,
         sample_limit=MAX_SAMPLE_VALUES,
         preview_offset=0,
         preview_limit=MAX_SAMPLE_VALUES,
@@ -147,6 +149,7 @@ def preview_table(
     offset: int = 0,
     limit: int = 50,
     profile_timeout_seconds: int = 30,
+    access_token: str | None = None,
 ) -> TablePreviewPage:
     """Fetch a paged, PII-masked row preview for a single profiled table."""
     if offset < 0 or limit < 1:
@@ -162,6 +165,7 @@ def preview_table(
         options=options,
         secret_refs=secret_refs,
         selected_tables=[table_name],
+        access_token=access_token,
         sample_limit=MAX_SAMPLE_VALUES,
         preview_offset=offset,
         preview_limit=limit,

@@ -13,18 +13,9 @@ from pydantic import Field
 from opendv.models.diagnostics import StrictModel
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.events import RunStep
-from opendv.models.policy import ModelTier
+from opendv.models.policy import AGENT_PACK_IDS, ModelTier
 from opendv.models.project import TrustedWorkspaceSpec
 from opendv.models.wire_dtos_discovery import AgentPackDetail, AgentPackSummary
-
-AGENT_PACK_IDS: tuple[str, ...] = (
-    "ontology-first-mate",
-    "table-cluster-scout",
-    "page-range-scout",
-    "ship-vault",
-    "dv-semantic-critic",
-    "dv-horizon-critic",
-)
 
 _BUILTIN_PACKS_DIR = Path(__file__).resolve().parent / "packs"
 

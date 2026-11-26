@@ -43,6 +43,49 @@ _RE_END_EIN = re.compile(rf"{_RE_EIN.pattern}$")
 _RE_END_PHONE = re.compile(rf"{_RE_PHONE.pattern}$")
 _RE_END_IBAN = re.compile(rf"{_T_START}[A-Z]{{2}}\d{{2}}(?: ?[A-Z0-9]){{11,30}}$")
 
+_CREDENTIAL_SUB_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"sk-(?:ant-[A-Za-z0-9_-]{12,}|[A-Za-z0-9_-]{16,})"), "[REDACTED]"),
+    (re.compile(r"(?i)\bdapi[a-f0-9]{16,}\b"), "[REDACTED]"),
+    (re.compile(r"AIza[0-9A-Za-z_-]{20,}"), "[REDACTED]"),
+    (re.compile(r"ya29\.[0-9A-Za-z._-]+"), "[REDACTED]"),
+    (
+        re.compile(
+            r"""(?i)((?:\\?["'])?\bAuthorization(?:\\?["'])?\s*:\s*(?:\\?["'])?Bearer\s+)"""
+            r"""[^\s\\"',;}{<>)]+"""
+        ),
+        r"\1[REDACTED]",
+    ),
+    (
+        re.compile(
+            r"""(?i)((?:\\?["'])?\bAuthorization(?:\\?["'])?\s*:\s*(?:\\?["'])?Basic\s+)"""
+            r"""[A-Za-z0-9+/=_-]{8,}"""
+        ),
+        r"\1[REDACTED]",
+    ),
+    (
+        re.compile(
+            r"(?i)\bBearer\s+(?=[A-Za-z0-9._~+/=-]*(?:\d|[A-Za-z0-9_-]\.[A-Za-z0-9_-]|[_~+/=])|"
+            r"[A-Za-z0-9_-]{20,})(?:[A-Za-z0-9_~+/=-]|\.(?=[A-Za-z0-9_~+/=-])){8,}"
+        ),
+        "Bearer [REDACTED]",
+    ),
+    (
+        re.compile(
+            r"""(?i)((?:\\?["'])?\bx-(?:goog-)?api-key(?:\\?["'])?\s*[:=]\s*(?:\\?["'])?)"""
+            r"""[^\s\\"',;}{]{8,}"""
+        ),
+        r"\1[REDACTED]",
+    ),
+    (re.compile(r"""(?i)([?&]key=)[^\s\\&"'#<>]{8,}"""), r"\1[REDACTED]"),
+    (
+        re.compile(
+            r"""(?i)((?:\\?["'])?(?<![A-Za-z0-9_])api_key(?:\\?["'])?\s*[:=]\s*(?:\\?["'])?)"""
+            r"""[^\s\\"',;}{&]{8,}"""
+        ),
+        r"\1[REDACTED]",
+    ),
+)
+
 
 def _is_valid_aba(digits: str) -> bool:
     if len(digits) != 9 or not digits.isdigit() or digits.startswith(("1900", "2026", "0000")):

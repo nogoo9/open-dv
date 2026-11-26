@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
 
 CegarPolicy = Literal["symbolic_only", "fast", "balanced", "strict"]
 ModelTier = Literal["FRONTIER_CRITIC", "STANDARD_WORKER"]
 V8Mode = Literal["off", "on_demand", "auto"]
+
+AGENT_PACK_IDS: tuple[str, ...] = (
+    "ontology-first-mate",
+    "table-cluster-scout",
+    "page-range-scout",
+    "ship-vault",
+    "dv-semantic-critic",
+    "dv-horizon-critic",
+)
+VALID_MODEL_OVERRIDE_TARGETS: frozenset[str] = frozenset(
+    {*(str(t) for t in get_args(ModelTier)), *AGENT_PACK_IDS}
+)
 
 
 class HarnessBudget(BaseModel):
@@ -116,8 +128,10 @@ def compute_cegar_energy(
 
 
 __all__ = [
+    "AGENT_PACK_IDS",
     "CEGAR_POLICY_SPECS",
     "STEP4_DEFAULT_BUDGET",
+    "VALID_MODEL_OVERRIDE_TARGETS",
     "CegarPolicy",
     "CegarPolicySpec",
     "HarnessBudget",

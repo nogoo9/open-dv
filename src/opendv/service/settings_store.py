@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import json
-import random
 import re
-import sys
-import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
@@ -17,6 +14,7 @@ from pydantic import ValidationError
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.project import WorkspaceSettings
 from opendv.models.sources import ExternalMcpServerSpec
+from opendv.service._secret_manifest import read_utf8_with_retry
 from opendv.service.os_platform import (
     atomic_write_text,
     locked_file_access,
@@ -52,20 +50,6 @@ def _validate_no_secrets_in_settings(settings: WorkspaceSettings) -> None:
                 )
 
 
-def _read_utf8_with_retry(path: Path, *, timeout: float = 2.0) -> str:
-    deadline = time.monotonic() + timeout
-    delay = 0.005
-    while True:
-        try:
-            return path.read_text(encoding="utf-8")
-        except PermissionError as exc:
-            is_win_transient = sys.platform == "win32" and getattr(exc, "winerror", None) in (5, 32)
-            if not is_win_transient or time.monotonic() >= deadline:
-                raise
-            time.sleep(delay + random.uniform(0.001, 0.005))
-            delay = min(delay * 2.0, 0.1)
-
-
 class SettingsStore:
     """Manages non-secret WorkspaceSettings and ExternalMcpServerSpec registry in OS user state."""
 
@@ -76,35 +60,50 @@ class SettingsStore:
         self._settings_lock_path: Path = self.state_dir / "settings.json.lock"
         self._mcp_servers_lock_path: Path = self.state_dir / "mcp_servers.json.lock"
 
-    def load_settings(self) -> WorkspaceSettings:
-        """Load WorkspaceSettings from settings.json, returning defaults if absent."""
-        with locked_file_access(self._settings_lock_path):
-            if not self.settings_path.is_file():
-                return WorkspaceSettings()
-            if not verify_owner_only_permissions(self.settings_path):
-                raise OpenDVError(
-                    "settings.json failed owner-only permission verification.",
-                    error_code=ErrorCode.INTERNAL_SERVER_ERROR,
-                )
-            try:
-                raw = _read_utf8_with_retry(self.settings_path)
-                return WorkspaceSettings.model_validate_json(raw)
-            except (OSError, ValidationError, ValueError) as exc:
-                raise OpenDVError(
-                    f"Failed to load WorkspaceSettings from '{self.settings_path}': {exc}",
-                    error_code=ErrorCode.INTERNAL_SERVER_ERROR,
-                ) from exc
+    def _load_settings_unlocked(self) -> WorkspaceSettings:
+        if not self.settings_path.is_file():
+            return WorkspaceSettings()
+        if not verify_owner_only_permissions(self.settings_path):
+            raise OpenDVError(
+                "settings.json failed owner-only permission verification.",
+                error_code=ErrorCode.INTERNAL_SERVER_ERROR,
+            )
+        try:
+            raw = read_utf8_with_retry(self.settings_path)
+            return WorkspaceSettings.model_validate_json(raw)
+        except (OSError, ValidationError, ValueError) as exc:
+            raise OpenDVError(
+                f"Failed to load WorkspaceSettings from '{self.settings_path}': {exc}",
+                error_code=ErrorCode.INTERNAL_SERVER_ERROR,
+            ) from exc
 
-    def save_settings(self, settings: WorkspaceSettings) -> WorkspaceSettings:
-        """Validate zero secrets, stamp updated_at, and persist settings.json atomically."""
+    def _save_settings_unlocked(self, settings: WorkspaceSettings) -> WorkspaceSettings:
         _validate_no_secrets_in_settings(settings)
         stamped = settings.model_copy(
             update={"updated_at": datetime.now(tz=UTC).isoformat()},
         )
         payload = json.dumps(stamped.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
-        with locked_file_access(self._settings_lock_path):
-            atomic_write_text(self.settings_path, payload, owner_only=True)
+        atomic_write_text(self.settings_path, payload, owner_only=True)
         return stamped
+
+    def load_settings(self) -> WorkspaceSettings:
+        """Load WorkspaceSettings from settings.json, returning defaults if absent."""
+        with locked_file_access(self._settings_lock_path):
+            return self._load_settings_unlocked()
+
+    def save_settings(self, settings: WorkspaceSettings) -> WorkspaceSettings:
+        """Validate zero secrets, stamp updated_at, and persist settings.json atomically."""
+        with locked_file_access(self._settings_lock_path):
+            return self._save_settings_unlocked(settings)
+
+    def update_settings(
+        self, mutator: Callable[[WorkspaceSettings], WorkspaceSettings]
+    ) -> tuple[WorkspaceSettings, WorkspaceSettings]:
+        """Atomically read, mutate, validate, and persist WorkspaceSettings."""
+        with locked_file_access(self._settings_lock_path):
+            prior = self._load_settings_unlocked()
+            saved = self._save_settings_unlocked(mutator(prior))
+            return prior, saved
 
     def load_mcp_servers(self) -> list[ExternalMcpServerSpec]:
         """Load registered ExternalMcpServerSpec entries from mcp_servers.json."""
@@ -117,7 +116,7 @@ class SettingsStore:
                     error_code=ErrorCode.INTERNAL_SERVER_ERROR,
                 )
             try:
-                raw = _read_utf8_with_retry(self.mcp_servers_path)
+                raw = read_utf8_with_retry(self.mcp_servers_path)
                 parsed = json.loads(raw)
             except (OSError, json.JSONDecodeError) as exc:
                 raise OpenDVError(

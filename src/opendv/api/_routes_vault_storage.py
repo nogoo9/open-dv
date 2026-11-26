@@ -50,6 +50,7 @@ async def build_vault(
     request: Request, project_id: str, body: VaultBuildReq
 ) -> RunStateResp:
     svc = get_service(request)
+    effective_policy = body.policy or svc.get_project(project_id).settings_snapshot.cegar_policy
     task_mgr = get_task_manager(request)
     run_id = f"run6-{uuid.uuid4().hex[:10]}"
     return await task_mgr.launch_run(
@@ -58,7 +59,7 @@ async def build_vault(
         run_id,
         lambda rid: svc.build_vault(project_id, body, run_id=rid),
         step="step6",
-        policy=body.policy,
+        policy=effective_policy,
     )
 
 
@@ -143,6 +144,7 @@ async def submit_vault_decisions(
         rid,
         lambda r: svc.submit_vault_decisions(project_id, r, body),
         step="step6",
+        policy=prior_state.policy,
         allow_sync_failure_cleanup=False,
     )
 
@@ -170,6 +172,7 @@ async def submit_horizon_steering(
         rid,
         lambda r: svc.submit_horizon_steering(project_id, r, body),
         step="step6",
+        policy=prior_state.policy,
         allow_sync_failure_cleanup=False,
     )
 

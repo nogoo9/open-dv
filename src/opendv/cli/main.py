@@ -11,6 +11,7 @@ import httpx
 import typer
 from pydantic import ValidationError
 
+from opendv.cli._commands_settings import project_settings_app, settings_app
 from opendv.cli._commands_sources import source_app
 from opendv.cli._output import (
     CLICK_ABORT_TYPES,
@@ -29,7 +30,6 @@ from opendv.cli.commands_core import (
     project_app,
     secrets_app,
     serve_command,
-    settings_app,
 )
 from opendv.cli.commands_workflows import (
     ontology_app,
@@ -37,6 +37,8 @@ from opendv.cli.commands_workflows import (
     vault_app,
 )
 from opendv.models import CliExitCode, ErrorCode, OpenDVError
+
+project_app.add_typer(project_settings_app, name="settings")
 
 
 def build_cli_app() -> typer.Typer:

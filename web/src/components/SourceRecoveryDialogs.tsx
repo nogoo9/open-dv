@@ -10,6 +10,7 @@ import type {
 	TablePreviewPage,
 } from "../api/openapi";
 import { useProjectStore } from "../store/projectStore";
+import { RemediationList } from "./RemediationList";
 
 export type RecoveryDialogMode = "preview" | "bind-secret" | "reattach" | null;
 export interface SourceRecoveryDialogsProps {
@@ -303,9 +304,12 @@ export function SourceRecoveryDialogs({
 				</div>
 
 				{problem && (
-					<div className="banner banner-danger" role="alert">
-						<strong>{problem.title}</strong> ({problem.error_code}):{" "}
-						{problem.detail}
+					<div className="banner banner-danger stack-sm" role="alert">
+						<div>
+							<strong>{problem.title}</strong> ({problem.error_code}):{" "}
+							{problem.detail}
+						</div>
+						<RemediationList remediation={problem.remediation} />
 					</div>
 				)}
 
