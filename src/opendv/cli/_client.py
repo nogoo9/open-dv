@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import io
 import os
 import zipfile
@@ -27,6 +26,7 @@ from opendv.models import (
     OpenDVError,
     ProblemDetails,
     ProjectInitReq,
+    ProjectSettingsUpdateReq,
     ProjectState,
     ProjectSummary,
     ScanApprovalReq,
@@ -39,6 +39,7 @@ from opendv.models import (
     SourceSummary,
     TrustedWorkspaceSpec,
     WorkspaceSettings,
+    compute_workspace_agents_sha256,
 )
 
 if TYPE_CHECKING:
@@ -46,22 +47,8 @@ if TYPE_CHECKING:
 
 
 def compute_local_workspace_agents_sha256(workspace_root: Path) -> str:
-    """Hash sorted `.opendv/agents/*/SKILL.md` files without importing `opendv.agents`."""
-    override_root = workspace_root / ".opendv" / "agents"
-    if not override_root.is_dir():
-        return ""
-    files = sorted(path for path in override_root.glob("*/SKILL.md") if path.is_file())
-    if not files:
-        return ""
-    hasher = hashlib.sha256()
-    for path in files:
-        rel = path.relative_to(override_root).as_posix()
-        text = path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
-        hasher.update(rel.encode("utf-8"))
-        hasher.update(b"\x00")
-        hasher.update(text.encode("utf-8"))
-        hasher.update(b"\x00")
-    return hasher.hexdigest()
+    """Hash `.opendv/agents` overrides via Layer-1 `compute_workspace_agents_sha256`."""
+    return compute_workspace_agents_sha256(workspace_root) or ""
 
 
 def resolve_cli_workspace_root(workspace_root: Path | str | None = None) -> Path:
@@ -328,6 +315,18 @@ class CliClient(CliWorkflowMixin):
         """Retrieve a project."""
         return self._call(
             lambda s: s.get_project(project_id), ProjectState, "GET", proj_route(project_id)
+        )
+
+    def update_project_settings(
+        self, project_id: str, req: ProjectSettingsUpdateReq
+    ) -> ProjectState:
+        """Partially update per-project settings snapshot."""
+        return self._call(
+            lambda s: s.update_project_settings(project_id, req),
+            ProjectState,
+            "PATCH",
+            proj_route(project_id, "/settings"),
+            json_body=req.model_dump(mode="json", exclude_unset=True),
         )
 
     def delete_project(self, project_id: str) -> dict[str, Any]:

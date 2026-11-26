@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from opendv.agents.critics import FragilitySurfaceSummary as CriticsFragilitySurfaceSummary
 from opendv.models import (
     BALANCED_BLOCKING_V6B_RULES,
     CEGAR_POLICY_SPECS,
@@ -56,7 +55,7 @@ def test_modeling_preferences_policy_specs_and_descriptions() -> None:
     prefs = ModelingPreferences()
     assert prefs.max_survey_questions == 5
     assert prefs.clarify_mode == "auto"
-    assert FragilitySurfaceSummary is CriticsFragilitySurfaceSummary
+    assert FragilitySurfaceSummary.__module__.startswith("opendv.models")
 
     for model_cls in (
         ModelingPreferences,

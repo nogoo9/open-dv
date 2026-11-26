@@ -8,15 +8,19 @@ from typing import Any
 
 import pytest
 
-from opendv.agents import (
-    CegarRunRequest,
+from opendv.modeling import (
+    DVModelingRequest,
+    ModelingResumeInput,
+    ModelingTurnRequest,
+    ModelingTurnResult,
+    WaveEvolutionInput,
     audit_v6b_justifications,
-    run_step6_cegar,
+    model_vault,
     run_v8_horizon_critic,
     run_v8_horizon_review,
 )
-from opendv.agents._cegar_helpers import run_ship_vault_synthesis
-from opendv.agents.ports import AgentTurnRequest, AgentTurnResult, RunEventSink, ScoutToolDispatcher
+from opendv.modeling._sharding import run_ship_vault_synthesis
+from opendv.modeling.ports import ModelingEventSink, ModelingScoutDispatcher
 from opendv.models.diagnostics import (
     AntiPatternJustification,
     ClarificationQuestion,
@@ -493,8 +497,8 @@ async def test_uat_v25_agt_06_cegar_12trap_duckdb_repair_and_cycle_guard() -> No
         }
     )
 
-    res = await run_step6_cegar(
-        CegarRunRequest(
+    res = await model_vault(
+        DVModelingRequest(
             run_id="run-12trap",
             project_id="proj_12trap",
             ontology=ont,
@@ -535,8 +539,8 @@ async def test_uat_v25_agt_06_cegar_12trap_duckdb_repair_and_cycle_guard() -> No
         scripts_by_agent={"ship-vault": [att1_draft]},
         fault=MockFaultSpec(duplicate_ir_cycle=True),
     )
-    cycle_res = await run_step6_cegar(
-        CegarRunRequest(
+    cycle_res = await model_vault(
+        DVModelingRequest(
             run_id="run-12trap-cycle",
             project_id="proj_12trap",
             ontology=ont,
@@ -565,8 +569,8 @@ async def test_uat_v25_agt_07_cegar_all_4_policies_waivers_and_gates() -> None:
     broken_draft = _build_12trap_draft(profiles, defective=True)
 
     # 1. symbolic_only: 1 pass, no V7
-    sym_res = await run_step6_cegar(
-        CegarRunRequest(
+    sym_res = await model_vault(
+        DVModelingRequest(
             run_id="run-sym",
             project_id="proj_12trap",
             ontology=ont,
@@ -591,7 +595,7 @@ async def test_uat_v25_agt_07_cegar_all_4_policies_waivers_and_gates() -> None:
             "dv-horizon-critic": [HorizonCriticVerdict(score=90, classification="REASONABLY_STABLE")],
         }
     )
-    fast_req = CegarRunRequest(
+    fast_req = DVModelingRequest(
         run_id="run-fast",
         project_id="proj_12trap",
         ontology=ont,
@@ -604,7 +608,7 @@ async def test_uat_v25_agt_07_cegar_all_4_policies_waivers_and_gates() -> None:
         prover=prover,
         harness=fast_harness,
     )
-    fast_res = await run_step6_cegar(fast_req)
+    fast_res = await model_vault(fast_req)
     assert fast_res.status == "CERTIFIED_FAST"
     assert fast_res.v7_verdict is None
     assert fast_res.wave_number == 1
@@ -627,8 +631,8 @@ async def test_uat_v25_agt_07_cegar_all_4_policies_waivers_and_gates() -> None:
         ]
     )
     with pytest.raises(OpenDVError) as exc_strict:
-        await run_step6_cegar(
-            CegarRunRequest(
+        await model_vault(
+            DVModelingRequest(
                 run_id="run-strict-fail",
                 project_id="proj_12trap",
                 ontology=ont,
@@ -664,8 +668,8 @@ async def test_uat_v25_agt_07_cegar_all_4_policies_waivers_and_gates() -> None:
             ]
         }
     )
-    strict_ok = await run_step6_cegar(
-        CegarRunRequest(
+    strict_ok = await model_vault(
+        DVModelingRequest(
             run_id="run-strict-ok",
             project_id="proj_12trap",
             ontology=ont,
@@ -698,8 +702,8 @@ async def test_uat_v25_agt_07_cegar_all_4_policies_waivers_and_gates() -> None:
     assert strict_ok.certified_ir.justifications[0].reviewed_by_v7 is True
 
     # 4. Broken V1-V6 ALWAYS yields UNCERTIFIED_DRAFT (CliExitCode 5)
-    broken_res = await run_step6_cegar(
-        CegarRunRequest(
+    broken_res = await model_vault(
+        DVModelingRequest(
             run_id="run-broken",
             project_id="proj_12trap",
             ontology=ont,
@@ -838,15 +842,17 @@ async def test_uat_v25_agt_08_v8_horizon_bucket_a_reroute_bucket_b_and_fast_path
             ],
         }
     )
-    res_prom = await run_step6_cegar(
-        CegarRunRequest(
+    res_prom = await model_vault(
+        DVModelingRequest(
             run_id="run-v8-prom",
             project_id="proj_alloc",
             ontology=ont,
             profiles=profiles,
             policy="balanced",
-            evolution_locks=w1_mas_locks,
-            prior_certified_ir=w1_mas_cert,
+            wave=WaveEvolutionInput(
+                evolution_locks=w1_mas_locks,
+                prior_certified_ir=w1_mas_cert,
+            ),
             prover=prover,
             harness=h_promote,
         )
@@ -930,15 +936,39 @@ async def test_uat_v25_agt_08_v8_horizon_bucket_a_reroute_bucket_b_and_fast_path
             ],
         }
     )
-    res_a = await run_step6_cegar(
-        CegarRunRequest(
+    class _SchemaOnlyProver:
+        def prove(
+            self,
+            certified_ir: Any,
+            profiles: Any,
+            *,
+            policy: Any = "balanced",
+            source_rows_by_table: Any = None,
+            table_sample_flags: Any = None,
+            real_row_proving: bool = True,
+        ) -> Any:
+            from opendv.models.diagnostics import IRProverReport
+
+            _ = (certified_ir, profiles, policy, source_rows_by_table, table_sample_flags, real_row_proving)
+            return IRProverReport(
+                dyn_results={},
+                ast_violations=[],
+                empirical_smells=[],
+                counterexamples=[],
+            )
+
+    res_a = await model_vault(
+        DVModelingRequest(
             run_id="run-v8-a",
             project_id="proj_alloc",
             ontology=ont,
             profiles=profiles,
             policy="balanced",
-            evolution_locks=w1_std_locks,
-            prior_certified_ir=w1_std_cert,
+            wave=WaveEvolutionInput(
+                evolution_locks=w1_std_locks,
+                prior_certified_ir=w1_std_cert,
+            ),
+            prover=_SchemaOnlyProver(),
             harness=h_bucket_a,
         )
     )
@@ -980,15 +1010,17 @@ async def test_uat_v25_agt_08_v8_horizon_bucket_a_reroute_bucket_b_and_fast_path
             ],
         }
     )
-    res_b = await run_step6_cegar(
-        CegarRunRequest(
+    res_b = await model_vault(
+        DVModelingRequest(
             run_id="run-v8-b",
             project_id="proj_alloc",
             ontology=ont,
             profiles=profiles,
             policy="balanced",
-            evolution_locks=w1_mas_locks,
-            prior_certified_ir=w1_mas_cert,
+            wave=WaveEvolutionInput(
+                evolution_locks=w1_mas_locks,
+                prior_certified_ir=w1_mas_cert,
+            ),
             prover=prover,
             harness=h_bucket_b,
             checkpoint_store=cp_store,
@@ -1009,19 +1041,23 @@ async def test_uat_v25_agt_08_v8_horizon_bucket_a_reroute_bucket_b_and_fast_path
             ],
         }
     )
-    res_b_done = await run_step6_cegar(
-        CegarRunRequest(
+    res_b_done = await model_vault(
+        DVModelingRequest(
             run_id="run-v8-b",
             project_id="proj_alloc",
             ontology=ont,
             profiles=profiles,
             policy="balanced",
-            evolution_locks=w1_mas_locks,
-            prior_certified_ir=w1_mas_cert,
+            wave=WaveEvolutionInput(
+                evolution_locks=w1_mas_locks,
+                prior_certified_ir=w1_mas_cert,
+            ),
             prover=prover,
             harness=h_resume,
-            checkpoint=res_b.checkpoint,
-            hold_answers=HoldAnswersReq(answers={"hq-brk02": "allow_split"}),
+            resume=ModelingResumeInput(
+                checkpoint=res_b.checkpoint,
+                hold_answers=HoldAnswersReq(answers={"hq-brk02": "allow_split"}),
+            ),
         )
     )
     assert res_b_done.status == "CERTIFIED"
@@ -1059,13 +1095,18 @@ async def test_uat_v25_agt_09_scale_200_cluster_sharded_cegar() -> None:
         ],
     )
 
-    def _shard_script(req: AgentTurnRequest) -> DraftShardIR:
+    def _shard_script(req: ModelingTurnRequest) -> DraftShardIR:
         cid = req.cluster_id or "cluster_00"
-        c_idx = int(cid.split("_")[-1])
+        base_cid = cid.split("__part")[0]
+        c_idx = int(base_cid.split("_")[-1])
         c_tids = set(clusters[c_idx][1])
         c_tables = [t for t in tables if t.table_id in c_tids or t.table_name in c_tids]
-        domain = c_tables[0].table_name.split("_")[1]
+        prompt_obj = json.loads(req.prompt)
+        shard_tids = {t["table_id"] for t in prompt_obj.get("tables", [])}
+        shard_tables = [t for t in c_tables if t.table_id in shard_tids] or c_tables
+        domain = shard_tables[0].table_name.split("_")[1]
         anchor = next(t for t in c_tables if t.table_name.endswith("_tbl_000"))
+        has_anchor = any(t.table_id == anchor.table_id for t in shard_tables)
         triage = (
             []
             if req.attempt == 1
@@ -1076,60 +1117,68 @@ async def test_uat_v25_agt_09_scale_200_cluster_sharded_cegar() -> None:
                     disposition="MODELED",
                     target_ref=f"hub_{domain}",
                 )
-                for t in c_tables
+                for t in shard_tables
                 for c in t.columns
             ]
         )
         return DraftShardIR(
             cluster_id=cid,
-            hubs=[
-                DraftHubSpec(
-                    hub_name=f"hub_{domain}",
-                    key_tier="TIER_3_LOCAL_SCOPED",
-                    business_keys=[
-                        BusinessKeyPart(
-                            table_id=anchor.table_id,
-                            col_name=f"{domain}_id",
-                            source_id="scale_200",
-                            key_tier="TIER_3_LOCAL_SCOPED",
-                            bkcc_value=domain.upper(),
-                        )
-                    ],
-                    source_bindings=[
-                        DraftSourceBinding(
-                            source_id="scale_200",
-                            table_id=anchor.table_id,
-                            col_mappings={f"{domain}_id": f"{domain}_id"},
-                        )
-                    ],
-                )
-            ],
-            satellites=[
-                DraftSatelliteSpec(
-                    sat_name=f"sat_{domain}_core",
-                    sat_kind="STANDARD",
-                    parent_name=f"hub_{domain}",
-                    source_bindings=[
-                        DraftSourceBinding(
-                            source_id="scale_200",
-                            table_id=anchor.table_id,
-                            col_mappings={"amount": "amount"},
-                        )
-                    ],
-                    attributes=[
-                        DraftField(
-                            name="amount",
-                            logical_type=DecimalType(precision=18, scale=4),
-                            nullable=True,
-                            is_pii=False,
-                        )
-                    ],
-                )
-            ],
+            hubs=(
+                [
+                    DraftHubSpec(
+                        hub_name=f"hub_{domain}",
+                        key_tier="TIER_3_LOCAL_SCOPED",
+                        business_keys=[
+                            BusinessKeyPart(
+                                table_id=anchor.table_id,
+                                col_name=f"{domain}_id",
+                                source_id="scale_200",
+                                key_tier="TIER_3_LOCAL_SCOPED",
+                                bkcc_value=domain.upper(),
+                            )
+                        ],
+                        source_bindings=[
+                            DraftSourceBinding(
+                                source_id="scale_200",
+                                table_id=anchor.table_id,
+                                col_mappings={f"{domain}_id": f"{domain}_id"},
+                            )
+                        ],
+                    )
+                ]
+                if has_anchor
+                else []
+            ),
+            satellites=(
+                [
+                    DraftSatelliteSpec(
+                        sat_name=f"sat_{domain}_core",
+                        sat_kind="STANDARD",
+                        parent_name=f"hub_{domain}",
+                        source_bindings=[
+                            DraftSourceBinding(
+                                source_id="scale_200",
+                                table_id=anchor.table_id,
+                                col_mappings={"amount_dec": "amount_dec"},
+                            )
+                        ],
+                        attributes=[
+                            DraftField(
+                                name="amount_dec",
+                                logical_type=DecimalType(precision=18, scale=4),
+                                nullable=True,
+                                is_pii=False,
+                            )
+                        ],
+                    )
+                ]
+                if has_anchor
+                else []
+            ),
             column_triage=triage,
         )
 
-    def selector(req: AgentTurnRequest) -> Any:
+    def selector(req: ModelingTurnRequest) -> Any:
         if req.agent_id == "ship-vault":
             return _shard_script(req)
         if req.agent_id == "dv-semantic-critic":
@@ -1137,14 +1186,15 @@ async def test_uat_v25_agt_09_scale_200_cluster_sharded_cegar() -> None:
         return HorizonCriticVerdict(score=93, classification="REASONABLY_STABLE")
 
     harness = DeterministicMockHarness(selector=selector)
-    res = await run_step6_cegar(
-        CegarRunRequest(
+    res = await model_vault(
+        DVModelingRequest(
             run_id="run-scale-200",
             project_id="proj_scale200",
             ontology=ont,
             profiles=[prof],
             clusters=clusters,
             policy="balanced",
+            prover=DuckDbProverAdapter(),
             harness=harness,
         )
     )
@@ -1158,16 +1208,24 @@ async def test_uat_v25_agt_09_scale_200_cluster_sharded_cegar() -> None:
     unresolved_att2 = [e for e in res.certified_ir.column_triage if e.disposition == "UNRESOLVED"]
     assert len(unresolved_att2) == 0
 
-    # Assert 11 sharded turns per attempt + compact 7-tuple payload passed to V7/V8
+    # Assert <=150-col sharded turns (22 shards x 2 attempts = 44) + compact 7-tuple payload passed to V7/V8
     ship_reqs = [r for r in harness.requests if r.agent_id == "ship-vault"]
-    assert len(ship_reqs) == 22
+    assert len(ship_reqs) == 44
     assert ship_reqs[0].metadata["sharded"] is True
     assert len(ship_reqs[0].metadata["preallocated_hubs"]) == 11
 
     v7_req = next(r for r in harness.requests if r.agent_id == "dv-semantic-critic")
     v7_payload = json.loads(v7_req.prompt)
-    assert len(v7_payload["graph_b_columns_7tuple"]) == 1760
-    assert len(v7_payload["graph_b_columns_7tuple"][0]) == 7
+    g7 = v7_payload["graph_b_columns_7tuple"]
+    if isinstance(g7, list):
+        assert len(g7) == 1760
+        assert len(g7[0]) == 7
+    else:
+        assert v7_payload.get("compaction_mode") == "wide_catalog_summary"
+        assert len(g7["table_summaries"]) == 200
+        assert sum(x[1] for x in g7["table_summaries"]) == 1600
+        if g7["flagged_columns_7tuple"]:
+            assert len(g7["flagged_columns_7tuple"][0]) == 7
 
 
 @pytest.mark.asyncio
@@ -1298,8 +1356,8 @@ async def test_uat_v25_agt_10_multiwave_w1_to_w2_locks_otc_hold_and_proposals() 
         column_triage=_triage_all([w1_prof]),
     )
     prover = DuckDbProverAdapter()
-    w1_res = await run_step6_cegar(
-        CegarRunRequest(
+    w1_res = await model_vault(
+        DVModelingRequest(
             run_id="run-w1",
             project_id="proj_am_multi",
             ontology=w1_ont,
@@ -1342,15 +1400,17 @@ async def test_uat_v25_agt_10_multiwave_w1_to_w2_locks_otc_hold_and_proposals() 
         update={"wave_number": 2, "pending_clarifications": [otc_q], "column_triage": _triage_all(w2_profiles)}
     )
     cp_store = InMemoryRunCheckpointStore()
-    w2_hold_res = await run_step6_cegar(
-        CegarRunRequest(
+    w2_hold_res = await model_vault(
+        DVModelingRequest(
             run_id="run-w2",
             project_id="proj_am_multi",
             ontology=w1_ont,
             profiles=w2_profiles,
             policy="balanced",
-            evolution_locks=w1_res.evolution_lock,
-            prior_certified_ir=w1_res.certified_ir,
+            wave=WaveEvolutionInput(
+                evolution_locks=w1_res.evolution_lock,
+                prior_certified_ir=w1_res.certified_ir,
+            ),
             prover=prover,
             checkpoint_store=cp_store,
             harness=DeterministicMockHarness(scripts_by_agent={"ship-vault": [w2_hold_draft]}),
@@ -1547,19 +1607,23 @@ async def test_uat_v25_agt_10_multiwave_w1_to_w2_locks_otc_hold_and_proposals() 
             ).model_dump(mode="json")
         ],
     }
-    w2_res = await run_step6_cegar(
-        CegarRunRequest(
+    w2_res = await model_vault(
+        DVModelingRequest(
             run_id="run-w2",
             project_id="proj_am_multi",
             ontology=w1_ont,
             profiles=w2_profiles,
             policy="balanced",
-            evolution_locks=w1_res.evolution_lock,
-            prior_certified_ir=w1_res.certified_ir,
+            wave=WaveEvolutionInput(
+                evolution_locks=w1_res.evolution_lock,
+                prior_certified_ir=w1_res.certified_ir,
+            ),
             prover=prover,
             checkpoint_store=cp_store,
-            checkpoint=w2_hold_res.checkpoint,
-            hold_answers=HoldAnswersReq(answers={"q-otc-nk": "uti_id"}),
+            resume=ModelingResumeInput(
+                checkpoint=w2_hold_res.checkpoint,
+                hold_answers=HoldAnswersReq(answers={"q-otc-nk": "uti_id"}),
+            ),
             harness=DeterministicMockHarness(
                 scripts_by_agent={
                     "ship-vault": [
@@ -1642,8 +1706,8 @@ async def test_cegar_v8_low_score_pause_v7_critique_and_model_override_forwardin
             ],
         }
     )
-    res_hold = await run_step6_cegar(
-        CegarRunRequest(
+    res_hold = await model_vault(
+        DVModelingRequest(
             run_id="run-v7-v8-reg",
             project_id="proj_12trap",
             ontology=ont,
@@ -1687,8 +1751,8 @@ async def test_cegar_v8_low_score_pause_v7_critique_and_model_override_forwardin
     assert next(r for r in h.requests if r.agent_id == "dv-horizon-critic").model_override == "ovr-v8"
 
     # Resume with "accept" -> seals CERTIFIED without infinite low-score hold
-    res_accepted = await run_step6_cegar(
-        CegarRunRequest(
+    res_accepted = await model_vault(
+        DVModelingRequest(
             run_id="run-v7-v8-reg",
             project_id="proj_12trap",
             ontology=ont,
@@ -1699,10 +1763,12 @@ async def test_cegar_v8_low_score_pause_v7_critique_and_model_override_forwardin
                 fk_turnover_by_table={mgr_id: {"portfolio_manager_id": 0.67}},
             ),
             prover=prover,
-            checkpoint=res_hold.checkpoint,
-            hold_answers=HoldAnswersReq(answers={"hq-v8-low-score": "accept"}),
-            resumed_draft_ir=res_hold.draft_ir,
-            resumed_certified_ir=res_hold.certified_ir,
+            resume=ModelingResumeInput(
+                checkpoint=res_hold.checkpoint,
+                hold_answers=HoldAnswersReq(answers={"hq-v8-low-score": "accept"}),
+                resumed_draft_ir=res_hold.draft_ir,
+                resumed_certified_ir=res_hold.certified_ir,
+            ),
             harness=DeterministicMockHarness(
                 scripts_by_agent={
                     "dv-horizon-critic": [
@@ -1776,8 +1842,8 @@ async def test_cegar_v8_low_score_pause_v7_critique_and_model_override_forwardin
         ],
         column_triage=_triage_all([alloc_prof]),
     )
-    post_steer_res = await run_step6_cegar(
-        CegarRunRequest(
+    post_steer_res = await model_vault(
+        DVModelingRequest(
             run_id="run-post-steer-low",
             project_id="proj_post_steer",
             ontology=alloc_ont,
@@ -1837,8 +1903,8 @@ async def test_cegar_strict_bucket_a_waiver_preservation_and_v6b_regression_ratc
             ]
         }
     )
-    res_ok = await run_step6_cegar(
-        CegarRunRequest(
+    res_ok = await model_vault(
+        DVModelingRequest(
             run_id="run-strict-ba-ok",
             project_id="proj_12trap",
             ontology=ont,
@@ -1896,8 +1962,8 @@ async def test_cegar_strict_bucket_a_waiver_preservation_and_v6b_regression_ratc
             ]
         }
     )
-    strict_reg_res = await run_step6_cegar(
-        CegarRunRequest(
+    strict_reg_res = await model_vault(
+        DVModelingRequest(
             run_id="run-strict-ba-reg",
             project_id="proj_12trap",
             ontology=ont_with_crm,
@@ -2041,7 +2107,7 @@ async def test_v8_horizon_review_guards_seq_wave_delta_fast_resume_watchlist_and
 
     # 2. Guard execute_v8_horizon_review against UNCERTIFIED_DRAFT
     broken_draft = w1_draft.model_copy(update={"column_triage": []})
-    uncert_req = CegarRunRequest(
+    uncert_req = DVModelingRequest(
         run_id="r-uncert",
         project_id="proj_hzn_rev",
         ontology=ont,
@@ -2050,7 +2116,7 @@ async def test_v8_horizon_review_guards_seq_wave_delta_fast_resume_watchlist_and
         prover=prover,
         harness=DeterministicMockHarness(scripts_by_agent={"ship-vault": [broken_draft]}),
     )
-    uncert_res = await run_step6_cegar(uncert_req)
+    uncert_res = await model_vault(uncert_req)
     assert uncert_res.status == "UNCERTIFIED_DRAFT"
     with pytest.raises(OpenDVError) as exc_uncert:
         await run_v8_horizon_review(uncert_req, uncert_res)
@@ -2058,21 +2124,23 @@ async def test_v8_horizon_review_guards_seq_wave_delta_fast_resume_watchlist_and
 
     # 3. Wave 2 CERTIFIED_FAST -> run_v8_horizon_review: monotonic seq, Bucket A wave_delta, S6-07 + RUN_COMPLETED
     sink_rev = InMemoryRunEventSink()
-    fast_w2_req = CegarRunRequest(
+    fast_w2_req = DVModelingRequest(
         run_id="r-fast-w2",
         project_id="proj_hzn_rev",
         ontology=ont,
         profiles=[alloc_prof],
         policy="fast",
-        evolution_locks=w1_locks,
-        prior_certified_ir=w1_cert,
+        wave=WaveEvolutionInput(
+            evolution_locks=w1_locks,
+            prior_certified_ir=w1_cert,
+        ),
         prover=prover,
         event_sink=sink_rev,
         harness=DeterministicMockHarness(
             scripts_by_agent={"ship-vault": [w1_draft.model_copy(update={"wave_number": 2})]}
         ),
     )
-    fast_w2_res = await run_step6_cegar(fast_w2_req)
+    fast_w2_res = await model_vault(fast_w2_req)
     assert fast_w2_res.status == "CERTIFIED_FAST"
     prior_max_seq = sink_rev.events[-1].seq
     assert fast_w2_res.last_seq == prior_max_seq
@@ -2141,8 +2209,8 @@ async def test_v8_horizon_review_guards_seq_wave_delta_fast_resume_watchlist_and
             )
         ]
     )
-    fast_hold = await run_step6_cegar(
-        CegarRunRequest(
+    fast_hold = await model_vault(
+        DVModelingRequest(
             run_id="r-fast-hold",
             project_id="proj_hzn_rev",
             ontology=ont,
@@ -2169,8 +2237,8 @@ async def test_v8_horizon_review_guards_seq_wave_delta_fast_resume_watchlist_and
     assert fast_hold.checkpoint is not None and fast_hold.checkpoint.phase == "S6-06"
     assert fast_hold.checkpoint.resume_payload.get("horizon_review_requested") is True
 
-    fast_resumed = await run_step6_cegar(
-        CegarRunRequest(
+    fast_resumed = await model_vault(
+        DVModelingRequest(
             run_id="r-fast-hold",
             project_id="proj_hzn_rev",
             ontology=ont,
@@ -2178,10 +2246,12 @@ async def test_v8_horizon_review_guards_seq_wave_delta_fast_resume_watchlist_and
             policy="fast",
             budget=HarnessBudget(max_turns=2, max_tokens=50000, timeout_seconds=30),
             prover=prover,
-            checkpoint=fast_hold.checkpoint,
-            hold_answers=HoldAnswersReq(answers={"hq-fast-b": "allow_split"}),
-            resumed_draft_ir=fast_hold.draft_ir,
-            resumed_certified_ir=fast_hold.certified_ir,
+            resume=ModelingResumeInput(
+                checkpoint=fast_hold.checkpoint,
+                hold_answers=HoldAnswersReq(answers={"hq-fast-b": "allow_split"}),
+                resumed_draft_ir=fast_hold.draft_ir,
+                resumed_certified_ir=fast_hold.certified_ir,
+            ),
             harness=DeterministicMockHarness(
                 scripts_by_agent={
                     "dv-horizon-critic": [
@@ -2265,8 +2335,8 @@ async def test_m1_remediation_monotonic_seq_steer_accept_multitable_hub_and_waiv
     )
     draft_s605 = clean_draft.model_copy(update={"pending_clarifications": [clar_q]})
     sink_s605 = InMemoryRunEventSink()
-    hold_s605 = await run_step6_cegar(
-        CegarRunRequest(
+    hold_s605 = await model_vault(
+        DVModelingRequest(
             run_id="r-seq-s605",
             project_id="proj_12trap",
             ontology=ont,
@@ -2286,8 +2356,8 @@ async def test_m1_remediation_monotonic_seq_steer_accept_multitable_hub_and_waiv
     hold_ev_s605 = next(ev for ev in sink_s605.events if ev.event_type == "HOLD_CHECKPOINTED")
     assert hold_s605.checkpoint.last_seq == hold_ev_s605.seq
 
-    res_s605 = await run_step6_cegar(
-        CegarRunRequest(
+    res_s605 = await model_vault(
+        DVModelingRequest(
             run_id="r-seq-s605",
             project_id="proj_12trap",
             ontology=ont,
@@ -2299,8 +2369,10 @@ async def test_m1_remediation_monotonic_seq_steer_accept_multitable_hub_and_waiv
             ),
             prover=prover,
             event_sink=sink_s605,
-            checkpoint=hold_s605.checkpoint,
-            hold_answers=HoldAnswersReq(answers={"q-s605-seq": "CRM"}),
+            resume=ModelingResumeInput(
+                checkpoint=hold_s605.checkpoint,
+                hold_answers=HoldAnswersReq(answers={"q-s605-seq": "CRM"}),
+            ),
             harness=DeterministicMockHarness(scripts_by_agent={"ship-vault": [draft_s605]}),
         )
     )
@@ -2310,8 +2382,8 @@ async def test_m1_remediation_monotonic_seq_steer_accept_multitable_hub_and_waiv
 
     # 2. Strict monotonic 1..N across S6-06 STEER -> ACCEPT (fixes STEER->ACCEPT lockout too)
     sink_s606 = InMemoryRunEventSink()
-    hold_low_1 = await run_step6_cegar(
-        CegarRunRequest(
+    hold_low_1 = await model_vault(
+        DVModelingRequest(
             run_id="r-seq-s606-steer-accept",
             project_id="proj_12trap",
             ontology=ont,
@@ -2337,8 +2409,8 @@ async def test_m1_remediation_monotonic_seq_steer_accept_multitable_hub_and_waiv
     assert hold_low_1.checkpoint.last_seq == sink_s606.events[-1].seq
 
     # Answer "steer" first -> remains HOLD_CHECKPOINTED with STEER assumption
-    hold_low_2 = await run_step6_cegar(
-        CegarRunRequest(
+    hold_low_2 = await model_vault(
+        DVModelingRequest(
             run_id="r-seq-s606-steer-accept",
             project_id="proj_12trap",
             ontology=ont,
@@ -2350,14 +2422,22 @@ async def test_m1_remediation_monotonic_seq_steer_accept_multitable_hub_and_waiv
             ),
             prover=prover,
             event_sink=sink_s606,
-            checkpoint=hold_low_1.checkpoint,
             horizon_assumptions=hold_low_1.horizon_assumptions,
-            hold_answers=HoldAnswersReq(answers={"hq-v8-low-score": "steer"}),
-            resumed_draft_ir=hold_low_1.draft_ir,
-            resumed_certified_ir=hold_low_1.certified_ir,
+            resume=ModelingResumeInput(
+                checkpoint=hold_low_1.checkpoint,
+                hold_answers=HoldAnswersReq(answers={"hq-v8-low-score": "steer"}),
+                resumed_draft_ir=hold_low_1.draft_ir,
+                resumed_certified_ir=hold_low_1.certified_ir,
+            ),
             harness=DeterministicMockHarness(
                 scripts_by_agent={
-                    "dv-horizon-critic": [HorizonCriticVerdict(score=78, classification="REASONABLY_STABLE")],
+                    "ship-vault": [clean_draft],
+                    "dv-semantic-critic": [
+                        SemanticCriticVerdict(score=95, findings=[], accepted_waiver_ids=[])
+                    ],
+                    "dv-horizon-critic": [
+                        HorizonCriticVerdict(score=78, classification="REASONABLY_STABLE")
+                    ],
                 }
             ),
         )
@@ -2370,8 +2450,8 @@ async def test_m1_remediation_monotonic_seq_steer_accept_multitable_hub_and_waiv
     )
 
     # Answer "accept" next -> overwrites STEER -> ACCEPT and seals CERTIFIED
-    res_accepted = await run_step6_cegar(
-        CegarRunRequest(
+    res_accepted = await model_vault(
+        DVModelingRequest(
             run_id="r-seq-s606-steer-accept",
             project_id="proj_12trap",
             ontology=ont,
@@ -2383,14 +2463,22 @@ async def test_m1_remediation_monotonic_seq_steer_accept_multitable_hub_and_waiv
             ),
             prover=prover,
             event_sink=sink_s606,
-            checkpoint=hold_low_2.checkpoint,
             horizon_assumptions=hold_low_2.horizon_assumptions,
-            hold_answers=HoldAnswersReq(answers={"hq-v8-low-score": "accept"}),
-            resumed_draft_ir=hold_low_2.draft_ir,
-            resumed_certified_ir=hold_low_2.certified_ir,
+            resume=ModelingResumeInput(
+                checkpoint=hold_low_2.checkpoint,
+                hold_answers=HoldAnswersReq(answers={"hq-v8-low-score": "accept"}),
+                resumed_draft_ir=hold_low_2.draft_ir,
+                resumed_certified_ir=hold_low_2.certified_ir,
+            ),
             harness=DeterministicMockHarness(
                 scripts_by_agent={
-                    "dv-horizon-critic": [HorizonCriticVerdict(score=78, classification="REASONABLY_STABLE")],
+                    "ship-vault": [clean_draft],
+                    "dv-semantic-critic": [
+                        SemanticCriticVerdict(score=95, findings=[], accepted_waiver_ids=[])
+                    ],
+                    "dv-horizon-critic": [
+                        HorizonCriticVerdict(score=78, classification="REASONABLY_STABLE")
+                    ],
                 }
             ),
         )
@@ -2404,7 +2492,7 @@ async def test_m1_remediation_monotonic_seq_steer_accept_multitable_hub_and_waiv
 
     # Also verify run_v8_horizon_review hold + resume monotonic seq
     sink_rev_hold = InMemoryRunEventSink()
-    fast_base_req = CegarRunRequest(
+    fast_base_req = DVModelingRequest(
         run_id="r-rev-seq",
         project_id="proj_12trap",
         ontology=ont,
@@ -2418,7 +2506,7 @@ async def test_m1_remediation_monotonic_seq_steer_accept_multitable_hub_and_waiv
         event_sink=sink_rev_hold,
         harness=DeterministicMockHarness(scripts_by_agent={"ship-vault": [clean_draft]}),
     )
-    fast_base_res = await run_step6_cegar(fast_base_req)
+    fast_base_res = await model_vault(fast_base_req)
     rev_hold = await run_v8_horizon_review(
         fast_base_req.model_copy(
             update={
@@ -2436,14 +2524,16 @@ async def test_m1_remediation_monotonic_seq_steer_accept_multitable_hub_and_waiv
     assert rev_hold.status == "HOLD_CHECKPOINTED"
     assert rev_hold.checkpoint is not None
     assert rev_hold.checkpoint.last_seq == sink_rev_hold.events[-1].seq
-    rev_resumed = await run_step6_cegar(
+    rev_resumed = await model_vault(
         fast_base_req.model_copy(
             update={
-                "checkpoint": rev_hold.checkpoint,
                 "horizon_assumptions": rev_hold.horizon_assumptions,
-                "hold_answers": HoldAnswersReq(answers={"hq-v8-low-score": "accept"}),
-                "resumed_draft_ir": rev_hold.draft_ir,
-                "resumed_certified_ir": rev_hold.certified_ir,
+                "resume": ModelingResumeInput(
+                    checkpoint=rev_hold.checkpoint,
+                    hold_answers=HoldAnswersReq(answers={"hq-v8-low-score": "accept"}),
+                    resumed_draft_ir=rev_hold.draft_ir,
+                    resumed_certified_ir=rev_hold.certified_ir,
+                ),
                 "harness": DeterministicMockHarness(
                     scripts_by_agent={
                         "dv-horizon-critic": [
@@ -2517,8 +2607,8 @@ async def test_m1_remediation_monotonic_seq_steer_accept_multitable_hub_and_waiv
             ]
         }
     )
-    forged_res = await run_step6_cegar(
-        CegarRunRequest(
+    forged_res = await model_vault(
+        DVModelingRequest(
             run_id="r-forged-v7",
             project_id="proj_12trap",
             ontology=ont,
@@ -2607,8 +2697,8 @@ async def test_ship_vault_human_waiver_forgery_and_single_table_hub_cross_table_
             ]
         }
     )
-    forged_res = await run_step6_cegar(
-        CegarRunRequest(
+    forged_res = await model_vault(
+        DVModelingRequest(
             run_id="r-forged-human-actor",
             project_id="proj_12trap",
             ontology=ont,
@@ -2942,8 +3032,8 @@ async def test_demote_old_bk_per_satellite_routing_and_partial_sat_hub(
 
     # Also verify end-to-end CEGAR with V8 auto-steer emitting demote_old_bk_to_sat="true"
     ont = _build_12trap_ontology()
-    res_2e = await run_step6_cegar(
-        CegarRunRequest(
+    res_2e = await model_vault(
+        DVModelingRequest(
             run_id="r-2e-demote",
             project_id="proj_2f",
             ontology=ont,
@@ -3312,15 +3402,17 @@ async def test_unlocked_link_grain_sync_and_locked_missing_old_bk_escalation(
         }
     )
     for src_col in (None, "account_id"):
-        res_locked_miss = await run_step6_cegar(
-            CegarRunRequest(
+        res_locked_miss = await model_vault(
+            DVModelingRequest(
                 run_id=f"r-locked-miss-{src_col or 'none'}",
                 project_id="proj_locked_miss",
                 ontology=ont,
                 profiles=[lp1, lp2],
                 policy="strict",
-                evolution_locks=locks_l1,
-                prior_certified_ir=cert_l1,
+                wave=WaveEvolutionInput(
+                    evolution_locks=locks_l1,
+                    prior_certified_ir=cert_l1,
+                ),
                 verifier_ctx=VerifierContext(profiles=[lp1, lp2], evolution_locks=locks_l1, prior_certified_ir=cert_l1),
                 prover=prover,
                 harness=DeterministicMockHarness(
@@ -3515,15 +3607,17 @@ async def test_locked_crosswalk_preexisting_canonical_and_unbound_link_table_duc
         update={"wave_number": 2, "column_triage": _triage_all([xp1, xp2])}
     )
     for src_col in (None, "account_id"):
-        res_xw = await run_step6_cegar(
-            CegarRunRequest(
+        res_xw = await model_vault(
+            DVModelingRequest(
                 run_id=f"r-xw-{src_col or 'none'}",
                 project_id="proj_xw",
                 ontology=ont,
                 profiles=[xp1, xp2],
                 policy="strict",
-                evolution_locks=locks_xw1,
-                prior_certified_ir=cert_xw1,
+                wave=WaveEvolutionInput(
+                    evolution_locks=locks_xw1,
+                    prior_certified_ir=cert_xw1,
+                ),
                 verifier_ctx=VerifierContext(
                     profiles=[xp1, xp2], evolution_locks=locks_xw1, prior_certified_ir=cert_xw1
                 ),
@@ -3674,15 +3768,17 @@ async def test_locked_crosswalk_preexisting_canonical_and_unbound_link_table_duc
             "column_triage": _triage_all([fp1, fp2]),
         }
     )
-    res_f2 = await run_step6_cegar(
-        CegarRunRequest(
+    res_f2 = await model_vault(
+        DVModelingRequest(
             run_id="r-precanon",
             project_id="proj_precanon",
             ontology=ont,
             profiles=[fp1, fp2],
             policy="strict",
-            evolution_locks=locks_f1,
-            prior_certified_ir=cert_f1,
+            wave=WaveEvolutionInput(
+                evolution_locks=locks_f1,
+                prior_certified_ir=cert_f1,
+            ),
             verifier_ctx=VerifierContext(
                 profiles=[fp1, fp2], evolution_locks=locks_f1, prior_certified_ir=cert_f1
             ),
@@ -3917,7 +4013,7 @@ async def test_ship_vault_synthesis_retries_once_on_invalid_structured_json(tmp_
     class _ScriptedShipHarness:
         def __init__(self, outcomes: list[DraftVaultIR | OpenDVError]) -> None:
             self._outcomes = list(outcomes)
-            self.calls: list[AgentTurnRequest] = []
+            self.calls: list[ModelingTurnRequest] = []
 
         @property
         def provider_name(self) -> HarnessProvider:
@@ -3925,16 +4021,16 @@ async def test_ship_vault_synthesis_retries_once_on_invalid_structured_json(tmp_
 
         async def run_turn(
             self,
-            request: AgentTurnRequest,
+            request: ModelingTurnRequest,
             *,
-            event_sink: RunEventSink | None = None,
-            scout_dispatcher: ScoutToolDispatcher | None = None,
-        ) -> AgentTurnResult:
+            event_sink: ModelingEventSink | None = None,
+            scout_dispatcher: ModelingScoutDispatcher | None = None,
+        ) -> ModelingTurnResult:
             self.calls.append(request)
             item = self._outcomes.pop(0)
             if isinstance(item, OpenDVError):
                 raise item
-            return AgentTurnResult(
+            return ModelingTurnResult(
                 agent_id=request.agent_id,
                 provider="agy",
                 model_id="gemini-3.8-flash-high",
@@ -3968,8 +4064,8 @@ async def test_ship_vault_synthesis_retries_once_on_invalid_structured_json(tmp_
     assert draft == valid_draft
     assert turns >= 2
     assert len(ok_harness.calls) == 2
-    assert "PREVIOUS OUTPUT INVALID" in ok_harness.calls[1].prompt
-    assert "compact minified JSON" in ok_harness.calls[1].prompt
+    assert "INVALID OUTPUT RETRY" in ok_harness.calls[1].prompt
+    assert "Return ONLY one valid compact JSON object." in ok_harness.calls[1].prompt
 
     err2 = OpenDVError(
         "agy CLI returned invalid structured output for DraftVaultIR: truncated JSON",

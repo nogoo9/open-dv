@@ -166,6 +166,25 @@ def _suggest_fix(diag: VerifierDiagnostic) -> str:
 def _build_remediation_hints(report: VerifierReport) -> list[RemediationHint]:
     hints: list[RemediationHint] = list(report.remediation_hints)
     seen: set[tuple[str, str]] = {(h.rule_id, h.entity_name) for h in hints}
+    if report.prover_report is not None:
+        for ce in report.prover_report.counterexamples:
+            if not isinstance(ce, dict) or not ce.get("remediation_hint"):
+                continue
+            rule_id = str(ce.get("rule_id") or "DV-DYN-004")
+            entity_name = str(ce.get("entity_name") or "CertifiedVaultIR")
+            key = (rule_id, entity_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            hints.append(
+                RemediationHint(
+                    gate="V6",
+                    rule_id=rule_id,
+                    entity_name=entity_name,
+                    suggested_fix=str(ce["remediation_hint"]),
+                    waivable=False,
+                )
+            )
     for diag in report.all_diagnostics:
         if diag.severity == "ADVISORY":
             continue

@@ -208,7 +208,7 @@ def build_hub_load_dml(
                 sel_cols.append("MIN(src.rec_src) AS rec_src")
             else:
                 mapped = sb.col_mappings.get(c)
-                if mapped is not None and mapped in stg_proj:
+                if mapped is not None:
                     src_col = mapped
                 elif c in stg_proj:
                     src_col = c

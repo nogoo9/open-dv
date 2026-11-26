@@ -270,6 +270,51 @@ def settings_trust_workspace(
     run_cli_action(ctx, lambda c: c.trust_workspace(path))
 
 
+@settings_app.command("project-set")
+def settings_project_set(
+    ctx: typer.Context,
+    project: ProjectOpt,
+    pref: Annotated[
+        list[str] | None,
+        typer.Option("--pref", help="Repeatable ModelingPreferences key=value update."),
+    ] = None,
+    hints_file: Annotated[
+        Path | None,
+        typer.Option("--hints-file", help="Path to business context hints file."),
+    ] = None,
+    hints_text: Annotated[
+        str | None,
+        typer.Option("--hints-text", help="Inline business context hints text."),
+    ] = None,
+    proving_sample_rows: Annotated[
+        int | None,
+        typer.Option("--proving-sample-rows", help="Proving sample row limit (1..5000)."),
+    ] = None,
+    real_row_proving: Annotated[
+        bool | None,
+        typer.Option(
+            "--real-row-proving/--no-real-row-proving",
+            help="Toggle Step 2/3 real-row proving capture.",
+        ),
+    ] = None,
+) -> None:
+    """Partially update per-project modeling preferences, hints, and proving settings."""
+    from opendv.cli.commands_model import apply_project_settings_cli
+
+    run_cli_action(
+        ctx,
+        lambda c: apply_project_settings_cli(
+            c,
+            project,
+            pref=pref,
+            hints_file=hints_file,
+            hints_text=hints_text,
+            proving_sample_rows=proving_sample_rows,
+            real_row_proving=real_row_proving,
+        ),
+    )
+
+
 # ---- agents ----
 agents_app = typer.Typer(
     name="agents", help="List and inspect Markdown agent packs.", no_args_is_help=True

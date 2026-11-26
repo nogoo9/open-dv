@@ -896,6 +896,7 @@ def test_cli_05_contract_exports_and_markdown_reference() -> None:
         "ontology",
         "vault",
         "storage",
+        "model",
     }
 
     openapi = json.loads((schemas_v2 / "openapi.json").read_text(encoding="utf-8"))

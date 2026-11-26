@@ -16,6 +16,8 @@ from opendv.models.project import (
     ConceptMemorySpec,
     DbtSqlDialect,
     ImportReadinessReport,
+    ProjectSettingsSnapshot,
+    ProjectSettingsUpdateReq,
     ProjectState,
     ProjectSummary,
     TargetManifest,
@@ -71,6 +73,7 @@ from opendv.models.wire_dtos_vault import (
     StorageTargetReq,
     TargetBundleResp,
     VaultBuildReq,
+    VaultStatusResp,
     VaultVerifyResp,
     WaiverSubmitReq,
 )
@@ -139,6 +142,7 @@ class OpenDVService:
             secret_store=self.secret_store,
             workspace_root=self.workspace_root,
             injected_harness=self.injected_harness,
+            settings_store=self.settings_store,
         )
         self.storage = StorageService(
             state_manager=self.state_manager,
@@ -251,6 +255,13 @@ class OpenDVService:
 
     def get_project(self, project_id: str) -> ProjectState:
         return self.projects.get_project(project_id)
+
+    def update_project_settings(
+        self,
+        project_id: str,
+        req: ProjectSettingsUpdateReq | ProjectSettingsSnapshot,
+    ) -> ProjectState:
+        return self.projects.update_project_settings(project_id, req)
 
     def init_project(self, req: ProjectInitReq) -> ProjectState:
         return self.projects.init_project(req)
@@ -461,6 +472,15 @@ class OpenDVService:
 
     def get_vault_run(self, project_id: str, run_id: str) -> RunStateResp:
         return self.vault.get_vault_run(project_id, run_id)
+
+    def get_vault_status(
+        self,
+        project_id: str,
+        *,
+        run_id: str | None = None,
+        holds_only: bool = False,
+    ) -> VaultStatusResp:
+        return self.vault.get_vault_status(project_id, run_id=run_id, holds_only=holds_only)
 
     def list_vault_attempts(self, project_id: str, run_id: str) -> list[AttemptSnapshotSpec]:
         return self.vault.list_vault_attempts(project_id, run_id)

@@ -263,7 +263,8 @@ async def _run_turn_retry[T: (DraftShardIR, DraftVaultIR)](
     schema: type[T], sink: ModelingEventSink | None, max_retries: int = 2,
 ) -> tuple[T, ModelingTurnResult, int]:
     active = req
-    for n in range(max_retries + 1):
+    effective_retries = min(max_retries, max(0, req.budget.max_turns - 1))
+    for n in range(effective_retries + 1):
         try:
             raw = await harness.run_turn(active, event_sink=sink)
             res = (
@@ -274,11 +275,11 @@ async def _run_turn_retry[T: (DraftShardIR, DraftVaultIR)](
                    else schema.model_validate(res.structured_output))
             return out, res, n
         except OpenDVError as exc:
-            if n >= max_retries or exc.error_code != ErrorCode.AGENT_EXECUTION_FAILED:
+            if n >= effective_retries or exc.error_code != ErrorCode.AGENT_EXECUTION_FAILED:
                 raise
             err = str(exc)
         except (ValidationError, ValueError) as exc:
-            if n >= max_retries:
+            if n >= effective_retries:
                 raise OpenDVError(
                     f"Structured output validation failed for {schema.__name__}: {exc}",
                     error_code=ErrorCode.AGENT_EXECUTION_FAILED, run_id=req.run_id,
@@ -288,7 +289,7 @@ async def _run_turn_retry[T: (DraftShardIR, DraftVaultIR)](
             "prompt": f"{req.prompt}\n\nINVALID OUTPUT RETRY:\n{err[:240]}\n"
                       "Return ONLY one valid compact JSON object."
         })
-    raise OpenDVError(f"Exceeded {max_retries} retries.",
+    raise OpenDVError(f"Exceeded {effective_retries} retries.",
                       error_code=ErrorCode.AGENT_EXECUTION_FAILED, run_id=req.run_id)
 
 

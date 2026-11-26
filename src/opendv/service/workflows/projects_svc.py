@@ -6,15 +6,22 @@ import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
+
+from pydantic import ValidationError
 
 from opendv.agents import compute_workspace_agents_sha256
+from opendv.modeling.prompts import MAX_BUSINESS_CONTEXT_HINTS_TOKENS
+from opendv.modeling.token_utils import count_tokens
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.json_hasher import sha256_jcs
+from opendv.models.policy import VALID_V6B_RULE_IDS
 from opendv.models.project import (
     BundleManifest,
     ConceptMemorySpec,
     ImportReadinessReport,
     ProjectSettingsSnapshot,
+    ProjectSettingsUpdateReq,
     ProjectState,
     ProjectSummary,
     RevisionMetadata,
@@ -76,6 +83,76 @@ class ProjectsService:
         clean_pid = validate_project_id_or_error(project_id)
         return self.state_manager.get_project(clean_pid)
 
+    def update_project_settings(
+        self,
+        project_id: str,
+        req: ProjectSettingsUpdateReq | ProjectSettingsSnapshot,
+    ) -> ProjectState:
+        """Partially or fully update per-project settings snapshot with governance checks."""
+        clean_pid = validate_project_id_or_error(project_id)
+        proj = self.state_manager.get_project(clean_pid)
+        if isinstance(req, ProjectSettingsUpdateReq):
+            merged: dict[str, Any] = proj.settings_snapshot.model_dump()
+            for field_name in req.model_fields_set:
+                val = getattr(req, field_name)
+                merged[field_name] = val.model_dump() if hasattr(val, "model_dump") else val
+            try:
+                updated = ProjectSettingsSnapshot.model_validate(merged)
+            except ValidationError as exc:
+                raise OpenDVError(
+                    f"Invalid project settings update: {exc}",
+                    error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+                ) from exc
+        else:
+            updated = req
+
+        if updated.cegar_policy == "strict" and updated.v7_critic_tier != "FRONTIER_CRITIC":
+            raise OpenDVError(
+                "v7_critic_tier must be FRONTIER_CRITIC when cegar_policy is strict.",
+                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+            )
+        if (
+            updated.business_context_hints
+            and count_tokens(updated.business_context_hints) > MAX_BUSINESS_CONTEXT_HINTS_TOKENS
+        ):
+            raise OpenDVError(
+                f"business_context_hints exceeds {MAX_BUSINESS_CONTEXT_HINTS_TOKENS} "
+                "cl100k_base tokens.",
+                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+            )
+        dis = updated.modeling_preferences.disabled_v6b_blocks
+        invalid_rules = [r for r in dis if r not in VALID_V6B_RULE_IDS]
+        if invalid_rules:
+            raise OpenDVError(
+                f"Invalid disabled_v6b_blocks rule ID(s): {invalid_rules}",
+                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+            )
+        if updated.cegar_policy == "strict" and dis:
+            raise OpenDVError(
+                "disabled_v6b_blocks must be empty under strict CEGAR policy.",
+                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+            )
+
+        state = self.state_manager.update_project_pointers(
+            clean_pid,
+            settings_snapshot=updated,
+        )
+        append_audit_log(
+            self.state_manager,
+            clean_pid,
+            event_type="PROJECT_SETTINGS_UPDATED",
+            actor="human",
+            step="step1",
+            summary=f"Updated settings for project '{clean_pid}'.",
+            details={
+                "cegar_policy": updated.cegar_policy,
+                "v7_critic_tier": updated.v7_critic_tier,
+                "real_row_proving": updated.real_row_proving,
+                "proving_sample_rows": updated.proving_sample_rows,
+            },
+        )
+        return state
+
     def init_project(self, req: ProjectInitReq) -> ProjectState:
         """Create a project from Blank, StarterPack, WorkspaceSeed, or YAML/JSON baseline."""
         ont, init_mode = resolve_initial_ontology(req, self.workspace_root)
@@ -97,6 +174,7 @@ class ProjectsService:
             max_tokens=ws_settings.max_tokens,
             timeout_seconds=ws_settings.timeout_seconds,
             secret_precedence=ws_settings.secret_precedence,
+            modeling_preferences=ws_settings.modeling_preferences,
         )
 
         self.state_manager.create_project(req.project_id, req.domain_namespace, snapshot)

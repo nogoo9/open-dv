@@ -16,13 +16,13 @@ import httpx
 import uvicorn
 import yaml
 
-from opendv.agents._cegar_models import HorizonCriticVerdict, SemanticCriticVerdict
 from opendv.agents.ports import AgentTurnRequest, AgentTurnResult
 from opendv.api.server import create_app
 from opendv.models import (
     BusinessKeyPart,
     CanonicalBusinessConcept,
     ClarificationQuestion,
+    ColumnTriageEntry,
     ConceptAttribute,
     DraftField,
     DraftHubSpec,
@@ -31,8 +31,9 @@ from opendv.models import (
     DraftVaultIR,
     ErrorCode,
     GraphAOntology,
+    HorizonCriticVerdict,
     OpenDVError,
-    ColumnTriageEntry,
+    SemanticCriticVerdict,
 )
 from opendv.service import OpenDVService
 from opendv.service.workflows._discovery_run import Step4CoordinatorOutput
@@ -165,14 +166,6 @@ def build_account_draft_ir(
                         source_id=source_id,
                         table_id=table_id,
                         col_mappings={"account_id": "account_id"},
-                    )
-                ],
-                attributes=[
-                    DraftField(
-                        name="account_id",
-                        logical_type="UTF8_STRING",
-                        is_pii=False,
-                        nullable=False,
                     )
                 ],
             )

@@ -51,7 +51,7 @@ _EXEMPT_HEX_COL_RE: Final[re.Pattern[str]] = re.compile(
     r"(?i)^(?:hk_|hash_diff)|(?:_hk|_sha256|_digest|_fingerprint|_hash_diff|_hashdiff)$"
 )
 _SYNTHETIC_ABA_PREFIXES: Final[tuple[str, ...]] = ("1900", "2026", "0000")
-_ENTROPY_THRESHOLD: Final[float] = 4.2
+_MIN_TOKEN_ENTROPY: Final[float] = 4.2
 _ENTROPY_MIN_LEN: Final[int] = 24
 
 
@@ -117,7 +117,7 @@ def find_high_entropy_tokens(text: str) -> list[str]:
             continue
         if _is_exempt_entropy_token(tok):
             continue
-        if compute_shannon_entropy(tok) >= _ENTROPY_THRESHOLD:
+        if compute_shannon_entropy(tok) >= _MIN_TOKEN_ENTROPY:
             hits.append(tok)
     return hits
 

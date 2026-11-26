@@ -6,7 +6,13 @@ from typing import Literal
 
 from fastapi import APIRouter, Query, Request, Response
 
-from opendv.models.project import ImportReadinessReport, ProjectState, ProjectSummary
+from opendv.models.project import (
+    ImportReadinessReport,
+    ProjectSettingsSnapshot,
+    ProjectSettingsUpdateReq,
+    ProjectState,
+    ProjectSummary,
+)
 from opendv.models.wire_dtos_discovery import (
     ProjectInitReq,
     StarterPackPreview,
@@ -77,6 +83,24 @@ async def import_project(request: Request) -> ImportReadinessReport:
 @router.get("/projects/{project_id}", response_model=ProjectState)
 def get_project(request: Request, project_id: str) -> ProjectState:
     return get_service(request).get_project(project_id)
+
+
+@router.patch("/projects/{project_id}/settings", response_model=ProjectState)
+def patch_project_settings(
+    request: Request,
+    project_id: str,
+    body: ProjectSettingsUpdateReq,
+) -> ProjectState:
+    return get_service(request).update_project_settings(project_id, body)
+
+
+@router.put("/projects/{project_id}/settings", response_model=ProjectState)
+def put_project_settings(
+    request: Request,
+    project_id: str,
+    body: ProjectSettingsSnapshot,
+) -> ProjectState:
+    return get_service(request).update_project_settings(project_id, body)
 
 
 @router.delete("/projects/{project_id}", status_code=204)

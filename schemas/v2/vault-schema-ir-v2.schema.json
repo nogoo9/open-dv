@@ -88,6 +88,49 @@
       "title": "ArrayType",
       "type": "object"
     },
+    "BridgeHopSpec": {
+      "additionalProperties": false,
+      "description": "Single traversed Link hop inside a Zone Z3 Bridge table.",
+      "properties": {
+        "from_fk_col": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional explicit FK column on incoming hub side for role-aliased links.",
+          "title": "From Fk Col"
+        },
+        "link_name": {
+          "description": "Standard Link name traversed by this bridge hop.",
+          "minLength": 1,
+          "title": "Link Name",
+          "type": "string"
+        },
+        "to_fk_col": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional explicit FK column on outgoing hub side for role-aliased links.",
+          "title": "To Fk Col"
+        }
+      },
+      "required": [
+        "link_name"
+      ],
+      "title": "BridgeHopSpec",
+      "type": "object"
+    },
     "BronzeTableSpec": {
       "additionalProperties": false,
       "description": "Zone Z0 raw bronze table specification.",
@@ -141,17 +184,34 @@
             }
           ],
           "default": null,
+          "description": "Optional source column carrying dynamic per-row BKCC.",
           "title": "Bkcc Col"
         },
         "bkcc_value": {
+          "description": "Static BKCC literal value.",
           "title": "Bkcc Value",
           "type": "string"
         },
+        "canonical_col_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deduplicated canonical physical BK column name.",
+          "title": "Canonical Col Name"
+        },
         "col_name": {
+          "description": "Source column name contributing to the business key.",
           "title": "Col Name",
           "type": "string"
         },
         "key_tier": {
+          "description": "3-tier Key Authority policy for BKCC resolution.",
           "enum": [
             "TIER_1_GLOBAL_STANDARD",
             "TIER_2_ENTERPRISE_SOR",
@@ -161,10 +221,12 @@
           "type": "string"
         },
         "source_id": {
+          "description": "Source system identifier.",
           "title": "Source Id",
           "type": "string"
         },
         "table_id": {
+          "description": "Source table identifier.",
           "title": "Table Id",
           "type": "string"
         }
@@ -261,6 +323,13 @@
             "$ref": "#/$defs/SourceBindingSpec"
           },
           "title": "Source Bindings",
+          "type": "array"
+        },
+        "survivorship_priority": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Survivorship Priority",
           "type": "array"
         },
         "zone_id": {
@@ -437,6 +506,7 @@
         "companion_epoch": {
           "anyOf": [
             {
+              "minimum": 1,
               "type": "integer"
             },
             {
@@ -734,9 +804,11 @@
             }
           ],
           "default": null,
+          "description": "Optional governance or PII classification tag.",
           "title": "Classification Tag"
         },
         "is_pii": {
+          "description": "Whether this column contains PII.",
           "title": "Is Pii",
           "type": "boolean"
         },
@@ -765,14 +837,17 @@
               "$ref": "#/$defs/MapType"
             }
           ],
+          "description": "Portable physical-neutral logical type.",
           "title": "Logical Type"
         },
         "name": {
+          "description": "Logical column name.",
           "minLength": 1,
           "title": "Name",
           "type": "string"
         },
         "nullable": {
+          "description": "Whether NULL values are permitted.",
           "title": "Nullable",
           "type": "boolean"
         }
@@ -887,6 +962,13 @@
             "type": "string"
           },
           "title": "Key Columns",
+          "type": "array"
+        },
+        "participant_specs": {
+          "items": {
+            "$ref": "#/$defs/LinkParticipantHashSpec"
+          },
+          "title": "Participant Specs",
           "type": "array"
         },
         "recipe_kind": {
@@ -1024,28 +1106,307 @@
       "title": "IRField",
       "type": "object"
     },
-    "LinkParticipantSpec": {
+    "LinkParticipantHashSpec": {
       "additionalProperties": false,
-      "description": "Hub role participant inside a Data Vault Link.",
+      "description": "Per-participant Algorithm A.5 hash specification inside a Link HashRecipeSpec.",
       "properties": {
-        "fk_col_name": {
-          "title": "Fk Col Name",
-          "type": "string"
+        "bkcc_col": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bkcc Col"
+        },
+        "bkcc_literal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bkcc Literal"
+        },
+        "error_predicate": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "AND": "#/$defs/PredicateBranch",
+                  "EQ": "#/$defs/PredicateLeaf",
+                  "IS_NOT_NULL": "#/$defs/PredicateLeaf",
+                  "OR": "#/$defs/PredicateBranch"
+                },
+                "propertyName": "op"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/PredicateBranch"
+                },
+                {
+                  "$ref": "#/$defs/PredicateLeaf"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Predicate"
         },
         "hub_name": {
+          "default": "",
           "title": "Hub Name",
+          "type": "string"
+        },
+        "is_degenerate": {
+          "default": false,
+          "title": "Is Degenerate",
+          "type": "boolean"
+        },
+        "is_nullable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Nullable"
+        },
+        "key_tier": {
+          "default": "TIER_2_ENTERPRISE_SOR",
+          "enum": [
+            "TIER_1_GLOBAL_STANDARD",
+            "TIER_2_ENTERPRISE_SOR",
+            "TIER_3_LOCAL_SCOPED"
+          ],
+          "title": "Key Tier",
           "type": "string"
         },
         "role_name": {
           "title": "Role Name",
           "type": "string"
         },
+        "source_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Columns",
+          "type": "array"
+        },
+        "target_hub_binding_table_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Hub Binding Table Id"
+        },
+        "unknown_predicate": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "AND": "#/$defs/PredicateBranch",
+                  "EQ": "#/$defs/PredicateLeaf",
+                  "IS_NOT_NULL": "#/$defs/PredicateLeaf",
+                  "OR": "#/$defs/PredicateBranch"
+                },
+                "propertyName": "op"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/PredicateBranch"
+                },
+                {
+                  "$ref": "#/$defs/PredicateLeaf"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unknown Predicate"
+        }
+      },
+      "required": [
+        "role_name",
+        "source_columns"
+      ],
+      "title": "LinkParticipantHashSpec",
+      "type": "object"
+    },
+    "LinkParticipantSpec": {
+      "additionalProperties": false,
+      "description": "Hub role participant inside a Data Vault Link.",
+      "properties": {
+        "bkcc_col": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional source column providing per-row BKCC.",
+          "title": "Bkcc Col"
+        },
+        "bkcc_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional static BKCC override for this Link participant.",
+          "title": "Bkcc Value"
+        },
+        "error_predicate": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "AND": "#/$defs/PredicateBranch",
+                  "EQ": "#/$defs/PredicateLeaf",
+                  "IS_NOT_NULL": "#/$defs/PredicateLeaf",
+                  "OR": "#/$defs/PredicateBranch"
+                },
+                "propertyName": "op"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/PredicateBranch"
+                },
+                {
+                  "$ref": "#/$defs/PredicateLeaf"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Predicate matching Error (-2) sentinel participant rows.",
+          "title": "Error Predicate"
+        },
+        "fk_col_name": {
+          "description": "Physical foreign hash-key column name in the Link.",
+          "title": "Fk Col Name",
+          "type": "string"
+        },
+        "hub_name": {
+          "description": "Referenced target Hub name (or empty for degenerate).",
+          "title": "Hub Name",
+          "type": "string"
+        },
+        "is_nullable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Explicit tri-state nullability override (False=mandatory, True=optional, None=profile inferred).",
+          "title": "Is Nullable"
+        },
+        "key_tier": {
+          "anyOf": [
+            {
+              "enum": [
+                "TIER_1_GLOBAL_STANDARD",
+                "TIER_2_ENTERPRISE_SOR",
+                "TIER_3_LOCAL_SCOPED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional per-Link-binding KeyTier override.",
+          "title": "Key Tier"
+        },
+        "role_name": {
+          "description": "Semantic role name of this participant in the Link.",
+          "title": "Role Name",
+          "type": "string"
+        },
         "source_col_names": {
+          "description": "Ordered source columns feeding this role.",
           "items": {
             "type": "string"
           },
           "title": "Source Col Names",
           "type": "array"
+        },
+        "target_hub_binding_table_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Disambiguating Hub SourceBinding table_id when a source_id binds multiple tables.",
+          "title": "Target Hub Binding Table Id"
+        },
+        "unknown_predicate": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "AND": "#/$defs/PredicateBranch",
+                  "EQ": "#/$defs/PredicateLeaf",
+                  "IS_NOT_NULL": "#/$defs/PredicateLeaf",
+                  "OR": "#/$defs/PredicateBranch"
+                },
+                "propertyName": "op"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/PredicateBranch"
+                },
+                {
+                  "$ref": "#/$defs/PredicateLeaf"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Predicate matching Unknown (-1) sentinel participant rows.",
+          "title": "Unknown Predicate"
         }
       },
       "required": [
@@ -1203,6 +1564,13 @@
           "title": "Columns",
           "type": "array"
         },
+        "dedup_field_specs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dedup Field Specs",
+          "type": "array"
+        },
         "joined_entities": {
           "items": {
             "type": "string"
@@ -1221,14 +1589,26 @@
           "title": "Select Exprs",
           "type": "object"
         },
+        "view_kind": {
+          "default": "CURRENT",
+          "enum": [
+            "CURRENT",
+            "ESAT_INTERVALS"
+          ],
+          "title": "View Kind",
+          "type": "string"
+        },
         "view_name": {
           "minLength": 1,
           "title": "View Name",
           "type": "string"
         },
         "zone_id": {
-          "const": "Z4",
           "default": "Z4",
+          "enum": [
+            "Z3",
+            "Z4"
+          ],
           "title": "Zone Id",
           "type": "string"
         }
@@ -1287,6 +1667,13 @@
           "title": "Grain Cols",
           "type": "array"
         },
+        "hops": {
+          "items": {
+            "$ref": "#/$defs/BridgeHopSpec"
+          },
+          "title": "Hops",
+          "type": "array"
+        },
         "object_kind": {
           "enum": [
             "PIT",
@@ -1309,6 +1696,13 @@
             "type": "string"
           },
           "title": "Target Satellites Or Links",
+          "type": "array"
+        },
+        "traversed_hk_cols": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Traversed Hk Cols",
           "type": "array"
         },
         "zone_id": {
@@ -1581,6 +1975,23 @@
             }
           ],
           "default": null
+        },
+        "key_tier": {
+          "anyOf": [
+            {
+              "enum": [
+                "TIER_1_GLOBAL_STANDARD",
+                "TIER_2_ENTERPRISE_SOR",
+                "TIER_3_LOCAL_SCOPED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Key Tier"
         },
         "load_semantics": {
           "anyOf": [

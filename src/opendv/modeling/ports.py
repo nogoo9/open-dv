@@ -146,7 +146,7 @@ def resolve_model_for_agent(
 class ModelingTurnRequest(BaseModel):
     """Stateless turn request passed across ModelingHarnessPort."""
 
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True, from_attributes=True)
 
     run_id: str = Field(min_length=1, description="Unique modeling run identifier.")
     agent_id: str = Field(min_length=1, description="Logical agent pack identifier.")
@@ -180,7 +180,7 @@ class ModelingTurnRequest(BaseModel):
 class ModelingTurnResult(BaseModel):
     """Normalized turn response returned by a ModelingHarnessPort implementation."""
 
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True, from_attributes=True)
 
     agent_id: str = Field(description="Responding agent identifier.")
     provider: HarnessProvider = Field(description="Harness provider backing the turn.")

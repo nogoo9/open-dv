@@ -35,6 +35,7 @@ from opendv.modeling.ports import (
     resolve_model_for_agent,
 )
 from opendv.modeling.prompts import scan_fragility_surface
+from opendv.modeling.review import run_v8_horizon_review
 from opendv.modeling.verify_mode import verify_draft_vault
 from opendv.models.modeling_preferences import ModelingPreferences
 
@@ -66,6 +67,7 @@ __all__ = [
     "resolve_model_for_agent",
     "run_v7_semantic_critic",
     "run_v8_horizon_critic",
+    "run_v8_horizon_review",
     "scan_fragility_surface",
     "verify_draft_vault",
 ]

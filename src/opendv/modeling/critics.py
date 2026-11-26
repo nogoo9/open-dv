@@ -34,6 +34,7 @@ from opendv.models.policy import (
     HarnessBudget,
     ModelTier,
     compute_cegar_energy,
+    compute_deterministic_energy,
 )
 from opendv.models.project import EvolutionLockSpec, HorizonAssumptionSpec
 from opendv.models.sources import SourceProfile
@@ -41,7 +42,11 @@ from opendv.models.vault_ir import DraftVaultIR
 from opendv.models.vault_ir_certified import CertifiedVaultIR
 from opendv.models.wire_dtos_vault import HorizonCriticVerdict, SemanticCriticVerdict
 from opendv.verifier.ports import VerifierContext, VerifierReport
-from opendv.verifier.v6b_antipatterns import evaluate_v6b_accounting
+from opendv.verifier.v6b_antipatterns import (
+    evaluate_v6b_accounting,
+    is_diagnostic_waived,
+    resolve_effective_v6b_blocking_rules,
+)
 
 _ABSORBED_NATIVE_PREFIXES: tuple[str, ...] = (
     "ABSORBED_NATIVELY",
@@ -378,14 +383,27 @@ async def evaluate_v7_and_v6b(
         report.v6b_diagnostics, justifications=cert_ir.justifications,
         ontology_waivers=base_ctx.ontology_waivers,
     )
+    eff_blocking = resolve_effective_v6b_blocking_rules(policy, modeling_preferences)
+    blocking_v6b_fail = len({
+        (d.rule_id, d.entity_name)
+        for d in report.v6b_diagnostics
+        if (d.rule_id in eff_blocking or pspec.require_zero_unwaived_v6b)
+        and d.severity != "ADVISORY"
+        and not is_diagnostic_waived(
+            d,
+            justifications=cert_ir.justifications,
+            ontology_waivers=base_ctx.ontology_waivers,
+        )
+    })
+    det_energy = compute_deterministic_energy(report.v1_v6_fail_count, blocking_v6b_fail)
     energy_e = compute_cegar_energy(
         report.v1_v6_fail_count, v6b_fail, policy=policy, v7_score=v7_v.score
     )
     upd_report = report.model_copy(update={
         "v6b_fail_count": v6b_fail, "waived_v6b_count": waived_cnt, "advisory_count": adv_cnt,
-        "energy_e": energy_e,
+        "energy_e": energy_e, "deterministic_energy": det_energy,
         "passed": (
-            report.v1_v6_fail_count == 0 and report.deterministic_energy == 0
+            report.v1_v6_fail_count == 0 and det_energy == 0
             and not (pspec.require_zero_unwaived_v6b and v6b_fail > 0)
         ),
     })

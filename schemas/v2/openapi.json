@@ -1141,6 +1141,47 @@
         "title": "Body_upload_source_api_v1_projects__project_id__sources_upload_post",
         "type": "object"
       },
+      "BridgeHopSpec": {
+        "additionalProperties": false,
+        "description": "Single traversed Link hop inside a Zone Z3 Bridge table.",
+        "properties": {
+          "from_fk_col": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional explicit FK column on incoming hub side for role-aliased links.",
+            "title": "From Fk Col"
+          },
+          "link_name": {
+            "description": "Standard Link name traversed by this bridge hop.",
+            "minLength": 1,
+            "title": "Link Name",
+            "type": "string"
+          },
+          "to_fk_col": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional explicit FK column on outgoing hub side for role-aliased links.",
+            "title": "To Fk Col"
+          }
+        },
+        "required": [
+          "link_name"
+        ],
+        "title": "BridgeHopSpec",
+        "type": "object"
+      },
       "BronzeTableSpec": {
         "additionalProperties": false,
         "description": "Zone Z0 raw bronze table specification.",
@@ -1267,17 +1308,33 @@
                 "type": "null"
               }
             ],
+            "description": "Optional source column carrying dynamic per-row BKCC.",
             "title": "Bkcc Col"
           },
           "bkcc_value": {
+            "description": "Static BKCC literal value.",
             "title": "Bkcc Value",
             "type": "string"
           },
+          "canonical_col_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deduplicated canonical physical BK column name.",
+            "title": "Canonical Col Name"
+          },
           "col_name": {
+            "description": "Source column name contributing to the business key.",
             "title": "Col Name",
             "type": "string"
           },
           "key_tier": {
+            "description": "3-tier Key Authority policy for BKCC resolution.",
             "enum": [
               "TIER_1_GLOBAL_STANDARD",
               "TIER_2_ENTERPRISE_SOR",
@@ -1287,10 +1344,12 @@
             "type": "string"
           },
           "source_id": {
+            "description": "Source system identifier.",
             "title": "Source Id",
             "type": "string"
           },
           "table_id": {
+            "description": "Source table identifier.",
             "title": "Table Id",
             "type": "string"
           }
@@ -1310,6 +1369,7 @@
         "description": "Canonical Business Concept (CBC) node in GraphAOntology.",
         "properties": {
           "attributes": {
+            "description": "Conceptual attributes belonging to this CBC.",
             "items": {
               "$ref": "#/components/schemas/ConceptAttribute-Output"
             },
@@ -1325,23 +1385,28 @@
                 "type": "null"
               }
             ],
+            "description": "Default BKCC scope when tier permits static override.",
             "title": "Bkcc Default"
           },
           "concept_name": {
+            "description": "Human-readable concept name.",
             "minLength": 1,
             "title": "Concept Name",
             "type": "string"
           },
           "concept_uri": {
+            "description": "Unique canonical concept URI.",
             "minLength": 1,
             "title": "Concept Uri",
             "type": "string"
           },
           "description": {
+            "description": "Business definition of the concept.",
             "title": "Description",
             "type": "string"
           },
           "external_mappings": {
+            "description": "Verified FIBO or external standard mappings.",
             "items": {
               "$ref": "#/components/schemas/ExternalMapping-Output"
             },
@@ -1362,10 +1427,12 @@
                 }
               ]
             },
+            "description": "Structured governance policy constraints.",
             "title": "Governance Constraints",
             "type": "object"
           },
           "governance_tags": {
+            "description": "Governance and compliance classification tags.",
             "items": {
               "type": "string"
             },
@@ -1373,6 +1440,7 @@
             "type": "array"
           },
           "key_authority_patterns": {
+            "description": "Key authority patterns across sources.",
             "items": {
               "$ref": "#/components/schemas/KeyAuthorityPattern"
             },
@@ -1380,6 +1448,7 @@
             "type": "array"
           },
           "key_authority_tier": {
+            "description": "Primary 3-tier Key Authority policy.",
             "enum": [
               "TIER_1_GLOBAL_STANDARD",
               "TIER_2_ENTERPRISE_SOR",
@@ -1389,6 +1458,7 @@
             "type": "string"
           },
           "mcp_evidence": {
+            "description": "External MCP evidence receipts supporting this CBC.",
             "items": {
               "$ref": "#/components/schemas/ExternalMcpEvidenceRef"
             },
@@ -1404,9 +1474,11 @@
                 "type": "null"
               }
             ],
+            "description": "Optional super-concept URI for specialization.",
             "title": "Parent Concept Uri"
           },
           "source_citations": {
+            "description": "Verbatim document citations supporting this CBC.",
             "items": {
               "$ref": "#/components/schemas/DocumentCitationRef"
             },
@@ -1414,6 +1486,7 @@
             "type": "array"
           },
           "synonyms": {
+            "description": "Known business or source-system synonyms.",
             "items": {
               "type": "string"
             },
@@ -1421,6 +1494,7 @@
             "type": "array"
           },
           "table_bindings": {
+            "description": "Grounded source table/column bindings.",
             "items": {
               "$ref": "#/components/schemas/ConceptTableBinding"
             },
@@ -1516,6 +1590,13 @@
               "$ref": "#/components/schemas/SourceBindingSpec"
             },
             "title": "Source Bindings",
+            "type": "array"
+          },
+          "survivorship_priority": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Survivorship Priority",
             "type": "array"
           },
           "zone_id": {
@@ -1688,6 +1769,7 @@
           "companion_epoch": {
             "anyOf": [
               {
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -2172,10 +2254,12 @@
         "description": "Physical column profile in Graph B (up to 5 masked sample values).",
         "properties": {
           "col_name": {
+            "description": "Physical column name.",
             "title": "Col Name",
             "type": "string"
           },
           "distinct_count_est": {
+            "description": "Estimated count of distinct non-null values.",
             "minimum": 0.0,
             "title": "Distinct Count Est",
             "type": "integer"
@@ -2189,23 +2273,45 @@
                 "type": "null"
               }
             ],
+            "description": "Declared foreign key target in 'table.column' form.",
             "title": "Fk Ref"
           },
+          "format_shape": {
+            "default": "MIXED",
+            "description": "Deterministic column literal shape classification.",
+            "enum": [
+              "ISO_DATE",
+              "ISO_TIMESTAMP",
+              "UUID",
+              "EMAIL",
+              "INT_SEQ",
+              "DECIMAL",
+              "CODE_UPPER",
+              "FREE_TEXT",
+              "MIXED"
+            ],
+            "title": "Format Shape",
+            "type": "string"
+          },
           "is_pk": {
+            "description": "True if declared as part of the source primary key.",
             "title": "Is Pk",
             "type": "boolean"
           },
           "null_ratio": {
+            "description": "Observed fraction of NULL values across profiled rows.",
             "maximum": 1.0,
             "minimum": 0.0,
             "title": "Null Ratio",
             "type": "number"
           },
           "nullable": {
+            "description": "Whether the physical column permits NULL values.",
             "title": "Nullable",
             "type": "boolean"
           },
           "pii_tags": {
+            "description": "Detected PII or secret classification tags.",
             "items": {
               "type": "string"
             },
@@ -2221,9 +2327,11 @@
                 "type": "null"
               }
             ],
+            "description": "1-based primary key ordinal position.",
             "title": "Pk Ord"
           },
           "sample_values": {
+            "description": "Up to 5 masked sample values for column inspection.",
             "items": {
               "anyOf": [
                 {
@@ -2239,8 +2347,25 @@
             "type": "array"
           },
           "sql_type": {
+            "description": "Source SQL data type string.",
             "title": "Sql Type",
             "type": "string"
+          },
+          "surrogate_score": {
+            "default": 0.0,
+            "description": "Surrogate identifier likelihood in [0.0, 1.0].",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Surrogate Score",
+            "type": "number"
+          },
+          "top_value_frequencies": {
+            "description": "PII-redacted top frequent values when distinct <= 20.",
+            "items": {
+              "$ref": "#/components/schemas/ValueFreqItem"
+            },
+            "title": "Top Value Frequencies",
+            "type": "array"
           }
         },
         "required": [
@@ -2315,13 +2440,16 @@
                 "type": "null"
               }
             ],
+            "description": "Optional reference enumeration URI for domain values.",
             "title": "Enum Uri"
           },
           "is_business_key": {
+            "description": "True if this attribute participates in the BK.",
             "title": "Is Business Key",
             "type": "boolean"
           },
           "is_pii": {
+            "description": "True if this attribute contains PII.",
             "title": "Is Pii",
             "type": "boolean"
           },
@@ -2350,14 +2478,17 @@
                 "$ref": "#/components/schemas/MapType-Input"
               }
             ],
+            "description": "Portable physical-neutral logical type.",
             "title": "Logical Type"
           },
           "name": {
+            "description": "Canonical attribute name.",
             "minLength": 1,
             "title": "Name",
             "type": "string"
           },
           "nullable": {
+            "description": "Whether NULL values are permitted.",
             "title": "Nullable",
             "type": "boolean"
           },
@@ -2370,9 +2501,11 @@
                 "type": "null"
               }
             ],
+            "description": "Optional PII category classification.",
             "title": "Pii Category"
           },
           "sql_type_hint": {
+            "description": "Informational SQL type hint from profiling.",
             "title": "Sql Type Hint",
             "type": "string"
           }
@@ -2401,13 +2534,16 @@
                 "type": "null"
               }
             ],
+            "description": "Optional reference enumeration URI for domain values.",
             "title": "Enum Uri"
           },
           "is_business_key": {
+            "description": "True if this attribute participates in the BK.",
             "title": "Is Business Key",
             "type": "boolean"
           },
           "is_pii": {
+            "description": "True if this attribute contains PII.",
             "title": "Is Pii",
             "type": "boolean"
           },
@@ -2436,14 +2572,17 @@
                 "$ref": "#/components/schemas/MapType-Output"
               }
             ],
+            "description": "Portable physical-neutral logical type.",
             "title": "Logical Type"
           },
           "name": {
+            "description": "Canonical attribute name.",
             "minLength": 1,
             "title": "Name",
             "type": "string"
           },
           "nullable": {
+            "description": "Whether NULL values are permitted.",
             "title": "Nullable",
             "type": "boolean"
           },
@@ -2456,9 +2595,11 @@
                 "type": "null"
               }
             ],
+            "description": "Optional PII category classification.",
             "title": "Pii Category"
           },
           "sql_type_hint": {
+            "description": "Informational SQL type hint from profiling.",
             "title": "Sql Type Hint",
             "type": "string"
           }
@@ -2552,14 +2693,17 @@
         "description": "Source column grounding reference on a concept or staged candidate.",
         "properties": {
           "col_name": {
+            "description": "Source column name grounded to this concept.",
             "title": "Col Name",
             "type": "string"
           },
           "source_id": {
+            "description": "Source system identifier.",
             "title": "Source Id",
             "type": "string"
           },
           "table_id": {
+            "description": "Source table identifier.",
             "title": "Table Id",
             "type": "string"
           }
@@ -2992,6 +3136,40 @@
         "title": "DocumentMap",
         "type": "object"
       },
+      "DraftBridgeSpec": {
+        "additionalProperties": false,
+        "description": "Draft Zone Z3 multi-hop Bridge specification.",
+        "properties": {
+          "bridge_name": {
+            "description": "Zone Z3 Bridge table name (brg_*).",
+            "minLength": 1,
+            "title": "Bridge Name",
+            "type": "string"
+          },
+          "hops": {
+            "description": "Ordered sequence of connected Link hops.",
+            "items": {
+              "$ref": "#/components/schemas/BridgeHopSpec"
+            },
+            "minItems": 1,
+            "title": "Hops",
+            "type": "array"
+          },
+          "root_hub": {
+            "description": "Anchor Hub name from which bridge hops originate.",
+            "minLength": 1,
+            "title": "Root Hub",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bridge_name",
+          "root_hub",
+          "hops"
+        ],
+        "title": "DraftBridgeSpec",
+        "type": "object"
+      },
       "DraftField": {
         "additionalProperties": false,
         "description": "Descriptive attribute column on a DraftVaultIR entity.",
@@ -3005,9 +3183,11 @@
                 "type": "null"
               }
             ],
+            "description": "Optional governance or PII classification tag.",
             "title": "Classification Tag"
           },
           "is_pii": {
+            "description": "Whether this column contains PII.",
             "title": "Is Pii",
             "type": "boolean"
           },
@@ -3036,14 +3216,17 @@
                 "$ref": "#/components/schemas/MapType-Output"
               }
             ],
+            "description": "Portable physical-neutral logical type.",
             "title": "Logical Type"
           },
           "name": {
+            "description": "Logical column name.",
             "minLength": 1,
             "title": "Name",
             "type": "string"
           },
           "nullable": {
+            "description": "Whether NULL values are permitted.",
             "title": "Nullable",
             "type": "boolean"
           }
@@ -3062,6 +3245,7 @@
         "description": "Draft Hub specification emitted by Step 6 agent synthesis.",
         "properties": {
           "attributes": {
+            "description": "Must remain empty per INV-05.",
             "items": {
               "$ref": "#/components/schemas/DraftField"
             },
@@ -3069,6 +3253,7 @@
             "type": "array"
           },
           "business_keys": {
+            "description": "Contributing business key parts across sources.",
             "items": {
               "$ref": "#/components/schemas/BusinessKeyPart"
             },
@@ -3076,16 +3261,19 @@
             "type": "array"
           },
           "hub_name": {
+            "description": "Zone Z2 Hub table name (hub_*).",
             "minLength": 1,
             "title": "Hub Name",
             "type": "string"
           },
           "is_planned_concept": {
             "default": false,
+            "description": "True if concept is planned without active source bindings.",
             "title": "Is Planned Concept",
             "type": "boolean"
           },
           "key_tier": {
+            "description": "Dominant 3-tier Key Authority policy.",
             "enum": [
               "TIER_1_GLOBAL_STANDARD",
               "TIER_2_ENTERPRISE_SOR",
@@ -3095,10 +3283,19 @@
             "type": "string"
           },
           "source_bindings": {
+            "description": "Source table lineage bindings feeding this Hub.",
             "items": {
               "$ref": "#/components/schemas/DraftSourceBinding"
             },
             "title": "Source Bindings",
+            "type": "array"
+          },
+          "survivorship_priority": {
+            "description": "Ordered source_id (or source_id:table_id) survivorship precedence.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Survivorship Priority",
             "type": "array"
           }
         },
@@ -3114,6 +3311,7 @@
         "description": "Draft Link specification emitted by Step 6 agent synthesis.",
         "properties": {
           "attributes": {
+            "description": "Descriptive payload attributes (valid only on TRANSACTIONAL links).",
             "items": {
               "$ref": "#/components/schemas/DraftField"
             },
@@ -3121,6 +3319,7 @@
             "type": "array"
           },
           "degenerate_keys": {
+            "description": "Degenerate business key columns hashed into the Link.",
             "items": {
               "type": "string"
             },
@@ -3136,9 +3335,11 @@
                 "type": "null"
               }
             ],
+            "description": "Optional driving Hub name for effectivity tracking.",
             "title": "Driving Hub"
           },
           "link_kind": {
+            "description": "Structural Data Vault Link classification.",
             "enum": [
               "STANDARD",
               "TRANSACTIONAL",
@@ -3150,11 +3351,13 @@
             "type": "string"
           },
           "link_name": {
+            "description": "Zone Z2 Link table name (lnk_*).",
             "minLength": 1,
             "title": "Link Name",
             "type": "string"
           },
           "participants": {
+            "description": "Ordered Hub role participants in this Link.",
             "items": {
               "$ref": "#/components/schemas/LinkParticipantSpec"
             },
@@ -3162,6 +3365,7 @@
             "type": "array"
           },
           "source_bindings": {
+            "description": "Source table lineage bindings feeding this Link.",
             "items": {
               "$ref": "#/components/schemas/DraftSourceBinding"
             },
@@ -3190,9 +3394,11 @@
                 "type": "null"
               }
             ],
+            "description": "Source column providing business effective/applied timestamp.",
             "title": "Applied Dts Col"
           },
           "attributes": {
+            "description": "Descriptive payload attributes in this Satellite.",
             "items": {
               "$ref": "#/components/schemas/DraftField"
             },
@@ -3200,6 +3406,7 @@
             "type": "array"
           },
           "child_dependent_keys": {
+            "description": "Dependent child key columns (required on MAS).",
             "items": {
               "type": "string"
             },
@@ -3215,9 +3422,11 @@
                 "type": "null"
               }
             ],
+            "description": "Monotonic wave epoch for companion Satellite splits.",
             "title": "Companion Epoch"
           },
           "driving_keys": {
+            "description": "Driving key column names (for ESAT effectivity).",
             "items": {
               "type": "string"
             },
@@ -3233,9 +3442,11 @@
                 "type": "null"
               }
             ],
+            "description": "Base Satellite name when this is an EXT companion split.",
             "title": "Extends Sat Name"
           },
           "immutable_payload_fields": {
+            "description": "Payload columns excluded from mutable diffing.",
             "items": {
               "type": "string"
             },
@@ -3244,11 +3455,13 @@
           },
           "is_bitemporal": {
             "default": false,
+            "description": "True if Satellite tracks applied_dts alongside load_dts.",
             "title": "Is Bitemporal",
             "type": "boolean"
           },
           "load_mode": {
             "default": "INSERT_ONLY_DELTA",
+            "description": "Satellite historization and delta load strategy.",
             "enum": [
               "INSERT_ONLY_DELTA",
               "SNAPSHOT_DIFF",
@@ -3258,11 +3471,13 @@
             "type": "string"
           },
           "parent_name": {
+            "description": "Parent Hub or Link entity name.",
             "minLength": 1,
             "title": "Parent Name",
             "type": "string"
           },
           "sat_kind": {
+            "description": "Data Vault Satellite classification.",
             "enum": [
               "STANDARD",
               "MAS",
@@ -3275,11 +3490,13 @@
             "type": "string"
           },
           "sat_name": {
+            "description": "Zone Z2 Satellite table name (sat_*).",
             "minLength": 1,
             "title": "Sat Name",
             "type": "string"
           },
           "source_bindings": {
+            "description": "Source table lineage bindings feeding this Satellite.",
             "items": {
               "$ref": "#/components/schemas/DraftSourceBinding"
             },
@@ -3341,7 +3558,16 @@
         "additionalProperties": false,
         "description": "Pre-L1/L2 Draft Vault IR authored by Step 6 agent runs.",
         "properties": {
+          "bridges": {
+            "description": "Post-merge Zone Z3 multi-hop Bridge declarations.",
+            "items": {
+              "$ref": "#/components/schemas/DraftBridgeSpec"
+            },
+            "title": "Bridges",
+            "type": "array"
+          },
           "column_triage": {
+            "description": "100% source column triage ledger.",
             "items": {
               "$ref": "#/components/schemas/ColumnTriageEntry"
             },
@@ -3349,6 +3575,7 @@
             "type": "array"
           },
           "hubs": {
+            "description": "Draft Hub specifications.",
             "items": {
               "$ref": "#/components/schemas/DraftHubSpec"
             },
@@ -3358,10 +3585,12 @@
           "ir_version": {
             "const": "2.0",
             "default": "2.0",
+            "description": "Draft IR schema version.",
             "title": "Ir Version",
             "type": "string"
           },
           "justifications": {
+            "description": "Waivable V6b anti-pattern justifications.",
             "items": {
               "$ref": "#/components/schemas/AntiPatternJustification"
             },
@@ -3369,6 +3598,7 @@
             "type": "array"
           },
           "links": {
+            "description": "Draft Link specifications.",
             "items": {
               "$ref": "#/components/schemas/DraftLinkSpec"
             },
@@ -3376,10 +3606,12 @@
             "type": "array"
           },
           "ontology_version": {
+            "description": "Source GraphAOntology version.",
             "title": "Ontology Version",
             "type": "string"
           },
           "pending_clarifications": {
+            "description": "Open Steward clarification questions.",
             "items": {
               "$ref": "#/components/schemas/ClarificationQuestion"
             },
@@ -3387,11 +3619,13 @@
             "type": "array"
           },
           "project_id": {
+            "description": "Project identifier.",
             "minLength": 1,
             "title": "Project Id",
             "type": "string"
           },
           "satellites": {
+            "description": "Draft Satellite specifications.",
             "items": {
               "$ref": "#/components/schemas/DraftSatelliteSpec"
             },
@@ -3399,6 +3633,7 @@
             "type": "array"
           },
           "wave_number": {
+            "description": "Incremental modeling wave number.",
             "minimum": 1.0,
             "title": "Wave Number",
             "type": "integer"
@@ -3608,9 +3843,11 @@
                 "type": "string"
               }
             ],
+            "description": "Quantized alignment confidence [0, 1].",
             "title": "Confidence"
           },
           "mapping_type": {
+            "description": "SKOS alignment strength.",
             "enum": [
               "skos:exactMatch",
               "skos:closeMatch"
@@ -3619,14 +3856,17 @@
             "type": "string"
           },
           "reference_pack_id": {
+            "description": "Pinned reference ontology pack identifier.",
             "title": "Reference Pack Id",
             "type": "string"
           },
           "reference_pack_sha256": {
+            "description": "SHA-256 digest of the pinned reference pack.",
             "title": "Reference Pack Sha256",
             "type": "string"
           },
           "standard_uri": {
+            "description": "External standard concept URI (e.g. FIBO).",
             "title": "Standard Uri",
             "type": "string"
           }
@@ -3646,10 +3886,12 @@
         "description": "FIBO or external reference ontology mapping with quantized BM25 confidence.",
         "properties": {
           "confidence": {
+            "description": "Quantized alignment confidence [0, 1].",
             "title": "Confidence",
             "type": "string"
           },
           "mapping_type": {
+            "description": "SKOS alignment strength.",
             "enum": [
               "skos:exactMatch",
               "skos:closeMatch"
@@ -3658,14 +3900,17 @@
             "type": "string"
           },
           "reference_pack_id": {
+            "description": "Pinned reference ontology pack identifier.",
             "title": "Reference Pack Id",
             "type": "string"
           },
           "reference_pack_sha256": {
+            "description": "SHA-256 digest of the pinned reference pack.",
             "title": "Reference Pack Sha256",
             "type": "string"
           },
           "standard_uri": {
+            "description": "External standard concept URI (e.g. FIBO).",
             "title": "Standard Uri",
             "type": "string"
           }
@@ -3975,6 +4220,7 @@
         "description": "Committed or draft Graph A domain ontology.",
         "properties": {
           "concepts": {
+            "description": "Canonical Business Concepts in the domain.",
             "items": {
               "$ref": "#/components/schemas/CanonicalBusinessConcept"
             },
@@ -3982,10 +4228,12 @@
             "type": "array"
           },
           "domain_namespace": {
+            "description": "Domain namespace prefix for concept URIs.",
             "title": "Domain Namespace",
             "type": "string"
           },
           "enumerations": {
+            "description": "Reference code enumerations.",
             "items": {
               "$ref": "#/components/schemas/OntologyEnumeration"
             },
@@ -3993,10 +4241,12 @@
             "type": "array"
           },
           "ontology_version": {
+            "description": "Semantic or monotonic ontology version string.",
             "title": "Ontology Version",
             "type": "string"
           },
           "relationships": {
+            "description": "Canonical Unit-of-Work relationships.",
             "items": {
               "$ref": "#/components/schemas/OntologyRelationship"
             },
@@ -4476,6 +4726,13 @@
             "title": "Key Columns",
             "type": "array"
           },
+          "participant_specs": {
+            "items": {
+              "$ref": "#/components/schemas/LinkParticipantHashSpec"
+            },
+            "title": "Participant Specs",
+            "type": "array"
+          },
           "recipe_kind": {
             "enum": [
               "HUB_HK",
@@ -4581,7 +4838,8 @@
           "action": {
             "enum": [
               "accept",
-              "steer"
+              "steer",
+              "revert"
             ],
             "title": "Action",
             "type": "string"
@@ -4894,14 +5152,17 @@
         "description": "3-Tier Business Key Authority pattern attached to a concept.",
         "properties": {
           "authority_name": {
+            "description": "Governing authority or standard name.",
             "title": "Authority Name",
             "type": "string"
           },
           "bkcc_policy": {
+            "description": "BKCC collision-code assignment policy.",
             "title": "Bkcc Policy",
             "type": "string"
           },
           "column_patterns": {
+            "description": "Source column naming patterns matching this key.",
             "items": {
               "type": "string"
             },
@@ -4909,6 +5170,7 @@
             "type": "array"
           },
           "tier": {
+            "description": "3-tier Key Authority policy level.",
             "enum": [
               "TIER_1_GLOBAL_STANDARD",
               "TIER_2_ENTERPRISE_SOR",
@@ -4927,28 +5189,294 @@
         "title": "KeyAuthorityPattern",
         "type": "object"
       },
-      "LinkParticipantSpec": {
+      "LinkParticipantHashSpec": {
         "additionalProperties": false,
-        "description": "Hub role participant inside a Data Vault Link.",
+        "description": "Per-participant Algorithm A.5 hash specification inside a Link HashRecipeSpec.",
         "properties": {
-          "fk_col_name": {
-            "title": "Fk Col Name",
-            "type": "string"
+          "bkcc_col": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bkcc Col"
+          },
+          "bkcc_literal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bkcc Literal"
+          },
+          "error_predicate": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "AND": "#/components/schemas/PredicateBranch",
+                    "EQ": "#/components/schemas/PredicateLeaf",
+                    "IS_NOT_NULL": "#/components/schemas/PredicateLeaf",
+                    "OR": "#/components/schemas/PredicateBranch"
+                  },
+                  "propertyName": "op"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PredicateBranch"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PredicateLeaf"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Predicate"
           },
           "hub_name": {
+            "default": "",
             "title": "Hub Name",
+            "type": "string"
+          },
+          "is_degenerate": {
+            "default": false,
+            "title": "Is Degenerate",
+            "type": "boolean"
+          },
+          "is_nullable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Nullable"
+          },
+          "key_tier": {
+            "default": "TIER_2_ENTERPRISE_SOR",
+            "enum": [
+              "TIER_1_GLOBAL_STANDARD",
+              "TIER_2_ENTERPRISE_SOR",
+              "TIER_3_LOCAL_SCOPED"
+            ],
+            "title": "Key Tier",
             "type": "string"
           },
           "role_name": {
             "title": "Role Name",
             "type": "string"
           },
+          "source_columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Columns",
+            "type": "array"
+          },
+          "target_hub_binding_table_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Hub Binding Table Id"
+          },
+          "unknown_predicate": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "AND": "#/components/schemas/PredicateBranch",
+                    "EQ": "#/components/schemas/PredicateLeaf",
+                    "IS_NOT_NULL": "#/components/schemas/PredicateLeaf",
+                    "OR": "#/components/schemas/PredicateBranch"
+                  },
+                  "propertyName": "op"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PredicateBranch"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PredicateLeaf"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unknown Predicate"
+          }
+        },
+        "required": [
+          "role_name",
+          "source_columns"
+        ],
+        "title": "LinkParticipantHashSpec",
+        "type": "object"
+      },
+      "LinkParticipantSpec": {
+        "additionalProperties": false,
+        "description": "Hub role participant inside a Data Vault Link.",
+        "properties": {
+          "bkcc_col": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional source column providing per-row BKCC.",
+            "title": "Bkcc Col"
+          },
+          "bkcc_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional static BKCC override for this Link participant.",
+            "title": "Bkcc Value"
+          },
+          "error_predicate": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "AND": "#/components/schemas/PredicateBranch",
+                    "EQ": "#/components/schemas/PredicateLeaf",
+                    "IS_NOT_NULL": "#/components/schemas/PredicateLeaf",
+                    "OR": "#/components/schemas/PredicateBranch"
+                  },
+                  "propertyName": "op"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PredicateBranch"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PredicateLeaf"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Predicate matching Error (-2) sentinel participant rows.",
+            "title": "Error Predicate"
+          },
+          "fk_col_name": {
+            "description": "Physical foreign hash-key column name in the Link.",
+            "title": "Fk Col Name",
+            "type": "string"
+          },
+          "hub_name": {
+            "description": "Referenced target Hub name (or empty for degenerate).",
+            "title": "Hub Name",
+            "type": "string"
+          },
+          "is_nullable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Explicit tri-state nullability override (False=mandatory, True=optional, None=profile inferred).",
+            "title": "Is Nullable"
+          },
+          "key_tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "TIER_1_GLOBAL_STANDARD",
+                  "TIER_2_ENTERPRISE_SOR",
+                  "TIER_3_LOCAL_SCOPED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional per-Link-binding KeyTier override.",
+            "title": "Key Tier"
+          },
+          "role_name": {
+            "description": "Semantic role name of this participant in the Link.",
+            "title": "Role Name",
+            "type": "string"
+          },
           "source_col_names": {
+            "description": "Ordered source columns feeding this role.",
             "items": {
               "type": "string"
             },
             "title": "Source Col Names",
             "type": "array"
+          },
+          "target_hub_binding_table_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Disambiguating Hub SourceBinding table_id when a source_id binds multiple tables.",
+            "title": "Target Hub Binding Table Id"
+          },
+          "unknown_predicate": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "AND": "#/components/schemas/PredicateBranch",
+                    "EQ": "#/components/schemas/PredicateLeaf",
+                    "IS_NOT_NULL": "#/components/schemas/PredicateLeaf",
+                    "OR": "#/components/schemas/PredicateBranch"
+                  },
+                  "propertyName": "op"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PredicateBranch"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PredicateLeaf"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Predicate matching Unknown (-1) sentinel participant rows.",
+            "title": "Unknown Predicate"
           }
         },
         "required": [
@@ -5176,6 +5704,13 @@
             "title": "Columns",
             "type": "array"
           },
+          "dedup_field_specs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dedup Field Specs",
+            "type": "array"
+          },
           "joined_entities": {
             "items": {
               "type": "string"
@@ -5194,14 +5729,26 @@
             "title": "Select Exprs",
             "type": "object"
           },
+          "view_kind": {
+            "default": "CURRENT",
+            "enum": [
+              "CURRENT",
+              "ESAT_INTERVALS"
+            ],
+            "title": "View Kind",
+            "type": "string"
+          },
           "view_name": {
             "minLength": 1,
             "title": "View Name",
             "type": "string"
           },
           "zone_id": {
-            "const": "Z4",
             "default": "Z4",
+            "enum": [
+              "Z3",
+              "Z4"
+            ],
             "title": "Zone Id",
             "type": "string"
           }
@@ -5245,6 +5792,97 @@
           "verified"
         ],
         "title": "MigrationApplyResp",
+        "type": "object"
+      },
+      "ModelingPreferences": {
+        "additionalProperties": false,
+        "description": "Tier-1 deterministic DV2.0 modeling preferences governing L1 codemods and V6b.",
+        "properties": {
+          "clarify_mode": {
+            "default": "auto",
+            "description": "Auto-resolve ambiguities or pause for human Hold clarification.",
+            "enum": [
+              "auto",
+              "ask_on_ambiguity"
+            ],
+            "title": "Clarify Mode",
+            "type": "string"
+          },
+          "disabled_v6b_blocks": {
+            "description": "Valid V6b rule IDs downgraded from blocking under non-strict policies.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Disabled V6B Blocks",
+            "type": "array"
+          },
+          "esat_on_mutable_links": {
+            "default": "auto_when_turnover_known",
+            "description": "When to attach Effectivity Satellites to mutable relationship Links.",
+            "enum": [
+              "auto_when_turnover_known",
+              "always_on_driving_hub",
+              "off"
+            ],
+            "title": "Esat On Mutable Links",
+            "type": "string"
+          },
+          "link_cardinality_strategy": {
+            "default": "prefer_standard_or_mas",
+            "description": "Prefer standard/MAS links or permit non-historized transactional links.",
+            "enum": [
+              "prefer_standard_or_mas",
+              "allow_transactional_links"
+            ],
+            "title": "Link Cardinality Strategy",
+            "type": "string"
+          },
+          "low_cardinality_strategy": {
+            "default": "auto_ref_table",
+            "description": "Promote low-cardinality columns to Reference Tables or keep in Satellites.",
+            "enum": [
+              "auto_ref_table",
+              "keep_in_satellite"
+            ],
+            "title": "Low Cardinality Strategy",
+            "type": "string"
+          },
+          "max_survey_questions": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 5,
+            "description": "Maximum clarification survey questions returned per discovery batch.",
+            "title": "Max Survey Questions"
+          },
+          "multi_source_hub_strategy": {
+            "default": "unified_canonical_when_same_arity",
+            "description": "Merge compatible multi-source Hubs or keep separate companion Hubs via SAL.",
+            "enum": [
+              "unified_canonical_when_same_arity",
+              "companion_hub_with_sal"
+            ],
+            "title": "Multi Source Hub Strategy",
+            "type": "string"
+          },
+          "surrogate_key_strategy": {
+            "default": "reject_when_natural_exists",
+            "description": "Reject surrogate Hub BKs when a natural key candidate exists, or allow.",
+            "enum": [
+              "reject_when_natural_exists",
+              "allow_with_bkcc_note"
+            ],
+            "title": "Surrogate Key Strategy",
+            "type": "string"
+          }
+        },
+        "title": "ModelingPreferences",
         "type": "object"
       },
       "OntologyBundleResp": {
@@ -5589,24 +6227,29 @@
             "additionalProperties": {
               "type": "string"
             },
+            "description": "Mapping of canonical code values to labels.",
             "title": "Codes",
             "type": "object"
           },
           "description": {
+            "description": "Business definition of the enumeration.",
             "title": "Description",
             "type": "string"
           },
           "enum_uri": {
+            "description": "Unique reference enumeration URI.",
             "minLength": 1,
             "title": "Enum Uri",
             "type": "string"
           },
           "enumeration_name": {
+            "description": "Enumeration name.",
             "minLength": 1,
             "title": "Enumeration Name",
             "type": "string"
           },
           "target_reference_table": {
+            "description": "Target Zone Z0 reference table name (ref_*).",
             "title": "Target Reference Table",
             "type": "string"
           }
@@ -5812,6 +6455,7 @@
         "description": "Canonical Unit-of-Work relationship between concepts in GraphAOntology.",
         "properties": {
           "cardinality": {
+            "description": "Structural relationship cardinality.",
             "enum": [
               "ONE_TO_ONE",
               "ONE_TO_MANY",
@@ -5822,32 +6466,39 @@
             "type": "string"
           },
           "description": {
+            "description": "Business meaning of the relationship.",
             "title": "Description",
             "type": "string"
           },
           "grain_semantics": {
+            "description": "Unit-of-Work grain definition for the relationship.",
             "title": "Grain Semantics",
             "type": "string"
           },
           "relationship_name": {
+            "description": "Human-readable relationship name.",
             "minLength": 1,
             "title": "Relationship Name",
             "type": "string"
           },
           "relationship_uri": {
+            "description": "Unique canonical relationship URI.",
             "minLength": 1,
             "title": "Relationship Uri",
             "type": "string"
           },
           "source_concept_uri": {
+            "description": "Origin concept URI.",
             "title": "Source Concept Uri",
             "type": "string"
           },
           "target_concept_uri": {
+            "description": "Target concept URI.",
             "title": "Target Concept Uri",
             "type": "string"
           },
           "target_link": {
+            "description": "Intended Zone Z2 Link entity name (lnk_*).",
             "title": "Target Link",
             "type": "string"
           }
@@ -6305,6 +6956,13 @@
             "title": "Grain Cols",
             "type": "array"
           },
+          "hops": {
+            "items": {
+              "$ref": "#/components/schemas/BridgeHopSpec"
+            },
+            "title": "Hops",
+            "type": "array"
+          },
           "object_kind": {
             "enum": [
               "PIT",
@@ -6329,6 +6987,13 @@
             "title": "Target Satellites Or Links",
             "type": "array"
           },
+          "traversed_hk_cols": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Traversed Hk Cols",
+            "type": "array"
+          },
           "zone_id": {
             "const": "Z3",
             "default": "Z3",
@@ -6344,6 +7009,67 @@
           "grain_cols"
         ],
         "title": "PitBridgeSpec",
+        "type": "object"
+      },
+      "PkContainmentOverlap": {
+        "additionalProperties": false,
+        "description": "Asymmetric FK-to-PK containment overlap ratio computed over bounded local hashes.",
+        "properties": {
+          "compared_hashes": {
+            "description": "Number of distinct non-null left hashes compared.",
+            "minimum": 1.0,
+            "title": "Compared Hashes",
+            "type": "integer"
+          },
+          "left_col": {
+            "description": "Candidate FK column name.",
+            "title": "Left Col",
+            "type": "string"
+          },
+          "left_source_id": {
+            "description": "Source ID of the candidate FK column.",
+            "title": "Left Source Id",
+            "type": "string"
+          },
+          "left_table_id": {
+            "description": "Table ID of the candidate FK column.",
+            "title": "Left Table Id",
+            "type": "string"
+          },
+          "overlap_ratio": {
+            "description": "Fraction of distinct left hashes contained in right hashes.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Overlap Ratio",
+            "type": "number"
+          },
+          "right_col": {
+            "description": "Target PK or non-surrogate BK column name.",
+            "title": "Right Col",
+            "type": "string"
+          },
+          "right_source_id": {
+            "description": "Source ID of the target PK/BK column.",
+            "title": "Right Source Id",
+            "type": "string"
+          },
+          "right_table_id": {
+            "description": "Table ID of the target PK/BK column.",
+            "title": "Right Table Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "left_source_id",
+          "left_table_id",
+          "left_col",
+          "right_source_id",
+          "right_table_id",
+          "right_col",
+          "overlap_ratio",
+          "compared_hashes"
+        ],
+        "title": "PkContainmentOverlap",
         "type": "object"
       },
       "PredicateBranch": {
@@ -6636,6 +7362,18 @@
         "additionalProperties": false,
         "description": "Per-project settings snapshot persisted in projects.settings_snapshot_json.",
         "properties": {
+          "business_context_hints": {
+            "anyOf": [
+              {
+                "maxLength": 12000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Context Hints"
+          },
           "cegar_policy": {
             "default": "balanced",
             "enum": [
@@ -6707,6 +7445,21 @@
             ],
             "title": "Max Turns"
           },
+          "modeling_preferences": {
+            "$ref": "#/components/schemas/ModelingPreferences"
+          },
+          "proving_sample_rows": {
+            "default": 200,
+            "maximum": 5000.0,
+            "minimum": 1.0,
+            "title": "Proving Sample Rows",
+            "type": "integer"
+          },
+          "real_row_proving": {
+            "default": true,
+            "title": "Real Row Proving",
+            "type": "boolean"
+          },
           "secret_precedence": {
             "default": "store_first",
             "enum": [
@@ -6739,6 +7492,197 @@
           }
         },
         "title": "ProjectSettingsSnapshot",
+        "type": "object"
+      },
+      "ProjectSettingsUpdateReq": {
+        "additionalProperties": false,
+        "description": "Partial PATCH update payload for per-project settings (via model_fields_set).",
+        "properties": {
+          "business_context_hints": {
+            "anyOf": [
+              {
+                "maxLength": 12000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Context Hints"
+          },
+          "cegar_policy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "symbolic_only",
+                  "fast",
+                  "balanced",
+                  "strict"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cegar Policy"
+          },
+          "dbt_sql_dialect": {
+            "anyOf": [
+              {
+                "enum": [
+                  "duckdb",
+                  "databricks",
+                  "snowflake",
+                  "postgres",
+                  "bigquery",
+                  "tsql",
+                  "redshift",
+                  "clickhouse"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dbt Sql Dialect"
+          },
+          "discovery_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "incremental_new",
+                  "incremental_reverify",
+                  "full_rebuild"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discovery Mode"
+          },
+          "harness_provider": {
+            "anyOf": [
+              {
+                "enum": [
+                  "agy",
+                  "claude-cli",
+                  "claude",
+                  "gemini"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Provider"
+          },
+          "max_tokens": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tokens"
+          },
+          "max_turns": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Turns"
+          },
+          "modeling_preferences": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelingPreferences"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "proving_sample_rows": {
+            "anyOf": [
+              {
+                "maximum": 5000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proving Sample Rows"
+          },
+          "real_row_proving": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Real Row Proving"
+          },
+          "secret_precedence": {
+            "anyOf": [
+              {
+                "enum": [
+                  "store_first",
+                  "env_first"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secret Precedence"
+          },
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout Seconds"
+          },
+          "v7_critic_tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "FRONTIER_CRITIC",
+                  "STANDARD_WORKER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "V7 Critic Tier"
+          }
+        },
+        "title": "ProjectSettingsUpdateReq",
         "type": "object"
       },
       "ProjectState": {
@@ -8410,6 +9354,22 @@
               }
             ]
           },
+          "key_tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "TIER_1_GLOBAL_STANDARD",
+                  "TIER_2_ENTERPRISE_SOR",
+                  "TIER_3_LOCAL_SCOPED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Tier"
+          },
           "load_semantics": {
             "anyOf": [
               {
@@ -8492,20 +9452,32 @@
         "additionalProperties": false,
         "description": "Graph B physical schema profile for a structured source.",
         "properties": {
+          "pk_containment_overlaps": {
+            "description": "Asymmetric FK-to-PK local containment overlaps across sources.",
+            "items": {
+              "$ref": "#/components/schemas/PkContainmentOverlap"
+            },
+            "title": "Pk Containment Overlaps",
+            "type": "array"
+          },
           "schema_fingerprint": {
+            "description": "Canonical source schema fingerprint.",
             "title": "Schema Fingerprint",
             "type": "string"
           },
           "source_id": {
+            "description": "Attached source identifier.",
             "title": "Source Id",
             "type": "string"
           },
           "table_count": {
+            "description": "Number of profiled tables in this source.",
             "minimum": 0.0,
             "title": "Table Count",
             "type": "integer"
           },
           "tables": {
+            "description": "Profiled table descriptors.",
             "items": {
               "$ref": "#/components/schemas/TableProfile"
             },
@@ -9125,23 +10097,79 @@
         "additionalProperties": false,
         "description": "Physical table profile inside SourceProfile.",
         "properties": {
+          "best_non_surrogate_bk_candidate_col": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Highest-scoring non-surrogate natural BK candidate column.",
+            "title": "Best Non Surrogate Bk Candidate Col"
+          },
+          "best_non_surrogate_bk_uniqueness_ratio": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Uniqueness ratio of best non-surrogate BK candidate column.",
+            "title": "Best Non Surrogate Bk Uniqueness Ratio"
+          },
+          "cluster_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Assigned deterministic cluster identifier.",
+            "title": "Cluster Id"
+          },
           "columns": {
+            "description": "Ordered physical column profiles.",
             "items": {
               "$ref": "#/components/schemas/ColumnProfile"
             },
             "title": "Columns",
             "type": "array"
           },
+          "pk_uniqueness_ratio": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Primary-key uniqueness ratio over sampled/total rows.",
+            "title": "Pk Uniqueness Ratio"
+          },
           "row_count_est": {
+            "description": "Estimated physical row count.",
             "minimum": 0.0,
             "title": "Row Count Est",
             "type": "integer"
           },
           "table_id": {
+            "description": "Canonical table identifier.",
             "title": "Table Id",
             "type": "string"
           },
           "table_name": {
+            "description": "Physical table name in the source.",
             "title": "Table Name",
             "type": "string"
           }
@@ -9634,10 +10662,79 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "ValueFreqItem": {
+        "additionalProperties": false,
+        "description": "PII-redacted value frequency bucket for a low-cardinality profiled column.",
+        "properties": {
+          "count": {
+            "description": "Observed occurrence count in sampled rows.",
+            "minimum": 0.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "value": {
+            "description": "Observed or PII-redacted scalar representation.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "count"
+        ],
+        "title": "ValueFreqItem",
+        "type": "object"
+      },
       "VaultBuildReq": {
         "additionalProperties": false,
         "description": "Request payload for POST /api/v1/projects/{id}/runs.",
         "properties": {
+          "business_context_hints": {
+            "anyOf": [
+              {
+                "maxLength": 12000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Context Hints"
+          },
+          "cdc_volatility_by_table": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "additionalProperties": {
+                    "type": "number"
+                  },
+                  "type": "object"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cdc Volatility By Table"
+          },
+          "fk_turnover_by_table": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "additionalProperties": {
+                    "type": "number"
+                  },
+                  "type": "object"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fk Turnover By Table"
+          },
           "policy": {
             "default": "balanced",
             "enum": [
@@ -9648,6 +10745,17 @@
             ],
             "title": "Policy",
             "type": "string"
+          },
+          "real_row_proving": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Real Row Proving"
           }
         },
         "title": "VaultBuildReq",
@@ -9918,6 +11026,9 @@
             },
             "title": "Model Overrides",
             "type": "object"
+          },
+          "modeling_preferences": {
+            "$ref": "#/components/schemas/ModelingPreferences"
           },
           "schema_version": {
             "const": "2.0",
@@ -12063,6 +13174,102 @@
           }
         },
         "summary": "Get Run Logs"
+      }
+    },
+    "/api/v1/projects/{project_id}/settings": {
+      "patch": {
+        "operationId": "patch_project_settings_api_v1_projects__project_id__settings_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectSettingsUpdateReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Project Settings"
+      },
+      "put": {
+        "operationId": "put_project_settings_api_v1_projects__project_id__settings_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectSettingsSnapshot"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Project Settings"
       }
     },
     "/api/v1/projects/{project_id}/sources": {

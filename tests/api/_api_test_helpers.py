@@ -139,9 +139,9 @@ def _add_esg_split(
             "hub_mandate_rule",
             "mandate_rule_id",
             "MANDATE",
-            "sat_mandate_rule_core",
+            "mas_mandate_rule_core",
             ["mandate_policy_name", "breach_severity"],
-            "STANDARD",
+            "MAS",
         ),
         (
             None,
@@ -215,6 +215,9 @@ def _add_esg_split(
                 sat_name=sat_name,
                 sat_kind=sat_kind,  # type: ignore[arg-type]
                 parent_name=parent_hub,
+                child_dependent_keys=(
+                    ["breach_severity"] if sat_kind == "MAS" and "breach_severity" in mappings else []
+                ),
                 source_bindings=[
                     DraftSourceBinding(
                         source_id=prof.source_id,

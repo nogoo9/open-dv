@@ -638,6 +638,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Project Settings */
+        put: operations["put_project_settings_api_v1_projects__project_id__settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Project Settings */
+        patch: operations["patch_project_settings_api_v1_projects__project_id__settings_patch"];
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/sources": {
         parameters: {
             query?: never;
@@ -1470,6 +1488,27 @@ export interface components {
             kind?: string | null;
         };
         /**
+         * BridgeHopSpec
+         * @description Single traversed Link hop inside a Zone Z3 Bridge table.
+         */
+        BridgeHopSpec: {
+            /**
+             * From Fk Col
+             * @description Optional explicit FK column on incoming hub side for role-aliased links.
+             */
+            from_fk_col?: string | null;
+            /**
+             * Link Name
+             * @description Standard Link name traversed by this bridge hop.
+             */
+            link_name: string;
+            /**
+             * To Fk Col
+             * @description Optional explicit FK column on outgoing hub side for role-aliased links.
+             */
+            to_fk_col?: string | null;
+        };
+        /**
          * BronzeTableSpec
          * @description Zone Z0 raw bronze table specification.
          */
@@ -1517,20 +1556,41 @@ export interface components {
          * @description Source column contributing to a Hub business key and its BKCC tier.
          */
         BusinessKeyPart: {
-            /** Bkcc Col */
+            /**
+             * Bkcc Col
+             * @description Optional source column carrying dynamic per-row BKCC.
+             */
             bkcc_col?: string | null;
-            /** Bkcc Value */
+            /**
+             * Bkcc Value
+             * @description Static BKCC literal value.
+             */
             bkcc_value: string;
-            /** Col Name */
+            /**
+             * Canonical Col Name
+             * @description Deduplicated canonical physical BK column name.
+             */
+            canonical_col_name?: string | null;
+            /**
+             * Col Name
+             * @description Source column name contributing to the business key.
+             */
             col_name: string;
             /**
              * Key Tier
+             * @description 3-tier Key Authority policy for BKCC resolution.
              * @enum {string}
              */
             key_tier: "TIER_1_GLOBAL_STANDARD" | "TIER_2_ENTERPRISE_SOR" | "TIER_3_LOCAL_SCOPED";
-            /** Source Id */
+            /**
+             * Source Id
+             * @description Source system identifier.
+             */
             source_id: string;
-            /** Table Id */
+            /**
+             * Table Id
+             * @description Source table identifier.
+             */
             table_id: string;
         };
         /**
@@ -1538,40 +1598,83 @@ export interface components {
          * @description Canonical Business Concept (CBC) node in GraphAOntology.
          */
         CanonicalBusinessConcept: {
-            /** Attributes */
+            /**
+             * Attributes
+             * @description Conceptual attributes belonging to this CBC.
+             */
             attributes?: components["schemas"]["ConceptAttribute-Output"][];
-            /** Bkcc Default */
+            /**
+             * Bkcc Default
+             * @description Default BKCC scope when tier permits static override.
+             */
             bkcc_default?: string | null;
-            /** Concept Name */
+            /**
+             * Concept Name
+             * @description Human-readable concept name.
+             */
             concept_name: string;
-            /** Concept Uri */
+            /**
+             * Concept Uri
+             * @description Unique canonical concept URI.
+             */
             concept_uri: string;
-            /** Description */
+            /**
+             * Description
+             * @description Business definition of the concept.
+             */
             description: string;
-            /** External Mappings */
+            /**
+             * External Mappings
+             * @description Verified FIBO or external standard mappings.
+             */
             external_mappings?: components["schemas"]["ExternalMapping-Output"][];
-            /** Governance Constraints */
+            /**
+             * Governance Constraints
+             * @description Structured governance policy constraints.
+             */
             governance_constraints?: {
                 [key: string]: string | string[];
             };
-            /** Governance Tags */
+            /**
+             * Governance Tags
+             * @description Governance and compliance classification tags.
+             */
             governance_tags?: string[];
-            /** Key Authority Patterns */
+            /**
+             * Key Authority Patterns
+             * @description Key authority patterns across sources.
+             */
             key_authority_patterns?: components["schemas"]["KeyAuthorityPattern"][];
             /**
              * Key Authority Tier
+             * @description Primary 3-tier Key Authority policy.
              * @enum {string}
              */
             key_authority_tier: "TIER_1_GLOBAL_STANDARD" | "TIER_2_ENTERPRISE_SOR" | "TIER_3_LOCAL_SCOPED";
-            /** Mcp Evidence */
+            /**
+             * Mcp Evidence
+             * @description External MCP evidence receipts supporting this CBC.
+             */
             mcp_evidence?: components["schemas"]["ExternalMcpEvidenceRef"][];
-            /** Parent Concept Uri */
+            /**
+             * Parent Concept Uri
+             * @description Optional super-concept URI for specialization.
+             */
             parent_concept_uri?: string | null;
-            /** Source Citations */
+            /**
+             * Source Citations
+             * @description Verbatim document citations supporting this CBC.
+             */
             source_citations?: components["schemas"]["DocumentCitationRef"][];
-            /** Synonyms */
+            /**
+             * Synonyms
+             * @description Known business or source-system synonyms.
+             */
             synonyms?: string[];
-            /** Table Bindings */
+            /**
+             * Table Bindings
+             * @description Grounded source table/column bindings.
+             */
             table_bindings?: components["schemas"]["ConceptTableBinding"][];
         };
         /**
@@ -1602,6 +1705,8 @@ export interface components {
             physical_hints?: components["schemas"]["PhysicalLayoutHints"] | null;
             /** Source Bindings */
             source_bindings?: components["schemas"]["SourceBindingSpec"][];
+            /** Survivorship Priority */
+            survivorship_priority?: string[];
             /**
              * Zone Id
              * @default Z2
@@ -1843,26 +1948,74 @@ export interface components {
          * @description Physical column profile in Graph B (up to 5 masked sample values).
          */
         ColumnProfile: {
-            /** Col Name */
+            /**
+             * Col Name
+             * @description Physical column name.
+             */
             col_name: string;
-            /** Distinct Count Est */
+            /**
+             * Distinct Count Est
+             * @description Estimated count of distinct non-null values.
+             */
             distinct_count_est: number;
-            /** Fk Ref */
+            /**
+             * Fk Ref
+             * @description Declared foreign key target in 'table.column' form.
+             */
             fk_ref?: string | null;
-            /** Is Pk */
+            /**
+             * Format Shape
+             * @description Deterministic column literal shape classification.
+             * @default MIXED
+             * @enum {string}
+             */
+            format_shape: "ISO_DATE" | "ISO_TIMESTAMP" | "UUID" | "EMAIL" | "INT_SEQ" | "DECIMAL" | "CODE_UPPER" | "FREE_TEXT" | "MIXED";
+            /**
+             * Is Pk
+             * @description True if declared as part of the source primary key.
+             */
             is_pk: boolean;
-            /** Null Ratio */
+            /**
+             * Null Ratio
+             * @description Observed fraction of NULL values across profiled rows.
+             */
             null_ratio: number;
-            /** Nullable */
+            /**
+             * Nullable
+             * @description Whether the physical column permits NULL values.
+             */
             nullable: boolean;
-            /** Pii Tags */
+            /**
+             * Pii Tags
+             * @description Detected PII or secret classification tags.
+             */
             pii_tags?: string[];
-            /** Pk Ord */
+            /**
+             * Pk Ord
+             * @description 1-based primary key ordinal position.
+             */
             pk_ord?: number | null;
-            /** Sample Values */
+            /**
+             * Sample Values
+             * @description Up to 5 masked sample values for column inspection.
+             */
             sample_values?: (string | null)[];
-            /** Sql Type */
+            /**
+             * Sql Type
+             * @description Source SQL data type string.
+             */
             sql_type: string;
+            /**
+             * Surrogate Score
+             * @description Surrogate identifier likelihood in [0.0, 1.0].
+             * @default 0
+             */
+            surrogate_score: number;
+            /**
+             * Top Value Frequencies
+             * @description PII-redacted top frequent values when distinct <= 20.
+             */
+            top_value_frequencies?: components["schemas"]["ValueFreqItem"][];
         };
         /**
          * ColumnTriageEntry
@@ -1891,21 +2044,45 @@ export interface components {
          * @description Conceptual business attribute on a CanonicalBusinessConcept.
          */
         "ConceptAttribute-Input": {
-            /** Enum Uri */
+            /**
+             * Enum Uri
+             * @description Optional reference enumeration URI for domain values.
+             */
             enum_uri?: string | null;
-            /** Is Business Key */
+            /**
+             * Is Business Key
+             * @description True if this attribute participates in the BK.
+             */
             is_business_key: boolean;
-            /** Is Pii */
+            /**
+             * Is Pii
+             * @description True if this attribute contains PII.
+             */
             is_pii: boolean;
-            /** Logical Type */
+            /**
+             * Logical Type
+             * @description Portable physical-neutral logical type.
+             */
             logical_type: ("FIXED_BINARY_32" | "UTF8_STRING" | "INT32" | "INT64" | "DATE32" | "TIMESTAMP_UTC_US" | "BOOLEAN" | "JSON_DOCUMENT") | components["schemas"]["DecimalType"] | components["schemas"]["ArrayType-Input"] | components["schemas"]["MapType-Input"];
-            /** Name */
+            /**
+             * Name
+             * @description Canonical attribute name.
+             */
             name: string;
-            /** Nullable */
+            /**
+             * Nullable
+             * @description Whether NULL values are permitted.
+             */
             nullable: boolean;
-            /** Pii Category */
+            /**
+             * Pii Category
+             * @description Optional PII category classification.
+             */
             pii_category?: string | null;
-            /** Sql Type Hint */
+            /**
+             * Sql Type Hint
+             * @description Informational SQL type hint from profiling.
+             */
             sql_type_hint: string;
         };
         /**
@@ -1913,21 +2090,45 @@ export interface components {
          * @description Conceptual business attribute on a CanonicalBusinessConcept.
          */
         "ConceptAttribute-Output": {
-            /** Enum Uri */
+            /**
+             * Enum Uri
+             * @description Optional reference enumeration URI for domain values.
+             */
             enum_uri?: string | null;
-            /** Is Business Key */
+            /**
+             * Is Business Key
+             * @description True if this attribute participates in the BK.
+             */
             is_business_key: boolean;
-            /** Is Pii */
+            /**
+             * Is Pii
+             * @description True if this attribute contains PII.
+             */
             is_pii: boolean;
-            /** Logical Type */
+            /**
+             * Logical Type
+             * @description Portable physical-neutral logical type.
+             */
             logical_type: ("FIXED_BINARY_32" | "UTF8_STRING" | "INT32" | "INT64" | "DATE32" | "TIMESTAMP_UTC_US" | "BOOLEAN" | "JSON_DOCUMENT") | components["schemas"]["DecimalType"] | components["schemas"]["ArrayType-Output"] | components["schemas"]["MapType-Output"];
-            /** Name */
+            /**
+             * Name
+             * @description Canonical attribute name.
+             */
             name: string;
-            /** Nullable */
+            /**
+             * Nullable
+             * @description Whether NULL values are permitted.
+             */
             nullable: boolean;
-            /** Pii Category */
+            /**
+             * Pii Category
+             * @description Optional PII category classification.
+             */
             pii_category?: string | null;
-            /** Sql Type Hint */
+            /**
+             * Sql Type Hint
+             * @description Informational SQL type hint from profiling.
+             */
             sql_type_hint: string;
         };
         /**
@@ -1965,11 +2166,20 @@ export interface components {
          * @description Source column grounding reference on a concept or staged candidate.
          */
         ConceptTableBinding: {
-            /** Col Name */
+            /**
+             * Col Name
+             * @description Source column name grounded to this concept.
+             */
             col_name: string;
-            /** Source Id */
+            /**
+             * Source Id
+             * @description Source system identifier.
+             */
             source_id: string;
-            /** Table Id */
+            /**
+             * Table Id
+             * @description Source table identifier.
+             */
             table_id: string;
         };
         /**
@@ -2158,19 +2368,55 @@ export interface components {
             pages?: components["schemas"]["PageMapSpec"][];
         };
         /**
+         * DraftBridgeSpec
+         * @description Draft Zone Z3 multi-hop Bridge specification.
+         */
+        DraftBridgeSpec: {
+            /**
+             * Bridge Name
+             * @description Zone Z3 Bridge table name (brg_*).
+             */
+            bridge_name: string;
+            /**
+             * Hops
+             * @description Ordered sequence of connected Link hops.
+             */
+            hops: components["schemas"]["BridgeHopSpec"][];
+            /**
+             * Root Hub
+             * @description Anchor Hub name from which bridge hops originate.
+             */
+            root_hub: string;
+        };
+        /**
          * DraftField
          * @description Descriptive attribute column on a DraftVaultIR entity.
          */
         DraftField: {
-            /** Classification Tag */
+            /**
+             * Classification Tag
+             * @description Optional governance or PII classification tag.
+             */
             classification_tag?: string | null;
-            /** Is Pii */
+            /**
+             * Is Pii
+             * @description Whether this column contains PII.
+             */
             is_pii: boolean;
-            /** Logical Type */
+            /**
+             * Logical Type
+             * @description Portable physical-neutral logical type.
+             */
             logical_type: ("FIXED_BINARY_32" | "UTF8_STRING" | "INT32" | "INT64" | "DATE32" | "TIMESTAMP_UTC_US" | "BOOLEAN" | "JSON_DOCUMENT") | components["schemas"]["DecimalType"] | components["schemas"]["ArrayType-Output"] | components["schemas"]["MapType-Output"];
-            /** Name */
+            /**
+             * Name
+             * @description Logical column name.
+             */
             name: string;
-            /** Nullable */
+            /**
+             * Nullable
+             * @description Whether NULL values are permitted.
+             */
             nullable: boolean;
         };
         /**
@@ -2178,46 +2424,84 @@ export interface components {
          * @description Draft Hub specification emitted by Step 6 agent synthesis.
          */
         DraftHubSpec: {
-            /** Attributes */
+            /**
+             * Attributes
+             * @description Must remain empty per INV-05.
+             */
             attributes?: components["schemas"]["DraftField"][];
-            /** Business Keys */
+            /**
+             * Business Keys
+             * @description Contributing business key parts across sources.
+             */
             business_keys?: components["schemas"]["BusinessKeyPart"][];
-            /** Hub Name */
+            /**
+             * Hub Name
+             * @description Zone Z2 Hub table name (hub_*).
+             */
             hub_name: string;
             /**
              * Is Planned Concept
+             * @description True if concept is planned without active source bindings.
              * @default false
              */
             is_planned_concept: boolean;
             /**
              * Key Tier
+             * @description Dominant 3-tier Key Authority policy.
              * @enum {string}
              */
             key_tier: "TIER_1_GLOBAL_STANDARD" | "TIER_2_ENTERPRISE_SOR" | "TIER_3_LOCAL_SCOPED";
-            /** Source Bindings */
+            /**
+             * Source Bindings
+             * @description Source table lineage bindings feeding this Hub.
+             */
             source_bindings?: components["schemas"]["DraftSourceBinding"][];
+            /**
+             * Survivorship Priority
+             * @description Ordered source_id (or source_id:table_id) survivorship precedence.
+             */
+            survivorship_priority?: string[];
         };
         /**
          * DraftLinkSpec
          * @description Draft Link specification emitted by Step 6 agent synthesis.
          */
         DraftLinkSpec: {
-            /** Attributes */
+            /**
+             * Attributes
+             * @description Descriptive payload attributes (valid only on TRANSACTIONAL links).
+             */
             attributes?: components["schemas"]["DraftField"][];
-            /** Degenerate Keys */
+            /**
+             * Degenerate Keys
+             * @description Degenerate business key columns hashed into the Link.
+             */
             degenerate_keys?: string[];
-            /** Driving Hub */
+            /**
+             * Driving Hub
+             * @description Optional driving Hub name for effectivity tracking.
+             */
             driving_hub?: string | null;
             /**
              * Link Kind
+             * @description Structural Data Vault Link classification.
              * @enum {string}
              */
             link_kind: "STANDARD" | "TRANSACTIONAL" | "SAME_AS" | "HIERARCHICAL" | "UNSTRUCTURED_EXTRACTION_LINK";
-            /** Link Name */
+            /**
+             * Link Name
+             * @description Zone Z2 Link table name (lnk_*).
+             */
             link_name: string;
-            /** Participants */
+            /**
+             * Participants
+             * @description Ordered Hub role participants in this Link.
+             */
             participants: components["schemas"]["LinkParticipantSpec"][];
-            /** Source Bindings */
+            /**
+             * Source Bindings
+             * @description Source table lineage bindings feeding this Link.
+             */
             source_bindings?: components["schemas"]["DraftSourceBinding"][];
         };
         /**
@@ -2225,41 +2509,74 @@ export interface components {
          * @description Draft Satellite specification emitted by Step 6 agent synthesis.
          */
         DraftSatelliteSpec: {
-            /** Applied Dts Col */
+            /**
+             * Applied Dts Col
+             * @description Source column providing business effective/applied timestamp.
+             */
             applied_dts_col?: string | null;
-            /** Attributes */
+            /**
+             * Attributes
+             * @description Descriptive payload attributes in this Satellite.
+             */
             attributes?: components["schemas"]["DraftField"][];
-            /** Child Dependent Keys */
+            /**
+             * Child Dependent Keys
+             * @description Dependent child key columns (required on MAS).
+             */
             child_dependent_keys?: string[];
-            /** Companion Epoch */
+            /**
+             * Companion Epoch
+             * @description Monotonic wave epoch for companion Satellite splits.
+             */
             companion_epoch?: number | null;
-            /** Driving Keys */
+            /**
+             * Driving Keys
+             * @description Driving key column names (for ESAT effectivity).
+             */
             driving_keys?: string[];
-            /** Extends Sat Name */
+            /**
+             * Extends Sat Name
+             * @description Base Satellite name when this is an EXT companion split.
+             */
             extends_sat_name?: string | null;
-            /** Immutable Payload Fields */
+            /**
+             * Immutable Payload Fields
+             * @description Payload columns excluded from mutable diffing.
+             */
             immutable_payload_fields?: string[];
             /**
              * Is Bitemporal
+             * @description True if Satellite tracks applied_dts alongside load_dts.
              * @default false
              */
             is_bitemporal: boolean;
             /**
              * Load Mode
+             * @description Satellite historization and delta load strategy.
              * @default INSERT_ONLY_DELTA
              * @enum {string}
              */
             load_mode: "INSERT_ONLY_DELTA" | "SNAPSHOT_DIFF" | "APPEND_WITH_EFFECTIVITY";
-            /** Parent Name */
+            /**
+             * Parent Name
+             * @description Parent Hub or Link entity name.
+             */
             parent_name: string;
             /**
              * Sat Kind
+             * @description Data Vault Satellite classification.
              * @enum {string}
              */
             sat_kind: "STANDARD" | "MAS" | "ESAT" | "PII" | "AI_PROVENANCE_SATELLITE" | "EXT";
-            /** Sat Name */
+            /**
+             * Sat Name
+             * @description Zone Z2 Satellite table name (sat_*).
+             */
             sat_name: string;
-            /** Source Bindings */
+            /**
+             * Source Bindings
+             * @description Source table lineage bindings feeding this Satellite.
+             */
             source_bindings?: components["schemas"]["DraftSourceBinding"][];
         };
         /**
@@ -2285,29 +2602,62 @@ export interface components {
          * @description Pre-L1/L2 Draft Vault IR authored by Step 6 agent runs.
          */
         DraftVaultIR: {
-            /** Column Triage */
+            /**
+             * Bridges
+             * @description Post-merge Zone Z3 multi-hop Bridge declarations.
+             */
+            bridges?: components["schemas"]["DraftBridgeSpec"][];
+            /**
+             * Column Triage
+             * @description 100% source column triage ledger.
+             */
             column_triage?: components["schemas"]["ColumnTriageEntry"][];
-            /** Hubs */
+            /**
+             * Hubs
+             * @description Draft Hub specifications.
+             */
             hubs?: components["schemas"]["DraftHubSpec"][];
             /**
              * Ir Version
+             * @description Draft IR schema version.
              * @default 2.0
              * @constant
              */
             ir_version: "2.0";
-            /** Justifications */
+            /**
+             * Justifications
+             * @description Waivable V6b anti-pattern justifications.
+             */
             justifications?: components["schemas"]["AntiPatternJustification"][];
-            /** Links */
+            /**
+             * Links
+             * @description Draft Link specifications.
+             */
             links?: components["schemas"]["DraftLinkSpec"][];
-            /** Ontology Version */
+            /**
+             * Ontology Version
+             * @description Source GraphAOntology version.
+             */
             ontology_version: string;
-            /** Pending Clarifications */
+            /**
+             * Pending Clarifications
+             * @description Open Steward clarification questions.
+             */
             pending_clarifications?: components["schemas"]["ClarificationQuestion"][];
-            /** Project Id */
+            /**
+             * Project Id
+             * @description Project identifier.
+             */
             project_id: string;
-            /** Satellites */
+            /**
+             * Satellites
+             * @description Draft Satellite specifications.
+             */
             satellites?: components["schemas"]["DraftSatelliteSpec"][];
-            /** Wave Number */
+            /**
+             * Wave Number
+             * @description Incremental modeling wave number.
+             */
             wave_number: number;
         };
         /**
@@ -2385,18 +2735,31 @@ export interface components {
          * @description FIBO or external reference ontology mapping with quantized BM25 confidence.
          */
         "ExternalMapping-Input": {
-            /** Confidence */
+            /**
+             * Confidence
+             * @description Quantized alignment confidence [0, 1].
+             */
             confidence: number | string;
             /**
              * Mapping Type
+             * @description SKOS alignment strength.
              * @enum {string}
              */
             mapping_type: "skos:exactMatch" | "skos:closeMatch";
-            /** Reference Pack Id */
+            /**
+             * Reference Pack Id
+             * @description Pinned reference ontology pack identifier.
+             */
             reference_pack_id: string;
-            /** Reference Pack Sha256 */
+            /**
+             * Reference Pack Sha256
+             * @description SHA-256 digest of the pinned reference pack.
+             */
             reference_pack_sha256: string;
-            /** Standard Uri */
+            /**
+             * Standard Uri
+             * @description External standard concept URI (e.g. FIBO).
+             */
             standard_uri: string;
         };
         /**
@@ -2404,18 +2767,31 @@ export interface components {
          * @description FIBO or external reference ontology mapping with quantized BM25 confidence.
          */
         "ExternalMapping-Output": {
-            /** Confidence */
+            /**
+             * Confidence
+             * @description Quantized alignment confidence [0, 1].
+             */
             confidence: string;
             /**
              * Mapping Type
+             * @description SKOS alignment strength.
              * @enum {string}
              */
             mapping_type: "skos:exactMatch" | "skos:closeMatch";
-            /** Reference Pack Id */
+            /**
+             * Reference Pack Id
+             * @description Pinned reference ontology pack identifier.
+             */
             reference_pack_id: string;
-            /** Reference Pack Sha256 */
+            /**
+             * Reference Pack Sha256
+             * @description SHA-256 digest of the pinned reference pack.
+             */
             reference_pack_sha256: string;
-            /** Standard Uri */
+            /**
+             * Standard Uri
+             * @description External standard concept URI (e.g. FIBO).
+             */
             standard_uri: string;
         };
         /**
@@ -2548,15 +2924,30 @@ export interface components {
          * @description Committed or draft Graph A domain ontology.
          */
         GraphAOntology: {
-            /** Concepts */
+            /**
+             * Concepts
+             * @description Canonical Business Concepts in the domain.
+             */
             concepts?: components["schemas"]["CanonicalBusinessConcept"][];
-            /** Domain Namespace */
+            /**
+             * Domain Namespace
+             * @description Domain namespace prefix for concept URIs.
+             */
             domain_namespace: string;
-            /** Enumerations */
+            /**
+             * Enumerations
+             * @description Reference code enumerations.
+             */
             enumerations?: components["schemas"]["OntologyEnumeration"][];
-            /** Ontology Version */
+            /**
+             * Ontology Version
+             * @description Semantic or monotonic ontology version string.
+             */
             ontology_version: string;
-            /** Relationships */
+            /**
+             * Relationships
+             * @description Canonical Unit-of-Work relationships.
+             */
             relationships?: components["schemas"]["OntologyRelationship"][];
         };
         /**
@@ -2733,6 +3124,8 @@ export interface components {
             is_optional_inapplicable: boolean;
             /** Key Columns */
             key_columns?: string[];
+            /** Participant Specs */
+            participant_specs?: components["schemas"]["LinkParticipantHashSpec"][];
             /**
              * Recipe Kind
              * @enum {string}
@@ -2780,7 +3173,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "accept" | "steer";
+            action: "accept" | "steer" | "revert";
             /** Added Fields */
             added_fields?: string[];
             /** Answers */
@@ -2894,31 +3287,126 @@ export interface components {
          * @description 3-Tier Business Key Authority pattern attached to a concept.
          */
         KeyAuthorityPattern: {
-            /** Authority Name */
+            /**
+             * Authority Name
+             * @description Governing authority or standard name.
+             */
             authority_name: string;
-            /** Bkcc Policy */
+            /**
+             * Bkcc Policy
+             * @description BKCC collision-code assignment policy.
+             */
             bkcc_policy: string;
-            /** Column Patterns */
+            /**
+             * Column Patterns
+             * @description Source column naming patterns matching this key.
+             */
             column_patterns: string[];
             /**
              * Tier
+             * @description 3-tier Key Authority policy level.
              * @enum {string}
              */
             tier: "TIER_1_GLOBAL_STANDARD" | "TIER_2_ENTERPRISE_SOR" | "TIER_3_LOCAL_SCOPED";
+        };
+        /**
+         * LinkParticipantHashSpec
+         * @description Per-participant Algorithm A.5 hash specification inside a Link HashRecipeSpec.
+         */
+        LinkParticipantHashSpec: {
+            /** Bkcc Col */
+            bkcc_col?: string | null;
+            /** Bkcc Literal */
+            bkcc_literal?: string | null;
+            /** Error Predicate */
+            error_predicate?: (components["schemas"]["PredicateBranch"] | components["schemas"]["PredicateLeaf"]) | null;
+            /**
+             * Hub Name
+             * @default
+             */
+            hub_name: string;
+            /**
+             * Is Degenerate
+             * @default false
+             */
+            is_degenerate: boolean;
+            /** Is Nullable */
+            is_nullable?: boolean | null;
+            /**
+             * Key Tier
+             * @default TIER_2_ENTERPRISE_SOR
+             * @enum {string}
+             */
+            key_tier: "TIER_1_GLOBAL_STANDARD" | "TIER_2_ENTERPRISE_SOR" | "TIER_3_LOCAL_SCOPED";
+            /** Role Name */
+            role_name: string;
+            /** Source Columns */
+            source_columns: string[];
+            /** Target Hub Binding Table Id */
+            target_hub_binding_table_id?: string | null;
+            /** Unknown Predicate */
+            unknown_predicate?: (components["schemas"]["PredicateBranch"] | components["schemas"]["PredicateLeaf"]) | null;
         };
         /**
          * LinkParticipantSpec
          * @description Hub role participant inside a Data Vault Link.
          */
         LinkParticipantSpec: {
-            /** Fk Col Name */
+            /**
+             * Bkcc Col
+             * @description Optional source column providing per-row BKCC.
+             */
+            bkcc_col?: string | null;
+            /**
+             * Bkcc Value
+             * @description Optional static BKCC override for this Link participant.
+             */
+            bkcc_value?: string | null;
+            /**
+             * Error Predicate
+             * @description Predicate matching Error (-2) sentinel participant rows.
+             */
+            error_predicate?: (components["schemas"]["PredicateBranch"] | components["schemas"]["PredicateLeaf"]) | null;
+            /**
+             * Fk Col Name
+             * @description Physical foreign hash-key column name in the Link.
+             */
             fk_col_name: string;
-            /** Hub Name */
+            /**
+             * Hub Name
+             * @description Referenced target Hub name (or empty for degenerate).
+             */
             hub_name: string;
-            /** Role Name */
+            /**
+             * Is Nullable
+             * @description Explicit tri-state nullability override (False=mandatory, True=optional, None=profile inferred).
+             */
+            is_nullable?: boolean | null;
+            /**
+             * Key Tier
+             * @description Optional per-Link-binding KeyTier override.
+             */
+            key_tier?: ("TIER_1_GLOBAL_STANDARD" | "TIER_2_ENTERPRISE_SOR" | "TIER_3_LOCAL_SCOPED") | null;
+            /**
+             * Role Name
+             * @description Semantic role name of this participant in the Link.
+             */
             role_name: string;
-            /** Source Col Names */
+            /**
+             * Source Col Names
+             * @description Ordered source columns feeding this role.
+             */
             source_col_names: string[];
+            /**
+             * Target Hub Binding Table Id
+             * @description Disambiguating Hub SourceBinding table_id when a source_id binds multiple tables.
+             */
+            target_hub_binding_table_id?: string | null;
+            /**
+             * Unknown Predicate
+             * @description Predicate matching Unknown (-1) sentinel participant rows.
+             */
+            unknown_predicate?: (components["schemas"]["PredicateBranch"] | components["schemas"]["PredicateLeaf"]) | null;
         };
         /**
          * LoadSemanticsSpec
@@ -2973,6 +3461,8 @@ export interface components {
         MartViewSpec: {
             /** Columns */
             columns?: components["schemas"]["IRField"][];
+            /** Dedup Field Specs */
+            dedup_field_specs?: string[];
             /** Joined Entities */
             joined_entities: string[];
             /** Root Entity */
@@ -2981,14 +3471,20 @@ export interface components {
             select_exprs: {
                 [key: string]: string;
             };
+            /**
+             * View Kind
+             * @default CURRENT
+             * @enum {string}
+             */
+            view_kind: "CURRENT" | "ESAT_INTERVALS";
             /** View Name */
             view_name: string;
             /**
              * Zone Id
              * @default Z4
-             * @constant
+             * @enum {string}
              */
-            zone_id: "Z4";
+            zone_id: "Z3" | "Z4";
         };
         /**
          * MigrationApplyResp
@@ -3003,6 +3499,65 @@ export interface components {
             verified: boolean;
             /** Wave Number */
             wave_number: number;
+        };
+        /**
+         * ModelingPreferences
+         * @description Tier-1 deterministic DV2.0 modeling preferences governing L1 codemods and V6b.
+         */
+        ModelingPreferences: {
+            /**
+             * Clarify Mode
+             * @description Auto-resolve ambiguities or pause for human Hold clarification.
+             * @default auto
+             * @enum {string}
+             */
+            clarify_mode: "auto" | "ask_on_ambiguity";
+            /**
+             * Disabled V6B Blocks
+             * @description Valid V6b rule IDs downgraded from blocking under non-strict policies.
+             */
+            disabled_v6b_blocks?: string[];
+            /**
+             * Esat On Mutable Links
+             * @description When to attach Effectivity Satellites to mutable relationship Links.
+             * @default auto_when_turnover_known
+             * @enum {string}
+             */
+            esat_on_mutable_links: "auto_when_turnover_known" | "always_on_driving_hub" | "off";
+            /**
+             * Link Cardinality Strategy
+             * @description Prefer standard/MAS links or permit non-historized transactional links.
+             * @default prefer_standard_or_mas
+             * @enum {string}
+             */
+            link_cardinality_strategy: "prefer_standard_or_mas" | "allow_transactional_links";
+            /**
+             * Low Cardinality Strategy
+             * @description Promote low-cardinality columns to Reference Tables or keep in Satellites.
+             * @default auto_ref_table
+             * @enum {string}
+             */
+            low_cardinality_strategy: "auto_ref_table" | "keep_in_satellite";
+            /**
+             * Max Survey Questions
+             * @description Maximum clarification survey questions returned per discovery batch.
+             * @default 5
+             */
+            max_survey_questions: number | null;
+            /**
+             * Multi Source Hub Strategy
+             * @description Merge compatible multi-source Hubs or keep separate companion Hubs via SAL.
+             * @default unified_canonical_when_same_arity
+             * @enum {string}
+             */
+            multi_source_hub_strategy: "unified_canonical_when_same_arity" | "companion_hub_with_sal";
+            /**
+             * Surrogate Key Strategy
+             * @description Reject surrogate Hub BKs when a natural key candidate exists, or allow.
+             * @default reject_when_natural_exists
+             * @enum {string}
+             */
+            surrogate_key_strategy: "reject_when_natural_exists" | "allow_with_bkcc_note";
         };
         /**
          * OntologyBundleResp
@@ -3072,17 +3627,32 @@ export interface components {
          * @description Reference code enumeration mapped to a Zone Z0 ref_* table.
          */
         OntologyEnumeration: {
-            /** Codes */
+            /**
+             * Codes
+             * @description Mapping of canonical code values to labels.
+             */
             codes: {
                 [key: string]: string;
             };
-            /** Description */
+            /**
+             * Description
+             * @description Business definition of the enumeration.
+             */
             description: string;
-            /** Enum Uri */
+            /**
+             * Enum Uri
+             * @description Unique reference enumeration URI.
+             */
             enum_uri: string;
-            /** Enumeration Name */
+            /**
+             * Enumeration Name
+             * @description Enumeration name.
+             */
             enumeration_name: string;
-            /** Target Reference Table */
+            /**
+             * Target Reference Table
+             * @description Target Zone Z0 reference table name (ref_*).
+             */
             target_reference_table: string;
         };
         /**
@@ -3111,22 +3681,44 @@ export interface components {
         OntologyRelationship: {
             /**
              * Cardinality
+             * @description Structural relationship cardinality.
              * @enum {string}
              */
             cardinality: "ONE_TO_ONE" | "ONE_TO_MANY" | "MANY_TO_ONE" | "MANY_TO_MANY";
-            /** Description */
+            /**
+             * Description
+             * @description Business meaning of the relationship.
+             */
             description: string;
-            /** Grain Semantics */
+            /**
+             * Grain Semantics
+             * @description Unit-of-Work grain definition for the relationship.
+             */
             grain_semantics: string;
-            /** Relationship Name */
+            /**
+             * Relationship Name
+             * @description Human-readable relationship name.
+             */
             relationship_name: string;
-            /** Relationship Uri */
+            /**
+             * Relationship Uri
+             * @description Unique canonical relationship URI.
+             */
             relationship_uri: string;
-            /** Source Concept Uri */
+            /**
+             * Source Concept Uri
+             * @description Origin concept URI.
+             */
             source_concept_uri: string;
-            /** Target Concept Uri */
+            /**
+             * Target Concept Uri
+             * @description Target concept URI.
+             */
             target_concept_uri: string;
-            /** Target Link */
+            /**
+             * Target Link
+             * @description Intended Zone Z2 Link entity name (lnk_*).
+             */
             target_link: string;
         };
         /**
@@ -3262,6 +3854,8 @@ export interface components {
         PitBridgeSpec: {
             /** Grain Cols */
             grain_cols: string[];
+            /** Hops */
+            hops?: components["schemas"]["BridgeHopSpec"][];
             /**
              * Object Kind
              * @enum {string}
@@ -3273,12 +3867,60 @@ export interface components {
             root_hub: string;
             /** Target Satellites Or Links */
             target_satellites_or_links: string[];
+            /** Traversed Hk Cols */
+            traversed_hk_cols?: string[];
             /**
              * Zone Id
              * @default Z3
              * @constant
              */
             zone_id: "Z3";
+        };
+        /**
+         * PkContainmentOverlap
+         * @description Asymmetric FK-to-PK containment overlap ratio computed over bounded local hashes.
+         */
+        PkContainmentOverlap: {
+            /**
+             * Compared Hashes
+             * @description Number of distinct non-null left hashes compared.
+             */
+            compared_hashes: number;
+            /**
+             * Left Col
+             * @description Candidate FK column name.
+             */
+            left_col: string;
+            /**
+             * Left Source Id
+             * @description Source ID of the candidate FK column.
+             */
+            left_source_id: string;
+            /**
+             * Left Table Id
+             * @description Table ID of the candidate FK column.
+             */
+            left_table_id: string;
+            /**
+             * Overlap Ratio
+             * @description Fraction of distinct left hashes contained in right hashes.
+             */
+            overlap_ratio: number;
+            /**
+             * Right Col
+             * @description Target PK or non-surrogate BK column name.
+             */
+            right_col: string;
+            /**
+             * Right Source Id
+             * @description Source ID of the target PK/BK column.
+             */
+            right_source_id: string;
+            /**
+             * Right Table Id
+             * @description Table ID of the target PK/BK column.
+             */
+            right_table_id: string;
         };
         /**
          * PredicateBranch
@@ -3395,6 +4037,8 @@ export interface components {
          * @description Per-project settings snapshot persisted in projects.settings_snapshot_json.
          */
         ProjectSettingsSnapshot: {
+            /** Business Context Hints */
+            business_context_hints?: string | null;
             /**
              * Cegar Policy
              * @default balanced
@@ -3423,6 +4067,17 @@ export interface components {
             max_tokens?: number | null;
             /** Max Turns */
             max_turns?: number | null;
+            modeling_preferences?: components["schemas"]["ModelingPreferences"];
+            /**
+             * Proving Sample Rows
+             * @default 200
+             */
+            proving_sample_rows: number;
+            /**
+             * Real Row Proving
+             * @default true
+             */
+            real_row_proving: boolean;
             /**
              * Secret Precedence
              * @default store_first
@@ -3437,6 +4092,37 @@ export interface components {
              * @enum {string}
              */
             v7_critic_tier: "FRONTIER_CRITIC" | "STANDARD_WORKER";
+        };
+        /**
+         * ProjectSettingsUpdateReq
+         * @description Partial PATCH update payload for per-project settings (via model_fields_set).
+         */
+        ProjectSettingsUpdateReq: {
+            /** Business Context Hints */
+            business_context_hints?: string | null;
+            /** Cegar Policy */
+            cegar_policy?: ("symbolic_only" | "fast" | "balanced" | "strict") | null;
+            /** Dbt Sql Dialect */
+            dbt_sql_dialect?: ("duckdb" | "databricks" | "snowflake" | "postgres" | "bigquery" | "tsql" | "redshift" | "clickhouse") | null;
+            /** Discovery Mode */
+            discovery_mode?: ("incremental_new" | "incremental_reverify" | "full_rebuild") | null;
+            /** Harness Provider */
+            harness_provider?: ("agy" | "claude-cli" | "claude" | "gemini") | null;
+            /** Max Tokens */
+            max_tokens?: number | null;
+            /** Max Turns */
+            max_turns?: number | null;
+            modeling_preferences?: components["schemas"]["ModelingPreferences"] | null;
+            /** Proving Sample Rows */
+            proving_sample_rows?: number | null;
+            /** Real Row Proving */
+            real_row_proving?: boolean | null;
+            /** Secret Precedence */
+            secret_precedence?: ("store_first" | "env_first") | null;
+            /** Timeout Seconds */
+            timeout_seconds?: number | null;
+            /** V7 Critic Tier */
+            v7_critic_tier?: ("FRONTIER_CRITIC" | "STANDARD_WORKER") | null;
         };
         /**
          * ProjectState
@@ -4196,6 +4882,8 @@ export interface components {
             /** Doc Citations */
             doc_citations?: components["schemas"]["DocumentCitationRef"][];
             hash_recipe?: components["schemas"]["HashRecipeSpec"] | null;
+            /** Key Tier */
+            key_tier?: ("TIER_1_GLOBAL_STANDARD" | "TIER_2_ENTERPRISE_SOR" | "TIER_3_LOCAL_SCOPED") | null;
             load_semantics?: components["schemas"]["LoadSemanticsSpec"] | null;
             /** Mcp Evidence */
             mcp_evidence?: components["schemas"]["ExternalMcpEvidenceRef"][];
@@ -4225,13 +4913,30 @@ export interface components {
          * @description Graph B physical schema profile for a structured source.
          */
         SourceProfile: {
-            /** Schema Fingerprint */
+            /**
+             * Pk Containment Overlaps
+             * @description Asymmetric FK-to-PK local containment overlaps across sources.
+             */
+            pk_containment_overlaps?: components["schemas"]["PkContainmentOverlap"][];
+            /**
+             * Schema Fingerprint
+             * @description Canonical source schema fingerprint.
+             */
             schema_fingerprint: string;
-            /** Source Id */
+            /**
+             * Source Id
+             * @description Attached source identifier.
+             */
             source_id: string;
-            /** Table Count */
+            /**
+             * Table Count
+             * @description Number of profiled tables in this source.
+             */
             table_count: number;
-            /** Tables */
+            /**
+             * Tables
+             * @description Profiled table descriptors.
+             */
             tables: components["schemas"]["TableProfile"][];
         };
         /**
@@ -4471,13 +5176,45 @@ export interface components {
          * @description Physical table profile inside SourceProfile.
          */
         TableProfile: {
-            /** Columns */
+            /**
+             * Best Non Surrogate Bk Candidate Col
+             * @description Highest-scoring non-surrogate natural BK candidate column.
+             */
+            best_non_surrogate_bk_candidate_col?: string | null;
+            /**
+             * Best Non Surrogate Bk Uniqueness Ratio
+             * @description Uniqueness ratio of best non-surrogate BK candidate column.
+             */
+            best_non_surrogate_bk_uniqueness_ratio?: number | null;
+            /**
+             * Cluster Id
+             * @description Assigned deterministic cluster identifier.
+             */
+            cluster_id?: string | null;
+            /**
+             * Columns
+             * @description Ordered physical column profiles.
+             */
             columns: components["schemas"]["ColumnProfile"][];
-            /** Row Count Est */
+            /**
+             * Pk Uniqueness Ratio
+             * @description Primary-key uniqueness ratio over sampled/total rows.
+             */
+            pk_uniqueness_ratio?: number | null;
+            /**
+             * Row Count Est
+             * @description Estimated physical row count.
+             */
             row_count_est: number;
-            /** Table Id */
+            /**
+             * Table Id
+             * @description Canonical table identifier.
+             */
             table_id: string;
-            /** Table Name */
+            /**
+             * Table Name
+             * @description Physical table name in the source.
+             */
             table_name: string;
         };
         /**
@@ -4636,16 +5373,48 @@ export interface components {
             type: string;
         };
         /**
+         * ValueFreqItem
+         * @description PII-redacted value frequency bucket for a low-cardinality profiled column.
+         */
+        ValueFreqItem: {
+            /**
+             * Count
+             * @description Observed occurrence count in sampled rows.
+             */
+            count: number;
+            /**
+             * Value
+             * @description Observed or PII-redacted scalar representation.
+             */
+            value: string;
+        };
+        /**
          * VaultBuildReq
          * @description Request payload for POST /api/v1/projects/{id}/runs.
          */
         VaultBuildReq: {
+            /** Business Context Hints */
+            business_context_hints?: string | null;
+            /** Cdc Volatility By Table */
+            cdc_volatility_by_table?: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            } | null;
+            /** Fk Turnover By Table */
+            fk_turnover_by_table?: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            } | null;
             /**
              * Policy
              * @default balanced
              * @enum {string}
              */
             policy: "symbolic_only" | "fast" | "balanced" | "strict";
+            /** Real Row Proving */
+            real_row_proving?: boolean | null;
         };
         /**
          * VaultVerifyResp
@@ -4755,6 +5524,7 @@ export interface components {
             model_overrides?: {
                 [key: string]: string;
             };
+            modeling_preferences?: components["schemas"]["ModelingPreferences"];
             /**
              * Schema Version
              * @default 2.0
@@ -6146,6 +6916,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunEventLogPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_project_settings_api_v1_projects__project_id__settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectSettingsSnapshot"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_project_settings_api_v1_projects__project_id__settings_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectSettingsUpdateReq"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectState"];
                 };
             };
             /** @description Validation Error */
