@@ -239,6 +239,7 @@ class DiscoveryRunHelper:
             effective_timeout_seconds=budget.timeout_seconds,
         )
         broker: JobMcpBroker | None = None
+        lease_released = False
         try:
             pre_sig_count = len(self._state.poll_control_signals(project_id, run_id))
             record_run_state(self._state, project_id, running_state)
@@ -462,6 +463,11 @@ class DiscoveryRunHelper:
                         "last_seq": sink.current_seq(run_id),
                     }
                 )
+            if broker is not None:
+                await broker.stop()
+                broker = None
+            release_project_job_lease(self._state, project_id, run_id)
+            lease_released = True
             record_run_state(self._state, project_id, final_state)
             append_audit_log(
                 self._state,
@@ -482,4 +488,5 @@ class DiscoveryRunHelper:
         finally:
             if broker is not None:
                 await broker.stop()
-            release_project_job_lease(self._state, project_id, run_id)
+            if not lease_released:
+                release_project_job_lease(self._state, project_id, run_id)

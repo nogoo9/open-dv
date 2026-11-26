@@ -1118,6 +1118,7 @@ async def test_pii_error_scrubbing_underscore_keys_phone_iban_and_win32_tree_rea
         parent_script,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=(os.name != "nt"),
     )
     for _ in range(50):
         if gc_pid_file.is_file() and gc_pid_file.read_text(encoding="utf-8").strip():
@@ -1155,6 +1156,12 @@ async def test_pii_error_scrubbing_underscore_keys_phone_iban_and_win32_tree_rea
             k32.CloseHandle(ctypes.c_void_p(h_gc_final))
             assert not ok_final or code_final.value != 259
     else:
+        for _ in range(20):
+            try:
+                os.kill(gc_pid, 0)
+            except OSError:
+                break
+            await asyncio.sleep(0.05)
         with pytest.raises(OSError):
             os.kill(gc_pid, 0)
 
@@ -1787,7 +1794,7 @@ async def test_pii_pan_prefix_collisions_json_unicode_escapes_validation_trunc_a
         shim.write_text(f'@echo off\r\n"{sys.executable}" "{early_py}"\r\n', encoding="utf-8")
     else:
         shim = tmp_path / "early_claude"
-        shim.write_text(f'#!/usr/bin/env "{sys.executable}"\nimport sys; sys.stderr.write("Error: not logged in\\n"); sys.exit(1)\n', encoding="utf-8")
+        shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{early_py}"\n', encoding="utf-8")
         shim.chmod(0o755)
 
     with pytest.raises(OpenDVError) as exc_pipe:

@@ -250,7 +250,8 @@ class KeyringSecretStore:
             self._delete_from_user_state_file(key)
         except OpenDVError as exc:
             _LOGGER.warning(
-                "Best-effort cleanup of stale secrets.json entry '%s' failed: %s", key, exc
+                "Best-effort cleanup of stale secrets.json entry failed (%s).",
+                type(exc).__name__,
             )
 
     def _active_keyring(self) -> keyring.backend.KeyringBackend:

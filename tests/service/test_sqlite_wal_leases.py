@@ -449,7 +449,7 @@ def test_user_state_env_and_workspace_containment(tmp_path: Path) -> None:
         env={"LOCALAPPDATA": "C:\\Users\\alice\\AppData\\Local"},
         platform_name="nt",
     )
-    assert win_dir == Path("C:\\Users\\alice\\AppData\\Local\\opendv")
+    assert win_dir == Path("C:\\Users\\alice\\AppData\\Local") / "opendv"
 
     linux_dir = resolve_user_state_dir(
         env={"XDG_STATE_HOME": "/var/lib/alice-state"},
