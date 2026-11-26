@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 
 from opendv.models.errors import ErrorCode, OpenDVError
+from opendv.models.project import SecretPrecedence
 from opendv.models.sources import (
     ConnectorAdapterSpec,
     ConnectorConfigPayload,
@@ -25,6 +26,7 @@ from opendv.models.wire_dtos_discovery import (
     SourceInspectReq,
     SourceReattachReq,
 )
+from opendv.service._remediation import build_remediation
 from opendv.service.os_platform import atomic_write_bytes, validate_workspace_containment
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.state_store import ProjectStateManager
@@ -34,6 +36,7 @@ from opendv.service.workflows._source_docs import (
     approve_scan_pages,
     as_doc_format,
     as_source_kind,
+    attach_driver_remediation,
     get_document_map,
     get_document_pages,
     list_document_maps,
@@ -67,10 +70,78 @@ def _check_databricks_binding(
     options: dict[str, str | int | bool],
     secret_refs: list[str],
     secret_store: KeyringSecretStore,
-) -> list[str]:
-    validate_databricks_options(options, secret_refs, require_secret_ref=True)
-    validate_databricks_host(uri_or_path, resolve_dns=True)
-    return [ref for ref in secret_refs if secret_store.get_secret(ref) is None]
+    *,
+    project_precedence: SecretPrecedence | None = None,
+) -> tuple[str, str]:
+    if "host" in options and not isinstance(options["host"], str):
+        raise OpenDVError(
+            "Databricks connector option 'host' must be a string.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    try:
+        validate_databricks_options(options, secret_refs, require_secret_ref=True)
+    except OpenDVError as exc:
+        if exc.error_code == ErrorCode.NEEDS_LOCAL_SECRET_BINDING and exc.remediation is None:
+            raise OpenDVError(
+                exc.detail,
+                error_code=exc.error_code,
+                remediation=build_remediation(
+                    ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+                    missing_secrets=secret_refs,
+                ),
+            ) from exc
+        raise
+    raw_opt_host = options.get("host")
+    opt_host = raw_opt_host.strip() if isinstance(raw_opt_host, str) else ""
+    uri_stripped = uri_or_path.strip()
+    eff_host = opt_host or uri_stripped
+    validate_databricks_host(eff_host, resolve_dns=True)
+    if opt_host and uri_stripped and uri_stripped != opt_host:
+        validate_databricks_host(uri_stripped, resolve_dns=True)
+    missing: list[str] = []
+    tokens: list[str] = []
+    for ref in secret_refs:
+        val = secret_store.get_secret(ref, project_precedence=project_precedence)
+        if val is None:
+            missing.append(ref)
+        else:
+            tokens.append(val)
+    if missing:
+        raise OpenDVError(
+            f"Missing required local secret binding(s): {', '.join(missing)}",
+            error_code=ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+            remediation=build_remediation(
+                ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+                missing_secrets=missing,
+            ),
+        )
+    return eff_host, tokens[0]
+
+
+def _profile_with_remediation(
+    source_id: str,
+    kind: SourceKind,
+    uri: str,
+    *,
+    options: dict[str, str | int | bool],
+    secret_refs: list[str],
+    selected_tables: list[str] | None = None,
+    profile_timeout_seconds: int = 30,
+    access_token: str | None = None,
+) -> SourceProfile:
+    try:
+        return profile_source(
+            source_id,
+            kind,
+            uri,
+            options=options,
+            secret_refs=secret_refs,
+            selected_tables=selected_tables,
+            profile_timeout_seconds=profile_timeout_seconds,
+            access_token=access_token,
+        )
+    except OpenDVError as exc:
+        raise attach_driver_remediation(exc) from exc
 
 
 class DiscoverySourcesHelper:
@@ -95,30 +166,26 @@ class DiscoverySourcesHelper:
                 error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
             )
         get_source_adapter(kind)
+        access_token: str | None = None
         if kind == "databricks_uc":
-            missing = _check_databricks_binding(
+            uri, access_token = _check_databricks_binding(
                 req.uri_or_path, req.options, req.secret_refs, self._secrets
             )
-            if missing:
-                raise OpenDVError(
-                    f"Missing required local secret binding(s): {', '.join(missing)}",
-                    error_code=ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
-                )
-            uri = req.uri_or_path.strip()
         else:
             resolved = resolve_local_source_path(req.uri_or_path, self._workspace_root)
             uri = str(resolved)
-        return profile_source(
+        return _profile_with_remediation(
             f"inspect-{uuid.uuid4().hex[:8]}",
             kind,
             uri,
             options=req.options,
             secret_refs=req.secret_refs,
+            access_token=access_token,
         )
 
     def attach_source(self, project_id: str, req: SourceAttachReq) -> SourceSummary:
         """Attach an existing workspace file or remote connector to a project."""
-        self._state.get_project(project_id)
+        proj = self._state.get_project(project_id)
         kind = as_source_kind(req.kind)
         source_id = f"src-{uuid.uuid4().hex[:10]}"
         status: SourceStatus = "READY_OFFLINE"
@@ -128,16 +195,14 @@ class DiscoverySourcesHelper:
 
         if kind == "databricks_uc":
             adapter_spec = get_source_adapter(kind)
-            missing = _check_databricks_binding(
-                req.uri_or_filename, req.options, req.secret_refs, self._secrets
+            uri_str, access_token = _check_databricks_binding(
+                req.uri_or_filename,
+                req.options,
+                req.secret_refs,
+                self._secrets,
+                project_precedence=proj.settings_snapshot.secret_precedence,
             )
-            if missing:
-                raise OpenDVError(
-                    f"Missing required local secret binding(s): {', '.join(missing)}",
-                    error_code=ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
-                )
-            uri_str = req.uri_or_filename.strip()
-            profile = profile_source(
+            profile = _profile_with_remediation(
                 source_id,
                 kind,
                 uri_str,
@@ -145,7 +210,9 @@ class DiscoverySourcesHelper:
                 secret_refs=req.secret_refs,
                 selected_tables=req.selected_tables,
                 profile_timeout_seconds=req.profile_timeout_seconds,
+                access_token=access_token,
             )
+            tables_index = build_table_index_entries(profile.tables, source_id)
         elif kind in DOC_SOURCE_KINDS:
             local_path = resolve_local_source_path(
                 req.uri_or_filename,
@@ -305,6 +372,7 @@ class DiscoverySourcesHelper:
         req: SourceReattachReq,
     ) -> SourceSummary:
         """Reattach/update a source, enforcing evolution_locks column compatibility."""
+        proj = self._state.get_project(project_id)
         rec = self._state.get_source_record(project_id, source_id)
         cfg = ConnectorConfigPayload.model_validate(rec["connector_config"])
         kind = as_source_kind(str(rec["kind"]))
@@ -312,7 +380,7 @@ class DiscoverySourcesHelper:
 
         new_uri = req.uri_or_filename if req.uri_or_filename is not None else cfg.uri_or_path
         new_uploaded_relpath: str | None = cfg.uploaded_relpath
-        new_opts = req.options if req.options is not None else dict(cfg.options)
+        new_opts = dict(req.options) if req.options is not None else dict(cfg.options)
         new_refs = req.secret_refs if req.secret_refs is not None else list(cfg.secret_refs)
         new_tables = (
             req.selected_tables if req.selected_tables is not None else cfg.selected_tables
@@ -328,13 +396,21 @@ class DiscoverySourcesHelper:
         if kind == "databricks_uc":
             if req.uri_or_filename is not None:
                 new_uploaded_relpath = None
-            missing = _check_databricks_binding(new_uri, new_opts, new_refs, self._secrets)
-            if missing:
-                raise OpenDVError(
-                    f"Missing required local secret binding(s): {', '.join(missing)}",
-                    error_code=ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
-                )
-            new_profile = profile_source(
+                if req.options is None and "host" in new_opts:
+                    stripped_uri = new_uri.strip()
+                    if stripped_uri:
+                        new_opts["host"] = stripped_uri
+                    else:
+                        new_opts.pop("host", None)
+            eff_host, access_token = _check_databricks_binding(
+                new_uri,
+                new_opts,
+                new_refs,
+                self._secrets,
+                project_precedence=proj.settings_snapshot.secret_precedence,
+            )
+            new_uri = eff_host
+            new_profile = _profile_with_remediation(
                 source_id,
                 kind,
                 new_uri,
@@ -342,6 +418,7 @@ class DiscoverySourcesHelper:
                 secret_refs=new_refs,
                 selected_tables=new_tables,
                 profile_timeout_seconds=cfg.profile_timeout_seconds,
+                access_token=access_token,
             )
             tables_index = build_table_index_entries(new_profile.tables, source_id)
         elif kind in DOC_SOURCE_KINDS:

@@ -9,6 +9,7 @@ import type {
 	ProblemDetails,
 	ProjectState,
 	ProjectSummary,
+	ReadinessResponse,
 	RunControlReq,
 	RunStateResp,
 	RunStreamEvent,
@@ -68,6 +69,7 @@ export interface ProjectStore {
 	hiddenProposalIds: string[];
 	settings: WorkspaceSettings | null;
 	settingsDraft: WorkspaceSettings | null;
+	readiness: ReadinessResponse | null;
 	sqlQuery: string;
 	guidedView: GuidedRunView | null;
 	lastProblem: ProblemDetails | null;
@@ -89,6 +91,7 @@ export interface ProjectStore {
 	isDirty: () => boolean;
 	applyDiscardReset: () => void;
 	checkHealth: () => Promise<void>;
+	fetchReadiness: () => Promise<void>;
 	hydrateProjectShell: (
 		pid: string,
 		opts?: { preserveMissingSecretRefs?: boolean; loadVaultIr?: boolean },
@@ -147,6 +150,7 @@ export interface ProjectStore {
 	setProjectsSummary: (p: ProjectSummary[]) => void;
 	setActiveProject: (p: ProjectState | null) => void;
 	setSettings: (s: WorkspaceSettings | null) => void;
+	setReadiness: (r: ReadinessResponse | null) => void;
 }
 
 let hydrateAc: AbortController | null = null;
@@ -231,6 +235,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
 		hiddenProposalIds: [],
 		settings: null,
 		settingsDraft: null,
+		readiness: null,
 		sqlQuery: "",
 		guidedView: null,
 		lastProblem: null,
@@ -289,6 +294,15 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
 				set({ healthOk: h.status === "ok", healthVersion: h.version });
 			} catch {
 				set({ healthOk: false });
+			}
+		},
+
+		fetchReadiness: async () => {
+			try {
+				const data = await api.getAgentReadiness();
+				if (Array.isArray(data?.providers)) set({ readiness: data });
+			} catch {
+				/* non-throwing readiness refresh */
 			}
 		},
 
@@ -367,6 +381,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
 				api.getHealth(),
 				api.getSettings(),
 				api.listProjects(),
+				get().fetchReadiness(),
 			]);
 			set((cur) => {
 				const h = hRes.status === "fulfilled" ? hRes.value : null;
@@ -535,5 +550,6 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
 		setProjectsSummary: sp("projectsSummary"),
 		setActiveProject: sp("activeProject"),
 		setSettings: sp("settings"),
+		setReadiness: sp("readiness"),
 	};
 });

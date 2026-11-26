@@ -9,7 +9,7 @@ import ipaddress
 import json
 import secrets
 import socket
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -27,6 +27,7 @@ from opendv.agents.ports import (
 from opendv.models.diagnostics import ClarificationQuestion
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.policy import STEP4_DEFAULT_BUDGET, HarnessBudget
+from opendv.models.project import DiscoveryMode
 from opendv.models.sources import PageTextView, TableProfile
 from opendv.models.wire_dtos_discovery import (
     ClientAdditiveOp,
@@ -95,12 +96,14 @@ class ServiceScoutToolDispatcher(ScoutToolDispatcher):
         scout_token: str,
         budget: HarnessBudget = STEP4_DEFAULT_BUDGET,
         event_sink: RunEventSink | None = None,
+        model_overrides: Mapping[str, str] | None = None,
     ) -> None:
         self._harness = harness
         self._scout_url = scout_url
         self._scout_token = scout_token
         self._budget = budget
         self._event_sink = event_sink
+        self._model_overrides = dict(model_overrides or {})
 
     async def dispatch_scout(
         self,
@@ -135,6 +138,7 @@ class ServiceScoutToolDispatcher(ScoutToolDispatcher):
                 allowed_tools=allowed,
                 budget=self._budget,
                 cluster_id=tid if scout_kind == "table_cluster" else None,
+                metadata={"model_overrides": dict(self._model_overrides)},
             )
             res = await self._harness.run_turn(req, event_sink=self._event_sink)
             out = res.structured_output
@@ -260,6 +264,7 @@ class JobMcpBroker:
         ocr_provider: OcrProviderFn | None = None,
         ontology_rev_id: str | None = None,
         sources_fingerprint: str = "fp-step4",
+        discovery_mode: DiscoveryMode = "incremental_new",
         bind_host: str | None = None,
         port: int = 0,
     ) -> None:
@@ -294,6 +299,7 @@ class JobMcpBroker:
             ocr_provider=ocr_provider,
             ontology_rev_id=ontology_rev_id,
             sources_fingerprint=sources_fingerprint,
+            discovery_mode=discovery_mode,
         )
         self.coord_server = _build_coord_server(self.context)
         self.scout_server = _build_scout_server(self.context)
@@ -324,7 +330,11 @@ class JobMcpBroker:
         self.context.scout_dispatcher = dispatcher
 
     def build_scout_dispatcher(
-        self, harness: AgentHarnessPort, *, event_sink: RunEventSink | None = None
+        self,
+        harness: AgentHarnessPort,
+        *,
+        event_sink: RunEventSink | None = None,
+        model_overrides: Mapping[str, str] | None = None,
     ) -> ServiceScoutToolDispatcher:
         """Create and bind a ServiceScoutToolDispatcher wired to this broker's scout_url."""
         dispatcher = ServiceScoutToolDispatcher(
@@ -333,6 +343,7 @@ class JobMcpBroker:
             scout_token=self.scout_token,
             budget=self.budget_tracker.budget,
             event_sink=event_sink,
+            model_overrides=model_overrides,
         )
         self.context.scout_dispatcher = dispatcher
         return dispatcher

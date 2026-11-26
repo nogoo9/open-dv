@@ -19,6 +19,7 @@ from opendv.models.sources import (
     TableProfile,
 )
 from opendv.models.wire_dtos_discovery import ScanApprovalReq
+from opendv.service._remediation import build_remediation
 from opendv.service._state_ddl import VALID_SOURCE_KINDS
 from opendv.service.os_platform import validate_workspace_containment
 from opendv.service.secrets import KeyringSecretStore
@@ -197,6 +198,20 @@ def list_tables_index(
     return out
 
 
+def attach_driver_remediation(exc: OpenDVError) -> OpenDVError:
+    """Attach DRIVER_MISSING remediation when absent without mutating other errors."""
+    if exc.error_code == ErrorCode.DRIVER_MISSING and exc.remediation is None:
+        return OpenDVError(
+            exc.detail,
+            error_code=exc.error_code,
+            diagnostics=exc.diagnostics,
+            defect_report=exc.defect_report,
+            run_id=exc.run_id,
+            remediation=build_remediation(ErrorCode.DRIVER_MISSING),
+        )
+    return exc
+
+
 def preview_source_table(
     state_manager: ProjectStateManager,
     secret_store: KeyringSecretStore,
@@ -214,6 +229,7 @@ def preview_source_table(
             f"Invalid pagination parameters offset={offset}, limit={limit}",
             error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
         )
+    proj = state_manager.get_project(project_id)
     rec = state_manager.get_source_record(project_id, source_id)
     profile = SourceProfile.model_validate(rec["profile"])
     target_tbl = next(
@@ -228,25 +244,44 @@ def preview_source_table(
     kind = as_source_kind(str(rec["kind"]))
     status = str(rec["status"])
     cfg = ConnectorConfigPayload.model_validate(rec["connector_config"])
-    if status == "NEEDS_LOCAL_SECRET_BINDING":
-        missing = [ref for ref in cfg.secret_refs if secret_store.get_secret(ref) is None]
+    access_token: str | None = None
+    if status == "NEEDS_LOCAL_SECRET_BINDING" or (kind == "databricks_uc" and cfg.secret_refs):
+        proj_prec = proj.settings_snapshot.secret_precedence
+        missing: list[str] = []
+        resolved_tokens: list[str] = []
+        for ref in cfg.secret_refs:
+            val = secret_store.get_secret(ref, project_precedence=proj_prec)
+            if val is None:
+                missing.append(ref)
+            else:
+                resolved_tokens.append(val)
         if missing:
             raise OpenDVError(
                 f"Missing secret binding(s) for source '{source_id}': {', '.join(missing)}",
                 error_code=ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+                remediation=build_remediation(
+                    ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+                    missing_secrets=missing,
+                ),
             )
+        if resolved_tokens:
+            access_token = resolved_tokens[0]
     if kind == "databricks_uc":
-        return run_table_preview(
-            source_id,
-            kind,
-            cfg.uri_or_path,
-            target_tbl.table_name,
-            options=cfg.options,
-            secret_refs=cfg.secret_refs,
-            offset=offset,
-            limit=limit,
-            profile_timeout_seconds=cfg.profile_timeout_seconds,
-        )
+        try:
+            return run_table_preview(
+                source_id,
+                kind,
+                cfg.uri_or_path,
+                target_tbl.table_name,
+                options=cfg.options,
+                secret_refs=cfg.secret_refs,
+                offset=offset,
+                limit=limit,
+                profile_timeout_seconds=cfg.profile_timeout_seconds,
+                access_token=access_token,
+            )
+        except OpenDVError as exc:
+            raise attach_driver_remediation(exc) from exc
     disk_path = (
         None
         if status == "METADATA_ONLY_BINARY_ABSENT"

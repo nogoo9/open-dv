@@ -395,6 +395,22 @@ ERROR_MAPPINGS: dict[ErrorCode, ErrorMappingEntry] = {
 }
 
 
+class RemediationAction(StrictModel):
+    """Executable or manual operator action attached to an ErrorRemediation."""
+
+    actor: Literal["agent", "human"]
+    label: str
+    command: str | None = None
+    requires_tty: bool = False
+
+
+class ErrorRemediation(StrictModel):
+    """Structured agent-vs-human remediation guidance for failures and readiness gaps."""
+
+    summary: str
+    actions: list[RemediationAction] = Field(default_factory=list)
+
+
 class ProblemDetails(StrictModel):
     """RFC 9457 error payload returned by HTTP endpoints and CLI envelopes."""
 
@@ -410,6 +426,7 @@ class ProblemDetails(StrictModel):
     run_id: str | None = None
     diagnostics: list[VerifierDiagnostic] = Field(default_factory=list)
     defect_report: EmitterDefectReport | None = None
+    remediation: ErrorRemediation | None = None
 
 
 class CliEnvelope(StrictModel):
@@ -441,6 +458,7 @@ def create_problem_details(
     run_id: str | None = None,
     diagnostics: list[VerifierDiagnostic] | None = None,
     defect_report: EmitterDefectReport | None = None,
+    remediation: ErrorRemediation | None = None,
 ) -> ProblemDetails:
     """Build an RFC 9457 ProblemDetails object from a closed ErrorCode."""
     entry = ERROR_MAPPINGS[code]
@@ -457,6 +475,7 @@ def create_problem_details(
         run_id=run_id,
         diagnostics=list(diagnostics or []),
         defect_report=defect_report,
+        remediation=remediation,
     )
 
 
@@ -475,6 +494,7 @@ class OpenDVError(Exception):
         diagnostics: list[VerifierDiagnostic] | None = None,
         defect_report: EmitterDefectReport | None = None,
         run_id: str | None = None,
+        remediation: ErrorRemediation | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
@@ -487,6 +507,7 @@ class OpenDVError(Exception):
         self.diagnostics: list[VerifierDiagnostic] = list(diagnostics or [])
         self.defect_report = defect_report
         self.run_id = run_id
+        self.remediation: ErrorRemediation | None = remediation
 
     def to_problem_details(self, *, instance: str | None = None) -> ProblemDetails:
         """Convert this exception into an RFC 9457 ProblemDetails model."""
@@ -497,6 +518,7 @@ class OpenDVError(Exception):
             run_id=self.run_id,
             diagnostics=self.diagnostics,
             defect_report=self.defect_report,
+            remediation=self.remediation,
         )
 
 
@@ -538,9 +560,11 @@ __all__ = [
     "ErrorCategory",
     "ErrorCode",
     "ErrorMappingEntry",
+    "ErrorRemediation",
     "OpenDVError",
     "ProblemDetails",
     "ReferenceOntologyCorruptError",
+    "RemediationAction",
     "create_problem_details",
     "export_error_codes_catalog",
     "get_error_entry",

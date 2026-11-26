@@ -6,7 +6,7 @@ import json
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import Field, TypeAdapter, ValidationError
 
@@ -24,6 +24,7 @@ from opendv.models.events import RunCheckpointRecord, RunStreamEvent
 from opendv.models.ontology import GraphAOntology
 from opendv.models.ontology_deltas import AGENT_ADDITIVE_OPS, OntologyDelta
 from opendv.models.policy import STEP4_DEFAULT_BUDGET
+from opendv.models.project import DiscoveryMode
 from opendv.models.wire_dtos_discovery import (
     ClientAdditiveOp,
     HoldAnswersReq,
@@ -33,6 +34,7 @@ from opendv.models.wire_dtos_discovery import (
 )
 from opendv.service._mcp_tools import coord_propose_ontology_delta
 from opendv.service.bm25_matcher import Bm25ConceptMatcher
+from opendv.service.readiness import HarnessReadinessService
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.settings_store import SettingsStore
 from opendv.service.state_store import ProjectStateManager
@@ -48,6 +50,9 @@ from opendv.service.workflows._run_adapters import (
     ServiceRunEventSink,
     acquire_project_job_lease,
     append_audit_log,
+    coalesce_prior_state_budget,
+    coalesce_snapshot_budget,
+    compute_job_lease_ttl,
     enqueue_control_signal,
     load_latest_run_state,
     mark_run_failed_from_exception,
@@ -80,6 +85,7 @@ class DiscoveryRunHelper:
         matcher: Bm25ConceptMatcher,
         workspace_root: Path,
         injected_harness: AgentHarnessPort | None = None,
+        readiness_service: HarnessReadinessService | None = None,
     ) -> None:
         self._state = state_manager
         self._settings = settings_store
@@ -87,6 +93,7 @@ class DiscoveryRunHelper:
         self._matcher = matcher
         self._workspace_root = workspace_root
         self._injected_harness = injected_harness
+        self._readiness_service = readiness_service
 
     async def start_construction(
         self,
@@ -137,14 +144,21 @@ class DiscoveryRunHelper:
                 }
             }
         )
+        raw_mode = ckpt.resume_payload.get("discovery_mode")
+        mode: DiscoveryMode | None = (
+            cast(DiscoveryMode, raw_mode)
+            if raw_mode in ("incremental_new", "incremental_reverify", "full_rebuild")
+            else None
+        )
         return await self._execute_turn(
             project_id=project_id,
             run_id=run_id,
-            discovery_mode=str(ckpt.resume_payload.get("discovery_mode", "incremental_new")),
+            discovery_mode=mode,
             hint=None,
             checkpoint=next_ckpt,
             answers=req.answers,
             attempt=prior.attempt + 1,
+            prior_state=prior,
         )
 
     def control_run(
@@ -182,20 +196,34 @@ class DiscoveryRunHelper:
         *,
         project_id: str,
         run_id: str,
-        discovery_mode: str,
+        discovery_mode: DiscoveryMode | None,
         hint: str | None,
         checkpoint: RunCheckpointRecord | None,
         answers: dict[str, str] | None,
         attempt: int,
+        prior_state: RunStateResp | None = None,
     ) -> RunStateResp:
         proj = self._state.get_project(project_id)
+        snap = proj.settings_snapshot
+        eff_mode: DiscoveryMode = discovery_mode or snap.discovery_mode
+        budget = (
+            coalesce_prior_state_budget(STEP4_DEFAULT_BUDGET, prior_state)
+            if checkpoint is not None and prior_state is not None
+            else coalesce_snapshot_budget(STEP4_DEFAULT_BUDGET, snap)
+        )
         ws_settings = self._settings.load_settings()
         harness = resolve_harness(
-            proj.settings_snapshot,
+            snap,
             self._secrets,
             injected_harness=self._injected_harness,
+            readiness_service=self._readiness_service,
         )
-        acquire_project_job_lease(self._state, project_id, run_id)
+        acquire_project_job_lease(
+            self._state,
+            project_id,
+            run_id,
+            ttl_seconds=compute_job_lease_ttl(budget.max_turns, budget.timeout_seconds),
+        )
 
         running_state = RunStateResp(
             run_id=run_id,
@@ -206,11 +234,12 @@ class DiscoveryRunHelper:
             attempt=attempt,
             budget_turns_used=0,
             budget_tokens_used=0,
-            effective_max_turns=STEP4_DEFAULT_BUDGET.max_turns,
-            effective_max_tokens=STEP4_DEFAULT_BUDGET.max_tokens,
-            effective_timeout_seconds=STEP4_DEFAULT_BUDGET.timeout_seconds,
+            effective_max_turns=budget.max_turns,
+            effective_max_tokens=budget.max_tokens,
+            effective_timeout_seconds=budget.timeout_seconds,
         )
         broker: JobMcpBroker | None = None
+        lease_released = False
         try:
             pre_sig_count = len(self._state.poll_control_signals(project_id, run_id))
             record_run_state(self._state, project_id, running_state)
@@ -243,7 +272,7 @@ class DiscoveryRunHelper:
                 state_store=self._state,
                 bm25_matcher=self._matcher,
                 external_gateway=ext_gateway,
-                budget=STEP4_DEFAULT_BUDGET,
+                budget=budget,
                 event_sink=sink,
                 workspace_seeds=build_workspace_seed_concepts(
                     self._state, project_id, self._workspace_root
@@ -251,11 +280,16 @@ class DiscoveryRunHelper:
                 parsed_pages=parsed_pages,
                 ontology_rev_id=proj.active_ontology_rev_id,
                 sources_fingerprint=fp,
+                discovery_mode=eff_mode,
             )
             prior_events = self._state.tail_run_stream_events(project_id, run_id, since_seq=0)
             broker.hold_coord.seq = max((ev.seq for ev in prior_events.events), default=0)
             await broker.start()
-            dispatcher = broker.build_scout_dispatcher(harness, event_sink=sink)
+            dispatcher = broker.build_scout_dispatcher(
+                harness,
+                event_sink=sink,
+                model_overrides=snap.model_overrides,
+            )
             pack_detail, pack_cfg = load_agent_pack_with_config(
                 "ontology-first-mate",
                 workspace_root=self._workspace_root,
@@ -266,7 +300,7 @@ class DiscoveryRunHelper:
                 ontology=ontology,
                 profiles=profiles,
                 doc_summaries=doc_summaries,
-                discovery_mode=discovery_mode,
+                discovery_mode=eff_mode,
                 hint=hint,
                 answers=answers,
             )
@@ -282,10 +316,13 @@ class DiscoveryRunHelper:
                 role_token=broker.coord_token,
                 broker_url=broker.coord_url,
                 allowed_tools=list(pack_cfg.allowed_tools),
-                budget=STEP4_DEFAULT_BUDGET,
+                budget=budget,
                 checkpoint=checkpoint,
                 attempt=attempt,
-                metadata={"discovery_mode": discovery_mode},
+                metadata={
+                    "discovery_mode": eff_mode,
+                    "model_overrides": dict(snap.model_overrides),
+                },
             )
             pre_ckpt_count = len(
                 self._state.list_events_or_receipts(
@@ -344,6 +381,16 @@ class DiscoveryRunHelper:
                     wrapped_ops.append(ClientAdditiveOp(op=delta))
                 coord_propose_ontology_delta(broker.context, wrapped_ops)
 
+            if paused_by_control and not broker.hold_coord.hold_requested:
+                broker.hold_coord.hold_requested = True
+                await broker.hold_coord.wait_for_drain()
+            hold_coord = broker.hold_coord
+            hold_requested = hold_coord.hold_requested
+            await broker.stop()
+            broker = None
+            release_project_job_lease(self._state, project_id, run_id)
+            lease_released = True
+
             all_ckpts = self._state.list_events_or_receipts(
                 project_id, record_kind="run_checkpoint", run_id=run_id
             )
@@ -353,57 +400,85 @@ class DiscoveryRunHelper:
                 else None
             )
             pending_questions = list(new_ckpt.pending_questions) if new_ckpt is not None else []
-            if paused_by_control and not broker.hold_coord.hold_requested:
-                broker.hold_coord.hold_requested = True
-                await broker.hold_coord.wait_for_drain()
             if (
                 not pending_questions
                 and parsed_out is not None
                 and parsed_out.clarification_questions
             ):
                 pending_questions = list(parsed_out.clarification_questions)
-            if new_ckpt is None and (pending_questions or broker.hold_coord.hold_requested):
-                hold_seq = broker.hold_coord.emit(
-                    "HOLD_CHECKPOINTED",
-                    {
-                        "pending_questions": [
-                            q.model_dump(mode="json") for q in pending_questions
-                        ],
-                        "reason": "steward_pause" if paused_by_control else "steward_hold",
-                    },
-                )
-                ckpt_store.save_checkpoint(
-                    RunCheckpointRecord(
-                        run_id=run_id,
-                        step="step4",
-                        phase="steward_hold",
-                        status="HOLD_CHECKPOINTED",
-                        last_seq=hold_seq,
-                        ontology_rev_id=proj.active_ontology_rev_id,
-                        sources_fingerprint=fp,
-                        pending_questions=pending_questions,
-                        budget_turns_used=turn_res.turns_used,
-                        budget_tokens_used=turn_res.total_tokens,
-                        token_count_source=turn_res.token_count_source,
-                        resume_payload={"discovery_mode": discovery_mode},
-                    )
-                )
 
-            if pending_questions or broker.hold_coord.hold_requested:
-                cur_seq = sink.current_seq(run_id)
+            if pending_questions or hold_requested:
+                if new_ckpt is None:
+                    hold_seq = max(hold_coord.sync_seq(), sink.current_seq(run_id)) + 1
+                    ckpt_store.save_checkpoint(
+                        RunCheckpointRecord(
+                            run_id=run_id,
+                            step="step4",
+                            phase="steward_hold",
+                            status="HOLD_CHECKPOINTED",
+                            last_seq=hold_seq,
+                            ontology_rev_id=proj.active_ontology_rev_id,
+                            sources_fingerprint=fp,
+                            pending_questions=pending_questions,
+                            budget_turns_used=turn_res.turns_used,
+                            budget_tokens_used=turn_res.total_tokens,
+                            token_count_source=turn_res.token_count_source,
+                            resume_payload={"discovery_mode": eff_mode},
+                        )
+                    )
+                    final_state = running_state.model_copy(
+                        update={
+                            "status": "HOLD_CHECKPOINTED",
+                            "phase": "steward_hold",
+                            "budget_turns_used": turn_res.turns_used,
+                            "budget_tokens_used": turn_res.total_tokens,
+                            "pending_questions": pending_questions,
+                            "last_seq": hold_seq,
+                        }
+                    )
+                    record_run_state(self._state, project_id, final_state)
+                    hold_coord.seq = hold_seq
+                    sink.emit(
+                        RunStreamEvent(
+                            seq=hold_seq,
+                            run_id=run_id,
+                            ts=datetime.now(tz=UTC).isoformat(),
+                            event_type="HOLD_CHECKPOINTED",
+                            step="step4",
+                            payload={
+                                "pending_questions": [
+                                    q.model_dump(mode="json") for q in pending_questions
+                                ],
+                                "reason": "steward_pause" if paused_by_control else "steward_hold",
+                            },
+                        )
+                    )
+                else:
+                    cur_seq = sink.current_seq(run_id)
+                    final_state = running_state.model_copy(
+                        update={
+                            "status": "HOLD_CHECKPOINTED",
+                            "phase": "steward_hold",
+                            "budget_turns_used": turn_res.turns_used,
+                            "budget_tokens_used": turn_res.total_tokens,
+                            "pending_questions": pending_questions,
+                            "last_seq": cur_seq,
+                        }
+                    )
+                    record_run_state(self._state, project_id, final_state)
+            else:
+                next_seq = max(hold_coord.sync_seq(), sink.current_seq(run_id)) + 1
                 final_state = running_state.model_copy(
                     update={
-                        "status": "HOLD_CHECKPOINTED",
-                        "phase": "steward_hold",
+                        "status": "COMPLETED",
+                        "phase": "proposals_ready_for_steward",
                         "budget_turns_used": turn_res.turns_used,
                         "budget_tokens_used": turn_res.total_tokens,
-                        "pending_questions": pending_questions,
-                        "last_seq": cur_seq,
+                        "last_seq": next_seq,
                     }
                 )
-            else:
-                next_seq = max(broker.hold_coord.sync_seq(), sink.current_seq(run_id)) + 1
-                broker.hold_coord.seq = next_seq
+                record_run_state(self._state, project_id, final_state)
+                hold_coord.seq = next_seq
                 sink.emit(
                     RunStreamEvent(
                         seq=next_seq,
@@ -417,16 +492,6 @@ class DiscoveryRunHelper:
                         },
                     )
                 )
-                final_state = running_state.model_copy(
-                    update={
-                        "status": "COMPLETED",
-                        "phase": "proposals_ready_for_steward",
-                        "budget_turns_used": turn_res.turns_used,
-                        "budget_tokens_used": turn_res.total_tokens,
-                        "last_seq": sink.current_seq(run_id),
-                    }
-                )
-            record_run_state(self._state, project_id, final_state)
             append_audit_log(
                 self._state,
                 project_id,
@@ -446,4 +511,5 @@ class DiscoveryRunHelper:
         finally:
             if broker is not None:
                 await broker.stop()
-            release_project_job_lease(self._state, project_id, run_id)
+            if not lease_released:
+                release_project_job_lease(self._state, project_id, run_id)

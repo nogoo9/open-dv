@@ -39,7 +39,7 @@ flowchart LR
 - **Zero Unverified LLM SQL (`OBJ-01`):** Agents never generate SQL DDL or DML; they emit `OntologyDelta` (`34` operations) and declarative `VaultSchemaIR v2.0` (`UniversalVaultSchemaIR`) specifications compiled deterministically in Python.
 - **5-Zone Standard (`Z0–Z4`):** `bronze` (`Z0`), `staging` (`Z1`), `raw_vault` (`Z2`), `business_vault` (`Z3`), and `information_mart` (`Z4`).
 - **4-Layer Python Core (`src/opendv/`):** Consolidated clean-sheet package replacing legacy multi-package workspaces, backed by SQLite WAL `project.sqlite` persistence (`5` tables), Win32/POSIX ACL-hardened `KeyringSecretStore`, and `34` closed `ErrorCode`s.
-- **Unified `opendv` CLI + `:8420` Web Workbench:** One Python CLI (`46` subcommands defined in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json)) running either in-process or remotely via `--api-url`, plus a React 19 WCAG 2.1 AA Web Workbench ([`web/`](web/)) and read-only MCP bridge (`opendv mcp serve`).
+- **Unified `opendv` CLI + `:8420` Web Workbench:** One Python CLI (`53` subcommands across `11` groups defined in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json)) running either in-process or remotely via `--api-url`, plus a React 19 WCAG 2.1 AA Web Workbench ([`web/`](web/)) and read-only MCP bridge (`opendv mcp serve`).
 
 ---
 
@@ -112,23 +112,23 @@ The React 19 Web Workbench ([`web/`](web/), governed by [`DESIGN.md`](DESIGN.md)
 | **Project Workflow** | `/projects/:id/step/1..7` | **7-Step** modeling track (**1. Scope & Seeds**, **2. Sources & Secrets**, **3. Preview & Clusters**, **4. Discovery**, **5. Ontology Explorer**, **6. Vault Synthesis**, **7. Storage & Targets**) with **`Guided ⇄ Observatory`** mode switch, **`Readiness` / `Revision`** status pills, and live **`Budget Meter`** (`Turns · Tokens · Active Seconds`). |
 | **DV Schema Explorer** | `/projects/:id/explorer` | 4-View explorer (**Lineage Graph**, **Table Catalog**, **SQL & DDL**, **5-Zone Matrix**) built with accessible `@xyflow/react` canvases (`>= 3:1` edge contrast and `2px` `:focus-visible` focus rings). |
 | **Run Explorer** | `/projects/:id/runs` | Per-run attempt timeline, CEGAR iteration diffs, live W3C SSE log inspector, budget adjustments (`+turns`/`+tokens`), and Horizon Critic (`v7`/`v8`) review actions. |
-| **Settings** | `/settings` | Harness provider & tier selection (`agy`, `claude`, `gemini`), `CegarPolicy` presets, secret backend & workspace root trust management, and MCP server registration. |
+| **Settings** | `/settings` | Harness provider readiness & tier selection (`agy`, `claude-cli`, `claude`, `gemini`), `CegarPolicy` presets, user-global secret backend & workspace root trust management, and MCP server registration. |
 
 ---
 
 ## 4. CLI Command Reference (`opendv`) & MCP Server
 
-All `46` subcommands are defined canonically in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json) and auto-documented in [`docs/16-cli-reference.md`](docs/16-cli-reference.md):
+All `53` subcommands across `11` groups are defined canonically in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json) and auto-documented in [`docs/16-cli-reference.md`](docs/16-cli-reference.md):
 
 | Command Group | Key Subcommands | Purpose |
 | :--- | :--- | :--- |
-| `opendv project` | `init`, `list`, `show`, `delete`, `export`, `import` | Create, inspect, and export/import portable `.opendv.zip` archives (`core_project_state` default; `--full-demo` optional). |
+| `opendv project` | `init`, `list`, `show`, `delete`, `export`, `import`, `settings show\|set` | Create, inspect, configure per-project settings snapshots, and export/import portable `.opendv.zip` archives (`core_project_state` default; `--full-demo` optional). |
 | `opendv source` | `adapters`, `inspect`, `attach`, `list`, `reattach`, `detach`, `note`, `approve-scan` | Inspect/attach CSV, Parquet, SQLite, DuckDB, Postgres, PDF, Markdown, or unstructured notes with SSRF/PII checks. |
 | `opendv ontology` | `construct`, `answer`, `control`, `validate`, `commit`, `export`, `fibo-qa` | Construct & evolve `GraphAOntology` via CAS `OntologyDelta`s and FIBO BM25 citation resolution. |
 | `opendv vault` | `build`, `control`, `hold`, `horizon`, `logs`, `verify`, `waive` | Run the 3-Loop CEGAR `VaultSchemaIR v2.0` builder, inspect SSE logs, resolve steward holds, manage waivers & Horizon Critic checks. |
 | `opendv storage` | `compile`, `migrate`, `query`, `regenerate` | Lower verified `VaultSchemaIR v2.0` to any of the `11` Step-7 targets (`v7`), run sandbox/migrations, and issue guarded read-only SQL queries. |
 | `opendv agents` / `mcp` | `agents list\|inspect`, `mcp list\|register\|remove\|serve` | Manage built-in agent harnesses and launch the read-only local MCP server (`opendv mcp serve`). |
-| `opendv secrets` / `settings` / `doctor` / `serve` | `secrets set\|list\|delete`, `settings show\|set\|trust-workspace`, `doctor`, `serve` | Manage OS keyring secrets, CEGAR policies, trusted workspaces, system health, and the `:8420` HTTP/SSE host. |
+| `opendv secrets` / `settings` / `doctor` / `serve` | `secrets set\|list\|delete`, `settings show\|set\|models\|trust-workspace\|profile {list,set,delete,test}`, `doctor [--probe]`, `serve` | Manage user-global OS keyring secrets, CEGAR policies, connection profiles, trusted workspaces, system/harness readiness, and the `:8420` HTTP/SSE host. |
 
 Use global `--api-url http://127.0.0.1:8420` to proxy any CLI command through a running `:8420` server, or omit it for direct in-process execution over `.opendv/projects/<id>/project.sqlite`.
 
@@ -143,10 +143,10 @@ open-dv/
 │   ├── sources/                   # Layer 2: ConnectorAdapter SPI, profiler, PII/NER taint, FIBO Core Pack (2,206)
 │   ├── verifier/                  # Layer 2: 3-loop CEGAR prover, static/evolution rules, ProblemDetails patches
 │   ├── storage/                   # Layer 2: DuckDB prover sandbox, readonly SQL guard, 11 Step-7 dialect emitters
-│   ├── agents/                    # Layer 3: Harness adapters (agy, claude, gemini), MCP server, budget meter
+│   ├── agents/                    # Layer 3: Harness adapters (agy, claude-cli, claude, gemini), Tier-2 probes, CEGAR critics
 │   ├── service/                   # Layer 4: OpenDVService, project.sqlite WAL store, zip_guard, KeyringSecretStore
 │   ├── api/                       # Layer 5: FastAPI REST + SSE (:8420), loopback security guard, static UI host
-│   └── cli/                       # Layer 5: Unified Typer CLI (46 subcommands) + schemas/v2 contract exporter
+│   └── cli/                       # Layer 5: Unified Typer CLI (53 subcommands) + stdio MCP + schemas/v2 contract exporter
 ├── web/                           # React 19 + Vite + Bun 4-tab WCAG 2.1 AA Web Workbench
 ├── apps/opendv-website/           # Astro documentation & V2 showcase site
 ├── schemas/v2/                    # Canonical cli-spec.json, error-codes.json, openapi.json, baseline-digests.json

@@ -11,12 +11,9 @@ from opendv_api_client import OpenDVClient, find_repo_root, search_repo_docs
 
 TERMINAL_VAULT_STATUSES = {
     "COMPLETED",
-    "CERTIFIED",
     "FAILED",
-    "CANCELLED",
-    "HOLD_REQUESTED",
-    "BUDGET_EXCEEDED",
-    "HORIZON_REVIEW",
+    "HOLD_CHECKPOINTED",
+    "UNCERTIFIED_DRAFT",
 }
 
 
@@ -40,9 +37,12 @@ def cmd_evolve_vault(client: OpenDVClient, args: argparse.Namespace) -> dict[str
             },
         )
     else:
+        build_body: dict[str, Any] = {}
+        if args.policy is not None:
+            build_body["policy"] = args.policy
         run_state = client.post_json(
             f"/api/v1/projects/{project_id}/runs",
-            {"policy": args.policy},
+            build_body,
         )
         run_id = str(run_state.get("run_id") or "")
 
@@ -62,7 +62,7 @@ def cmd_evolve_vault(client: OpenDVClient, args: argparse.Namespace) -> dict[str
                     {
                         "target_id": target_id,
                         "dbt_sql_dialect": args.dbt_dialect,
-                        "verify_runtime": target_id == "duckdb",
+                        "verify_runtime": target_id == "duckdb_local",
                     },
                 )
             )

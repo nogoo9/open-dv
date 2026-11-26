@@ -6,10 +6,11 @@ import json
 import shutil
 import sqlite3
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from opendv.agents.ports import ControlSignalReader, RunCheckpointStore, RunEventSink
 from opendv.models.errors import ErrorCode, OpenDVError
@@ -75,6 +76,16 @@ class _UnsetType:
 _UNSET = _UnsetType()
 
 
+def _parse_settings_snapshot(raw_json: str) -> ProjectSettingsSnapshot:
+    try:
+        return ProjectSettingsSnapshot.model_validate_json(raw_json)
+    except ValidationError as exc:
+        raise OpenDVError(
+            f"Corrupt project settings_snapshot_json: {exc}",
+            error_code=ErrorCode.INTERNAL_SERVER_ERROR,
+        ) from exc
+
+
 def _build_project_state(conn: sqlite3.Connection, row: sqlite3.Row) -> ProjectState:
     pid = str(row["project_id"])
     src_rows = conn.execute(
@@ -104,9 +115,7 @@ def _build_project_state(conn: sqlite3.Connection, row: sqlite3.Row) -> ProjectS
             else None
         ),
         active_wave_id=str(row["active_wave_id"]) if row["active_wave_id"] is not None else None,
-        settings_snapshot=ProjectSettingsSnapshot.model_validate_json(
-            str(row["settings_snapshot_json"])
-        ),
+        settings_snapshot=_parse_settings_snapshot(str(row["settings_snapshot_json"])),
         source_count=len(src_rows),
         table_count=table_count,
         has_active_lease=has_active,
@@ -261,11 +270,30 @@ class ProjectStateManager:
         active_ontology_rev_id: str | _UnsetType | None = _UNSET,
         active_wave_id: str | _UnsetType | None = _UNSET,
         settings_snapshot: ProjectSettingsSnapshot | None = None,
+        require_no_active_lease: bool = False,
+        snapshot_mutator: (
+            Callable[[ProjectSettingsSnapshot], ProjectSettingsSnapshot] | None
+        ) = None,
     ) -> ProjectState:
         """Atomically update active ontology/wave pointers or project settings snapshot."""
+        if settings_snapshot is not None and snapshot_mutator is not None:
+            raise OpenDVError(
+                "Cannot supply both settings_snapshot and snapshot_mutator.",
+                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+            )
         now_iso = utc_now().isoformat()
         with begin_immediate(self.db_path) as conn:
             row = require_project_row(conn, project_id)
+            if require_no_active_lease:
+                lease_row = conn.execute(
+                    "SELECT * FROM leases WHERE lease_key = ? AND project_id = ?",
+                    (f"active_job_lease:{project_id}", project_id),
+                ).fetchone()
+                if lease_row is not None and is_lease_row_live(lease_row, utc_now()):
+                    raise OpenDVError(
+                        f"Project '{project_id}' has an active job lease.",
+                        error_code=ErrorCode.PROJECT_JOB_ACTIVE,
+                    )
             next_ont = (
                 row["active_ontology_rev_id"]
                 if isinstance(active_ontology_rev_id, _UnsetType)
@@ -276,11 +304,13 @@ class ProjectStateManager:
                 if isinstance(active_wave_id, _UnsetType)
                 else active_wave_id
             )
-            next_settings = (
-                str(row["settings_snapshot_json"])
-                if settings_snapshot is None
-                else settings_snapshot.model_dump_json()
-            )
+            if snapshot_mutator is not None:
+                current_snap = _parse_settings_snapshot(str(row["settings_snapshot_json"]))
+                next_settings = snapshot_mutator(current_snap).model_dump_json()
+            elif settings_snapshot is not None:
+                next_settings = settings_snapshot.model_dump_json()
+            else:
+                next_settings = str(row["settings_snapshot_json"])
             conn.execute(
                 """
                 UPDATE projects

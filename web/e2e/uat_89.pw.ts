@@ -1022,7 +1022,28 @@ test.describe("Open-DV V2-7 Batched 3-Viewport Real-Browser E2E", () => {
 		// 11. Settings Hub (provider / secrets / mcp)
 		await page.getByRole("link", { name: "Settings" }).click();
 		await expect(page.locator("#set-tab-provider")).toBeVisible();
+		await expect(
+			page.getByRole("heading", { name: /Harness Readiness Diagnostics/i }),
+		).toBeVisible();
+		await expect(page.locator("datalist option").first()).toBeAttached();
+		const providerSelect = page
+			.locator("label", { hasText: "Harness Provider" })
+			.locator("select");
+		await providerSelect.selectOption("gemini");
+		await expect(page.getByLabel("API key for GEMINI_API_KEY")).toBeVisible();
+		await page.getByRole("button", { name: "Test", exact: true }).click();
+		await expect(
+			page.getByRole("button", { name: "Copy", exact: true }).first(),
+		).toBeVisible({ timeout: 10_000 });
+		await providerSelect.selectOption("agy");
+		await expect(
+			page.getByLabel("API key for GEMINI_API_KEY"),
+		).not.toBeVisible();
 		await page.locator("#set-tab-secrets").click();
+		await expect(page.getByText(/User-Global/i).first()).toBeVisible();
+		await expect(
+			page.locator("option", { hasText: "store_first (Store > Env)" }),
+		).toBeAttached();
 		await page
 			.getByPlaceholder("Secret key (e.g. DATABRICKS_TOKEN)")
 			.fill("UAT_MASKED_TOKEN");
@@ -1042,6 +1063,7 @@ test.describe("Open-DV V2-7 Batched 3-Viewport Real-Browser E2E", () => {
 		await page.getByRole("button", { name: "Test Connection" }).first().click();
 
 		await page.locator("#set-tab-mcp").click();
+		await expect(page.getByText(/User-Global/i).first()).toBeVisible();
 		await expect(page.getByText("ext_doc")).toBeVisible();
 		await page.getByRole("button", { name: "Save Settings" }).click();
 		await expect(
@@ -1133,7 +1155,9 @@ test.describe("Open-DV V2-7 Batched 3-Viewport Real-Browser E2E", () => {
 			)
 			.toBe("COMPLETED");
 		await expect(
-			page.getByText(/(Ready|Steward Review) · agy/i).first(),
+			page
+				.getByText(/(Ready|Steward Review|Unverified|Action Needed) · agy/i)
+				.first(),
 		).toBeVisible({
 			timeout: 10_000,
 		});
@@ -1237,6 +1261,38 @@ test.describe("Open-DV V2-7 Batched 3-Viewport Real-Browser E2E", () => {
 			smallTargets,
 			"interactive mobile controls should meet >= 40px height target",
 		).toEqual([]);
+
+		// Check Settings mobile layout & >= 40px touch targets, then return to workflow
+		await page.getByRole("button", { name: "Open navigation menu" }).click();
+		await mobileNav.getByRole("link", { name: "Settings" }).click();
+		await expect(
+			page.getByRole("heading", { name: /Harness Readiness Diagnostics/i }),
+		).toBeVisible();
+		await assertLayoutAndA11y(page);
+		const smallSettingsTargets = await page.evaluate(() => {
+			const bad: string[] = [];
+			for (const el of document.querySelectorAll(
+				"header button, main button, main [role='tab'], main select, main input[type='radio']",
+			)) {
+				const rect = el.getBoundingClientRect();
+				if (rect.width === 0 || rect.height === 0) continue;
+				const cs = getComputedStyle(el);
+				if (cs.display === "none" || cs.visibility === "hidden") continue;
+				if (el.getAttribute("type") === "radio") continue;
+				if (rect.height < 40) {
+					bad.push(
+						`${el.tagName}:${(el.textContent ?? "").trim().slice(0, 24)}(${Math.round(rect.height)}px)`,
+					);
+				}
+			}
+			return bad;
+		});
+		expect(
+			smallSettingsTargets,
+			"interactive mobile controls on Settings should meet >= 40px height target",
+		).toEqual([]);
+		await page.getByRole("button", { name: "Open navigation menu" }).click();
+		await mobileNav.getByRole("link", { name: "Project Workflow" }).click();
 
 		// Switch steps via mobile stepper sheet <dialog> -> Step 5 -> verify view-only downgrade + resize draft preservation
 		await page.getByRole("button", { name: /Step \d+ of 7/i }).click();

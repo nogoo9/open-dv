@@ -35,8 +35,8 @@ from opendv.agents import (
     unwrap_windows_npm_shim,
 )
 from opendv.agents.cli_subprocess_base import (
-    _attach_windows_job_object,
     _configure_win32_kernel32,
+    attach_windows_job_object,
     extract_json_from_stdout,
     redact_telemetry_text,
     stream_cli_subprocess_lines,
@@ -308,7 +308,14 @@ async def test_uat_v25_agt_03_subprocess_flags_env_allowlist_unwrap_and_reaping(
         "LANG": "en_US.UTF-8",
         "HOME": str(tmp_path),
         "GEMINI_API_KEY": "gem-secret",
+        "GOOGLE_API_KEY": "goog-secret",
         "ANTHROPIC_API_KEY": "ant-secret",
+        "ANTHROPIC_BASE_URL": "https://proxy.anthropic.local",
+        "AGY_ACCOUNT": "ops@example.com",
+        "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/adc.json",
+        "CLOUDSDK_CONFIG": "/tmp/gcloud",
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/dbus",
+        "XDG_RUNTIME_DIR": "/tmp/xdg-run",
         "DATABRICKS_TOKEN": "dapi-leak",
         "AWS_SECRET_ACCESS_KEY": "aws-leak",
         "OPENDV_MCP_COORD_TOKEN": "coord-tok",
@@ -319,12 +326,17 @@ async def test_uat_v25_agt_03_subprocess_flags_env_allowlist_unwrap_and_reaping(
         step="step4",
         role_kind="coord",
         role_token="coord-tok",
+        api_key="override-ant-key",
         parent_env=dirty_parent,
     )
-    assert coord_env["ANTHROPIC_API_KEY"] == "ant-secret"
+    assert coord_env["ANTHROPIC_API_KEY"] == "override-ant-key"
+    assert coord_env["ANTHROPIC_BASE_URL"] == "https://proxy.anthropic.local"
+    assert coord_env["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/tmp/dbus"
+    assert coord_env["XDG_RUNTIME_DIR"] == "/tmp/xdg-run"
     assert coord_env["OPENDV_MCP_COORD_TOKEN"] == "coord-tok"
     assert "OPENDV_MCP_SCOUT_TOKEN" not in coord_env
     assert "GEMINI_API_KEY" not in coord_env
+    assert "GOOGLE_API_KEY" not in coord_env
     assert "DATABRICKS_TOKEN" not in coord_env
     assert "AWS_SECRET_ACCESS_KEY" not in coord_env
 
@@ -335,7 +347,13 @@ async def test_uat_v25_agt_03_subprocess_flags_env_allowlist_unwrap_and_reaping(
         role_token="scout-tok",
         parent_env=dirty_parent,
     )
-    assert scout_env["GEMINI_API_KEY"] == "gem-secret"
+    assert "GEMINI_API_KEY" not in scout_env
+    assert "GOOGLE_API_KEY" not in scout_env
+    assert scout_env["AGY_ACCOUNT"] == "ops@example.com"
+    assert scout_env["GOOGLE_APPLICATION_CREDENTIALS"] == "/tmp/adc.json"
+    assert scout_env["CLOUDSDK_CONFIG"] == "/tmp/gcloud"
+    assert scout_env["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/tmp/dbus"
+    assert scout_env["XDG_RUNTIME_DIR"] == "/tmp/xdg-run"
     assert scout_env["OPENDV_MCP_SCOUT_TOKEN"] == "scout-tok"
     assert "OPENDV_MCP_COORD_TOKEN" not in scout_env
     assert "ANTHROPIC_API_KEY" not in scout_env
@@ -1100,6 +1118,7 @@ async def test_pii_error_scrubbing_underscore_keys_phone_iban_and_win32_tree_rea
         parent_script,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=(os.name != "nt"),
     )
     for _ in range(50):
         if gc_pid_file.is_file() and gc_pid_file.read_text(encoding="utf-8").strip():
@@ -1109,7 +1128,7 @@ async def test_pii_error_scrubbing_underscore_keys_phone_iban_and_win32_tree_rea
     gc_pid = int(gc_pid_file.read_text(encoding="utf-8").strip())
 
     # Attach Job Object *after* grandchild spawned so grandchild is outside Job Object
-    job_handle = _attach_windows_job_object(proc.pid) if os.name == "nt" and proc.pid else None
+    job_handle = attach_windows_job_object(proc.pid) if os.name == "nt" and proc.pid else None
     await reap_process_tree(proc, job_handle=job_handle)
     assert proc.returncode is not None
 
@@ -1137,6 +1156,12 @@ async def test_pii_error_scrubbing_underscore_keys_phone_iban_and_win32_tree_rea
             k32.CloseHandle(ctypes.c_void_p(h_gc_final))
             assert not ok_final or code_final.value != 259
     else:
+        for _ in range(20):
+            try:
+                os.kill(gc_pid, 0)
+            except OSError:
+                break
+            await asyncio.sleep(0.05)
         with pytest.raises(OSError):
             os.kill(gc_pid, 0)
 
@@ -1769,7 +1794,7 @@ async def test_pii_pan_prefix_collisions_json_unicode_escapes_validation_trunc_a
         shim.write_text(f'@echo off\r\n"{sys.executable}" "{early_py}"\r\n', encoding="utf-8")
     else:
         shim = tmp_path / "early_claude"
-        shim.write_text(f'#!/usr/bin/env "{sys.executable}"\nimport sys; sys.stderr.write("Error: not logged in\\n"); sys.exit(1)\n', encoding="utf-8")
+        shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{early_py}"\n', encoding="utf-8")
         shim.chmod(0o755)
 
     with pytest.raises(OpenDVError) as exc_pipe:

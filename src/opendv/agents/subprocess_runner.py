@@ -17,6 +17,7 @@ from opendv.agents.cli_subprocess_base import (
     build_stateless_turn_prompt,
     count_cl100k_tokens,
     extract_json_from_stdout,
+    is_auth_error,
     parse_ndjson_step_events,
     parse_ndjson_stream_line,
     redact_telemetry_text,
@@ -169,7 +170,17 @@ def resolve_cli_binary(
 ) -> str:
     """Locate agy or claude binary, unwrapping Windows npm .cmd shims."""
     active_env = os.environ if env is None else env
-    lookup = shutil.which if which_fn is None else which_fn
+    if which_fn is not None:
+        lookup: Callable[[str], str | None] = which_fn
+    elif env is not None:
+        env_path = active_env.get("PATH", "")
+
+        def _lookup(cmd: str) -> str | None:
+            return shutil.which(cmd, path=env_path) if env_path else None
+
+        lookup = _lookup
+    else:
+        lookup = shutil.which
     check_file = os.path.isfile if is_file_fn is None else is_file_fn
 
     env_var = "OPENDV_AGY_CLI_BIN" if provider == "agy" else "OPENDV_CLAUDE_CLI_BIN"
@@ -202,6 +213,20 @@ def resolve_cli_binary(
     )
 
 
+def _extract_cli_error_text(payload: Mapping[str, Any] | None) -> str:
+    if not isinstance(payload, Mapping):
+        return ""
+    for key in ("error", "message", "result", "response"):
+        val = payload.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+        if isinstance(val, Mapping):
+            nested = _extract_cli_error_text(val)
+            if nested:
+                return nested
+    return ""
+
+
 class SubprocessHarnessRunner(AgentHarnessPort):
     """Production CLI subprocess implementation of AgentHarnessPort for agy and claude-cli."""
 
@@ -210,15 +235,19 @@ class SubprocessHarnessRunner(AgentHarnessPort):
         provider: CliProvider = "agy",
         *,
         binary_path: str | None = None,
+        api_key: str | None = None,
         model_overrides: Mapping[str, str] | None = None,
         env: Mapping[str, str] | None = None,
         stream_fn: SubprocessStreamFn | None = None,
+        which_fn: Callable[[str], str | None] | None = None,
     ) -> None:
         self._provider: CliProvider = provider
         self._binary_path = binary_path
+        self._api_key = api_key
         self._model_overrides = dict(model_overrides or {})
         self._env = dict(os.environ if env is None else env)
         self._stream_fn: SubprocessStreamFn = stream_fn or stream_cli_subprocess_lines
+        self._which_fn = which_fn
 
     @property
     def provider_name(self) -> HarnessProvider:
@@ -267,6 +296,7 @@ class SubprocessHarnessRunner(AgentHarnessPort):
             self._provider,
             explicit_bin=self._binary_path,
             env=self._env,
+            which_fn=self._which_fn,
         )
         resolved = resolve_model_for_agent(
             self._provider,
@@ -282,6 +312,7 @@ class SubprocessHarnessRunner(AgentHarnessPort):
             step=request.step,
             role_kind=role_kind,
             role_token=request.role_token,
+            api_key=self._api_key,
             parent_env=self._env,
         )
         schema_json = (
@@ -413,13 +444,18 @@ class SubprocessHarnessRunner(AgentHarnessPort):
                     last_result_payload = dict(res_obj)
 
         if int(run_state.get("returncode") or 0) != 0:
-            raw_err = str(run_state.get("stderr") or "").strip()
-            err_msg = raw_err or f"exit {run_state['returncode']}"
-            lowered = err_msg.lower()
-            auth_markers = ("not logged in", "unauthorized", "api key", "auth")
+            raw_stderr = str(run_state.get("stderr") or "").strip()
+            payload_err = _extract_cli_error_text(last_result_payload)
+            raw_stdout = str(run_state.get("stdout") or "").strip()
+            parts = [p for p in (raw_stderr, payload_err) if p]
+            err_msg = (
+                " | ".join(parts)
+                if parts
+                else (raw_stdout or f"exit {run_state['returncode']}")
+            )
             err_code = (
                 ErrorCode.AGENT_NOT_CONFIGURED
-                if any(tok in lowered for tok in auth_markers)
+                if is_auth_error(err_msg, provider=self._provider)
                 else ErrorCode.AGENT_EXECUTION_FAILED
             )
             raise OpenDVError(
@@ -434,9 +470,16 @@ class SubprocessHarnessRunner(AgentHarnessPort):
             primary_text_key="result" if self._provider == "claude-cli" else "response",
         )
         if payload.get("is_error") is True:
+            raw_err_msg = _extract_cli_error_text(payload) or "CLI returned error payload."
+            err_code = (
+                ErrorCode.AGENT_NOT_CONFIGURED
+                if is_auth_error(raw_err_msg, provider=self._provider)
+                else ErrorCode.AGENT_EXECUTION_FAILED
+            )
             raise OpenDVError(
-                f"{self._provider} CLI returned error payload.",
-                error_code=ErrorCode.AGENT_EXECUTION_FAILED,
+                f"{self._provider} CLI returned error payload: "
+                f"{_redact_telemetry_text(raw_err_msg)[:300]}",
+                error_code=err_code,
                 run_id=request.run_id,
             )
 

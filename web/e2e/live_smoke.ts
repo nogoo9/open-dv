@@ -222,6 +222,7 @@ async function runLiveSmoke(): Promise<void> {
 			cwd: repoRoot,
 			env: {
 				...process.env,
+				PYTHON_KEYRING_BACKEND: "keyring.backends.null.Keyring",
 				OPENDV_LIVE_TMP: liveTmp,
 				OPENDV_HOME: homeDir,
 				XDG_STATE_HOME: st,

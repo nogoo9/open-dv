@@ -175,7 +175,9 @@ async def handle_project_import(
     conflict = cast(Literal["fail", "rename", "replace"], conflict_raw)
     trust_ws = _parse_bool_form(form.get("trust_workspace"), default=False)
     content = await read_upload_bounded(upload)
-    fd, tmp_name = tempfile.mkstemp(prefix="opendv_import_", suffix=".opendv.zip")
+    tmp_dir = service.state_manager.opendv_home / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix="opendv_import_", suffix=".opendv.zip", dir=tmp_dir)
     os.close(fd)
     tmp_path = Path(tmp_name)
     atomic_write_bytes(tmp_path, content)

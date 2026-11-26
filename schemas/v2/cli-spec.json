@@ -65,7 +65,7 @@
     {
       "help": "Run Layer-4 diagnostic checks across service health, agent harnesses, and MCP servers.",
       "http_method": "GET",
-      "http_route": "/api/v1/health",
+      "http_route": "/api/v1/system/doctor",
       "options": [
         {
           "choices": null,
@@ -83,6 +83,16 @@
           "flag": "--check-mcp",
           "help": "Inspect registered external MCP endpoints and secrets.",
           "name": "check_mcp",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--probe",
+          "help": "Run live Tier-2 authentication probe on active harness_provider.",
+          "name": "probe",
           "required": false,
           "short": null,
           "type": "boolean"
@@ -364,7 +374,7 @@
         },
         {
           "choices": null,
-          "default": "incremental_new",
+          "default": null,
           "flag": "--discovery-mode",
           "help": "incremental_new, incremental_reverify, or full_rebuild.",
           "name": "discovery_mode",
@@ -797,6 +807,205 @@
       ]
     },
     {
+      "help": "Atomically patch per-project execution settings for future runs.",
+      "http_method": "PATCH",
+      "http_route": "/api/v1/projects/{project_id}/settings",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": [
+            "agy",
+            "claude-cli",
+            "claude",
+            "gemini"
+          ],
+          "default": null,
+          "flag": "--harness-provider",
+          "help": "Default agent harness provider.",
+          "name": "harness_provider",
+          "required": false,
+          "short": null,
+          "type": "choice"
+        },
+        {
+          "choices": [
+            "symbolic_only",
+            "fast",
+            "balanced",
+            "strict"
+          ],
+          "default": null,
+          "flag": "--cegar-policy",
+          "help": "Default CEGAR verification policy.",
+          "name": "cegar_policy",
+          "required": false,
+          "short": null,
+          "type": "choice"
+        },
+        {
+          "choices": [
+            "FRONTIER_CRITIC",
+            "STANDARD_WORKER"
+          ],
+          "default": null,
+          "flag": "--v7-critic-tier",
+          "help": "Default V7 semantic critic tier.",
+          "name": "v7_critic_tier",
+          "required": false,
+          "short": null,
+          "type": "choice"
+        },
+        {
+          "choices": [
+            "duckdb",
+            "databricks",
+            "snowflake",
+            "postgres",
+            "bigquery",
+            "tsql",
+            "redshift",
+            "clickhouse"
+          ],
+          "default": null,
+          "flag": "--dbt-sql-dialect",
+          "help": "Default dbt SQL dialect.",
+          "name": "dbt_sql_dialect",
+          "required": false,
+          "short": null,
+          "type": "choice"
+        },
+        {
+          "choices": [
+            "store_first",
+            "env_first"
+          ],
+          "default": null,
+          "flag": "--secret-precedence",
+          "help": "Secret resolution order.",
+          "name": "secret_precedence",
+          "required": false,
+          "short": null,
+          "type": "choice"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--max-turns",
+          "help": "Max agent turns per run (1..500).",
+          "name": "max_turns",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--max-tokens",
+          "help": "Max token budget per run (>= 1).",
+          "name": "max_tokens",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--timeout-seconds",
+          "help": "Per-turn timeout in seconds (1..7200).",
+          "name": "timeout_seconds",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": [
+            "incremental_new",
+            "incremental_reverify",
+            "full_rebuild"
+          ],
+          "default": null,
+          "flag": "--discovery-mode",
+          "help": "Default Step 4 ontology discovery mode.",
+          "name": "discovery_mode",
+          "required": false,
+          "short": null,
+          "type": "choice"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--model-override",
+          "help": "Set TARGET=MODEL override (repeatable).",
+          "name": "model_override",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--clear-model-override",
+          "help": "Clear TARGET model override (repeatable).",
+          "name": "clear_model_override",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": [
+            "max-turns",
+            "max-tokens",
+            "timeout-seconds",
+            "model-overrides",
+            "all"
+          ],
+          "default": null,
+          "flag": "--clear",
+          "help": "Clear nullable fields (repeatable).",
+          "name": "clear",
+          "required": false,
+          "short": null,
+          "type": "choice"
+        }
+      ],
+      "path": [
+        "project",
+        "settings",
+        "set"
+      ]
+    },
+    {
+      "help": "Show persisted execution settings snapshot for a project.",
+      "http_method": "GET",
+      "http_route": "/api/v1/projects/{project_id}",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "project",
+        "settings",
+        "show"
+      ]
+    },
+    {
       "help": "Show full metadata for one project.",
       "http_method": "GET",
       "http_route": "/api/v1/projects/{project_id}",
@@ -951,69 +1160,343 @@
       ]
     },
     {
-      "help": "Update workspace-level defaults with strict schema validation.",
+      "help": "List offline default model suggestions for the active or specified provider.",
+      "http_method": "GET",
+      "http_route": "/api/v1/agents/readiness",
+      "options": [
+        {
+          "choices": [
+            "agy",
+            "claude-cli",
+            "claude",
+            "gemini"
+          ],
+          "default": null,
+          "flag": "--provider",
+          "help": "Provider id (defaults to active harness_provider).",
+          "name": "provider",
+          "required": false,
+          "short": null,
+          "type": "choice"
+        }
+      ],
+      "path": [
+        "settings",
+        "models"
+      ]
+    },
+    {
+      "help": "Delete a saved user-global connection profile.",
       "http_method": "PUT",
       "http_route": "/api/v1/settings",
       "options": [
         {
           "choices": null,
           "default": null,
+          "flag": "--name",
+          "help": "Connection profile name to delete.",
+          "name": "name",
+          "required": true,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "settings",
+        "profile",
+        "delete"
+      ]
+    },
+    {
+      "help": "List user-global saved connection profiles.",
+      "http_method": "GET",
+      "http_route": "/api/v1/settings",
+      "options": [],
+      "path": [
+        "settings",
+        "profile",
+        "list"
+      ]
+    },
+    {
+      "help": "Create or replace a named user-global connection profile.",
+      "http_method": "PUT",
+      "http_route": "/api/v1/settings",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--name",
+          "help": "Unique connection profile name.",
+          "name": "name",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": [
+            "sqlite",
+            "duckdb",
+            "parquet",
+            "csv",
+            "xlsx",
+            "databricks_uc"
+          ],
+          "default": null,
+          "flag": "--adapter",
+          "help": "Structured connector adapter identifier.",
+          "name": "adapter",
+          "required": true,
+          "short": null,
+          "type": "choice"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--display-name",
+          "help": "Human-readable label (defaults to --name).",
+          "name": "display_name",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--uri",
+          "help": "Source path or host URI (optional for databricks_uc when options.host is set).",
+          "name": "uri",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--options-json",
+          "help": "Connector options JSON object or file path.",
+          "name": "options_json",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--secret-ref",
+          "help": "Secret key referenced by connector or MCP server.",
+          "name": "secret_ref",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--selected-tables",
+          "help": "Selected table filter (repeatable).",
+          "name": "selected_tables",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": 30,
+          "flag": "--timeout-seconds",
+          "help": "Profile inspection timeout in seconds.",
+          "name": "timeout_seconds",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        }
+      ],
+      "path": [
+        "settings",
+        "profile",
+        "set"
+      ]
+    },
+    {
+      "help": "Inspect and validate a saved connection profile via `sources/inspect`.",
+      "http_method": "POST",
+      "http_route": "/api/v1/sources/inspect",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--name",
+          "help": "Connection profile name to test.",
+          "name": "name",
+          "required": true,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "settings",
+        "profile",
+        "test"
+      ]
+    },
+    {
+      "help": "Update workspace-level defaults with strict schema validation.",
+      "http_method": "PUT",
+      "http_route": "/api/v1/settings",
+      "options": [
+        {
+          "choices": [
+            "agy",
+            "claude-cli",
+            "claude",
+            "gemini"
+          ],
+          "default": null,
           "flag": "--harness-provider",
-          "help": "",
+          "help": "Default agent harness provider.",
           "name": "harness_provider",
           "required": false,
           "short": null,
-          "type": "string"
+          "type": "choice"
         },
         {
-          "choices": null,
+          "choices": [
+            "symbolic_only",
+            "fast",
+            "balanced",
+            "strict"
+          ],
           "default": null,
           "flag": "--cegar-policy",
-          "help": "",
+          "help": "Default CEGAR verification policy.",
           "name": "cegar_policy",
           "required": false,
           "short": null,
-          "type": "string"
+          "type": "choice"
         },
         {
-          "choices": null,
-          "default": null,
-          "flag": "--secret-precedence",
-          "help": "",
-          "name": "secret_precedence",
-          "required": false,
-          "short": null,
-          "type": "string"
-        },
-        {
-          "choices": null,
-          "default": null,
-          "flag": "--secret-backend",
-          "help": "",
-          "name": "secret_backend",
-          "required": false,
-          "short": null,
-          "type": "string"
-        },
-        {
-          "choices": null,
+          "choices": [
+            "FRONTIER_CRITIC",
+            "STANDARD_WORKER"
+          ],
           "default": null,
           "flag": "--v7-critic-tier",
-          "help": "",
+          "help": "Default V7 semantic critic tier.",
           "name": "v7_critic_tier",
           "required": false,
           "short": null,
+          "type": "choice"
+        },
+        {
+          "choices": [
+            "duckdb",
+            "databricks",
+            "snowflake",
+            "postgres",
+            "bigquery",
+            "tsql",
+            "redshift",
+            "clickhouse"
+          ],
+          "default": null,
+          "flag": "--dbt-sql-dialect",
+          "help": "Default dbt SQL dialect.",
+          "name": "dbt_sql_dialect",
+          "required": false,
+          "short": null,
+          "type": "choice"
+        },
+        {
+          "choices": [
+            "keyring",
+            "user_state_file"
+          ],
+          "default": null,
+          "flag": "--secret-backend",
+          "help": "Secret backend (keyring or user_state_file).",
+          "name": "secret_backend",
+          "required": false,
+          "short": null,
+          "type": "choice"
+        },
+        {
+          "choices": [
+            "store_first",
+            "env_first"
+          ],
+          "default": null,
+          "flag": "--secret-precedence",
+          "help": "Secret resolution order.",
+          "name": "secret_precedence",
+          "required": false,
+          "short": null,
+          "type": "choice"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--max-turns",
+          "help": "Max agent turns per run (1..500).",
+          "name": "max_turns",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--max-tokens",
+          "help": "Max token budget per run (>= 1).",
+          "name": "max_tokens",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--timeout-seconds",
+          "help": "Per-turn timeout in seconds (1..7200).",
+          "name": "timeout_seconds",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--model-override",
+          "help": "Set TARGET=MODEL override (repeatable).",
+          "name": "model_override",
+          "required": false,
+          "short": null,
           "type": "string"
         },
         {
           "choices": null,
           "default": null,
-          "flag": "--dbt-sql-dialect",
-          "help": "",
-          "name": "dbt_sql_dialect",
+          "flag": "--clear-model-override",
+          "help": "Clear TARGET model override (repeatable).",
+          "name": "clear_model_override",
           "required": false,
           "short": null,
           "type": "string"
+        },
+        {
+          "choices": [
+            "max-turns",
+            "max-tokens",
+            "timeout-seconds",
+            "model-overrides",
+            "all"
+          ],
+          "default": null,
+          "flag": "--clear",
+          "help": "Clear nullable fields (repeatable).",
+          "name": "clear",
+          "required": false,
+          "short": null,
+          "type": "choice"
         }
       ],
       "path": [
@@ -1032,7 +1515,7 @@
       ]
     },
     {
-      "help": "Approve SHA-256 hashes for `.opendv/agents/*/SKILL.md` workspace overrides.",
+      "help": "Approve or revoke SHA-256 hashes for `.opendv/agents/*/SKILL.md` overrides.",
       "http_method": "PUT",
       "http_route": "/api/v1/settings",
       "options": [
@@ -1040,11 +1523,21 @@
           "choices": null,
           "default": null,
           "flag": "--path",
-          "help": "Workspace directory path to trust.",
+          "help": "Workspace directory path to trust or revoke.",
           "name": "path",
           "required": true,
           "short": null,
-          "type": "path"
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--revoke",
+          "help": "Revoke workspace trust via POST /api/v1/settings/trusted-workspaces/revoke.",
+          "name": "revoke",
+          "required": false,
+          "short": null,
+          "type": "boolean"
         }
       ],
       "path": [
@@ -1590,7 +2083,7 @@
         },
         {
           "choices": null,
-          "default": "balanced",
+          "default": null,
           "flag": "--policy",
           "help": "balanced, strict, fast, or symbolic_only.",
           "name": "policy",

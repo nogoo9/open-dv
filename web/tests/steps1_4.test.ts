@@ -231,6 +231,7 @@ afterEach(() => {
 		failedVerifyWaveId: null,
 		missingSecretRefs: [],
 		settings: null,
+		readiness: null,
 		step3ScanDraft: {},
 		hiddenProposalIds: [],
 		dirtyFlags: createInitialDirtyFlags(),
@@ -1287,5 +1288,94 @@ describe("Step 4 · Discovery, Holds, AgentIO, CitationInspector & AskFibo", () 
 
 		expect(typeof AgentIoDrawer).toBe("function");
 		expect(typeof CitationInspectorDrawer).toBe("function");
+	});
+
+	test("Step 4 initializes discovery_mode from project snapshot and renders RemediationList", async () => {
+		globalThis.fetch = (async (input, init) => {
+			const url = String(input);
+			if (url.endsWith("/projects/p4-snap")) {
+				return jsonResp({
+					project_id: "p4-snap",
+					domain_namespace: "asset_management",
+					has_active_lease: false,
+					source_count: 1,
+					table_count: 1,
+					created_at: "2026-01-01T00:00:00Z",
+					updated_at: "2026-01-01T00:00:00Z",
+					settings_snapshot: { ...PROJ_SNAP, discovery_mode: "full_rebuild" },
+				});
+			}
+			if (url.endsWith("/ontology/construct") && init?.method === "POST") {
+				return jsonResp(
+					{
+						type: "urn:opendv:error:agent-not-configured",
+						title: "Agent Not Configured",
+						status: 422,
+						detail: "Missing GEMINI_API_KEY",
+						error_code: "AGENT_NOT_CONFIGURED",
+						category: "Preconditions",
+						waivable: false,
+						rationale_required: false,
+						instance: null,
+						run_id: null,
+						diagnostics: [],
+						defect_report: null,
+						remediation: {
+							summary: "Configure GEMINI_API_KEY first.",
+							actions: [
+								{
+									actor: "human",
+									label: "Set key",
+									command: "uv run opendv secrets set GEMINI_API_KEY --prompt",
+									requires_tty: true,
+								},
+							],
+						},
+					},
+					422,
+				);
+			}
+			if (url.includes("/runs?")) return jsonResp([]);
+			if (url.endsWith("/receipts")) return jsonResp([]);
+			if (url.endsWith("/ontology")) {
+				return jsonResp({
+					ontology: {
+						ontology_version: "0.1.0",
+						domain_namespace: "asset_management",
+						concepts: [],
+						relationships: [],
+						enumerations: [],
+					},
+					staged_candidates: [],
+					ontology_proposals: [],
+				});
+			}
+			return jsonResp({});
+		}) as typeof fetch;
+
+		useProjectStore.setState({
+			currentUrl: "/projects/p4-snap/step/4?sub=4a",
+			activeProject: {
+				project_id: "p4-snap",
+				domain_namespace: "asset_management",
+				has_active_lease: false,
+				source_count: 1,
+				table_count: 1,
+				created_at: "2026-01-01T00:00:00Z",
+				updated_at: "2026-01-01T00:00:00Z",
+				settings_snapshot: { ...PROJ_SNAP, discovery_mode: "incremental_new" },
+			},
+		});
+		const host = mount(React.createElement(Step4Discovery));
+		await settle();
+		const radios = [
+			...host.querySelectorAll('input[name="step4_mode"]'),
+		] as HTMLInputElement[];
+		expect(radios[2]?.checked).toBe(true);
+		await click(btn(host, "Start Discovery") as unknown as Element);
+		expect(host.textContent).toContain("Configure GEMINI_API_KEY first.");
+		expect(host.textContent).toContain(
+			"uv run opendv secrets set GEMINI_API_KEY --prompt",
+		);
 	});
 });

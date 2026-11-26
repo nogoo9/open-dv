@@ -14,7 +14,7 @@ from opendv.models.diagnostics import (
 )
 from opendv.models.ontology import ConceptTableBinding
 from opendv.models.ontology_deltas import OntologyDelta
-from opendv.models.policy import CegarPolicy, ModelTier
+from opendv.models.policy import VALID_MODEL_OVERRIDE_TARGETS, CegarPolicy, ModelTier
 from opendv.models.sources import ConnectorConfigPayload, SourceSummary
 
 PROJECT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -65,6 +65,27 @@ def validate_domain_namespace(value: str) -> str:
     return value
 
 
+_PATCH_NULLABLE_FIELDS: frozenset[str] = frozenset(
+    {"max_turns", "max_tokens", "timeout_seconds", "model_overrides"}
+)
+
+
+def _validate_model_override_entry(target: str, model_id: str) -> str:
+    if target not in VALID_MODEL_OVERRIDE_TARGETS:
+        raise ValueError(
+            f"Unknown model_overrides target '{target}'; "
+            f"expected one of {sorted(VALID_MODEL_OVERRIDE_TARGETS)}"
+        )
+    cleaned = model_id.strip()
+    if not cleaned:
+        raise ValueError(f"model_overrides['{target}'] must not be empty or whitespace")
+    return cleaned
+
+
+def _validate_model_overrides_map(overrides: dict[str, str]) -> dict[str, str]:
+    return {k: _validate_model_override_entry(k, v) for k, v in overrides.items()}
+
+
 class TrustedWorkspaceSpec(StrictModel):
     """Approved workspace override pack digest recorded in OS user-state settings."""
 
@@ -84,12 +105,17 @@ class WorkspaceSettings(StrictModel):
     v7_critic_tier: ModelTier = "FRONTIER_CRITIC"
     cegar_policy: CegarPolicy = "balanced"
     dbt_sql_dialect: DbtSqlDialect = "duckdb"
-    max_turns: int | None = Field(default=None, ge=1)
+    max_turns: int | None = Field(default=None, ge=1, le=500)
     max_tokens: int | None = Field(default=None, ge=1)
-    timeout_seconds: int | None = Field(default=None, ge=1)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=7200)
     connection_profiles: dict[str, ConnectorConfigPayload] = Field(default_factory=dict)
     trusted_workspaces: list[TrustedWorkspaceSpec] = Field(default_factory=list)
     updated_at: str = ""
+
+    @field_validator("model_overrides")
+    @classmethod
+    def _check_model_overrides(cls, v: dict[str, str]) -> dict[str, str]:
+        return _validate_model_overrides_map(v)
 
     @model_validator(mode="after")
     def _validate_strict_tier_lock(self) -> WorkspaceSettings:
@@ -102,19 +128,65 @@ class ProjectSettingsSnapshot(StrictModel):
     """Per-project settings snapshot persisted in projects.settings_snapshot_json."""
 
     harness_provider: HarnessProvider = "agy"
+    model_overrides: dict[str, str] = Field(default_factory=dict)
     v7_critic_tier: ModelTier = "FRONTIER_CRITIC"
     cegar_policy: CegarPolicy = "balanced"
     dbt_sql_dialect: DbtSqlDialect = "duckdb"
-    max_turns: int | None = Field(default=None, ge=1)
+    max_turns: int | None = Field(default=None, ge=1, le=500)
     max_tokens: int | None = Field(default=None, ge=1)
-    timeout_seconds: int | None = Field(default=None, ge=1)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=7200)
     secret_precedence: SecretPrecedence = "store_first"
     discovery_mode: DiscoveryMode = "incremental_new"
+
+    @field_validator("model_overrides")
+    @classmethod
+    def _check_model_overrides(cls, v: dict[str, str]) -> dict[str, str]:
+        return _validate_model_overrides_map(v)
 
     @model_validator(mode="after")
     def _validate_strict_tier_lock(self) -> ProjectSettingsSnapshot:
         if self.cegar_policy == "strict" and self.v7_critic_tier != "FRONTIER_CRITIC":
             raise ValueError("v7_critic_tier must be FRONTIER_CRITIC when cegar_policy is strict")
+        return self
+
+
+class ProjectSettingsPatchReq(StrictModel):
+    """RFC 7396 patch payload for PATCH /api/v1/projects/{project_id}/settings."""
+
+    harness_provider: HarnessProvider | None = None
+    cegar_policy: CegarPolicy | None = None
+    v7_critic_tier: ModelTier | None = None
+    dbt_sql_dialect: DbtSqlDialect | None = None
+    max_turns: int | None = Field(default=None, ge=1, le=500)
+    max_tokens: int | None = Field(default=None, ge=1)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=7200)
+    secret_precedence: SecretPrecedence | None = None
+    discovery_mode: DiscoveryMode | None = None
+    model_overrides: dict[str, str | None] | None = None
+
+    @model_validator(mode="after")
+    def _validate_patch(self) -> ProjectSettingsPatchReq:
+        for field_name in self.model_fields_set - _PATCH_NULLABLE_FIELDS:
+            if getattr(self, field_name) is None:
+                raise ValueError(f"Field '{field_name}' cannot be null")
+        if not self.model_fields_set or (
+            self.model_fields_set == {"model_overrides"} and self.model_overrides == {}
+        ):
+            raise ValueError("Patch must specify at least one field")
+        if self.cegar_policy == "strict" and self.v7_critic_tier == "STANDARD_WORKER":
+            raise ValueError("v7_critic_tier must be FRONTIER_CRITIC when cegar_policy is strict")
+        if self.model_overrides is not None:
+            normalized: dict[str, str | None] = {}
+            for key, val in self.model_overrides.items():
+                if key not in VALID_MODEL_OVERRIDE_TARGETS:
+                    raise ValueError(
+                        f"Unknown model_overrides target '{key}'; "
+                        f"expected one of {sorted(VALID_MODEL_OVERRIDE_TARGETS)}"
+                    )
+                normalized[key] = (
+                    None if val is None else _validate_model_override_entry(key, val)
+                )
+            self.model_overrides = normalized
         return self
 
 
@@ -329,6 +401,7 @@ __all__ = [
     "ImportReadinessReport",
     "OntologyProposalSpec",
     "OntologyWaiverSpec",
+    "ProjectSettingsPatchReq",
     "ProjectSettingsSnapshot",
     "ProjectState",
     "ProjectSummary",

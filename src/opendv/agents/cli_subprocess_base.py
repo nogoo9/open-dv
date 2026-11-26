@@ -11,7 +11,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Literal
@@ -29,9 +29,12 @@ from opendv.agents._cli_ndjson import (
 )
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.events import RunStep
+from opendv.models.project import HarnessProvider
 
 if TYPE_CHECKING:
     from opendv.agents.ports import AgentTurnRequest
+
+SubprocessExecFn = Callable[..., Awaitable[asyncio.subprocess.Process]]
 
 _MAX_CLI_FLAG_CHARS = 7500
 _CL100K_ENCODING = tiktoken.get_encoding("cl100k_base")
@@ -94,9 +97,80 @@ _ALLOWLISTED_OS_ENV_KEYS: tuple[str, ...] = (
 )
 
 _PROVIDER_KEY_ALLOWLIST: dict[str, tuple[str, ...]] = {
-    "agy": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "agy": (),
     "claude-cli": ("ANTHROPIC_API_KEY",),
 }
+
+_PROVIDER_ENV_ALLOWLIST: dict[str, tuple[str, ...]] = {
+    "agy": (
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "CLOUDSDK_CONFIG",
+        "AGY_ACCOUNT",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "XDG_RUNTIME_DIR",
+    ),
+    "claude-cli": (
+        "ANTHROPIC_BASE_URL",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "XDG_RUNTIME_DIR",
+    ),
+}
+
+_AUTH_ERROR_MARKERS: tuple[str, ...] = (
+    "not logged in",
+    "not authenticated",
+    "unauthenticated",
+    "please run /login",
+    "invalid x-api-key",
+    "invalid api key",
+    "api_key_invalid",
+    "api key not valid",
+    "authentication_error",
+    "authentication failed",
+    "unauthorized",
+    "login required",
+    "credentials expired",
+    "token expired",
+    "invalid_grant",
+    "session expired",
+)
+
+
+def is_auth_error(
+    err: BaseException | str,
+    *,
+    provider: HarnessProvider,
+    status_code: int | None = None,
+) -> bool:
+    """Classify an exception or raw message as an authentication failure."""
+    raw_text = err if isinstance(err, str) else str(err)
+    raw_lower = raw_text.lower()
+    if isinstance(err, str):
+        candidates: tuple[Any, ...] = (status_code,)
+    else:
+        resp = getattr(err, "response", None)
+        candidates = (
+            status_code,
+            getattr(err, "status_code", None),
+            getattr(resp, "status_code", None),
+            getattr(err, "code", None),
+        )
+    resolved_code: int | None = None
+    for cand in candidates:
+        if isinstance(cand, int) and not isinstance(cand, bool) and 100 <= cand <= 599:
+            resolved_code = cand
+            break
+    if resolved_code is not None:
+        if resolved_code == 401:
+            return True
+        if resolved_code == 403 and provider == "gemini":
+            return True
+        if resolved_code == 400 and provider == "gemini":
+            return "API_KEY_INVALID" in raw_text or "api key not valid" in raw_lower
+        return False
+    if not isinstance(err, str) and type(err).__name__ == "AuthenticationError":
+        return True
+    return any(marker in raw_lower for marker in _AUTH_ERROR_MARKERS)
 
 
 def count_cl100k_tokens(text: str) -> int:
@@ -158,6 +232,11 @@ def build_isolated_child_env(
             if val and val.strip():
                 child_env[pkey] = val.strip()
 
+    for evar in _PROVIDER_ENV_ALLOWLIST.get(provider, ()):
+        val = src_env.get(evar)
+        if val and val.strip():
+            child_env[evar] = val.strip()
+
     if step == "step4" and role_kind == "coord" and role_token and role_token.strip():
         child_env["OPENDV_MCP_COORD_TOKEN"] = role_token.strip()
     elif step == "step4" and role_kind == "scout" and role_token and role_token.strip():
@@ -217,7 +296,7 @@ def _configure_win32_kernel32() -> Any | None:
     return kernel32
 
 
-def _attach_windows_job_object(pid: int) -> int | None:
+def attach_windows_job_object(pid: int) -> int | None:
     """Create a KILL_ON_JOB_CLOSE Win32 Job Object and attach pid (best-effort)."""
     kernel32 = _configure_win32_kernel32()
     if kernel32 is None:
@@ -325,6 +404,65 @@ async def reap_process_tree(
             job_handle = None
 
 
+def _build_subprocess_spawn_kwargs(
+    env: Mapping[str, str],
+    cwd: Path,
+    *,
+    stdin: int,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    cwd.mkdir(parents=True, exist_ok=True)
+    spawn_kwargs: dict[str, Any] = {
+        "stdin": stdin,
+        "stdout": asyncio.subprocess.PIPE,
+        "stderr": asyncio.subprocess.PIPE,
+        "env": dict(env),
+        "cwd": str(cwd),
+    }
+    if limit is not None:
+        spawn_kwargs["limit"] = limit
+    if os.name == "nt":
+        spawn_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+    else:
+        spawn_kwargs["start_new_session"] = True
+    return spawn_kwargs
+
+
+async def run_cli_subprocess_capture(
+    argv: Sequence[str],
+    *,
+    env: Mapping[str, str],
+    cwd: Path,
+    timeout_seconds: float,
+    subprocess_exec_fn: SubprocessExecFn | None = None,
+) -> tuple[int, str, str]:
+    """Spawn CLI in an isolated cwd, capture stdout/stderr, and reap tree on exit/timeout."""
+    exec_fn: SubprocessExecFn = (
+        asyncio.create_subprocess_exec if subprocess_exec_fn is None else subprocess_exec_fn
+    )
+    spawn_kwargs = _build_subprocess_spawn_kwargs(
+        env,
+        cwd,
+        stdin=asyncio.subprocess.DEVNULL,
+    )
+    proc: asyncio.subprocess.Process | None = None
+    job_handle: int | None = None
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            proc = await exec_fn(*argv, **spawn_kwargs)
+            job_handle = attach_windows_job_object(proc.pid) if proc.pid else None
+            stdout_bytes, stderr_bytes = await proc.communicate()
+    finally:
+        if proc is not None:
+            await reap_process_tree(proc, job_handle=job_handle)
+    returncode = int(proc.returncode) if proc.returncode is not None else -1
+    return (
+        returncode,
+        stdout_bytes.decode("utf-8", errors="replace"),
+        stderr_bytes.decode("utf-8", errors="replace"),
+    )
+
+
 async def stream_cli_subprocess_lines(
     cmd: list[str],
     *,
@@ -336,22 +474,15 @@ async def stream_cli_subprocess_lines(
     cli_label: str,
 ) -> AsyncIterator[str]:
     """Spawn CLI in an isolated cwd with OS process-tree containment and yield stdout lines."""
-    cwd.mkdir(parents=True, exist_ok=True)
-    spawn_kwargs: dict[str, Any] = {
-        "stdin": asyncio.subprocess.PIPE,
-        "stdout": asyncio.subprocess.PIPE,
-        "stderr": asyncio.subprocess.PIPE,
-        "env": env,
-        "cwd": str(cwd),
-        "limit": 16 * 1024 * 1024,
-    }
-    if os.name == "nt":
-        spawn_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
-    else:
-        spawn_kwargs["start_new_session"] = True
+    spawn_kwargs = _build_subprocess_spawn_kwargs(
+        env,
+        cwd,
+        stdin=asyncio.subprocess.PIPE,
+        limit=16 * 1024 * 1024,
+    )
 
     proc = await asyncio.create_subprocess_exec(*cmd, **spawn_kwargs)
-    job_handle = _attach_windows_job_object(proc.pid) if proc.pid else None
+    job_handle = attach_windows_job_object(proc.pid) if proc.pid else None
     stdout_lines: list[str] = []
     stderr_bytes = b""
     returncode = -1
@@ -403,15 +534,19 @@ __all__ = [
     "BASE_OS_ENV_ALLOWLIST",
     "_MAX_CLI_FLAG_CHARS",
     "IsolatedTempCwd",
+    "SubprocessExecFn",
+    "attach_windows_job_object",
     "build_isolated_child_env",
     "build_stateless_turn_prompt",
     "count_cl100k_tokens",
     "extract_json_from_stdout",
+    "is_auth_error",
     "is_non_result_stream_event",
     "parse_ndjson_step_events",
     "parse_ndjson_stream_line",
     "reap_process_tree",
     "redact_telemetry_text",
+    "run_cli_subprocess_capture",
     "stream_cli_subprocess_lines",
     "strip_markdown_json_fences",
     "unwrap_windows_npm_shim",

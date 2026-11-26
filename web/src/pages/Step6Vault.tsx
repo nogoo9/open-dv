@@ -111,7 +111,6 @@ export function Step6Vault() {
 				runs[0] ??
 				null;
 			setActiveStep6Run(chosen);
-			if (chosen?.policy) setActiveRunPolicy(chosen.policy);
 			const waveId = proj?.project_id
 				? proj.active_wave_id
 				: useProjectStore.getState().activeProject?.active_wave_id;
@@ -140,7 +139,6 @@ export function Step6Vault() {
 			setActiveProject,
 			setOntologyBundle,
 			setActiveStep6Run,
-			setActiveRunPolicy,
 			setGuidedView,
 			setVaultIr,
 			startRunSse,
@@ -155,6 +153,12 @@ export function Step6Vault() {
 		);
 		return () => ac.abort();
 	}, [pid, hydrateStep6, setLastProblem]);
+
+	const snapProjectId = activeProject?.project_id;
+	const snapPolicy = activeProject?.settings_snapshot?.cegar_policy;
+	useEffect(() => {
+		if (snapProjectId && snapPolicy) setActiveRunPolicy(snapPolicy);
+	}, [snapProjectId, snapPolicy, setActiveRunPolicy]);
 
 	const run = activeStep6Run;
 	const isLive = isRunLiveStatus(run?.status);
@@ -254,7 +258,7 @@ export function Step6Vault() {
 		isDraining ||
 		run?.status !== "UNCERTIFIED_DRAFT" ||
 		v1V6FailCount > 0 ||
-		(activeRunPolicy === "strict" &&
+		((run?.policy ?? activeRunPolicy) === "strict" &&
 			(v6bUnwaivedCount > 0 || v7Score === null || v7Score < 95));
 
 	const onSubTabKey = (e: React.KeyboardEvent, idx: number) => {
@@ -411,7 +415,7 @@ export function Step6Vault() {
 							<GuidedDecisionsPanel
 								guidedView={guidedView}
 								run={run}
-								policy={activeRunPolicy}
+								policy={run?.policy ?? activeRunPolicy}
 								vaultIr={vaultIr}
 								evolutionLocks={ontologyBundle?.evolution_locks}
 								runsCount={runsList.length}
@@ -467,7 +471,7 @@ export function Step6Vault() {
 				<ArchitectObservatory
 					projectId={pid}
 					run={run}
-					policy={activeRunPolicy}
+					policy={run?.policy ?? activeRunPolicy}
 					busy={busy}
 					onVerifyVault={() => void verifyVaultAction(pid)}
 				/>

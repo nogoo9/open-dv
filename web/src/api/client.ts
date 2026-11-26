@@ -85,6 +85,7 @@ export function createProblemDetails(
 		run_id: null,
 		diagnostics: [],
 		defect_report: null,
+		remediation: null,
 	};
 	if (x) {
 		for (const [k, v] of Object.entries(x)) {
@@ -226,7 +227,11 @@ export function buildSourceInspectReq(i: {
 	const options = { ...(i.options ?? {}) };
 	let uri_or_path = (i.uri_or_path ?? "").trim();
 	if (i.kind === "databricks_uc") {
-		const h = (i.host ?? str(options.host) ?? uri_or_path)
+		const h = (
+			(i.host ?? "").trim() ||
+			(str(options.host) ?? "").trim() ||
+			uri_or_path
+		)
 			.trim()
 			.replace(/^https?:\/\//i, "")
 			.replace(/\/+$/, "");
@@ -301,6 +306,7 @@ export const api = {
 	getSettings: g0(R.settings),
 	putSettings: (b: T.WorkspaceSettings, s?: S) =>
 		p<T.WorkspaceSettings>(R.settings, b, s, "PUT"),
+	revokeTrustedWorkspace: p0(R.settingsRevokeTrustedWorkspace),
 	postSecret: p0(R.secrets),
 	listSecrets: (keys?: string[], s?: S) =>
 		g<T.SecretSummary[]>(R.secrets, s, keys?.length ? { keys } : undefined),
@@ -310,6 +316,8 @@ export const api = {
 	deleteMcpServer: (server_id: string, s?: S) =>
 		del(R.mcpServer, { server_id }, s),
 	listAgents: g0(R.agents),
+	getAgentReadiness: g0(R.agentsReadiness),
+	testAgentReadiness: p0(R.agentsReadinessTest),
 	getAgent: (agent_id: string, s?: S) =>
 		g<T.AgentPackDetail>(br(R.agent, { agent_id }), s),
 	listProjects: g0(R.projects),

@@ -29,7 +29,7 @@ BucketAOperator = Literal[
 class VaultBuildReq(StrictModel):
     """Request payload for POST /api/v1/projects/{id}/runs."""
 
-    policy: CegarPolicy = "balanced"
+    policy: CegarPolicy | None = None
 
 
 class WaiverSubmitReq(StrictModel):

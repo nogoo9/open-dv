@@ -135,6 +135,13 @@ def render_error(
     typer.echo(f"Error [{error.error_code.value}] (exit {exit_code}): {error.message}", err=True)
     for diag in error.diagnostics:
         typer.echo(f"  - [{diag.rule_id}] {diag.message}", err=True)
+    if error.remediation is not None:
+        typer.echo(f"Remediation: {error.remediation.summary}", err=True)
+        for act in error.remediation.actions:
+            actor_tag = "Agent" if act.actor == "agent" else "Human action required"
+            cmd_part = f": {act.command}" if act.command is not None else ""
+            tty_part = " (interactive terminal)" if act.requires_tty else ""
+            typer.echo(f"  - [{actor_tag}] {act.label}{cmd_part}{tty_part}", err=True)
     return exit_code
 
 

@@ -1,6 +1,16 @@
 # Enforce LF line endings for canonical V2 schemas across platforms (RFC 8785)
 schemas/** text eol=lf
 
+# Enforce LF line endings for Biome-checked TypeScript/CSS/JSON sources
+web/**/*.ts text eol=lf
+web/**/*.tsx text eol=lf
+web/**/*.json text eol=lf
+web/**/*.css text eol=lf
+apps/opendv-website/**/*.ts text eol=lf
+apps/opendv-website/**/*.tsx text eol=lf
+apps/opendv-website/**/*.json text eol=lf
+apps/opendv-website/**/*.css text eol=lf
+
 # Binary data fixtures and portable Open-DV bundles
 *.zip binary
 *.duckdb binary

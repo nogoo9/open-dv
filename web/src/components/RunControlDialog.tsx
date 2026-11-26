@@ -1,11 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { parseProblemDetails } from "../api/client";
+import { createProblemDetails, parseProblemDetails } from "../api/client";
 import type {
 	ProblemDetails,
 	RunControlReq,
 	RunStateResp,
 } from "../api/openapi";
 import { useProjectStore } from "../store/projectStore";
+import { RemediationList } from "./RemediationList";
 
 export type RunControlMode = "pause" | "hint" | "raise-budget";
 
@@ -61,27 +62,25 @@ export function RunControlDialog({
 		run.status !== "HOLD_CHECKPOINTED" &&
 		run.status !== "UNCERTIFIED_DRAFT";
 	const canRaise = !isTerminal && !isDraining;
+	const nTurns = Math.trunc(extraTurns);
+	const nTokens = Math.trunc(extraTokens);
+	const nTimeout = Math.trunc(extraTimeout);
+	const hasBudgetDelta = nTurns > 0 || nTokens > 0 || nTimeout > 0;
 	const actionDisabled =
-		busy || (mode === "raise-budget" ? !canRaise : !canPauseOrHint);
+		busy ||
+		(mode === "raise-budget" ? !canRaise || !hasBudgetDelta : !canPauseOrHint);
 
 	const submit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (actionDisabled) return;
 		if (mode === "hint" && !hint.trim()) {
-			setProblem({
-				type: "urn:opendv:error:syntax-invalid-argument",
-				title: "Hint Required",
-				status: 400,
-				detail: "Enter guidance text before sending a hint.",
-				error_code: "SYNTAX_INVALID_ARGUMENT",
-				category: "Syntax",
-				waivable: false,
-				rationale_required: false,
-				instance: null,
-				run_id: run.run_id,
-				diagnostics: [],
-				defect_report: null,
-			});
+			setProblem(
+				createProblemDetails(
+					"SYNTAX_INVALID_ARGUMENT",
+					"Enter guidance text before sending a hint.",
+					{ title: "Hint Required", run_id: run.run_id },
+				),
+			);
 			return;
 		}
 		setBusy(true);
@@ -93,9 +92,9 @@ export function RunControlDialog({
 					? { action: "hint", hint: hint.trim() }
 					: {
 							action: "raise-budget",
-							extra_turns: Math.max(0, Math.trunc(extraTurns)),
-							extra_tokens: Math.max(0, Math.trunc(extraTokens)),
-							extra_timeout_seconds: Math.max(0, Math.trunc(extraTimeout)),
+							extra_turns: nTurns > 0 ? nTurns : undefined,
+							extra_tokens: nTokens > 0 ? nTokens : undefined,
+							extra_timeout_seconds: nTimeout > 0 ? nTimeout : undefined,
 						};
 		try {
 			await useProjectStore
@@ -140,10 +139,10 @@ export function RunControlDialog({
 				</div>
 
 				{isDraining && (
-					<output className="banner banner-warn">
+					<div className="banner banner-warn">
 						Draining active work... Pause, hint, and budget edits wait until the
 						active checkpoint settles.
-					</output>
+					</div>
 				)}
 
 				<fieldset
@@ -203,6 +202,7 @@ export function RunControlDialog({
 							<input
 								type="number"
 								min={0}
+								max={500}
 								className="input"
 								value={extraTurns}
 								onChange={(e) => setExtraTurns(Number(e.target.value) || 0)}
@@ -224,6 +224,7 @@ export function RunControlDialog({
 							<input
 								type="number"
 								min={0}
+								max={7200}
 								step={60}
 								className="input"
 								value={extraTimeout}
@@ -234,9 +235,12 @@ export function RunControlDialog({
 				)}
 
 				{problem && (
-					<div className="banner banner-danger" role="alert">
-						<strong>{problem.title}</strong> ({problem.error_code}):{" "}
-						{problem.detail}
+					<div className="banner banner-danger stack-sm" role="alert">
+						<div>
+							<strong>{problem.title}</strong> ({problem.error_code}):{" "}
+							{problem.detail}
+						</div>
+						<RemediationList remediation={problem.remediation} />
 					</div>
 				)}
 

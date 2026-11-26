@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Any
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, Protocol
 
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.sources import SourceKind
@@ -19,16 +19,32 @@ from opendv.sources._extractors_files import (
 _SYSTEM_SCHEMAS: frozenset[str] = frozenset({"information_schema", "sys", "system"})
 
 
+class DatabricksConnFactory(Protocol):
+    """Callable contract for Databricks SQL connection factories."""
+
+    def __call__(
+        self,
+        *,
+        host: str,
+        http_path: str,
+        access_token: str | None = None,
+        secret_refs: Sequence[str] = (),
+        options: Mapping[str, Any] | None = None,
+    ) -> Any: ...
+
+
 def extract_databricks_uc(
     *,
+    uri_or_path: str = "",
     options: Mapping[str, Any],
+    access_token: str | None = None,
     secret_refs: Sequence[str],
     selected_tables: Sequence[str] | None,
     sample_limit: int,
     preview_offset: int,
     preview_limit: int,
-    validate_ident_fn: Any,
-    open_conn_fn: Any,
+    validate_ident_fn: Callable[[str], str],
+    open_conn_fn: DatabricksConnFactory,
 ) -> list[RawTableData]:
     injected_conn = options.get("_connection")
     catalog = validate_ident_fn(str(options.get("catalog", "")))
@@ -39,12 +55,18 @@ def extract_databricks_uc(
             error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
         )
 
+    raw_opt = options.get("host")
+    opt_host = raw_opt.strip() if isinstance(raw_opt, str) else ""
+    host = opt_host or uri_or_path.strip()
+    raw_http_path = options.get("http_path")
+    http_path = raw_http_path if isinstance(raw_http_path, str) else str(raw_http_path or "")
     conn = (
         injected_conn
         if injected_conn is not None
         else open_conn_fn(
-            host=str(options.get("host", "")),
-            http_path=str(options.get("http_path", "")),
+            host=host,
+            http_path=http_path,
+            access_token=access_token,
             secret_refs=secret_refs,
             options={k: v for k, v in options.items() if k != "_connection"},
         )
@@ -144,13 +166,14 @@ def dispatch_structured_extract(
     uri_or_path: str,
     *,
     options: Mapping[str, Any] | None = None,
+    access_token: str | None = None,
     secret_refs: Sequence[str] = (),
     selected_tables: Sequence[str] | None = None,
     sample_limit: int = 5,
     preview_offset: int = 0,
     preview_limit: int = 50,
-    validate_ident_fn: Any,
-    open_conn_fn: Any,
+    validate_ident_fn: Callable[[str], str],
+    open_conn_fn: DatabricksConnFactory,
 ) -> list[RawTableData]:
     if kind == "sqlite":
         return extract_sqlite(
@@ -179,7 +202,9 @@ def dispatch_structured_extract(
         )
     if kind == "databricks_uc":
         return extract_databricks_uc(
+            uri_or_path=uri_or_path,
             options=options or {},
+            access_token=access_token,
             secret_refs=secret_refs,
             selected_tables=selected_tables,
             sample_limit=sample_limit,
@@ -195,6 +220,7 @@ def dispatch_structured_extract(
 
 
 __all__ = [
+    "DatabricksConnFactory",
     "RawColumnData",
     "RawTableData",
     "dispatch_structured_extract",

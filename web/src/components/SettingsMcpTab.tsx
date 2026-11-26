@@ -145,7 +145,7 @@ export function SettingsMcpTab({
 
 			<section className="card-subtle stack-md">
 				<h2 className="h2-serif">
-					Step 4 External MCP Servers ({mcpServers.length})
+					Step 4 External MCP Servers · User-Global ({mcpServers.length})
 				</h2>
 
 				{transport === "stdio" && (

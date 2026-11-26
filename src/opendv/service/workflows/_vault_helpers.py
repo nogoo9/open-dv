@@ -15,11 +15,12 @@ from opendv.models.diagnostics import (
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.events import OcrPageReceipt, RunCheckpointRecord
 from opendv.models.ontology import GraphAOntology
-from opendv.models.policy import CegarPolicy
+from opendv.models.policy import CEGAR_POLICY_SPECS, CegarPolicy, HarnessBudget, ModelTier
 from opendv.models.project import (
     EvolutionLockSpec,
     HorizonAssumptionSpec,
     OntologyWaiverSpec,
+    ProjectSettingsSnapshot,
 )
 from opendv.models.sources import DocumentMap, SourceProfile
 from opendv.models.vault_ir_certified import CertifiedVaultIR
@@ -33,6 +34,8 @@ from opendv.service.state_store import (
     ServiceRunEventSink,
 )
 from opendv.service.workflows._run_adapters import (
+    coalesce_prior_state_budget,
+    coalesce_snapshot_budget,
     list_project_runs,
     list_revision_models,
     load_active_certified_ir,
@@ -152,6 +155,11 @@ def load_verifier_inputs(
     return ontology, profiles, clusters, locks, prior_ir, assumptions, ctx
 
 
+def resolve_step6_v7_tier(policy: CegarPolicy, snap: ProjectSettingsSnapshot) -> ModelTier:
+    """Enforce FRONTIER_CRITIC under strict CEGAR policy regardless of snapshot setting."""
+    return "FRONTIER_CRITIC" if policy == "strict" else snap.v7_critic_tier
+
+
 def prepare_resume_cegar_request(
     state_manager: ProjectStateManager,
     workspace_root: Path,
@@ -164,6 +172,7 @@ def prepare_resume_cegar_request(
     ckpt_store: ServiceRunCheckpointStore | None = None,
     checkpoint: RunCheckpointRecord | None = None,
     hold_answers: HoldAnswersReq | None = None,
+    prior_state: RunStateResp | None = None,
 ) -> tuple[str | None, str | None, CegarRunRequest]:
     """Hydrate CEGAR request for Hold resume or in-place V8 Horizon upgrade."""
     proj = state_manager.get_project(project_id)
@@ -199,6 +208,28 @@ def prepare_resume_cegar_request(
         if checkpoint is None
         else 0
     )
+    snap = proj.settings_snapshot
+    v7_tier = resolve_step6_v7_tier(policy, snap)
+    base_budget = CEGAR_POLICY_SPECS[policy].budget
+    budget: HarnessBudget | None
+    if checkpoint is not None:
+        if "budget_max_turns" in checkpoint.resume_payload:
+            budget = None
+        else:
+            run_rows = state_manager.list_events_or_receipts(
+                project_id, record_kind="run_state", run_id=run_id
+            )
+            init_state = (
+                RunStateResp.model_validate(run_rows[0]["payload"])
+                if run_rows
+                else prior_state
+            )
+            budget = coalesce_prior_state_budget(base_budget, init_state)
+    elif prior_state is not None:
+        budget = coalesce_prior_state_budget(base_budget, prior_state)
+    else:
+        budget = coalesce_snapshot_budget(base_budget, snap)
+
     req = CegarRunRequest(
         run_id=run_id,
         project_id=project_id,
@@ -206,6 +237,9 @@ def prepare_resume_cegar_request(
         profiles=profiles,
         clusters=clusters,
         policy=policy,
+        budget=budget,
+        v7_critic_tier=v7_tier,
+        model_overrides=dict(snap.model_overrides),
         evolution_locks=locks,
         prior_certified_ir=prior_ir,
         verifier_ctx=ctx.model_copy(
@@ -250,7 +284,7 @@ def build_vault_guided_view(
             project_id=project_id,
             step="step6",
             status="QUEUED",
-            policy="balanced",
+            policy=proj.settings_snapshot.cegar_policy,
             phase="awaiting_build",
             attempt=0,
             budget_turns_used=0,
@@ -307,7 +341,7 @@ def build_vault_guided_view(
             else ()
         ),
         ontology_rev_id=proj.active_ontology_rev_id,
-        policy=run_state.policy or "balanced",
+        policy=run_state.policy or proj.settings_snapshot.cegar_policy,
         certification_status=cert_status,
         wave_number=cert_ir.wave_number if cert_ir is not None else 1,
         attempt=run_state.attempt,
@@ -325,6 +359,7 @@ __all__ = [
     "persist_cegar_result",
     "prepare_resume_cegar_request",
     "resolve_evolution_lock_for_wave",
+    "resolve_step6_v7_tier",
     "save_cegar_result",
     "save_horizon_assumption_revision",
 ]

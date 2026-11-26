@@ -23,6 +23,7 @@ ACTIVE_V2_DOCS = [
     "docs/designs/SITEMAP.md",
     "docs/designs/v2-clean-sheet-architecture.md",
     "docs/designs/v2-workbench-ui-design.md",
+    "docs/designs/harness-readiness-and-cli-parity-design.md",
     "examples/v2_asset_management/README.md",
 ]
 
