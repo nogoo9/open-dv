@@ -29,6 +29,7 @@ from opendv.agents._pii_patterns import (
 
 # Fast-path guard so PII-only text skips 10 separate credential regex scans.
 _RE_CRED_HINT = re.compile(r"(?i)(?:sk-|dapi|AIza|ya29\.|bearer|basic|api[-_]key|key=)")
+_RE_ABA_HINT = re.compile(r"(?i)aba|routing|rtn")
 
 
 def _trailing_pii_end(combined: str, min_len: int) -> int:
@@ -95,14 +96,14 @@ def _starts_with_independent_pii(after: str) -> bool:
     tail = _bound_forward(after, 1, span=56)
     if not tail:
         return False
+    if any(rx.match(tail) is not None for rx in (_RE_SSN, _RE_EIN, _RE_PHONE, _RE_IBAN)):
+        return True
     if m_cc := _RE_CC_PAN.match(tail):
         raw = m_cc.group(0)
-        for s, e in _cc_pan_spans(raw):
-            if s == 0:
-                compact = re.sub(r"[ -]", "", raw[s:e])
-                if compact[0] != "0":
-                    return True
-    return any(rx.match(tail) is not None for rx in (_RE_SSN, _RE_EIN, _RE_PHONE, _RE_IBAN))
+        for s, _e in _cc_pan_spans(raw):
+            if s == 0 and raw[0] != "0":
+                return True
+    return False
 
 
 def _ends_with_independent_pan(before: str) -> bool:
@@ -126,26 +127,23 @@ def _ends_with_independent_pan(before: str) -> bool:
         head_win = head[max(0, lo - 6) :]
     if m_cc := _RE_END_CC_PAN.search(head_win):
         raw = m_cc.group(0)
+        raw_len = len(raw)
         for s, e in _cc_pan_spans(raw):
-            if e == len(raw):
-                compact = re.sub(r"[ -]", "", raw[s:e])
-                if compact[0] != "0":
-                    return True
+            if e == raw_len and raw[s] != "0":
+                return True
     return False
 
 
 def _ends_with_independent_pii(before: str) -> bool:
     if not before or before[-1] not in " -":
         return False
-    if _ends_with_independent_pan(before):
-        return True
     head_tail = before[-81:-1]
-    if not head_tail:
-        return False
-    return any(
+    if head_tail and any(
         rx.search(head_tail) is not None
         for rx in (_RE_END_SSN, _RE_END_EIN, _RE_END_PHONE, _RE_END_IBAN)
-    )
+    ):
+        return True
+    return _ends_with_independent_pan(before)
 
 
 def _should_skip_for_pan(
@@ -239,22 +237,24 @@ def redact_telemetry_text(text: str) -> str:
     if _RE_CRED_HINT.search(out):
         for rx, repl in _CREDENTIAL_SUB_PATTERNS:
             out = rx.sub(repl, out)
-    out = _RE_ABA_PHRASE.sub("[REDACTED]", out)
-    aba_chunks: list[str] = []
-    aba_emit = 0
-    for match in _RE_ABA_DIGITS.finditer(out):
-        if _is_valid_aba(match.group(0)):
-            ctx = out[max(0, match.start() - 128) : min(len(out), match.end() + 64)]
-            if _RE_ABA_CTX.search(ctx):
-                aba_chunks.append(out[aba_emit : match.start()])
-                aba_chunks.append("[REDACTED]")
-                aba_emit = match.end()
-    if aba_chunks:
-        aba_chunks.append(out[aba_emit:])
-        out = "".join(aba_chunks)
+    if _RE_ABA_HINT.search(out):
+        out = _RE_ABA_PHRASE.sub("[REDACTED]", out)
+        aba_chunks: list[str] = []
+        aba_emit = 0
+        for match in _RE_ABA_DIGITS.finditer(out):
+            if _is_valid_aba(match.group(0)):
+                ctx = out[max(0, match.start() - 128) : min(len(out), match.end() + 64)]
+                if _RE_ABA_CTX.search(ctx):
+                    aba_chunks.append(out[aba_emit : match.start()])
+                    aba_chunks.append("[REDACTED]")
+                    aba_emit = match.end()
+        if aba_chunks:
+            aba_chunks.append(out[aba_emit:])
+            out = "".join(aba_chunks)
     out = _sub_skipping_pan_overlaps(_RE_SSN, out)
     out = _sub_skipping_pan_overlaps(_RE_EIN, out)
-    out = _RE_EMAIL.sub("[REDACTED]", out)
+    if "@" in out:
+        out = _RE_EMAIL.sub("[REDACTED]", out)
     iban_chunks: list[str] = []
     iban_emit = 0
     pos = 0

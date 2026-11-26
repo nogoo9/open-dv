@@ -381,6 +381,16 @@ class DiscoveryRunHelper:
                     wrapped_ops.append(ClientAdditiveOp(op=delta))
                 coord_propose_ontology_delta(broker.context, wrapped_ops)
 
+            if paused_by_control and not broker.hold_coord.hold_requested:
+                broker.hold_coord.hold_requested = True
+                await broker.hold_coord.wait_for_drain()
+            hold_coord = broker.hold_coord
+            hold_requested = hold_coord.hold_requested
+            await broker.stop()
+            broker = None
+            release_project_job_lease(self._state, project_id, run_id)
+            lease_released = True
+
             all_ckpts = self._state.list_events_or_receipts(
                 project_id, record_kind="run_checkpoint", run_id=run_id
             )
@@ -390,57 +400,85 @@ class DiscoveryRunHelper:
                 else None
             )
             pending_questions = list(new_ckpt.pending_questions) if new_ckpt is not None else []
-            if paused_by_control and not broker.hold_coord.hold_requested:
-                broker.hold_coord.hold_requested = True
-                await broker.hold_coord.wait_for_drain()
             if (
                 not pending_questions
                 and parsed_out is not None
                 and parsed_out.clarification_questions
             ):
                 pending_questions = list(parsed_out.clarification_questions)
-            if new_ckpt is None and (pending_questions or broker.hold_coord.hold_requested):
-                hold_seq = broker.hold_coord.emit(
-                    "HOLD_CHECKPOINTED",
-                    {
-                        "pending_questions": [
-                            q.model_dump(mode="json") for q in pending_questions
-                        ],
-                        "reason": "steward_pause" if paused_by_control else "steward_hold",
-                    },
-                )
-                ckpt_store.save_checkpoint(
-                    RunCheckpointRecord(
-                        run_id=run_id,
-                        step="step4",
-                        phase="steward_hold",
-                        status="HOLD_CHECKPOINTED",
-                        last_seq=hold_seq,
-                        ontology_rev_id=proj.active_ontology_rev_id,
-                        sources_fingerprint=fp,
-                        pending_questions=pending_questions,
-                        budget_turns_used=turn_res.turns_used,
-                        budget_tokens_used=turn_res.total_tokens,
-                        token_count_source=turn_res.token_count_source,
-                        resume_payload={"discovery_mode": eff_mode},
-                    )
-                )
 
-            if pending_questions or broker.hold_coord.hold_requested:
-                cur_seq = sink.current_seq(run_id)
+            if pending_questions or hold_requested:
+                if new_ckpt is None:
+                    hold_seq = max(hold_coord.sync_seq(), sink.current_seq(run_id)) + 1
+                    ckpt_store.save_checkpoint(
+                        RunCheckpointRecord(
+                            run_id=run_id,
+                            step="step4",
+                            phase="steward_hold",
+                            status="HOLD_CHECKPOINTED",
+                            last_seq=hold_seq,
+                            ontology_rev_id=proj.active_ontology_rev_id,
+                            sources_fingerprint=fp,
+                            pending_questions=pending_questions,
+                            budget_turns_used=turn_res.turns_used,
+                            budget_tokens_used=turn_res.total_tokens,
+                            token_count_source=turn_res.token_count_source,
+                            resume_payload={"discovery_mode": eff_mode},
+                        )
+                    )
+                    final_state = running_state.model_copy(
+                        update={
+                            "status": "HOLD_CHECKPOINTED",
+                            "phase": "steward_hold",
+                            "budget_turns_used": turn_res.turns_used,
+                            "budget_tokens_used": turn_res.total_tokens,
+                            "pending_questions": pending_questions,
+                            "last_seq": hold_seq,
+                        }
+                    )
+                    record_run_state(self._state, project_id, final_state)
+                    hold_coord.seq = hold_seq
+                    sink.emit(
+                        RunStreamEvent(
+                            seq=hold_seq,
+                            run_id=run_id,
+                            ts=datetime.now(tz=UTC).isoformat(),
+                            event_type="HOLD_CHECKPOINTED",
+                            step="step4",
+                            payload={
+                                "pending_questions": [
+                                    q.model_dump(mode="json") for q in pending_questions
+                                ],
+                                "reason": "steward_pause" if paused_by_control else "steward_hold",
+                            },
+                        )
+                    )
+                else:
+                    cur_seq = sink.current_seq(run_id)
+                    final_state = running_state.model_copy(
+                        update={
+                            "status": "HOLD_CHECKPOINTED",
+                            "phase": "steward_hold",
+                            "budget_turns_used": turn_res.turns_used,
+                            "budget_tokens_used": turn_res.total_tokens,
+                            "pending_questions": pending_questions,
+                            "last_seq": cur_seq,
+                        }
+                    )
+                    record_run_state(self._state, project_id, final_state)
+            else:
+                next_seq = max(hold_coord.sync_seq(), sink.current_seq(run_id)) + 1
                 final_state = running_state.model_copy(
                     update={
-                        "status": "HOLD_CHECKPOINTED",
-                        "phase": "steward_hold",
+                        "status": "COMPLETED",
+                        "phase": "proposals_ready_for_steward",
                         "budget_turns_used": turn_res.turns_used,
                         "budget_tokens_used": turn_res.total_tokens,
-                        "pending_questions": pending_questions,
-                        "last_seq": cur_seq,
+                        "last_seq": next_seq,
                     }
                 )
-            else:
-                next_seq = max(broker.hold_coord.sync_seq(), sink.current_seq(run_id)) + 1
-                broker.hold_coord.seq = next_seq
+                record_run_state(self._state, project_id, final_state)
+                hold_coord.seq = next_seq
                 sink.emit(
                     RunStreamEvent(
                         seq=next_seq,
@@ -454,21 +492,6 @@ class DiscoveryRunHelper:
                         },
                     )
                 )
-                final_state = running_state.model_copy(
-                    update={
-                        "status": "COMPLETED",
-                        "phase": "proposals_ready_for_steward",
-                        "budget_turns_used": turn_res.turns_used,
-                        "budget_tokens_used": turn_res.total_tokens,
-                        "last_seq": sink.current_seq(run_id),
-                    }
-                )
-            if broker is not None:
-                await broker.stop()
-                broker = None
-            release_project_job_lease(self._state, project_id, run_id)
-            lease_released = True
-            record_run_state(self._state, project_id, final_state)
             append_audit_log(
                 self._state,
                 project_id,
