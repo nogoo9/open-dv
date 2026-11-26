@@ -157,7 +157,18 @@ def _suggest_fix(diag: VerifierDiagnostic) -> str:
     if diag.rule_id == "DV-STR-016":
         return "Repair BridgeHopSpec path so Link hops form a connected acyclic chain."
     if diag.rule_id == "DV-STR-017":
-        return "Align survivorship_priority entries with valid (source_id or source_id:table_id)."
+        if "incompatible" in diag.message.lower():
+            return (
+                f"Resolve Z4 COALESCE column type collision on '{diag.entity_name}' "
+                f"({diag.message}): either align both Satellites' DraftField logical_type "
+                "to a compatible widened type (e.g. DecimalType) or alias the colliding "
+                "attribute in one Satellite's attributes and col_mappings."
+            )
+        return (
+            f"Fix '{diag.entity_name}.survivorship_priority' ({diag.message}): "
+            "remove unowned or duplicate entries and keep only exact source_id or "
+            f"source_id:table_id values owned by '{diag.entity_name}' or its Satellites."
+        )
     if diag.rule_id == "DV-AP-009":
         return "Isolate PII columns into a sat_*_pii Satellite (sat_kind='PII') or waive."
     if diag.rule_id == "DV-AP-003":

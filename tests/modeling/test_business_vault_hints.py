@@ -734,3 +734,31 @@ def test_dv_str_009_suggest_fix_mentions_link_attributes_and_owning_hub() -> Non
     )
     assert "DraftLinkSpec.attributes" in hint
     assert "t_lnk_*" in hint and "owning Hub" in hint
+
+
+def test_dv_str_017_suggest_fix_distinguishes_type_collision_and_ownership() -> None:
+    """_suggest_fix distinguishes DV-STR-017 type collisions from survivorship ownership errors."""
+    from opendv.modeling.verify_mode import _suggest_fix
+    from opendv.models import VerifierDiagnostic
+
+    type_hint = _suggest_fix(
+        VerifierDiagnostic(
+            gate="V1",
+            rule_id="DV-STR-017",
+            severity="BLOCKER",
+            entity_name="hub_holding",
+            message="Hub hub_holding Z4 column 'market_value_usd' incompatible across a and b.",
+        )
+    )
+    assert "col_mappings" in type_hint and "DraftField logical_type" in type_hint
+
+    own_hint = _suggest_fix(
+        VerifierDiagnostic(
+            gate="V1",
+            rule_id="DV-STR-017",
+            severity="BLOCKER",
+            entity_name="hub_security",
+            message="Hub hub_security survivorship_priority 'src_x:tbl_y' not owned by Hub.",
+        )
+    )
+    assert "remove unowned" in own_hint and "survivorship_priority" in own_hint
