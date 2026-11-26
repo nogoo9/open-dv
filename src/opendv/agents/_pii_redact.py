@@ -27,6 +27,9 @@ from opendv.agents._pii_patterns import (
     _is_valid_iban,
 )
 
+# Fast-path guard so PII-only text skips 10 separate credential regex scans.
+_RE_CRED_HINT = re.compile(r"(?i)(?:sk-|dapi|AIza|ya29\.|bearer|basic|api[-_]key|key=)")
+
 
 def _trailing_pii_end(combined: str, min_len: int) -> int:
     if m_cc := _RE_CC_PAN.match(combined):
@@ -233,8 +236,9 @@ def redact_telemetry_text(text: str) -> str:
     if not text:
         return text
     out = text.replace("<MASKED_PII>", "[REDACTED]")
-    for rx, repl in _CREDENTIAL_SUB_PATTERNS:
-        out = rx.sub(repl, out)
+    if _RE_CRED_HINT.search(out):
+        for rx, repl in _CREDENTIAL_SUB_PATTERNS:
+            out = rx.sub(repl, out)
     out = _RE_ABA_PHRASE.sub("[REDACTED]", out)
     aba_chunks: list[str] = []
     aba_emit = 0

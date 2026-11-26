@@ -379,6 +379,12 @@ function mount(node: React.ReactElement) {
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 15));
+const flushUntil = async (pred: () => boolean, timeoutMs = 1500) => {
+	const deadline = Date.now() + timeoutMs;
+	while (!pred() && Date.now() < deadline) {
+		await flush();
+	}
+};
 type HappyEl = ReturnType<typeof win.document.createElement>;
 const qEl = <T>(root: HappyEl, sel: string) =>
 	root.querySelector(sel) as unknown as T;
@@ -768,44 +774,50 @@ describe("Track C Guided UX, Observatory, Step 7, Explorers & Settings", () => {
 		});
 
 		const { container, unmount } = mount(createElement(Step7Storage));
-		await flush();
+		try {
+			await flush();
 
-		// Compile All hits 500 EMITTER_VERIFICATION_FAILED -> displays targetDefectsById inline
-		const compileAllBtn = findBtn(container, "Compile All 11 Targets");
-		flushSync(() => compileAllBtn.click());
-		await flush();
-		expect(container.textContent).toContain("Identifier exceeds 127 bytes");
+			// Compile All hits 500 EMITTER_VERIFICATION_FAILED -> displays targetDefectsById inline
+			const compileAllBtn = findBtn(container, "Compile All 11 Targets");
+			flushSync(() => compileAllBtn.click());
+			await flushUntil(
+				() =>
+					container.textContent?.includes("Identifier exceeds 127 bytes") ??
+					false,
+			);
+			expect(container.textContent).toContain("Identifier exceeds 127 bytes");
 
-		// Select Snowflake (compile-only -> Migrate disabled) and verify Regen always targets duckdb_local
-		const sfBtn = findBtn(container, "Snowflake");
-		flushSync(() => sfBtn.click());
-		const migrateBtn = findBtn(container, "Migrate Selected Target");
-		expect(migrateBtn.disabled).toBe(true);
-		const regenBtn = findBtn(container, "Reset & Test Full Regen");
-		flushSync(() => regenBtn.click());
-		await flush();
-		expect(
-			posted.some(
-				(p) =>
-					p.url.endsWith("/storage/regenerate") &&
-					(p.body as { target_id?: string })?.target_id === "duckdb_local",
-			),
-		).toBe(true);
+			// Select Snowflake (compile-only -> Migrate disabled) and verify Regen always targets duckdb_local
+			const sfBtn = findBtn(container, "Snowflake");
+			flushSync(() => sfBtn.click());
+			const migrateBtn = findBtn(container, "Migrate Selected Target");
+			expect(migrateBtn.disabled).toBe(true);
+			const regenBtn = findBtn(container, "Reset & Test Full Regen");
+			flushSync(() => regenBtn.click());
+			await flush();
+			expect(
+				posted.some(
+					(p) =>
+						p.url.endsWith("/storage/regenerate") &&
+						(p.body as { target_id?: string })?.target_id === "duckdb_local",
+				),
+			).toBe(true);
 
-		// Resize < 768px downgrades SQL runner to view-only while preserving sqlQuery
-		flushSync(() => {
-			win.innerWidth = 390;
-			win.dispatchEvent(new win.Event("resize"));
-		});
-		expect(container.querySelector("textarea")).toBeNull();
-		expect(container.textContent).toContain(
-			"SELECT * FROM hub_custody_account;",
-		);
-		expect(useProjectStore.getState().sqlQuery).toBe(
-			"SELECT * FROM hub_custody_account;",
-		);
-
-		unmount();
+			// Resize < 768px downgrades SQL runner to view-only while preserving sqlQuery
+			flushSync(() => {
+				win.innerWidth = 390;
+				win.dispatchEvent(new win.Event("resize"));
+			});
+			expect(container.querySelector("textarea")).toBeNull();
+			expect(container.textContent).toContain(
+				"SELECT * FROM hub_custody_account;",
+			);
+			expect(useProjectStore.getState().sqlQuery).toBe(
+				"SELECT * FROM hub_custody_account;",
+			);
+		} finally {
+			unmount();
+		}
 	});
 
 	test("DVSchemaExplorerPage renders 10 chips & Wave delta, RunExplorerPage gates /attempts on step6, SettingsHub isolates trusted_workspaces & WCAG tokens", async () => {
