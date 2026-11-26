@@ -2138,3 +2138,162 @@ def test_link_participant_missing_hub_recipe_synthesized_in_staging(tmp_path: Pa
     assert all(rep.dyn_results.values()), (rep.dyn_results, rep.counterexamples)
     assert not any("binder" in str(c).lower() for c in rep.counterexamples)
 
+
+def test_dv_dyn_007_counterexamples_carry_entity_and_remediation_hint() -> None:
+    """DV-DYN-007 orphan FKs emit entity_name, hub_name, fk_col, and actionable remediation_hint."""
+    from opendv.modeling.verify_mode import _build_remediation_hints
+    from opendv.verifier.ports import VerifierReport
+
+    sec_tbl = "src_sec:securities"
+    hold_tbl = "src_hold:holdings_13f"
+    sec_prof = SourceProfile(
+        source_id="src_sec",
+        schema_fingerprint="fp_sec7",
+        table_count=1,
+        tables=[
+            TableProfile(
+                table_id=sec_tbl,
+                table_name="securities",
+                row_count_est=1,
+                columns=[
+                    ColumnProfile(
+                        col_name="ticker",
+                        sql_type="VARCHAR",
+                        nullable=False,
+                        is_pk=True,
+                        distinct_count_est=1,
+                        null_ratio=0.0,
+                        pii_tags=[],
+                    ),
+                ],
+            )
+        ],
+    )
+    hold_prof = SourceProfile(
+        source_id="src_hold",
+        schema_fingerprint="fp_hold7",
+        table_count=1,
+        tables=[
+            TableProfile(
+                table_id=hold_tbl,
+                table_name="holdings_13f",
+                row_count_est=2,
+                columns=[
+                    ColumnProfile(
+                        col_name="holding_id",
+                        sql_type="VARCHAR",
+                        nullable=False,
+                        is_pk=True,
+                        distinct_count_est=2,
+                        null_ratio=0.0,
+                        pii_tags=[],
+                    ),
+                    ColumnProfile(
+                        col_name="ticker",
+                        sql_type="VARCHAR",
+                        nullable=False,
+                        is_pk=False,
+                        distinct_count_est=2,
+                        null_ratio=0.0,
+                        pii_tags=[],
+                    ),
+                ],
+            )
+        ],
+    )
+    triage = [
+        ColumnTriageEntry(table_id=sec_tbl, col_name="ticker", disposition="MODELED", target_ref="hub_security"),
+        ColumnTriageEntry(table_id=hold_tbl, col_name="holding_id", disposition="MODELED", target_ref="hub_holding"),
+        ColumnTriageEntry(table_id=hold_tbl, col_name="ticker", disposition="MODELED", target_ref="lnk_holding_security"),
+    ]
+    draft = DraftVaultIR(
+        project_id="p_ri7",
+        ontology_version="1.0",
+        wave_number=1,
+        hubs=[
+            DraftHubSpec(
+                hub_name="hub_security",
+                key_tier="TIER_1_GLOBAL_STANDARD",
+                business_keys=[
+                    BusinessKeyPart(
+                        table_id=sec_tbl,
+                        col_name="ticker",
+                        source_id="src_sec",
+                        key_tier="TIER_1_GLOBAL_STANDARD",
+                        bkcc_value="GLOBAL",
+                    )
+                ],
+                source_bindings=[
+                    DraftSourceBinding(source_id="src_sec", table_id=sec_tbl, col_mappings={"ticker": "ticker"})
+                ],
+            ),
+            DraftHubSpec(
+                hub_name="hub_holding",
+                key_tier="TIER_2_ENTERPRISE_SOR",
+                business_keys=[
+                    BusinessKeyPart(
+                        table_id=hold_tbl,
+                        col_name="holding_id",
+                        source_id="src_hold",
+                        key_tier="TIER_2_ENTERPRISE_SOR",
+                        bkcc_value="SEC",
+                    )
+                ],
+                source_bindings=[
+                    DraftSourceBinding(source_id="src_hold", table_id=hold_tbl, col_mappings={"holding_id": "holding_id"})
+                ],
+            ),
+        ],
+        links=[
+            DraftLinkSpec(
+                link_name="lnk_holding_security",
+                link_kind="STANDARD",
+                participants=[
+                    LinkParticipantSpec(
+                        hub_name="hub_holding",
+                        fk_col_name="hk_holding",
+                        role_name="HOLDING",
+                        source_col_names=["holding_id"],
+                    ),
+                    LinkParticipantSpec(
+                        hub_name="hub_security",
+                        fk_col_name="hk_security",
+                        role_name="SECURITY",
+                        source_col_names=["ticker"],
+                    ),
+                ],
+                source_bindings=[
+                    DraftSourceBinding(
+                        source_id="src_hold",
+                        table_id=hold_tbl,
+                        col_mappings={"hk_holding": "holding_id", "hk_security": "ticker"},
+                    )
+                ],
+            )
+        ],
+        column_triage=triage,
+    )
+    _, cert_ir, _ = run_l1_codemods(draft, profiles=[sec_prof, hold_prof])
+    rep = DuckDbProverAdapter().prove(
+        cert_ir,
+        [sec_prof, hold_prof],
+        source_rows_by_table={
+            sec_tbl: [{"ticker": "AAPL"}],
+            hold_tbl: [{"holding_id": "H1", "ticker": "AAPL"}, {"holding_id": "H2", "ticker": "ORPHAN"}],
+        },
+        table_sample_flags={sec_tbl: True, hold_tbl: True},
+        real_row_proving=True,
+    )
+    assert rep.dyn_results["DV-DYN-007"] is False
+    d7_ce = [ce for ce in rep.counterexamples if ce.get("rule_id") == "DV-DYN-007"]
+    assert d7_ce, rep.counterexamples
+    assert d7_ce[0].get("entity_name") == "lnk_holding_security"
+    assert d7_ce[0].get("hub_name") == "hub_security"
+    assert d7_ce[0].get("fk_col") == "hk_security"
+    assert "hub_security" in str(d7_ce[0].get("remediation_hint"))
+
+    hints = _build_remediation_hints(VerifierReport(passed=False, prover_report=rep))
+    d7_hints = [h for h in hints if h.rule_id == "DV-DYN-007"]
+    assert d7_hints and d7_hints[0].entity_name == "lnk_holding_security"
+    assert "hub_security" in d7_hints[0].suggested_fix
+

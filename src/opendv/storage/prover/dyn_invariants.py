@@ -133,7 +133,24 @@ def run_all_dyn_invariants(
                     pii_cols,
                 )
                 if orphans:
-                    _fail("DV-DYN-007", orphans)
+                    hint = (
+                        f"Link '{lk.link_name}' -> Hub '{p.hub_name}' ({p.fk_col_name}) has "
+                        f"orphan FKs: bind every Link source table to Hub '{p.hub_name}' with "
+                        "matching BK/BKCC."
+                    )
+                    _fail(
+                        "DV-DYN-007",
+                        [
+                            {
+                                **r,
+                                "entity_name": lk.link_name,
+                                "hub_name": p.hub_name,
+                                "fk_col": p.fk_col_name,
+                                "remediation_hint": hint,
+                            }
+                            for r in orphans
+                        ],
+                    )
 
     # DV-DYN-004, 005, 006, 008, 011, 013: Satellite checks
     check_satellite_invariants(

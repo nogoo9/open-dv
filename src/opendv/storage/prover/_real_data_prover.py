@@ -234,7 +234,22 @@ def _eval_ri_gates(
             )
             if orphans:
                 d7_fl += 1
-                ce.extend({"rule_id": "DV-DYN-007", **r} for r in orphans)
+                hint = (
+                    f"Link '{lk.link_name}' -> Hub '{p.hub_name}' ({p.fk_col_name}) has "
+                    f"orphan FKs: bind every Link source table to Hub '{p.hub_name}' with "
+                    "matching BK/BKCC."
+                )
+                ce.extend(
+                    {
+                        "rule_id": "DV-DYN-007",
+                        "entity_name": lk.link_name,
+                        "hub_name": p.hub_name,
+                        "fk_col": p.fk_col_name,
+                        "remediation_hint": hint,
+                        **r,
+                    }
+                    for r in orphans
+                )
 
     res007 = _edge_res(
         d7_ex,
@@ -275,7 +290,20 @@ def _eval_ri_gates(
         )
         if orphans:
             d6_fl += 1
-            ce.extend({"rule_id": "DV-DYN-006", **r} for r in orphans)
+            hint = (
+                f"Satellite '{sat.sat_name}' -> '{sat.parent_name}' has orphan parent keys: "
+                f"bind '{sat.source_table_id}' to '{sat.parent_name}' with matching BK/BKCC."
+            )
+            ce.extend(
+                {
+                    "rule_id": "DV-DYN-006",
+                    "entity_name": sat.sat_name,
+                    "parent_name": sat.parent_name,
+                    "remediation_hint": hint,
+                    **r,
+                }
+                for r in orphans
+            )
         elif is_same:
             d6_s += 1
             d6_ok = d6_ok and (flags.get(sat.source_table_id, False) is True)

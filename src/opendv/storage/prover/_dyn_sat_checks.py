@@ -179,7 +179,23 @@ def check_satellite_invariants(
                     pii_cols,
                 )
                 if orphans:
-                    fail_fn("DV-DYN-006", orphans)
+                    hint = (
+                        f"Satellite '{sat.sat_name}' -> '{sat.parent_name}' has orphan parent "
+                        f"keys: bind '{sat.source_table_id}' to '{sat.parent_name}' with "
+                        "matching BK/BKCC."
+                    )
+                    fail_fn(
+                        "DV-DYN-006",
+                        [
+                            {
+                                **r,
+                                "entity_name": sat.sat_name,
+                                "parent_name": sat.parent_name,
+                                "remediation_hint": hint,
+                            }
+                            for r in orphans
+                        ],
+                    )
 
         # DV-DYN-008: Consecutive hash_diff true-delta historization
         if sat.sat_kind != "ESAT" and sat.hash_recipe is not None:
