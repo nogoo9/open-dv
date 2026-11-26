@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -12,6 +14,7 @@ from opendv.models.diagnostics import (
     ExternalMcpEvidenceRef,
     StrictModel,
 )
+from opendv.models.modeling_preferences import ModelingPreferences
 from opendv.models.ontology import ConceptTableBinding
 from opendv.models.ontology_deltas import OntologyDelta
 from opendv.models.policy import CegarPolicy, ModelTier
@@ -89,6 +92,7 @@ class WorkspaceSettings(StrictModel):
     timeout_seconds: int | None = Field(default=None, ge=1)
     connection_profiles: dict[str, ConnectorConfigPayload] = Field(default_factory=dict)
     trusted_workspaces: list[TrustedWorkspaceSpec] = Field(default_factory=list)
+    modeling_preferences: ModelingPreferences = Field(default_factory=ModelingPreferences)
     updated_at: str = ""
 
     @model_validator(mode="after")
@@ -110,12 +114,63 @@ class ProjectSettingsSnapshot(StrictModel):
     timeout_seconds: int | None = Field(default=None, ge=1)
     secret_precedence: SecretPrecedence = "store_first"
     discovery_mode: DiscoveryMode = "incremental_new"
+    modeling_preferences: ModelingPreferences = Field(default_factory=ModelingPreferences)
+    business_context_hints: str | None = Field(default=None, max_length=12_000)
+    proving_sample_rows: int = Field(default=200, ge=1, le=5000)
+    real_row_proving: bool = True
 
     @model_validator(mode="after")
     def _validate_strict_tier_lock(self) -> ProjectSettingsSnapshot:
         if self.cegar_policy == "strict" and self.v7_critic_tier != "FRONTIER_CRITIC":
             raise ValueError("v7_critic_tier must be FRONTIER_CRITIC when cegar_policy is strict")
         return self
+
+
+class ProjectSettingsUpdateReq(StrictModel):
+    """Partial PATCH update payload for per-project settings (via model_fields_set)."""
+
+    harness_provider: HarnessProvider | None = None
+    v7_critic_tier: ModelTier | None = None
+    cegar_policy: CegarPolicy | None = None
+    dbt_sql_dialect: DbtSqlDialect | None = None
+    max_turns: int | None = Field(default=None, ge=1)
+    max_tokens: int | None = Field(default=None, ge=1)
+    timeout_seconds: int | None = Field(default=None, ge=1)
+    secret_precedence: SecretPrecedence | None = None
+    discovery_mode: DiscoveryMode | None = None
+    modeling_preferences: ModelingPreferences | None = None
+    business_context_hints: str | None = Field(default=None, max_length=12_000)
+    proving_sample_rows: int | None = Field(default=None, ge=1, le=5000)
+    real_row_proving: bool | None = None
+
+    @model_validator(mode="after")
+    def _validate_strict_tier_lock(self) -> ProjectSettingsUpdateReq:
+        if (
+            self.cegar_policy == "strict"
+            and self.v7_critic_tier is not None
+            and self.v7_critic_tier != "FRONTIER_CRITIC"
+        ):
+            raise ValueError("v7_critic_tier must be FRONTIER_CRITIC when cegar_policy is strict")
+        return self
+
+
+def compute_workspace_agents_sha256(workspace_root: Path) -> str | None:
+    """Compute canonical SHA-256 over .opendv/agents override SKILL.md and modeling guide."""
+    override_root = workspace_root / ".opendv" / "agents"
+    if not override_root.is_dir():
+        return None
+    candidates: list[Path] = [p for p in override_root.glob("*/SKILL.md") if p.is_file()]
+    guide = override_root / "dv2-modeling-guide.md"
+    if guide.is_file():
+        candidates.append(guide)
+    if not candidates:
+        return None
+    by_rel = {p.relative_to(override_root).as_posix(): p for p in candidates}
+    hasher = hashlib.sha256()
+    for rel in sorted(by_rel):
+        text_lf = by_rel[rel].read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+        hasher.update(rel.encode("utf-8") + b"\x00" + text_lf.encode("utf-8") + b"\x00")
+    return hasher.hexdigest()
 
 
 class ProjectState(StrictModel):
@@ -330,6 +385,7 @@ __all__ = [
     "OntologyProposalSpec",
     "OntologyWaiverSpec",
     "ProjectSettingsSnapshot",
+    "ProjectSettingsUpdateReq",
     "ProjectState",
     "ProjectSummary",
     "RevisionMetadata",
@@ -339,6 +395,7 @@ __all__ = [
     "TargetManifest",
     "TrustedWorkspaceSpec",
     "WorkspaceSettings",
+    "compute_workspace_agents_sha256",
     "validate_domain_namespace",
     "validate_project_id",
 ]

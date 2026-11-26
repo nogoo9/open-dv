@@ -10,6 +10,16 @@ CegarPolicy = Literal["symbolic_only", "fast", "balanced", "strict"]
 ModelTier = Literal["FRONTIER_CRITIC", "STANDARD_WORKER"]
 V8Mode = Literal["off", "on_demand", "auto"]
 
+VALID_V6B_RULE_IDS: frozenset[str] = frozenset(
+    {
+        *(f"ONT-AP-00{i}" for i in range(1, 6)),
+        *(f"DV-AP-{i:03d}" for i in range(1, 13)),
+    }
+)
+BALANCED_BLOCKING_V6B_RULES: frozenset[str] = frozenset(
+    {"DV-AP-001", "DV-AP-003", "DV-AP-009", "DV-AP-010", "DV-AP-011"}
+)
+
 
 class HarnessBudget(BaseModel):
     """Execution budget ceilings for Step 4 and Step 6 agentic runs."""
@@ -44,6 +54,8 @@ class CegarPolicySpec(BaseModel):
     v7_tier_locked: bool = False
     v8_mode: V8Mode
     require_zero_unwaived_v6b: bool = False
+    blocking_v6b_rules: frozenset[str] = Field(default_factory=frozenset)
+    allow_preference_exemptions: bool = True
     budget: HarnessBudget
 
 
@@ -56,6 +68,8 @@ CEGAR_POLICY_SPECS: dict[CegarPolicy, CegarPolicySpec] = {
         v7_tier_locked=False,
         v8_mode="off",
         require_zero_unwaived_v6b=False,
+        blocking_v6b_rules=frozenset(),
+        allow_preference_exemptions=True,
         budget=HarnessBudget(max_turns=1, max_tokens=60_000, timeout_seconds=120),
     ),
     "fast": CegarPolicySpec(
@@ -66,6 +80,8 @@ CEGAR_POLICY_SPECS: dict[CegarPolicy, CegarPolicySpec] = {
         v7_tier_locked=False,
         v8_mode="on_demand",
         require_zero_unwaived_v6b=False,
+        blocking_v6b_rules=frozenset(),
+        allow_preference_exemptions=True,
         budget=HarnessBudget(max_turns=24, max_tokens=250_000, timeout_seconds=600),
     ),
     "balanced": CegarPolicySpec(
@@ -76,6 +92,8 @@ CEGAR_POLICY_SPECS: dict[CegarPolicy, CegarPolicySpec] = {
         v7_tier_locked=False,
         v8_mode="auto",
         require_zero_unwaived_v6b=False,
+        blocking_v6b_rules=BALANCED_BLOCKING_V6B_RULES,
+        allow_preference_exemptions=True,
         budget=HarnessBudget(max_turns=40, max_tokens=500_000, timeout_seconds=1_200),
     ),
     "strict": CegarPolicySpec(
@@ -86,6 +104,8 @@ CEGAR_POLICY_SPECS: dict[CegarPolicy, CegarPolicySpec] = {
         v7_tier_locked=True,
         v8_mode="auto",
         require_zero_unwaived_v6b=True,
+        blocking_v6b_rules=VALID_V6B_RULE_IDS,
+        allow_preference_exemptions=False,
         budget=HarnessBudget(max_turns=60, max_tokens=800_000, timeout_seconds=1_800),
     ),
 }
@@ -115,13 +135,23 @@ def compute_cegar_energy(
     return 100 * v1_v6_fail + 10 * v6b_fail + v7_penalty
 
 
+def compute_deterministic_energy(v1_v6_fail: int, blocking_v6b_fail: int) -> int:
+    """Compute deterministic energy from V1-V6 and policy-blocking V6b failure counts."""
+    if v1_v6_fail < 0 or blocking_v6b_fail < 0:
+        raise ValueError("Failure counts must be non-negative")
+    return 100 * v1_v6_fail + 10 * blocking_v6b_fail
+
+
 __all__ = [
+    "BALANCED_BLOCKING_V6B_RULES",
     "CEGAR_POLICY_SPECS",
     "STEP4_DEFAULT_BUDGET",
+    "VALID_V6B_RULE_IDS",
     "CegarPolicy",
     "CegarPolicySpec",
     "HarnessBudget",
     "ModelTier",
     "V8Mode",
     "compute_cegar_energy",
+    "compute_deterministic_energy",
 ]

@@ -89,11 +89,13 @@ PredicateBranch.model_rebuild()
 class DraftField(StrictModel):
     """Descriptive attribute column on a DraftVaultIR entity."""
 
-    name: str = Field(min_length=1)
-    logical_type: PortableLogicalType
-    nullable: bool
-    is_pii: bool
-    classification_tag: str | None = None
+    name: str = Field(min_length=1, description="Logical column name.")
+    logical_type: PortableLogicalType = Field(description="Portable physical-neutral logical type.")
+    nullable: bool = Field(description="Whether NULL values are permitted.")
+    is_pii: bool = Field(description="Whether this column contains PII.")
+    classification_tag: str | None = Field(
+        default=None, description="Optional governance or PII classification tag."
+    )
 
 
 class DraftSourceBinding(StrictModel):
@@ -109,21 +111,54 @@ class DraftSourceBinding(StrictModel):
 class LinkParticipantSpec(StrictModel):
     """Hub role participant inside a Data Vault Link."""
 
-    hub_name: str
-    role_name: str
-    fk_col_name: str
-    source_col_names: list[str]
+    hub_name: str = Field(description="Referenced target Hub name (or empty for degenerate).")
+    role_name: str = Field(description="Semantic role name of this participant in the Link.")
+    fk_col_name: str = Field(description="Physical foreign hash-key column name in the Link.")
+    source_col_names: list[str] = Field(description="Ordered source columns feeding this role.")
+    target_hub_binding_table_id: str | None = Field(
+        default=None,
+        description=(
+            "Disambiguating Hub SourceBinding table_id when a source_id binds multiple tables."
+        ),
+    )
+    is_nullable: bool | None = Field(
+        default=None,
+        description=(
+            "Explicit tri-state nullability override "
+            "(False=mandatory, True=optional, None=profile inferred)."
+        ),
+    )
+    key_tier: KeyTierEnum | None = Field(
+        default=None, description="Optional per-Link-binding KeyTier override."
+    )
+    bkcc_value: str | None = Field(
+        default=None, description="Optional static BKCC override for this Link participant."
+    )
+    bkcc_col: str | None = Field(
+        default=None, description="Optional source column providing per-row BKCC."
+    )
+    unknown_predicate: PredicateNode | None = Field(
+        default=None, description="Predicate matching Unknown (-1) sentinel participant rows."
+    )
+    error_predicate: PredicateNode | None = Field(
+        default=None, description="Predicate matching Error (-2) sentinel participant rows."
+    )
 
 
 class BusinessKeyPart(StrictModel):
     """Source column contributing to a Hub business key and its BKCC tier."""
 
-    table_id: str
-    col_name: str
-    source_id: str
-    key_tier: KeyTierEnum
-    bkcc_value: str
-    bkcc_col: str | None = None
+    table_id: str = Field(description="Source table identifier.")
+    col_name: str = Field(description="Source column name contributing to the business key.")
+    source_id: str = Field(description="Source system identifier.")
+    key_tier: KeyTierEnum = Field(description="3-tier Key Authority policy for BKCC resolution.")
+    bkcc_value: str = Field(description="Static BKCC literal value.")
+    bkcc_col: str | None = Field(
+        default=None, description="Optional source column carrying dynamic per-row BKCC."
+    )
+    canonical_col_name: str | None = Field(
+        default=None, description="Deduplicated canonical physical BK column name."
+    )
 
 
 TriageDisposition = Literal[
@@ -156,12 +191,33 @@ class ColumnTriageEntry(StrictModel):
 class DraftHubSpec(StrictModel):
     """Draft Hub specification emitted by Step 6 agent synthesis."""
 
-    hub_name: str = Field(min_length=1)
-    business_keys: list[BusinessKeyPart] = Field(default_factory=list)
-    key_tier: KeyTierEnum
-    source_bindings: list[DraftSourceBinding] = Field(default_factory=list)
-    attributes: list[DraftField] = Field(default_factory=list)
-    is_planned_concept: bool = False
+    hub_name: str = Field(min_length=1, description="Zone Z2 Hub table name (hub_*).")
+    business_keys: list[BusinessKeyPart] = Field(
+        default_factory=list, description="Contributing business key parts across sources."
+    )
+    key_tier: KeyTierEnum = Field(description="Dominant 3-tier Key Authority policy.")
+    source_bindings: list[DraftSourceBinding] = Field(
+        default_factory=list, description="Source table lineage bindings feeding this Hub."
+    )
+    attributes: list[DraftField] = Field(
+        default_factory=list, description="Must remain empty per INV-05."
+    )
+    is_planned_concept: bool = Field(
+        default=False, description="True if concept is planned without active source bindings."
+    )
+    survivorship_priority: list[str] = Field(
+        default_factory=list,
+        description="Ordered source_id (or source_id:table_id) survivorship precedence.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_empty_attributes(self) -> DraftHubSpec:
+        if self.attributes:
+            raise ValueError(
+                "INV-05 violation: DraftHubSpec.attributes must be empty; "
+                "place descriptive columns in Satellites."
+            )
+        return self
 
 
 LinkKind = Literal[
@@ -176,13 +232,24 @@ LinkKind = Literal[
 class DraftLinkSpec(StrictModel):
     """Draft Link specification emitted by Step 6 agent synthesis."""
 
-    link_name: str = Field(min_length=1)
-    link_kind: LinkKind
-    participants: list[LinkParticipantSpec]
-    driving_hub: str | None = None
-    degenerate_keys: list[str] = Field(default_factory=list)
-    source_bindings: list[DraftSourceBinding] = Field(default_factory=list)
-    attributes: list[DraftField] = Field(default_factory=list)
+    link_name: str = Field(min_length=1, description="Zone Z2 Link table name (lnk_*).")
+    link_kind: LinkKind = Field(description="Structural Data Vault Link classification.")
+    participants: list[LinkParticipantSpec] = Field(
+        description="Ordered Hub role participants in this Link."
+    )
+    driving_hub: str | None = Field(
+        default=None, description="Optional driving Hub name for effectivity tracking."
+    )
+    degenerate_keys: list[str] = Field(
+        default_factory=list, description="Degenerate business key columns hashed into the Link."
+    )
+    source_bindings: list[DraftSourceBinding] = Field(
+        default_factory=list, description="Source table lineage bindings feeding this Link."
+    )
+    attributes: list[DraftField] = Field(
+        default_factory=list,
+        description="Descriptive payload attributes (valid only on TRANSACTIONAL links).",
+    )
 
 
 SatKind = Literal[
@@ -204,19 +271,67 @@ SatLoadMode = Literal[
 class DraftSatelliteSpec(StrictModel):
     """Draft Satellite specification emitted by Step 6 agent synthesis."""
 
-    sat_name: str = Field(min_length=1)
-    sat_kind: SatKind
-    parent_name: str = Field(min_length=1)
-    source_bindings: list[DraftSourceBinding] = Field(default_factory=list)
-    extends_sat_name: str | None = None
-    companion_epoch: int | None = None
-    is_bitemporal: bool = False
-    applied_dts_col: str | None = None
-    load_mode: SatLoadMode = "INSERT_ONLY_DELTA"
-    child_dependent_keys: list[str] = Field(default_factory=list)
-    driving_keys: list[str] = Field(default_factory=list)
-    immutable_payload_fields: list[str] = Field(default_factory=list)
-    attributes: list[DraftField] = Field(default_factory=list)
+    sat_name: str = Field(min_length=1, description="Zone Z2 Satellite table name (sat_*).")
+    sat_kind: SatKind = Field(description="Data Vault Satellite classification.")
+    parent_name: str = Field(min_length=1, description="Parent Hub or Link entity name.")
+    source_bindings: list[DraftSourceBinding] = Field(
+        default_factory=list, description="Source table lineage bindings feeding this Satellite."
+    )
+    extends_sat_name: str | None = Field(
+        default=None, description="Base Satellite name when this is an EXT companion split."
+    )
+    companion_epoch: int | None = Field(
+        default=None, description="Monotonic wave epoch for companion Satellite splits."
+    )
+    is_bitemporal: bool = Field(
+        default=False, description="True if Satellite tracks applied_dts alongside load_dts."
+    )
+    applied_dts_col: str | None = Field(
+        default=None, description="Source column providing business effective/applied timestamp."
+    )
+    load_mode: SatLoadMode = Field(
+        default="INSERT_ONLY_DELTA", description="Satellite historization and delta load strategy."
+    )
+    child_dependent_keys: list[str] = Field(
+        default_factory=list, description="Dependent child key columns (required on MAS)."
+    )
+    driving_keys: list[str] = Field(
+        default_factory=list, description="Driving key column names (for ESAT effectivity)."
+    )
+    immutable_payload_fields: list[str] = Field(
+        default_factory=list, description="Payload columns excluded from mutable diffing."
+    )
+    attributes: list[DraftField] = Field(
+        default_factory=list, description="Descriptive payload attributes in this Satellite."
+    )
+
+
+class BridgeHopSpec(StrictModel):
+    """Single traversed Link hop inside a Zone Z3 Bridge table."""
+
+    link_name: str = Field(
+        min_length=1, description="Standard Link name traversed by this bridge hop."
+    )
+    from_fk_col: str | None = Field(
+        default=None,
+        description="Optional explicit FK column on incoming hub side for role-aliased links.",
+    )
+    to_fk_col: str | None = Field(
+        default=None,
+        description="Optional explicit FK column on outgoing hub side for role-aliased links.",
+    )
+
+
+class DraftBridgeSpec(StrictModel):
+    """Draft Zone Z3 multi-hop Bridge specification."""
+
+    bridge_name: str = Field(min_length=1, description="Zone Z3 Bridge table name (brg_*).")
+    root_hub: str = Field(
+        min_length=1, description="Anchor Hub name from which bridge hops originate."
+    )
+    hops: list[BridgeHopSpec] = Field(
+        min_length=1, description="Ordered sequence of connected Link hops."
+    )
 
 
 class DraftShardIR(StrictModel):
@@ -227,29 +342,47 @@ class DraftShardIR(StrictModel):
     links: list[DraftLinkSpec] = Field(default_factory=list)
     satellites: list[DraftSatelliteSpec] = Field(default_factory=list)
     column_triage: list[ColumnTriageEntry] = Field(default_factory=list)
+    justifications: list[AntiPatternJustification] = Field(
+        default_factory=list, description="Per-shard V6b anti-pattern justifications."
+    )
     pending_clarifications: list[ClarificationQuestion] = Field(default_factory=list)
 
 
 class DraftVaultIR(StrictModel):
     """Pre-L1/L2 Draft Vault IR authored by Step 6 agent runs."""
 
-    ir_version: Literal["2.0"] = "2.0"
-    project_id: str = Field(min_length=1)
-    ontology_version: str
-    wave_number: int = Field(ge=1)
-    hubs: list[DraftHubSpec] = Field(default_factory=list)
-    links: list[DraftLinkSpec] = Field(default_factory=list)
-    satellites: list[DraftSatelliteSpec] = Field(default_factory=list)
-    column_triage: list[ColumnTriageEntry] = Field(default_factory=list)
-    justifications: list[AntiPatternJustification] = Field(default_factory=list)
-    pending_clarifications: list[ClarificationQuestion] = Field(default_factory=list)
+    ir_version: Literal["2.0"] = Field(default="2.0", description="Draft IR schema version.")
+    project_id: str = Field(min_length=1, description="Project identifier.")
+    ontology_version: str = Field(description="Source GraphAOntology version.")
+    wave_number: int = Field(ge=1, description="Incremental modeling wave number.")
+    hubs: list[DraftHubSpec] = Field(default_factory=list, description="Draft Hub specifications.")
+    links: list[DraftLinkSpec] = Field(
+        default_factory=list, description="Draft Link specifications."
+    )
+    satellites: list[DraftSatelliteSpec] = Field(
+        default_factory=list, description="Draft Satellite specifications."
+    )
+    bridges: list[DraftBridgeSpec] = Field(
+        default_factory=list, description="Post-merge Zone Z3 multi-hop Bridge declarations."
+    )
+    column_triage: list[ColumnTriageEntry] = Field(
+        default_factory=list, description="100% source column triage ledger."
+    )
+    justifications: list[AntiPatternJustification] = Field(
+        default_factory=list, description="Waivable V6b anti-pattern justifications."
+    )
+    pending_clarifications: list[ClarificationQuestion] = Field(
+        default_factory=list, description="Open Steward clarification questions."
+    )
 
 
 __all__ = [
     "ArrayType",
+    "BridgeHopSpec",
     "BusinessKeyPart",
     "ColumnTriageEntry",
     "DecimalType",
+    "DraftBridgeSpec",
     "DraftField",
     "DraftHubSpec",
     "DraftLinkSpec",

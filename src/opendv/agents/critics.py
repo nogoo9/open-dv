@@ -7,8 +7,6 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from pydantic import Field
-
 from opendv.agents.pack_loader import load_agent_pack
 from opendv.agents.ports import (
     AgentHarnessPort,
@@ -17,7 +15,8 @@ from opendv.agents.ports import (
     RunEventSink,
     enforce_v7_tier_lock,
 )
-from opendv.models.diagnostics import AntiPatternJustification, StrictModel
+from opendv.models.diagnostics import AntiPatternJustification
+from opendv.models.modeling_preferences import FragilitySurfaceSummary
 from opendv.models.ontology import GraphAOntology
 from opendv.models.policy import CegarPolicy, HarnessBudget, ModelTier
 from opendv.models.project import EvolutionLockSpec, HorizonAssumptionSpec
@@ -57,17 +56,6 @@ def _matches_absorbed_native(item: str, absorbed_natively: Sequence[str]) -> boo
         elif re.search(rf"(?i)(?<![A-Za-z0-9_]){re.escape(clean)}(?![A-Za-z0-9_])", item):
             return True
     return False
-
-
-class FragilitySurfaceSummary(StrictModel):
-    """Zero-token deterministic summary of immutable wave-1 commitments for V8."""
-
-    hub_bks: list[str] = Field(default_factory=list)
-    link_arities: list[str] = Field(default_factory=list)
-    single_active_sats: list[str] = Field(default_factory=list)
-    narrow_numeric_cols: list[str] = Field(default_factory=list)
-    bitemporal_gaps: list[str] = Field(default_factory=list)
-    candidate_alt_bks: list[str] = Field(default_factory=list)
 
 
 def build_compact_7tuple_summary(profiles: Sequence[SourceProfile]) -> list[CompactColumnTuple]:

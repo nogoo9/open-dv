@@ -74,14 +74,16 @@ class RunCheckpointRecord(StrictModel):
     budget_tokens_used: int = Field(ge=0)
     token_count_source: Literal["reported", "estimated"]
     resume_payload: dict[str, str | int | bool | list[str]] = Field(default_factory=dict)
+    pre_steer_fallback_ref: str | None = None
+    prior_v8_verdict_json: str | None = None
 
 
 class ControlSignalRecord(StrictModel):
-    """Persisted run control signal (pause, hint, accept-best, raise-budget, horizon-review)."""
+    """Persisted run control signal (pause, hint, accept-best, raise-budget, horizon, revert)."""
 
     signal_id: str
     run_id: str
-    action: Literal["pause", "hint", "accept-best", "raise-budget", "horizon-review"]
+    action: Literal["pause", "hint", "accept-best", "raise-budget", "horizon-review", "revert"]
     hint: str | None = None
     extra_turns: int | None = None
     extra_tokens: int | None = None

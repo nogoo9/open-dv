@@ -21,6 +21,22 @@ KeyTierEnum = Literal[
 
 GateId = Literal["ONT", "V1", "V2", "V3", "V4", "V5", "V6", "V6b", "V7", "V8"]
 DiagnosticSeverity = Literal["BLOCKER", "ERROR", "WARN", "ADVISORY"]
+RealDataCheckStatus = Literal[
+    "PASS_FULL",
+    "PASS_SAMPLE_BOUNDED",
+    "FAIL",
+    "SKIPPED_PARTIAL_SAMPLE",
+    "DISABLED_BY_USER",
+]
+
+
+class RealDataRuleResult(StrictModel):
+    """Result of a single Gate V6 real-data invariant check."""
+
+    status: RealDataCheckStatus
+    detail: str
+    table_row_counts: dict[str, int] = Field(default_factory=dict)
+    consequence: str | None = None
 
 
 class DocumentCitationRef(StrictModel):
@@ -120,6 +136,8 @@ class IRProverReport(StrictModel):
     ast_violations: list[VerifierDiagnostic]
     empirical_smells: list[VerifierDiagnostic]
     counterexamples: list[dict[str, str | int | float | None]]
+    schema_proof_results: dict[str, bool] = Field(default_factory=dict)
+    real_data_proof_results: dict[str, RealDataRuleResult] = Field(default_factory=dict)
 
 
 __all__ = [
@@ -134,6 +152,8 @@ __all__ = [
     "HorizonQuestion",
     "IRProverReport",
     "KeyTierEnum",
+    "RealDataCheckStatus",
+    "RealDataRuleResult",
     "StrictModel",
     "VerifierDiagnostic",
 ]

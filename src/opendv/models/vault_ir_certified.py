@@ -14,6 +14,7 @@ from opendv.models.diagnostics import (
     StrictModel,
 )
 from opendv.models.vault_ir import (
+    BridgeHopSpec,
     BusinessKeyPart,
     ColumnTriageEntry,
     DraftField,
@@ -50,6 +51,22 @@ def _assert_monotonic_field_ids(fields: list[IRField], label: str) -> None:
         prev = field.field_id
 
 
+class LinkParticipantHashSpec(StrictModel):
+    """Per-participant Algorithm A.5 hash specification inside a Link HashRecipeSpec."""
+
+    hub_name: str = ""
+    role_name: str
+    target_hub_binding_table_id: str | None = None
+    bkcc_literal: str | None = None
+    bkcc_col: str | None = None
+    key_tier: KeyTierEnum = "TIER_2_ENTERPRISE_SOR"
+    source_columns: list[str]
+    unknown_predicate: PredicateNode | None = None
+    error_predicate: PredicateNode | None = None
+    is_degenerate: bool = False
+    is_nullable: bool | None = None
+
+
 class HashRecipeSpec(StrictModel):
     """Storage-neutral Algorithm A.5 hash recipe lowered by target compilers."""
 
@@ -60,6 +77,7 @@ class HashRecipeSpec(StrictModel):
     source_columns: list[str]
     sort_alphabetically: bool
     key_columns: list[str] = Field(default_factory=list)
+    participant_specs: list[LinkParticipantHashSpec] = Field(default_factory=list)
     unknown_predicate: PredicateNode | None = None
     error_predicate: PredicateNode | None = None
     is_optional_inapplicable: bool = False
@@ -93,6 +111,7 @@ class SourceBindingSpec(StrictModel):
     source_id: str
     table_id: str
     col_mappings: dict[str, str]
+    key_tier: KeyTierEnum | None = None
     hash_recipe: HashRecipeSpec | None = None
     load_semantics: LoadSemanticsSpec | None = None
     doc_citations: list[DocumentCitationRef] = Field(default_factory=list)
@@ -135,6 +154,7 @@ class CertifiedHubSpec(StrictModel):
     source_bindings: list[SourceBindingSpec] = Field(default_factory=list)
     attributes: list[DraftField] = Field(default_factory=list)
     is_planned_concept: bool = False
+    survivorship_priority: list[str] = Field(default_factory=list)
     columns: list[IRField] = Field(default_factory=list)
     hash_recipe: HashRecipeSpec | None = None
     load_semantics: LoadSemanticsSpec | None = None
@@ -142,6 +162,8 @@ class CertifiedHubSpec(StrictModel):
 
     @model_validator(mode="after")
     def _validate_certified_hub(self) -> CertifiedHubSpec:
+        if self.attributes:
+            raise ValueError("INV-05 violation: CertifiedHubSpec.attributes must be empty")
         if not self.is_planned_concept and self.physical_hints is None:
             raise ValueError("physical_hints is required unless is_planned_concept=True")
         _assert_monotonic_field_ids(self.columns, f"CertifiedHubSpec({self.hub_name})")
@@ -181,7 +203,7 @@ class CertifiedSatelliteSpec(StrictModel):
     source_table_id: str
     source_bindings: list[SourceBindingSpec] = Field(default_factory=list)
     extends_sat_name: str | None = None
-    companion_epoch: int | None = None
+    companion_epoch: int | None = Field(default=None, ge=1)
     is_bitemporal: bool = False
     applied_dts_col: str | None = None
     load_mode: SatLoadMode = "INSERT_ONLY_DELTA"
@@ -254,17 +276,21 @@ class PitBridgeSpec(StrictModel):
     root_hub: str
     target_satellites_or_links: list[str]
     grain_cols: list[str]
+    hops: list[BridgeHopSpec] = Field(default_factory=list)
+    traversed_hk_cols: list[str] = Field(default_factory=list)
 
 
 class MartViewSpec(StrictModel):
     """Zone Z4 Information Mart view specification."""
 
     view_name: str = Field(min_length=1)
-    zone_id: Literal["Z4"] = "Z4"
+    zone_id: Literal["Z3", "Z4"] = "Z4"
+    view_kind: Literal["CURRENT", "ESAT_INTERVALS"] = "CURRENT"
     root_entity: str
     joined_entities: list[str]
     columns: list[IRField] = Field(default_factory=list)
     select_exprs: dict[str, str]
+    dedup_field_specs: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_field_ids(self) -> MartViewSpec:
@@ -301,6 +327,7 @@ __all__ = [
     "CertifiedVaultIR",
     "HashRecipeSpec",
     "IRField",
+    "LinkParticipantHashSpec",
     "LoadSemanticsSpec",
     "MartViewSpec",
     "PhysicalLayoutHints",

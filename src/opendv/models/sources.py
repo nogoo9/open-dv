@@ -7,6 +7,11 @@ from typing import Literal
 from pydantic import Field
 
 from opendv.models.diagnostics import StrictModel
+from opendv.models.modeling_preferences import (
+    ColumnFormatShape,
+    PkContainmentOverlap,
+    ValueFreqItem,
+)
 
 SourceKind = Literal[
     "sqlite",
@@ -77,34 +82,89 @@ class SourceSummary(StrictModel):
 class ColumnProfile(StrictModel):
     """Physical column profile in Graph B (up to 5 masked sample values)."""
 
-    col_name: str
-    sql_type: str
-    nullable: bool
-    is_pk: bool
-    pk_ord: int | None = None
-    fk_ref: str | None = None
-    null_ratio: float = Field(ge=0.0, le=1.0)
-    distinct_count_est: int = Field(ge=0)
-    pii_tags: list[str] = Field(default_factory=list)
-    sample_values: list[str | None] = Field(default_factory=list, max_length=5)
+    col_name: str = Field(description="Physical column name.")
+    sql_type: str = Field(description="Source SQL data type string.")
+    nullable: bool = Field(description="Whether the physical column permits NULL values.")
+    is_pk: bool = Field(description="True if declared as part of the source primary key.")
+    pk_ord: int | None = Field(default=None, description="1-based primary key ordinal position.")
+    fk_ref: str | None = Field(
+        default=None,
+        description="Declared foreign key target in 'table.column' form.",
+    )
+    null_ratio: float = Field(
+        ge=0.0,
+        le=1.0,
+        description="Observed fraction of NULL values across profiled rows.",
+    )
+    distinct_count_est: int = Field(
+        ge=0,
+        description="Estimated count of distinct non-null values.",
+    )
+    pii_tags: list[str] = Field(
+        default_factory=list,
+        description="Detected PII or secret classification tags.",
+    )
+    sample_values: list[str | None] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Up to 5 masked sample values for column inspection.",
+    )
+    format_shape: ColumnFormatShape = Field(
+        default="MIXED",
+        description="Deterministic column literal shape classification.",
+    )
+    surrogate_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Surrogate identifier likelihood in [0.0, 1.0].",
+    )
+    top_value_frequencies: list[ValueFreqItem] = Field(
+        default_factory=list,
+        description="PII-redacted top frequent values when distinct <= 20.",
+    )
 
 
 class TableProfile(StrictModel):
     """Physical table profile inside SourceProfile."""
 
-    table_id: str
-    table_name: str
-    row_count_est: int = Field(ge=0)
-    columns: list[ColumnProfile]
+    table_id: str = Field(description="Canonical table identifier.")
+    table_name: str = Field(description="Physical table name in the source.")
+    row_count_est: int = Field(ge=0, description="Estimated physical row count.")
+    columns: list[ColumnProfile] = Field(description="Ordered physical column profiles.")
+    pk_uniqueness_ratio: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Primary-key uniqueness ratio over sampled/total rows.",
+    )
+    best_non_surrogate_bk_candidate_col: str | None = Field(
+        default=None,
+        description="Highest-scoring non-surrogate natural BK candidate column.",
+    )
+    best_non_surrogate_bk_uniqueness_ratio: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Uniqueness ratio of best non-surrogate BK candidate column.",
+    )
+    cluster_id: str | None = Field(
+        default=None,
+        description="Assigned deterministic cluster identifier.",
+    )
 
 
 class SourceProfile(StrictModel):
     """Graph B physical schema profile for a structured source."""
 
-    source_id: str
-    schema_fingerprint: str
-    table_count: int = Field(ge=0)
-    tables: list[TableProfile]
+    source_id: str = Field(description="Attached source identifier.")
+    schema_fingerprint: str = Field(description="Canonical source schema fingerprint.")
+    table_count: int = Field(ge=0, description="Number of profiled tables in this source.")
+    tables: list[TableProfile] = Field(description="Profiled table descriptors.")
+    pk_containment_overlaps: list[PkContainmentOverlap] = Field(
+        default_factory=list,
+        description="Asymmetric FK-to-PK local containment overlaps across sources.",
+    )
 
 
 class TableIndexEntry(StrictModel):
