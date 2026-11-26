@@ -87,6 +87,8 @@ const mkProject = (over: Partial<ProjectState> = {}): ProjectState => ({
 		dbt_sql_dialect: "duckdb",
 		discovery_mode: "incremental_new",
 		secret_precedence: "store_first",
+		proving_sample_rows: 200,
+		real_row_proving: true,
 		max_turns: null,
 		max_tokens: null,
 		timeout_seconds: null,
@@ -311,6 +313,7 @@ const mkIr = (): CertifiedVaultIR => ({
 		{
 			zone_id: "Z4",
 			view_name: "vw_custody_position_current",
+			view_kind: "CURRENT",
 			root_entity: "pit_custody_acct_daily",
 			joined_entities: ["sal_acct_crosswalk"],
 			select_exprs: { acct: "acct" },
