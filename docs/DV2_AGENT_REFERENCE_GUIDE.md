@@ -134,12 +134,12 @@ flowchart LR
         subgraph RDV["Raw Data Vault (Source-Aligned System of Record)"]
             R_HUB["Raw Hubs (hub_*)"]
             R_LNK["Raw Links (lnk_*, t_lnk_*)"]
-            R_SAT["Raw Satellites (sat_*, mas_*, rts_*, sts_*)"]
+            R_SAT["Raw Satellites (sat_*, mas_*, esat_*, rts_*, sts_*)"]
         end
 
         subgraph BDV["Business Data Vault (Sparse Extension Layer)"]
             B_SAL["Same-As / Hierarchical / Exploration Links\n(sal_*, hal_*, x_lnk_*)"]
-            B_SAT["Business Satellites & Effectivity Sats\n(bsat_*, esat_*)"]
+            B_SAT["Business Satellites & Derived ESAT Views\n(bsat_*, esat_sal_*, vw_<esat>_intervals)"]
             B_QA["Query Assistance Structures\n(pit_*, brg_*)"]
         end
     end
@@ -165,8 +165,8 @@ The fundamental architectural boundary of Data Vault 2.0 is the strict separatio
 | :--- | :--- | :--- | :--- | :--- |
 | **Landing Zone** | Transient or Cold Archive (Object Storage / CDC Log) | Byte-exact extraction from source; format serialization (Parquet/Avro/JSON). | Filtering, casting, deduplicating, renaming, or joining. | Raw files / landing tables |
 | **Staging Area (`stg_*`)** | Transient (Truncate-and-load per batch or sliding CDC window; often SQL Views in ELT) | **Hard Business Rules Only:** Technical data-type casting; trimming/case normalization for hashing; computing `_hk` and `hash_diff`; injecting `load_dts`, `rec_src`, `bkcc`, `batch_id`; intra-batch exact deduplication; substituting `-1`/`-2` Zero Keys for NULL foreign business keys. | Cross-table joins to other staging tables; filtering out "invalid" business values; currency conversion; status remapping; KPI aggregation. | `stg_<source>_<table_name>` |
-| **Raw Data Vault (RDV)** | **Permanent, Immutable, Insert-Only** (System of Record / Audit Trail) | Idempotent set-based `INSERT` of unseen Hub keys (`_hk`), unseen Link intersections (`_hk`), and changed Satellite attribute states (`hash_diff != prev_hash_diff`). | **Any `UPDATE` or `DELETE`** (except legal GDPR crypto-shredding on isolated PII Satellites); any Soft Business Rules; altering source attribute values ("bad data in = bad data recorded"). | `hub_*`, `lnk_*`, `t_lnk_*`, `sat_*`, `mas_*`, `sts_*`, `rts_*`, `ref_*` |
-| **Business Data Vault (BDV)** | **Sparse**, Semi-Permanent or Disposable (Derived from RDV) | **Soft Business Rules:** Cross-source entity resolution (`sal_*`); driving-key temporal resolution (`esat_*`); derived financial/risk metrics (`bsat_*`); multi-Satellite temporal alignment (`pit_*`); multi-hop join flattening (`brg_*`). | Duplicating Raw Vault tables unchanged (BDV is a *sparse overlay*, never a 1:1 mirror of RDV); mutating or overwriting RDV tables. | `sal_*`, `hal_*`, `x_lnk_*`, `bsat_*`, `esat_*`, `pit_*`, `brg_*` |
+| **Raw Data Vault (RDV)** | **Permanent, Immutable, Insert-Only** (System of Record / Audit Trail) | Idempotent set-based `INSERT` of unseen Hub keys (`_hk`), unseen Link intersections (`_hk`), changed Satellite attribute states (`hash_diff != prev_hash_diff`), and append-only raw Link Effectivity rows (`esat_*`). | **Any `UPDATE` or `DELETE`** (except legal GDPR crypto-shredding on isolated PII Satellites); any Soft Business Rules; altering source attribute values ("bad data in = bad data recorded"). | `hub_*`, `lnk_*`, `t_lnk_*`, `sat_*`, `mas_*`, `esat_*`, `sts_*`, `rts_*`, `ref_*` |
+| **Business Data Vault (BDV)** | **Sparse**, Semi-Permanent or Disposable (Derived from RDV) | **Soft Business Rules:** Cross-source entity resolution (`sal_*`, `esat_sal_*`); driving-key temporal interval views (`vw_<esat>_intervals`); derived financial/risk metrics (`bsat_*`); multi-Satellite temporal alignment (`pit_*`); multi-hop join flattening (`brg_*`). | Duplicating Raw Vault tables unchanged (BDV is a *sparse overlay*, never a 1:1 mirror of RDV); mutating or overwriting RDV tables. | `sal_*`, `hal_*`, `x_lnk_*`, `bsat_*`, `esat_sal_*`, `vw_<esat>_intervals`, `pit_*`, `brg_*` |
 | **Information Delivery (Marts)** | **Disposable / Rebuildable** (SQL Views `CREATE VIEW` or scheduled materializations) | Star-schema projection (`DIM_*`, `FCT_*`), Snowflake schemas, One Big Table (OBT), slowly changing dimension (SCD Type 1/2/3/6) projection, Ghost-Record-accelerated `INNER JOIN` assembly, role-playing dimensions, BI security filtering. | Acting as a system of record; holding state that cannot be deterministically regenerated from RDV + BDV + Reference tables. | `dim_*`, `fct_*`, `obt_*`, `rpt_*` |
 
 ### 2.3 Architectural Layer Placement Decision Tree
@@ -176,9 +176,9 @@ flowchart TD
     A["Incoming Transformation / Table Requirement"] --> B{"Does it compute technical hashes (_hk, hash_diff),\ncast source types, or inject audit metadata\n(load_dts, rec_src, bkcc)?"}
     B -- Yes --> C["Place in STAGING AREA (stg_*)\nas Hard Business Rule"]
     B -- No --> D{"Does it capture unaltered source business keys,\nrelationships, or descriptive attributes\nexactly as emitted by the source?"}
-    D -- Yes --> E["Place in RAW DATA VAULT (RDV)\n(hub_*, lnk_*, t_lnk_*, sat_*, mas_*, rts_*, sts_*)"]
-    D -- No --> F{"Is it a temporal/join accelerator (PIT, Bridge)\nor a reusable cross-mart Soft Business Rule\n(entity resolution, KPI calculation, driving-key effectivity)?"}
-    F -- Yes --> G["Place in BUSINESS DATA VAULT (BDV)\n(pit_*, brg_*, sal_*, esat_*, bsat_*, x_lnk_*)\nattaching to existing RDV Hub/Link keys"]
+    D -- Yes --> E["Place in RAW DATA VAULT (RDV)\n(hub_*, lnk_*, t_lnk_*, sat_*, mas_*, esat_*, rts_*, sts_*)"]
+    D -- No --> F{"Is it a temporal/join accelerator (PIT, Bridge)\nor a reusable cross-mart Soft Business Rule\n(entity resolution, KPI calculation, driving-key effectivity views)?"}
+    F -- Yes --> G["Place in BUSINESS DATA VAULT (BDV)\n(pit_*, brg_*, sal_*, esat_sal_*, vw_<esat>_intervals, bsat_*, x_lnk_*)\nattaching to existing RDV Hub/Link keys"]
     F -- No --> H["Place in INFORMATION DELIVERY / MARTS\n(dim_*, fct_*, obt_*) as disposable View or Table"]
 ```
 
@@ -361,8 +361,8 @@ CREATE TABLE rdv.mas_customer_phone (
     CONSTRAINT pk_mas_customer_phone PRIMARY KEY (hk_customer, load_dts, phone_type)
 );
 
--- 3. Insert-Only Effectivity Satellite & Driving-Key Window View
-CREATE TABLE bdv.esat_customer_account_mgr (
+-- 3. Append-Only Raw Effectivity Satellite (Z2 RDV) & Driving-Key Interval View (Z3 BDV)
+CREATE TABLE rdv.esat_customer_account_mgr (
     hk_lnk_cust_acct_mgr BINARY(32)    NOT NULL,
     load_dts             TIMESTAMP_NTZ NOT NULL,
     driving_hk_customer  BINARY(32)    NOT NULL,
@@ -370,19 +370,16 @@ CREATE TABLE bdv.esat_customer_account_mgr (
     CONSTRAINT pk_esat_cust_acct_mgr PRIMARY KEY (hk_lnk_cust_acct_mgr, load_dts)
 );
 
-CREATE VIEW bdv.v_esat_customer_account_mgr AS
+CREATE VIEW bdv.vw_esat_customer_account_mgr_intervals AS
 SELECT
     e.hk_lnk_cust_acct_mgr,
     e.driving_hk_customer AS hk_customer,
     l.hk_employee,
-    e.load_dts AS start_dts,
-    COALESCE(
-        LEAD(e.load_dts) OVER (PARTITION BY e.driving_hk_customer ORDER BY e.load_dts ASC),
-        CAST('9999-12-31 23:59:59.999999' AS TIMESTAMP_NTZ)
-    ) AS end_dts,
-    CASE WHEN LEAD(e.load_dts) OVER (PARTITION BY e.driving_hk_customer ORDER BY e.load_dts ASC) IS NULL THEN TRUE ELSE FALSE END AS is_active,
+    e.load_dts AS effective_from,
+    LEAD(e.load_dts) OVER (PARTITION BY e.driving_hk_customer ORDER BY e.load_dts ASC) AS effective_to,
+    CASE WHEN LEAD(e.load_dts) OVER (PARTITION BY e.driving_hk_customer ORDER BY e.load_dts ASC) IS NULL THEN TRUE ELSE FALSE END AS is_current,
     e.rec_src
-FROM bdv.esat_customer_account_mgr e
+FROM rdv.esat_customer_account_mgr e
 INNER JOIN rdv.lnk_customer_account_mgr l
     ON e.hk_lnk_cust_acct_mgr = l.hk_lnk_cust_acct_mgr;
 ```
@@ -460,7 +457,7 @@ flowchart LR
     S2 --> S3["3. Whitespace Trimming\n- TRIM(val)\n- Convert empty '' to NULL"]
     S3 --> S4["4. Case Normalization\n- _hk (Business Keys): UPPER()\n- hash_diff (Payloads): PRESERVE CASE"]
     S4 --> S5["5. Anti-Collision Encoding\n- Mode A: Escape '\\', '||', '^^'\n- Mode B: Length-Prefix <len>:<val>"]
-    S5 --> S6["6. Null Token Substitution &\nDelimiter Concatenation\n- NULL -> '-1:^^' (or '^^' escaped)\n- All-NULL BK -> Zero Key\n- Join with '||' & SHA-256"]
+    S5 --> S6["6. Null Token Substitution &\nDelimiter Concatenation\n- NULL/unknown -> '-1:^^'\n- Error/inapplicable -> '-2:^^'\n- All-NULL BK -> Dual Zero Key\n- Join with '||' & SHA-256"]
 ```
 
 1. **Stage 1 — Deterministic Column Ordering:**
@@ -474,8 +471,8 @@ flowchart LR
    - **Satellite `hash_diff`:** **Case-preserving (`EXACT_TRIM`)** so `'mcdonald'` $\to$ `'McDonald'` triggers a Satellite delta row.
 5. **Stage 5 — Anti-Collision Encoding (Delimiter-Escaped or Length-Prefixed):**
    - **Delimiter-Escaped (`DELIMITER_ESCAPED`):** `REPLACE(REPLACE(REPLACE(s, '\', '\\'), '||', '\||'), '^^', '\^^')`.
-   - **Length-Prefixed (`LENGTH_PREFIXED`):** `CAST(OCTET_LENGTH(s) AS VARCHAR) || ':' || s` for non-null values and `'-1:^^'` for `NULL`.
-6. **Stage 6 — Explicit Null Token Substitution & Digest:** Substitute every `NULL` position with the encoding's null token (`'-1:^^'` for the default length-prefixed mode emitted by `Algorithm A.5`, `'^^'` for delimiter-escaped mode) before concatenating with `'||'` and hashing with `SHA-256` (lowercase hex for `CHAR(64)`). For Hub/Link keys, if every business key column (excluding `bkcc`) is `NULL`, emit the Zero Key `REPEAT('0', 64)` instead of hashing (`KEY-02b`).
+   - **Length-Prefixed (`LENGTH_PREFIXED`):** `CAST(OCTET_LENGTH(s) AS VARCHAR) || ':' || s` for non-null values, `'-1:^^'` for `NULL`/unknown, and `'-2:^^'` for error/inapplicable sentinel slots.
+6. **Stage 6 — Explicit Null Token Substitution & Digest:** Substitute every `NULL`/unknown position with `'-1:^^'` (and error/inapplicable optional positions with `'-2:^^'` under length-prefixed `Algorithm A.5`, or `'^^'` for delimiter-escaped mode) before concatenating with `'||'` and hashing with `SHA-256` (lowercase hex for `CHAR(64)`). For Hub/Link keys, if every non-degenerate business key column (excluding `bkcc`) is `NULL` or sentinel, emit the Dual Zero Key (`REPEAT('0', 64)` for `-1` unknown or `REPEAT('f', 64)` for `-2` error/inapplicable) instead of hashing (`KEY-02b`).
 
 ### 4.3 Mathematical Proof of Naive Concatenation Collisions & Injective Encoding
 

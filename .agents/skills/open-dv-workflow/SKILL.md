@@ -13,7 +13,7 @@ description: >-
 
 ## Overview
 
-`open-dv-workflow` covers the unified **Open-DV V2** lifecycle across the Claude WCAG 2.1 AA **Web Workbench (`http://127.0.0.1:8420`, `web/`)**, **`uv run opendv`** (`46` subcommands, in-process or `--api-url http://127.0.0.1:8420`), and **`opendv mcp serve`**:
+`open-dv-workflow` covers the unified **Open-DV V2** lifecycle across the Claude WCAG 2.1 AA **Web Workbench (`http://127.0.0.1:8420`, `web/`)**, **`uv run opendv`** (`52` subcommands, in-process or `--api-url http://127.0.0.1:8420`), and **`opendv mcp serve`** *(for stateless `opendv model {spec, profile, verify, run}` agent workflows with zero `.opendv/` writes, see [opendv-modeling](../opendv-modeling/SKILL.md))*:
 
 1. **Setup, Health & Keyring Secrets (`Settings`)**: Start/probe loopback `opendv serve`, verify LLM providers (`agy`, `claude`, `gemini`) via `opendv --json doctor`, and configure OS keyring secrets (`opendv secrets`) + `CegarPolicy` presets (`opendv settings`).
 2. **Scope, Sources & Evidence Previews (`1. Scope & Seeds`, `2. Sources & Secrets`, `3. Preview & Clusters`)**: Initialize project-scoped state (`.opendv/projects/<id>/project.sqlite`, starter packs or workspace seeds), attach SQLite/DuckDB/Postgres/CSV/Parquet/PDF/notes with automatic PII detection and SSRF/path-escape guards (Flow B synchronous `document_map.json`, zero chunk shredding), and inspect lazy deterministic table/page previews.

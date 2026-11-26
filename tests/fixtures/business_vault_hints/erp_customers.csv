@@ -1,0 +1,3 @@
+cust_id,legal_name,credit_tier,billing_region,email
+C-100,Acme Capital,AAA,,
+C-200,Beacon Holdings,AA,EU-WEST,ops@beacon.io

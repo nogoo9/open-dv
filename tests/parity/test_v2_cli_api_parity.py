@@ -680,6 +680,11 @@ async def test_uat_v26_e2e_01_w001_to_w002_3way_parity(
 
                 # 4. Step 6 W002: L3 hold (uti_id vs isda_master_id) -> guided view -> V8 Horizon steer -> sal_issuer
                 _update_fake_agy_spec(spec_dir, svc, pid, wave=2)
+                ps_resp = await client.patch(
+                    f"/api/v1/projects/{pid}/settings",
+                    json={"real_row_proving": False},
+                )
+                assert ps_resp.status_code == 200, ps_resp.text
                 vb2_start = await client.post(
                     f"/api/v1/projects/{pid}/runs", json={"policy": "balanced"}
                 )

@@ -1,0 +1,3 @@
+cust_id,legal_name,credit_tier,billing_region,email
+C-100,Acme Cap,A,US-EAST,billing@acme.io
+C-200,Beacon Hold,BBB,EU-WEST,old@beacon.io

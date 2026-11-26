@@ -31,6 +31,7 @@ _AUDIT_RE = re.compile(
 _ACTOR_RE = re.compile(r"(?i)^(?:created|updated|modified|deleted)_by(?:_id|_user|_key)?$")
 _MUT_RE = re.compile(
     r"(?i)^(?:(?:updated|modified)_(?:at|dts)|changed_at|"
+    r"(?:re)?assigned_(?:at|dts|date)|"
     r"(?:effective|valid|eff)_(?:from|to)|applied_dts|as_of_(?:date|dts)|"
     r"status|state|is_active|active_flag)$"
 )
@@ -215,14 +216,16 @@ def _fk_graph(ctx: _Ctx) -> nx.DiGraph:
             continue
         cl, cr = ctx.c[l_id].get(ov.left_col), ctx.c[r_id].get(ov.right_col)
         lp, rp = bool(cl and cl.is_pk), bool(cr and cr.is_pk)
-        rev = (lp and not rp) or (ov.left_col == ctx.n[l_id] and ov.right_col != ctx.n[r_id]) or (
-            ls in ov.right_col.lower() and rs not in ov.left_col.lower()
-        )
-        ch, pa, fk = (r_id, l_id, ov.right_col) if (rev and not (rp and not lp)) else (
-            l_id, r_id, ov.left_col
-        )
-        if _ok(fk):
-            g.add_edge(ch, pa, fk_col=fk)
+        ln, rn = ov.left_col == ctx.n[l_id], ov.right_col == ctx.n[r_id]
+        if lp or rp or ln or rn:
+            rev = (lp and not rp) or (ln and not rn) or (
+                ls in ov.right_col.lower() and rs not in ov.left_col.lower()
+            )
+            ch, pa, fk = (r_id, l_id, ov.right_col) if (rev and not (rp and not lp)) else (
+                l_id, r_id, ov.left_col
+            )
+            if _ok(fk):
+                g.add_edge(ch, pa, fk_col=fk)
     for tid, tbl in sorted(ctx.t.items()):
         for c in tbl.columns:
             low = c.col_name.lower()
@@ -275,8 +278,7 @@ def _p3(ctx: _Ctx, g: nx.DiGraph) -> list[ClarificationQuestion]:
         has_turn = any(float(v) > 0.0 for v in ctx.tr.get(tid, {}).values())
         mut = [c.col_name for c in tbl.columns if _MUT_RE.match(c.col_name)]
         reass: dict[str, list[str]] = {}
-        rows = ctx.r.get(tid, ())
-        if rows:
+        if rows := ctx.r.get(tid, ()):
             nf = [c for c in tbl.columns if c.col_name not in fks]
             nat = ctx.n[tid]
             oc = next((c.col_name for c in nf if c.is_pk), None) or (
@@ -285,42 +287,50 @@ def _p3(ctx: _Ctx, g: nx.DiGraph) -> list[ClarificationQuestion]:
                     if not _AUDIT_RE.match(c.col_name) and c.col_name.lower().endswith(_SFX)
                 ), None)
             )
+            oc_col = ctx.c[tid].get(oc) if oc else None
+            rev_ok = bool(
+                oc and oc_col is not None and not oc_col.is_pk
+                and (mut or not oc.lower().startswith(ctx.st[tid]))
+            )
             for fk in fks if oc else ():
                 by_o: dict[str, set[str]] = defaultdict(set)
+                by_f: dict[str, set[str]] = defaultdict(set)
                 for r in rows:
-                    if oc and r.get(oc) is not None and r.get(fk) is not None:
-                        by_o[str(r[oc])].add(str(r[fk]))
+                    ov, fv = r.get(oc or ""), r.get(fk)
+                    if ov is not None and fv is not None:
+                        by_o[str(ov)].add(str(fv))
+                        if rev_ok:
+                            by_f[str(fv)].add(str(ov))
                 hits = [f"{oc}={k}->{sorted(v)}" for k, v in sorted(by_o.items()) if len(v) > 1]
+                if not hits and rev_ok:
+                    hits = [f"{fk}={k}->{sorted(v)}" for k, v in sorted(by_f.items()) if len(v) > 1]
                 if hits:
                     reass[fk] = hits[:3]
-        if not (has_turn or mut or reass):
-            continue
-        st, foc = ctx.st[tid], next(iter(reass), fks[0])
-        ev = [
-            *reass.get(foc, ()),
-            *([f"cols: {', '.join(mut)}"] if mut else ()),
-            *(("fk_turnover > 0",) if has_turn else ()),
-        ]
-        out.append(_q(
-            f"Q-P3-{st}-{foc}-{_hid(tid)}", f"lnk_{st}", f"Mutability: {tbl.table_name} ({foc})",
-            f"{tbl.table_name} ({'; '.join(ev)}). Z2 esat_* or t_lnk_*?",
-            ev[:5], "Z2 esat_* vs t_lnk_*", "Attach Z2 esat_*",
-        ))
+        if has_turn or mut or reass:
+            st, foc = ctx.st[tid], next(iter(reass), fks[0])
+            ev = [
+                *reass.get(foc, ()), *([f"cols: {', '.join(mut)}"] if mut else ()),
+                *(("fk_turnover > 0",) if has_turn else ()),
+            ]
+            out.append(_q(
+                f"Q-P3-{st}-{foc}-{_hid(tid)}", f"lnk_{st}",
+                f"Mutability: {tbl.table_name} ({foc})",
+                f"{tbl.table_name} ({'; '.join(ev)}). Z2 esat_* or t_lnk_*?",
+                ev[:5], "Z2 esat_* vs t_lnk_*", "Attach Z2 esat_*",
+            ))
     return out
 
 
-def _p4(ctx: _Ctx) -> list[ClarificationQuestion]:
+def _p4(ctx: _Ctx, g: nx.DiGraph) -> list[ClarificationQuestion]:
     refs = {
         (e.table_id, e.col_name) for e in (ctx.d.column_triage if ctx.d else ())
         if e.disposition == "OMITTED_INTENTIONALLY" or (e.target_ref or "").startswith("ref_")
     }
-    bks = {
-        (bk.table_id, bk.col_name)
-        for h in (ctx.d.hubs if ctx.d else ()) for bk in h.business_keys
-    }
+    bks = {(b.table_id, b.col_name) for h in (ctx.d.hubs if ctx.d else ()) for b in h.business_keys}
     out: list[ClarificationQuestion] = []
     for tid, tbl in sorted(ctx.t.items()):
         st, pks, nat = ctx.st[tid], [c for c in tbl.columns if c.is_pk], ctx.n[tid]
+        fkc = {d["fk_col"] for _, _, d in g.out_edges(tid, data=True) if "fk_col" in d}
         if len(pks) == 1 and _surr(pks[0], pks[0].col_name) and nat and (tid, nat) not in bks:
             pkc = pks[0].col_name
             out.append(_q(
@@ -331,12 +341,13 @@ def _p4(ctx: _Ctx) -> list[ClarificationQuestion]:
             ))
         for c in tbl.columns:
             cn = c.col_name
-            skip = (
-                (tid, cn) in refs or c.is_pk or c.fk_ref is not None or c.pii_tags
-                or detect_pii_in_column_name(cn) or _AUDIT_RE.match(cn) or _surr(c, cn)
-                or c.sql_type.strip().upper() in ("BOOLEAN", "BOOL")
-            )
-            if not skip and 2 <= c.distinct_count_est <= 20 and (
+            if (
+                (tid, cn) in refs or c.is_pk or c.fk_ref or c.pii_tags or cn in (nat, *fkc)
+                or detect_pii_in_column_name(cn) or _AUDIT_RE.match(cn)
+                or _surr(c, cn) or c.sql_type.strip().upper() in ("BOOLEAN", "BOOL")
+            ):
+                continue
+            if 2 <= c.distinct_count_est <= 20 and (
                 tbl.row_count_est > c.distinct_count_est
                 or cn.lower().endswith(_ESFX) or c.format_shape == "CODE_UPPER"
             ):
@@ -378,7 +389,7 @@ def survey_modeling_hints(
     ans, fg = set(answered_question_ids or ()), _fk_graph(ctx)
     p1, p2, p3, p4 = (
         sorted((q for q in qs if q.question_id not in ans), key=lambda q: q.question_id)
-        for qs in (_p1(ctx), _p2(ctx, fg), _p3(ctx, fg), _p4(ctx))
+        for qs in (_p1(ctx), _p2(ctx, fg), _p3(ctx, fg), _p4(ctx, fg))
     )
     cands = [*p1, *p2, *p3, *p4]
     total, off = len(cands), max(0, offset)
