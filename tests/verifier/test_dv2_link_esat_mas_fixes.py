@@ -1592,10 +1592,20 @@ def test_satellite_aliased_col_mappings_hash_diff_and_duckdb_prover() -> None:
         ],
         column_triage=_triage_profiles([prof]),
     )
+    from opendv.verifier._v2_v3_checks import verify_v2_hash_and_bkcc
+
     _, cert, _ = run_l1_codemods(draft, profiles=[prof])
     sat_cert = cert.satellites[0]
     assert sat_cert.hash_recipe is not None
     assert sat_cert.hash_recipe.source_columns == ["credit_limit"]
+    v2_diags = verify_v2_hash_and_bkcc(cert)
+    assert not [d for d in v2_diags if d.rule_id in ("DV-COL-006", "DV-COL-008")], v2_diags
+    bad_sat = sat_cert.model_copy(
+        update={"hash_recipe": sat_cert.hash_recipe.model_copy(update={"source_columns": []})}
+    )
+    bad_cert = cert.model_copy(update={"satellites": [bad_sat]})
+    bad_v2 = [d for d in verify_v2_hash_and_bkcc(bad_cert) if d.rule_id == "DV-COL-006"]
+    assert len(bad_v2) == 1 and bad_v2[0].entity_name == "sat_cust_erp"
     rows = {"erp:cust": [{"cust_id": "C1", "credit_limit": 100}, {"cust_id": "C2", "credit_limit": 200}]}
     rep = DuckDbProverAdapter().prove(
         cert,

@@ -279,7 +279,14 @@ def promote_draft_to_certified(
             else list(sat.attributes)
         )
         sat_cmaps = sb0.col_mappings if sb0 is not None else {}
-        payload_cols = sorted(sat_cmaps.get(a.name, a.name) for a in sat_attrs)
+        payload_cols = sorted(
+            {sat_cmaps.get(a.name, a.name) for a in sat_attrs}
+            | (
+                {sat_cmaps.get(cdk, cdk) for cdk in sat.child_dependent_keys}
+                if (sat.sat_kind == "MAS" or bool(sat.child_dependent_keys))
+                else set()
+            )
+        )
         sat_recipe = (
             HashRecipeSpec(
                 target_col="hash_diff",

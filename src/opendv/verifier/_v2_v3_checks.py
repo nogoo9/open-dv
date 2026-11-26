@@ -343,6 +343,7 @@ def verify_v2_hash_and_bkcc(ir: CertifiedVaultIR) -> list[VerifierDiagnostic]:
                 )
             else:
                 r = sat.hash_recipe
+                sat_cmaps = sat.source_bindings[0].col_mappings if sat.source_bindings else {}
                 expected_cols = (
                     {a.name for a in sat.attributes}
                     | (
@@ -353,7 +354,12 @@ def verify_v2_hash_and_bkcc(ir: CertifiedVaultIR) -> list[VerifierDiagnostic]:
                 ) - _FORBIDDEN_HASH_DIFF_COLS - (
                     {sat.applied_dts_col} if sat.applied_dts_col else set()
                 )
-                missing_cols = expected_cols - set(r.source_columns)
+                recipe_set = set(r.source_columns)
+                missing_cols = {
+                    c
+                    for c in expected_cols
+                    if c not in recipe_set and sat_cmaps.get(c, c) not in recipe_set
+                }
                 if missing_cols:
                     diags.append(
                         _diag(
@@ -374,12 +380,17 @@ def verify_v2_hash_and_bkcc(ir: CertifiedVaultIR) -> list[VerifierDiagnostic]:
                             f"{sat.sat_name} SAT_HASH_DIFF source_columns must be sorted.",
                         )
                     )
+                mapped_applied = (
+                    sat_cmaps.get(sat.applied_dts_col, sat.applied_dts_col)
+                    if sat.applied_dts_col
+                    else None
+                )
                 bad_sys = [
                     c
                     for c in r.source_columns
                     if c in _FORBIDDEN_HASH_DIFF_COLS
                     or c.startswith("hk_")
-                    or (sat.applied_dts_col and c == sat.applied_dts_col)
+                    or (sat.applied_dts_col and c in (sat.applied_dts_col, mapped_applied))
                 ]
                 if bad_sys:
                     diags.append(
