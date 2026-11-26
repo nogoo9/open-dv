@@ -22,7 +22,7 @@ Resolve every modeling decision strictly in this precedence order:
 ## 3. Links, Transaction Links & Effectivity
 - **Standard vs. Transactional Links:**
   - Use `lnk_*` (`link_kind="STANDARD"` or `"HIERARCHICAL"` `hal_*`) for mutable relationships, multi-active event associations, or relationships needing Satellites/Effectivity.
-  - Use `t_lnk_*` (`link_kind="TRANSACTIONAL"`) strictly for immutable, append-only atomic events when `link_cardinality_strategy == "allow_transactional_links"` or event grain is strictly immutable. Never attach `ESAT` to a `TRANSACTIONAL` Link (`DV-STR-009`).
+  - Use `t_lnk_*` (`link_kind="TRANSACTIONAL"`) strictly for immutable, append-only atomic events when `link_cardinality_strategy == "allow_transactional_links"` or event grain is strictly immutable. `TRANSACTIONAL` Links forbid ALL `STANDARD`/`MAS`/`ESAT`/`PII` Satellites (`DV-STR-009`): place non-historized event payload columns directly in `DraftLinkSpec.attributes` on `t_lnk_*` (or attach Hub-grained Satellites to the owning `hub_*`, never to `t_lnk_*`).
 - **Link Participants & Nullability:**
   - Preserve participant role order (`LinkParticipantSpec`). Use tri-state `is_nullable` (`False` mandatory, `True` optional `-2` sentinel, `None` profile-inferred) rather than splitting multi-way Links or dropping nullable FKs (`BRK-02b`).
   - Use `target_hub_binding_table_id` when a `source_id` binds multiple tables to one Hub.

@@ -147,6 +147,13 @@ def _suggest_fix(diag: VerifierDiagnostic) -> str:
         )
     if diag.rule_id == "DV-COL-002":
         return "Ensure Hub business_keys reference valid non-empty source columns."
+    if diag.rule_id == "DV-STR-009":
+        return (
+            f"Remove Satellite '{diag.entity_name}' from its TRANSACTIONAL Link: "
+            "move non-historized event payload columns into DraftLinkSpec.attributes on the "
+            "t_lnk_* Link, re-parent the Satellite to an owning Hub, or change "
+            "link_kind='STANDARD'."
+        )
     if diag.rule_id == "DV-STR-016":
         return "Repair BridgeHopSpec path so Link hops form a connected acyclic chain."
     if diag.rule_id == "DV-STR-017":

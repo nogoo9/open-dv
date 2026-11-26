@@ -716,3 +716,21 @@ def test_stage_b_authoritative_precedence_verify_compile_and_duckdb(tmp_path: Pa
         ]
     finally:
         conn.close()
+
+
+def test_dv_str_009_suggest_fix_mentions_link_attributes_and_owning_hub() -> None:
+    """_suggest_fix gives concrete DraftLinkSpec.attributes / Hub remediation for DV-STR-009."""
+    from opendv.modeling.verify_mode import _suggest_fix
+    from opendv.models import VerifierDiagnostic
+
+    hint = _suggest_fix(
+        VerifierDiagnostic(
+            gate="V1",
+            rule_id="DV-STR-009",
+            severity="ERROR",
+            entity_name="sat_trade_trades",
+            message="TRANSACTIONAL Link t_lnk_trade_account forbids STANDARD Sat.",
+        )
+    )
+    assert "DraftLinkSpec.attributes" in hint
+    assert "t_lnk_*" in hint and "owning Hub" in hint
