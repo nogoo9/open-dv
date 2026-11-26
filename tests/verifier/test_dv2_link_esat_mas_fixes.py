@@ -1520,3 +1520,88 @@ def test_modeling_preferences_energy_v6_proof_wiring_and_legacy_id_ap003() -> No
         d for d in lint_vault_antipatterns(ir_low, [p_low], policy="strict") if d.rule_id == "DV-AP-003"
     ]
     assert len(ap003_strict) == 1 and ap003_strict[0].severity == "ERROR"
+
+
+def test_satellite_aliased_col_mappings_hash_diff_and_duckdb_prover() -> None:
+    """SAT_HASH_DIFF resolves aliased Satellite col_mappings so staging and DuckDB prover bind source cols."""
+    from opendv.storage import DuckDbProverAdapter
+
+    prof = SourceProfile(
+        source_id="erp",
+        schema_fingerprint="fp_alias",
+        table_count=1,
+        tables=[
+            TableProfile(
+                table_id="erp:cust",
+                table_name="cust",
+                row_count_est=2,
+                columns=[
+                    _col("cust_id", is_pk=True),
+                    _col("credit_limit", sql_type="BIGINT"),
+                ],
+            )
+        ],
+    )
+    draft = DraftVaultIR(
+        project_id="p_alias",
+        ontology_version="1.0",
+        wave_number=1,
+        hubs=[
+            DraftHubSpec(
+                hub_name="hub_customer",
+                key_tier="TIER_2_ENTERPRISE_SOR",
+                business_keys=[
+                    BusinessKeyPart(
+                        table_id="erp:cust",
+                        col_name="cust_id",
+                        source_id="erp",
+                        key_tier="TIER_2_ENTERPRISE_SOR",
+                        bkcc_value="ERP",
+                    )
+                ],
+                source_bindings=[
+                    DraftSourceBinding(
+                        source_id="erp",
+                        table_id="erp:cust",
+                        col_mappings={"cust_id": "cust_id"},
+                    )
+                ],
+            )
+        ],
+        satellites=[
+            DraftSatelliteSpec(
+                sat_name="sat_cust_erp",
+                sat_kind="STANDARD",
+                parent_name="hub_customer",
+                source_bindings=[
+                    DraftSourceBinding(
+                        source_id="erp",
+                        table_id="erp:cust",
+                        col_mappings={"erp_credit_limit": "credit_limit"},
+                    )
+                ],
+                attributes=[
+                    DraftField(
+                        name="erp_credit_limit",
+                        logical_type="INT64",
+                        nullable=True,
+                        is_pii=False,
+                    )
+                ],
+            )
+        ],
+        column_triage=_triage_profiles([prof]),
+    )
+    _, cert, _ = run_l1_codemods(draft, profiles=[prof])
+    sat_cert = cert.satellites[0]
+    assert sat_cert.hash_recipe is not None
+    assert sat_cert.hash_recipe.source_columns == ["credit_limit"]
+    rows = {"erp:cust": [{"cust_id": "C1", "credit_limit": 100}, {"cust_id": "C2", "credit_limit": 200}]}
+    rep = DuckDbProverAdapter().prove(
+        cert,
+        [prof],
+        source_rows_by_table=rows,
+        table_sample_flags={"erp:cust": True},
+        real_row_proving=True,
+    )
+    assert all(rep.dyn_results.values()), (rep.dyn_results, rep.counterexamples)

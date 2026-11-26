@@ -278,7 +278,8 @@ def promote_draft_to_certified(
             if bitemp_col
             else list(sat.attributes)
         )
-        payload_cols = sorted(a.name for a in sat_attrs)
+        sat_cmaps = sb0.col_mappings if sb0 is not None else {}
+        payload_cols = sorted(sat_cmaps.get(a.name, a.name) for a in sat_attrs)
         sat_recipe = (
             HashRecipeSpec(
                 target_col="hash_diff",
