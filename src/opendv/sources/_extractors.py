@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import concurrent.futures
+import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -17,6 +19,52 @@ from opendv.sources._extractors_files import (
 )
 
 _SYSTEM_SCHEMAS: frozenset[str] = frozenset({"information_schema", "sys", "system"})
+_UC_AGG_CHUNK_SIZE: int = 100
+_UC_COMPLEX_TYPES: frozenset[str] = frozenset({"MAP", "ARRAY", "STRUCT"})
+
+
+def _is_complex_uc_type(sql_type: str) -> bool:
+    base = sql_type.strip().upper().split("<", 1)[0].split("(", 1)[0].strip()
+    return base in _UC_COMPLEX_TYPES
+
+
+def _execute_uc_query(
+    cur: Any,
+    sql: str,
+    *,
+    deadline: float | None,
+    fetch_mode: str,
+) -> Any:
+    def _run() -> Any:
+        cur.execute(sql)
+        if fetch_mode == "one":
+            return cur.fetchone()
+        if fetch_mode == "all":
+            return cur.fetchall()
+        return None
+
+    if deadline is None:
+        return _run()
+
+    remaining = deadline - time.monotonic()
+    if remaining <= 0.0:
+        raise OpenDVError(
+            "Databricks UC profiling exceeded query timeout",
+            error_code=ErrorCode.INTERNAL_SERVER_ERROR,
+        )
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(_run)
+    try:
+        return future.result(timeout=remaining)
+    except concurrent.futures.TimeoutError as err:
+        future.cancel()
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise OpenDVError(
+            "Databricks UC profiling exceeded query timeout",
+            error_code=ErrorCode.INTERNAL_SERVER_ERROR,
+        ) from err
+    finally:
+        pool.shutdown(wait=False)
 
 
 def extract_databricks_uc(
@@ -29,6 +77,7 @@ def extract_databricks_uc(
     preview_limit: int,
     validate_ident_fn: Any,
     open_conn_fn: Any,
+    timeout_seconds: float | None = 30.0,
 ) -> list[RawTableData]:
     injected_conn = options.get("_connection")
     catalog = validate_ident_fn(str(options.get("catalog", "")))
@@ -38,6 +87,14 @@ def extract_databricks_uc(
             f"System schema '{schema}' cannot be profiled",
             error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
         )
+
+    raw_timeout = options.get(
+        "query_timeout_seconds",
+        options.get("profile_timeout_seconds", timeout_seconds),
+    )
+    deadline: float | None = None
+    if raw_timeout is not None:
+        deadline = time.monotonic() + max(0.001, float(raw_timeout))
 
     conn = (
         injected_conn
@@ -50,63 +107,101 @@ def extract_databricks_uc(
         )
     )
     cur = conn.cursor()
-    cur.execute(
+    tbl_rows = _execute_uc_query(
+        cur,
         f"SELECT table_name FROM `{catalog}`.information_schema.tables "
-        f"WHERE table_catalog = '{catalog}' AND table_schema = '{schema}' ORDER BY table_name"
+        f"WHERE table_catalog = '{catalog}' AND table_schema = '{schema}' ORDER BY table_name",
+        deadline=deadline,
+        fetch_mode="all",
     )
     tbl_names = filter_selected(
-        [str(r[0]) for r in cur.fetchall() if not str(r[0]).startswith("_")],
+        [str(r[0]) for r in tbl_rows if not str(r[0]).startswith("_")],
         selected_tables,
     )
 
     tables: list[RawTableData] = []
     for tbl in tbl_names:
         safe_tbl = validate_ident_fn(tbl)
-        cur.execute(
+        col_defs = _execute_uc_query(
+            cur,
             f"SELECT column_name, data_type, is_nullable "
             f"FROM `{catalog}`.information_schema.columns "
             f"WHERE table_catalog = '{catalog}' AND table_schema = '{schema}' "
-            f"AND table_name = '{safe_tbl}' ORDER BY ordinal_position"
+            f"AND table_name = '{safe_tbl}' ORDER BY ordinal_position",
+            deadline=deadline,
+            fetch_mode="all",
         )
-        col_defs = cur.fetchall()
 
         pii_tagged_cols: set[str] = set()
         try:
-            cur.execute(
+            tag_rows = _execute_uc_query(
+                cur,
                 f"SELECT column_name, tag_name, tag_value "
                 f"FROM `{catalog}`.information_schema.column_tags "
                 f"WHERE catalog_name = '{catalog}' AND schema_name = '{schema}' "
-                f"AND table_name = '{safe_tbl}'"
+                f"AND table_name = '{safe_tbl}'",
+                deadline=deadline,
+                fetch_mode="all",
             )
-            for c_n, t_n, t_v in cur.fetchall():
+            for c_n, t_n, t_v in tag_rows:
                 if str(t_n).lower() == "pii" and str(t_v).lower() == "true":
                     pii_tagged_cols.add(str(c_n))
+        except OpenDVError:
+            raise
         except Exception as exc:  # noqa: BLE001
             _ = exc
 
-        cur.execute(f"SELECT count(*) FROM `{catalog}`.`{schema}`.`{safe_tbl}`")
-        total_rows = int((cur.fetchone() or (0,))[0] or 0)
+        cnt_row = _execute_uc_query(
+            cur,
+            f"SELECT count(*) FROM `{catalog}`.`{schema}`.`{safe_tbl}`",
+            deadline=deadline,
+            fetch_mode="one",
+        )
+        total_rows = int((cnt_row or (0,))[0] or 0)
 
         fetch_limit = max(0, int(preview_offset)) + max(0, int(preview_limit))
-        cur.execute(
-            f"SELECT * FROM `{catalog}`.`{schema}`.`{safe_tbl}` LIMIT {fetch_limit}"
+        all_preview = _execute_uc_query(
+            cur,
+            f"SELECT * FROM `{catalog}`.`{schema}`.`{safe_tbl}` LIMIT {fetch_limit}",
+            deadline=deadline,
+            fetch_mode="all",
         )
-        all_preview = cur.fetchall()
         sliced = all_preview[preview_offset : preview_offset + preview_limit]
         preview_rows = [[None if v is None else str(v) for v in row] for row in sliced]
 
-        cols: list[RawColumnData] = []
-        for idx, c_def in enumerate(col_defs):
-            col_name = validate_ident_fn(str(c_def[0]))
-            sql_type = str(c_def[1] or "STRING").upper()
-            nullable = str(c_def[2]).upper() in ("YES", "TRUE", "1")
-            cur.execute(
-                f"SELECT count(*) - count(`{col_name}`), "
-                f"APPROX_COUNT_DISTINCT(`{col_name}`) "
-                f"FROM `{catalog}`.`{schema}`.`{safe_tbl}`"
+        parsed_cols = [
+            (
+                validate_ident_fn(str(c_def[0])),
+                str(c_def[1] or "STRING").upper(),
+                str(c_def[2]).upper() in ("YES", "TRUE", "1"),
             )
-            null_cnt, dist_cnt = cur.fetchone() or (0, 0)
-            null_ratio = float(null_cnt or 0) / float(total_rows) if total_rows > 0 else 0.0
+            for c_def in col_defs
+        ]
+
+        agg_stats: list[tuple[int, int]] = []
+        for start in range(0, len(parsed_cols), _UC_AGG_CHUNK_SIZE):
+            chunk = parsed_cols[start : start + _UC_AGG_CHUNK_SIZE]
+            select_exprs: list[str] = []
+            for col_name, sql_type, _ in chunk:
+                select_exprs.append(f"count(*) - count(`{col_name}`)")
+                if _is_complex_uc_type(sql_type):
+                    select_exprs.append("0")
+                else:
+                    select_exprs.append(f"APPROX_COUNT_DISTINCT(`{col_name}`)")
+            agg_sql = f"SELECT {', '.join(select_exprs)} FROM `{catalog}`.`{schema}`.`{safe_tbl}`"
+            agg_row = (
+                _execute_uc_query(cur, agg_sql, deadline=deadline, fetch_mode="one") or ()
+            )
+            for c_idx in range(len(chunk)):
+                pos = c_idx * 2
+                null_cnt = int(agg_row[pos] or 0) if pos < len(agg_row) else 0
+                dist_cnt = int(agg_row[pos + 1] or 0) if (pos + 1) < len(agg_row) else 0
+                agg_stats.append((null_cnt, dist_cnt))
+
+        cols: list[RawColumnData] = []
+        for idx, (col_name, sql_type, nullable) in enumerate(parsed_cols):
+            null_cnt, dist_cnt = agg_stats[idx]
+            null_ratio = float(null_cnt) / float(total_rows) if total_rows > 0 else 0.0
             raw_vals = [
                 str(row[idx])
                 for row in all_preview
@@ -123,7 +218,7 @@ def extract_databricks_uc(
                     pk_ord=None,
                     fk_ref=None,
                     null_ratio=min(1.0, max(0.0, null_ratio)),
-                    distinct_count_est=int(dist_cnt or 0),
+                    distinct_count_est=dist_cnt,
                     raw_samples=samples,
                     explicit_pii_tags=explicit_tags,
                 )

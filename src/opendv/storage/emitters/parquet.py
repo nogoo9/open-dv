@@ -22,7 +22,9 @@ from opendv.models.vault_ir_certified import CertifiedVaultIR, IRField, SeedReco
 from opendv.storage.dialects import assign_physical_aliases, get_dialect_profile, lower_logical_type
 from opendv.storage.sql_compiler.ddl_builders import (
     ZONE_SCHEMAS,
+    is_pit_bridge_excluded,
     planned_exclusion_sets,
+    resolve_bridge_hop_columns,
     resolve_pit_bridge_columns,
 )
 
@@ -255,21 +257,22 @@ class ParquetEmitter:
         # Z3 Derived PIT / Bridge -> z3_derived/<name>/latest/part-00000.zstd.parquet
         max_ident = get_dialect_profile("parquet").max_ident_bytes
         for pb in ir.pit_bridges:
-            if pb.root_hub in planned_hubs:
+            if is_pit_bridge_excluded(pb, planned_hubs, excluded_links):
                 continue
             phys = aliases.get(pb.object_name, pb.object_name)
-            _, root_hk, targets = resolve_pit_bridge_columns(pb, ir, max_ident)
-            pb_cols: list[IRField] = [
-                IRField(
-                    field_id=1,
-                    name=root_hk,
-                    logical_type="FIXED_BINARY_32",
-                    nullable=False,
-                    is_pii=False,
-                )
-            ]
-            fid = 2
+            pb_cols: list[IRField] = []
             if pb.object_kind == "PIT":
+                _, root_hk, targets = resolve_pit_bridge_columns(pb, ir, max_ident)
+                pb_cols.append(
+                    IRField(
+                        field_id=1,
+                        name=root_hk,
+                        logical_type="FIXED_BINARY_32",
+                        nullable=False,
+                        is_pii=False,
+                    )
+                )
+                fid = 2
                 pb_cols.append(
                     IRField(
                         field_id=fid,
@@ -313,17 +316,39 @@ class ParquetEmitter:
                         )
                         fid += 1
             else:
-                for _, fk_col, _, _, _ in targets:
+                _, root_hk, hop_specs = resolve_bridge_hop_columns(pb, ir, max_ident)
+                pb_cols.append(
+                    IRField(
+                        field_id=1,
+                        name=root_hk,
+                        logical_type="FIXED_BINARY_32",
+                        nullable=False,
+                        is_pii=False,
+                    )
+                )
+                fid = 2
+                for hop in hop_specs:
                     pb_cols.append(
                         IRField(
                             field_id=fid,
-                            name=fk_col,
+                            name=hop.brg_link_hk_col,
                             logical_type="FIXED_BINARY_32",
                             nullable=False,
                             is_pii=False,
                         )
                     )
                     fid += 1
+                    if hop.brg_to_hub_hk_col is not None:
+                        pb_cols.append(
+                            IRField(
+                                field_id=fid,
+                                name=hop.brg_to_hub_hk_col,
+                                logical_type="FIXED_BINARY_32",
+                                nullable=False,
+                                is_pii=False,
+                            )
+                        )
+                        fid += 1
                 pb_cols.append(
                     IRField(
                         field_id=fid,

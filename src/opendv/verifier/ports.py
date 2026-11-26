@@ -6,18 +6,21 @@ Zero duckdb, sqlglot, opendv.sources, or opendv.storage imports.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Protocol, runtime_checkable
+from collections.abc import Mapping, Sequence
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import Field
 
 from opendv.models.diagnostics import (
+    AntiPatternJustification,
     HorizonQuestion,
     IRProverReport,
+    RealDataRuleResult,
     StrictModel,
     VerifierDiagnostic,
 )
 from opendv.models.events import ExternalMcpReceipt, OcrPageReceipt
+from opendv.models.modeling_preferences import ModelingPreferences, RemediationHint
 from opendv.models.ontology import GraphAOntology
 from opendv.models.policy import CegarPolicy
 from opendv.models.project import EvolutionLockSpec, OntologyWaiverSpec
@@ -36,6 +39,9 @@ class IRRuntimeProver(Protocol):
         profiles: Sequence[SourceProfile],
         *,
         policy: CegarPolicy = "balanced",
+        source_rows_by_table: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
+        table_sample_flags: Mapping[str, bool] | None = None,
+        real_row_proving: bool = True,
     ) -> IRProverReport:
         """Execute runtime dynamic invariants and AST checks on CertifiedVaultIR."""
         ...
@@ -71,6 +77,11 @@ class VerifierContext(StrictModel):
     cdc_volatility_by_table: dict[str, dict[str, float]] = Field(default_factory=dict)
     fk_turnover_by_table: dict[str, dict[str, float]] = Field(default_factory=dict)
     entity_count_overrides: dict[str, int] = Field(default_factory=dict)
+    source_rows_by_table: dict[str, list[dict[str, Any]]] | None = None
+    table_sample_flags: dict[str, bool] | None = None
+    real_row_proving: bool = True
+    modeling_preferences: ModelingPreferences = Field(default_factory=ModelingPreferences)
+    persisted_waivers: list[AntiPatternJustification] = Field(default_factory=list)
 
 
 class VerifierReport(StrictModel):
@@ -86,6 +97,10 @@ class VerifierReport(StrictModel):
     advisory_count: int = Field(default=0, ge=0)
     prover_report: IRProverReport | None = None
     energy_e: int = Field(default=0, ge=0)
+    deterministic_energy: int = Field(default=0, ge=0)
+    schema_proof: dict[str, bool] = Field(default_factory=dict)
+    real_data_proof: dict[str, RealDataRuleResult] = Field(default_factory=dict)
+    remediation_hints: list[RemediationHint] = Field(default_factory=list)
 
 
 __all__ = [

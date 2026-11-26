@@ -154,7 +154,7 @@ def _build_clean_trap_ir(
     ]
 
     r_crm = HashRecipeSpec(
-        target_col="hk_crm_acct", recipe_kind="HUB_HK", bkcc_literal="CRM",
+        target_col="hk_client_acct", recipe_kind="HUB_HK", bkcc_literal="CRM",
         source_columns=["account_id"], sort_alphabetically=False, key_columns=["account_id"],
     )
     r_ibor = HashRecipeSpec(
@@ -186,11 +186,11 @@ def _build_clean_trap_ir(
     hd_crm = HashRecipeSpec(
         target_col="hash_diff", recipe_kind="SAT_HASH_DIFF",
         source_columns=["daily_nav_usd", "delimiter_part_a", "delimiter_part_b"],
-        sort_alphabetically=True, key_columns=["hk_crm_acct"],
+        sort_alphabetically=True, key_columns=["hk_client_acct"],
     )
     hd_pii = HashRecipeSpec(
         target_col="hash_diff", recipe_kind="SAT_HASH_DIFF",
-        source_columns=["beneficial_owner_tax_id"], sort_alphabetically=True, key_columns=["hk_crm_acct"],
+        source_columns=["beneficial_owner_tax_id"], sort_alphabetically=True, key_columns=["hk_client_acct"],
     )
     hd_ibor = HashRecipeSpec(
         target_col="hash_diff", recipe_kind="SAT_HASH_DIFF",
@@ -216,7 +216,7 @@ def _build_clean_trap_ir(
             table_id=tbl.table_id,
             col_name=col.col_name,
             disposition="SYSTEM_METADATA" if col.col_name == "etl_snapshot_ts" else "MODELED",
-            target_ref="hub_crm_acct",
+            target_ref="hub_client_acct",
         )
         for p in profiles
         for tbl in p.tables
@@ -246,20 +246,20 @@ def _build_clean_trap_ir(
         ],
         hubs=[
             CertifiedHubSpec(
-                hub_name="hub_crm_acct", key_tier="TIER_3_LOCAL_SCOPED",
+                hub_name="hub_client_acct", key_tier="TIER_3_LOCAL_SCOPED",
                 business_keys=[BusinessKeyPart(table_id="trap_src:trap_crm_accounts", col_name="account_id", source_id="trap_src", key_tier="TIER_3_LOCAL_SCOPED", bkcc_value="CRM")],
                 source_bindings=[
                     SourceBindingSpec(source_id="trap_src", table_id="trap_src:trap_crm_accounts", col_mappings={}, hash_recipe=r_crm),
                     SourceBindingSpec(source_id="trap_src", table_id="trap_src:trap_manager_eff", col_mappings={}, hash_recipe=r_crm),
                 ],
                 columns=[
-                    IRField(field_id=1, name="hk_crm_acct", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
+                    IRField(field_id=1, name="hk_client_acct", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
                     IRField(field_id=2, name="bkcc", logical_type="UTF8_STRING", nullable=False, is_pii=False),
                     IRField(field_id=3, name="load_dts", logical_type="TIMESTAMP_UTC_US", nullable=False, is_pii=False),
                     IRField(field_id=4, name="rec_src", logical_type="UTF8_STRING", nullable=False, is_pii=False),
                     IRField(field_id=5, name="account_id", logical_type="UTF8_STRING", nullable=False, is_pii=False),
                 ],
-                hash_recipe=r_crm, physical_hints=PhysicalLayoutHints(cluster_by_cols=["hk_crm_acct"]),
+                hash_recipe=r_crm, physical_hints=PhysicalLayoutHints(cluster_by_cols=["hk_client_acct"]),
             ),
             CertifiedHubSpec(
                 hub_name="hub_ibor_acct", key_tier="TIER_3_LOCAL_SCOPED",
@@ -331,13 +331,13 @@ def _build_clean_trap_ir(
             CertifiedLinkSpec(
                 link_name="lnk_acct_mgr", link_kind="STANDARD",
                 participants=[
-                    LinkParticipantSpec(hub_name="hub_crm_acct", role_name="ACCOUNT", fk_col_name="hk_crm_acct", source_col_names=["account_id"]),
+                    LinkParticipantSpec(hub_name="hub_client_acct", role_name="ACCOUNT", fk_col_name="hk_client_acct", source_col_names=["account_id"]),
                     LinkParticipantSpec(hub_name="hub_manager", role_name="MANAGER", fk_col_name="hk_manager", source_col_names=["portfolio_manager_id"]),
                 ],
                 source_bindings=[SourceBindingSpec(source_id="trap_src", table_id="trap_src:trap_manager_eff", col_mappings={}, hash_recipe=r_lnk_eff)],
                 columns=[
                     IRField(field_id=1, name="hk_acct_mgr", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
-                    IRField(field_id=2, name="hk_crm_acct", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
+                    IRField(field_id=2, name="hk_client_acct", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
                     IRField(field_id=3, name="hk_manager", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
                     IRField(field_id=4, name="load_dts", logical_type="TIMESTAMP_UTC_US", nullable=False, is_pii=False),
                     IRField(field_id=5, name="rec_src", logical_type="UTF8_STRING", nullable=False, is_pii=False),
@@ -347,7 +347,7 @@ def _build_clean_trap_ir(
         ],
         satellites=[
             CertifiedSatelliteSpec(
-                sat_name="sat_crm_core", sat_kind="STANDARD", parent_name="hub_crm_acct",
+                sat_name="sat_crm_core", sat_kind="STANDARD", parent_name="hub_client_acct",
                 source_id="trap_src", source_table_id="trap_src:trap_crm_accounts",
                 attributes=[
                     DraftField(name="delimiter_part_a", logical_type="UTF8_STRING", nullable=True, is_pii=False),
@@ -355,7 +355,7 @@ def _build_clean_trap_ir(
                     DraftField(name="daily_nav_usd", logical_type=DecimalType(precision=18, scale=2), nullable=True, is_pii=False),
                 ],
                 columns=[
-                    IRField(field_id=1, name="hk_crm_acct", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
+                    IRField(field_id=1, name="hk_client_acct", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
                     IRField(field_id=2, name="load_dts", logical_type="TIMESTAMP_UTC_US", nullable=False, is_pii=False),
                     IRField(field_id=3, name="rec_src", logical_type="UTF8_STRING", nullable=False, is_pii=False),
                     IRField(field_id=4, name="hash_diff", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
@@ -363,20 +363,20 @@ def _build_clean_trap_ir(
                     IRField(field_id=6, name="delimiter_part_b", logical_type="UTF8_STRING", nullable=True, is_pii=False),
                     IRField(field_id=7, name="daily_nav_usd", logical_type=DecimalType(precision=18, scale=2), nullable=True, is_pii=False),
                 ],
-                hash_recipe=hd_crm, physical_hints=PhysicalLayoutHints(cluster_by_cols=["hk_crm_acct", "load_dts"]),
+                hash_recipe=hd_crm, physical_hints=PhysicalLayoutHints(cluster_by_cols=["hk_client_acct", "load_dts"]),
             ),
             CertifiedSatelliteSpec(
-                sat_name="sat_crm_pii", sat_kind="PII", parent_name="hub_crm_acct",
+                sat_name="sat_crm_pii", sat_kind="PII", parent_name="hub_client_acct",
                 source_id="trap_src", source_table_id="trap_src:trap_crm_accounts",
                 attributes=[DraftField(name="beneficial_owner_tax_id", logical_type="UTF8_STRING", nullable=True, is_pii=True)],
                 columns=[
-                    IRField(field_id=1, name="hk_crm_acct", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
+                    IRField(field_id=1, name="hk_client_acct", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
                     IRField(field_id=2, name="load_dts", logical_type="TIMESTAMP_UTC_US", nullable=False, is_pii=False),
                     IRField(field_id=3, name="rec_src", logical_type="UTF8_STRING", nullable=False, is_pii=False),
                     IRField(field_id=4, name="hash_diff", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
                     IRField(field_id=5, name="beneficial_owner_tax_id", logical_type="UTF8_STRING", nullable=True, is_pii=True),
                 ],
-                hash_recipe=hd_pii, physical_hints=PhysicalLayoutHints(cluster_by_cols=["hk_crm_acct", "load_dts"]),
+                hash_recipe=hd_pii, physical_hints=PhysicalLayoutHints(cluster_by_cols=["hk_client_acct", "load_dts"]),
             ),
             CertifiedSatelliteSpec(
                 sat_name="sat_ibor_core", sat_kind="STANDARD", parent_name="hub_ibor_acct",
@@ -450,13 +450,13 @@ def _build_clean_trap_ir(
             CertifiedSatelliteSpec(
                 sat_name="esat_acct_mgr", sat_kind="ESAT", parent_name="lnk_acct_mgr",
                 source_id="trap_src", source_table_id="trap_src:trap_manager_eff",
-                driving_keys=["hk_crm_acct"],
+                driving_keys=["hk_client_acct"],
                 attributes=[DraftField(name="effective_from", logical_type="TIMESTAMP_UTC_US", nullable=False, is_pii=False)],
                 columns=[
                     IRField(field_id=1, name="hk_acct_mgr", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
                     IRField(field_id=2, name="load_dts", logical_type="TIMESTAMP_UTC_US", nullable=False, is_pii=False),
                     IRField(field_id=3, name="rec_src", logical_type="UTF8_STRING", nullable=False, is_pii=False),
-                    IRField(field_id=4, name="hk_crm_acct", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
+                    IRField(field_id=4, name="hk_client_acct", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
                     IRField(field_id=5, name="effective_from", logical_type="TIMESTAMP_UTC_US", nullable=False, is_pii=False),
                 ],
                 physical_hints=PhysicalLayoutHints(cluster_by_cols=["hk_acct_mgr", "load_dts"]),
@@ -483,9 +483,9 @@ def _build_clean_trap_ir(
         ],
         pit_bridges=[
             PitBridgeSpec(
-                object_name="pit_crm_acct", object_kind="PIT", root_hub="hub_crm_acct",
+                object_name="pit_crm_acct", object_kind="PIT", root_hub="hub_client_acct",
                 target_satellites_or_links=["sat_crm_core", "sat_crm_pii"],
-                grain_cols=["hk_crm_acct", "snapshot_dts"],
+                grain_cols=["hk_client_acct", "snapshot_dts"],
             ),
             PitBridgeSpec(
                 object_name="pit_trade", object_kind="PIT", root_hub="hub_trade",
@@ -496,16 +496,16 @@ def _build_clean_trap_ir(
         information_marts=[
             MartViewSpec(
                 view_name="information_mart.vw_crm_acct_current",
-                root_entity="hub_crm_acct",
+                root_entity="hub_client_acct",
                 joined_entities=["sat_crm_core", "sat_crm_pii"],
                 columns=[
-                    IRField(field_id=1, name="hk_crm_acct", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
+                    IRField(field_id=1, name="hk_client_acct", logical_type="FIXED_BINARY_32", nullable=False, is_pii=False),
                     IRField(field_id=2, name="account_id", logical_type="UTF8_STRING", nullable=False, is_pii=False),
                     IRField(field_id=3, name="daily_nav_usd", logical_type=DecimalType(precision=18, scale=2), nullable=True, is_pii=False),
                 ],
                 select_exprs={
-                    "hk_crm_acct": "hub_crm_acct.hk_crm_acct",
-                    "account_id": "hub_crm_acct.account_id",
+                    "hk_client_acct": "hub_client_acct.hk_client_acct",
+                    "account_id": "hub_client_acct.account_id",
                     "daily_nav_usd": "sat_crm_core.daily_nav_usd",
                 },
             )
@@ -738,7 +738,7 @@ def test_all_15_dv_dyn_rules_can_individually_fail_with_counterexamples() -> Non
     # 013: ESAT >1 active link at latest load_dts for same driving key + missing/link-resident DK checks
     c13 = _fresh_populated_conn()
     c13.execute("CREATE OR REPLACE TABLE raw_vault.esat_acct_mgr AS SELECT * FROM raw_vault.esat_acct_mgr")
-    c13.execute("INSERT INTO raw_vault.esat_acct_mgr SELECT UNHEX(REPEAT('99', 32)), MAX(load_dts), 'X', hk_crm_acct, MAX(effective_from) FROM raw_vault.esat_acct_mgr WHERE hk_crm_acct <> UNHEX(REPEAT('00', 32)) GROUP BY hk_crm_acct LIMIT 1")
+    c13.execute("INSERT INTO raw_vault.esat_acct_mgr SELECT UNHEX(REPEAT('99', 32)), MAX(load_dts), 'X', hk_client_acct, MAX(effective_from) FROM raw_vault.esat_acct_mgr WHERE hk_client_acct <> UNHEX(REPEAT('00', 32)) GROUP BY hk_client_acct LIMIT 1")
     res13, _ = run_all_dyn_invariants(c13, ir, bundle.physical_aliases, bundle.stg_hd_col_map, summary_ok)
     c13.close()
     assert res13["DV-DYN-013"] is False
@@ -760,7 +760,7 @@ def test_all_15_dv_dyn_rules_can_individually_fail_with_counterexamples() -> Non
     ir_lnk_dk = ir.model_copy(
         update={
             "satellites": [
-                s.model_copy(update={"columns": [c for c in s.columns if c.name != "hk_crm_acct"]})
+                s.model_copy(update={"columns": [c for c in s.columns if c.name != "hk_client_acct"]})
                 if s.sat_name == "esat_acct_mgr"
                 else s
                 for s in ir.satellites
@@ -770,15 +770,15 @@ def test_all_15_dv_dyn_rules_can_individually_fail_with_counterexamples() -> Non
     res13_lnk_ok, _ = run_all_dyn_invariants(c13_lnk_dk, ir_lnk_dk, bundle.physical_aliases, bundle.stg_hd_col_map, summary_ok)
     assert res13_lnk_ok["DV-DYN-013"] is True
     c13_lnk_dk.execute("CREATE OR REPLACE TABLE raw_vault.esat_acct_mgr AS SELECT * FROM raw_vault.esat_acct_mgr")
-    c13_lnk_dk.execute("INSERT INTO raw_vault.lnk_acct_mgr SELECT UNHEX(REPEAT('99', 32)), hk_crm_acct, hk_manager, load_dts, 'X' FROM raw_vault.lnk_acct_mgr WHERE hk_crm_acct <> UNHEX(REPEAT('00', 32)) AND hk_crm_acct <> UNHEX(REPEAT('ff', 32)) LIMIT 1")
-    c13_lnk_dk.execute("INSERT INTO raw_vault.esat_acct_mgr SELECT UNHEX(REPEAT('99', 32)), MAX(load_dts), 'X', hk_crm_acct, MAX(effective_from) FROM raw_vault.esat_acct_mgr WHERE hk_crm_acct <> UNHEX(REPEAT('00', 32)) GROUP BY hk_crm_acct LIMIT 1")
+    c13_lnk_dk.execute("INSERT INTO raw_vault.lnk_acct_mgr SELECT UNHEX(REPEAT('99', 32)), hk_client_acct, hk_manager, load_dts, 'X' FROM raw_vault.lnk_acct_mgr WHERE hk_client_acct <> UNHEX(REPEAT('00', 32)) AND hk_client_acct <> UNHEX(REPEAT('ff', 32)) LIMIT 1")
+    c13_lnk_dk.execute("INSERT INTO raw_vault.esat_acct_mgr SELECT UNHEX(REPEAT('99', 32)), MAX(load_dts), 'X', hk_client_acct, MAX(effective_from) FROM raw_vault.esat_acct_mgr WHERE hk_client_acct <> UNHEX(REPEAT('00', 32)) GROUP BY hk_client_acct LIMIT 1")
     res13_lnk_fail, _ = run_all_dyn_invariants(c13_lnk_dk, ir_lnk_dk, bundle.physical_aliases, bundle.stg_hd_col_map, summary_ok)
     c13_lnk_dk.close()
     assert res13_lnk_fail["DV-DYN-013"] is False
 
     # 014: Zero-key leaked into information_mart AND into Z3 PIT
     c14 = _fresh_populated_conn()
-    c14.execute("CREATE OR REPLACE VIEW information_mart.vw_crm_acct_current AS SELECT hk_crm_acct, account_id, CAST(0 AS DECIMAL(18,2)) AS daily_nav_usd FROM raw_vault.hub_crm_acct")
+    c14.execute("CREATE OR REPLACE VIEW information_mart.vw_crm_acct_current AS SELECT hk_client_acct, account_id, CAST(0 AS DECIMAL(18,2)) AS daily_nav_usd FROM raw_vault.hub_client_acct")
     res14, _ = run_all_dyn_invariants(c14, ir, bundle.physical_aliases, bundle.stg_hd_col_map, summary_ok)
     c14.close()
     assert res14["DV-DYN-014"] is False

@@ -6,9 +6,9 @@ import hashlib
 import re
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import Final, Literal
 
+from opendv.models.modeling_preferences import TableClusterResult
 from opendv.models.sources import TableIndexEntry, TableProfile
 
 NUM_PERMS: Final[int] = 125
@@ -27,15 +27,6 @@ _HASH_COEFFS: Final[tuple[tuple[int, int], ...]] = tuple(
     )
     for i in range(NUM_PERMS)
 )
-
-
-@dataclass(frozen=True)
-class TableClusterResult:
-    """Cluster assignments for a catalog of TableProfile objects."""
-
-    clusters: list[list[str]]
-    table_to_cluster: dict[str, str]
-    shard_groups: dict[str, str]
 
 
 def collapse_shard_name(table_name: str) -> str:

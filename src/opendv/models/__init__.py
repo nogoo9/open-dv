@@ -85,6 +85,7 @@ from opendv.models.modeling_preferences import (
     ProvingSampleCacheFile,
     RemediationHint,
     TableCluster,
+    TableClusterResult,
     ValueFreqItem,
 )
 from opendv.models.ontology import (
@@ -243,6 +244,7 @@ from opendv.models.vault_ir import (
     SatKind,
     SatLoadMode,
     TriageDisposition,
+    hub_canonical_bk_cols,
 )
 from opendv.models.vault_ir_certified import (
     BronzeTableSpec,
@@ -575,6 +577,7 @@ __all__ = [
     "StorageTargetReq",
     "StrictModel",
     "TableCluster",
+    "TableClusterResult",
     "TableIndexEntry",
     "TablePreviewPage",
     "TableProfile",
@@ -617,6 +620,7 @@ __all__ = [
     "format_scalar_alg_a5",
     "get_error_entry",
     "get_error_mapping",
+    "hub_canonical_bk_cols",
     "is_non_credential_digest_column",
     "is_valid_aba_routing",
     "is_valid_luhn",

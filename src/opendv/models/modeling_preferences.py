@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any, Final, Literal
 
 from pydantic import Field
@@ -202,6 +203,15 @@ class TableCluster(StrictModel):
     )
 
 
+@dataclass(frozen=True)
+class TableClusterResult:
+    """Cluster assignments for a catalog of TableProfile objects."""
+
+    clusters: list[list[str]]
+    table_to_cluster: dict[str, str]
+    shard_groups: dict[str, str]
+
+
 __all__ = [
     "SURROGATE_BK_RE",
     "SURROGATE_BK_RE_PATTERN",
@@ -218,5 +228,6 @@ __all__ = [
     "RealDataRuleResult",
     "RemediationHint",
     "TableCluster",
+    "TableClusterResult",
     "ValueFreqItem",
 ]

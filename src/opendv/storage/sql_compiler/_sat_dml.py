@@ -96,14 +96,15 @@ def _sat_staging_select_and_pk(
     stg_hd_col = hd_col_map.get((stg.view_name, sat.sat_name), "hash_diff")
     applied_col = sat.applied_dts_col if (sat.is_bitemporal and sat.applied_dts_col) else None
 
+    is_mas = sat.sat_kind == "MAS" or bool(sat.child_dependent_keys)
     part_cols = [parent_hk]
-    if sat.sat_kind == "MAS" and sat.child_dependent_keys:
+    if is_mas and sat.child_dependent_keys:
         part_cols.extend(sat.child_dependent_keys)
 
     pk_cols = [parent_hk, "load_dts"]
     if applied_col:
         pk_cols.append(applied_col)
-    if sat.sat_kind == "MAS" and sat.child_dependent_keys:
+    if is_mas and sat.child_dependent_keys:
         pk_cols.extend(sat.child_dependent_keys)
 
     sat_sb = next(

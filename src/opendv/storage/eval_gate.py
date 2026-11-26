@@ -23,7 +23,11 @@ from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.ir_kernel import execute_hash_recipe
 from opendv.models.project import DbtSqlDialect
 from opendv.models.vault_ir import ArrayType, DecimalType, MapType, PortableLogicalType
-from opendv.models.vault_ir_certified import CertifiedVaultIR, HashRecipeSpec
+from opendv.models.vault_ir_certified import (
+    CertifiedVaultIR,
+    HashRecipeSpec,
+    LinkParticipantHashSpec,
+)
 from opendv.storage._eval_runtime import run_eval_runtime_checks
 from opendv.storage.dialects import SQL_TARGET_IDS, get_dialect_profile
 from opendv.storage.sql_ast_verifier import SqlAstVerifier
@@ -231,6 +235,83 @@ class TargetEvalGate:
                 exp_c = execute_hash_recipe(coll_recipe, py_c, column_types=coll_types)
                 if str(cr[4]).lower() != exp_c:
                     errors.append(f"EVAL-AST-03 collection mismatch for {py_c}: {cr[4]} != {exp_c}")
+
+            # Participant-aware LINK_HK parity (mixed-case, degenerate, partial-NULL -1 vs -2)
+            lnk_recipe = HashRecipeSpec(
+                target_col="hk_lnk_vec",
+                recipe_kind="LINK_HK",
+                source_columns=["acct_id", "issuer_cik", "sub_code", "seq_tag"],
+                sort_alphabetically=False,
+                key_columns=["acct_id", "issuer_cik", "sub_code", "seq_tag"],
+                participant_specs=[
+                    LinkParticipantHashSpec(
+                        hub_name="hub_acct",
+                        role_name="ACCT",
+                        key_tier="TIER_1_GLOBAL_STANDARD",
+                        bkcc_literal="GLOBAL",
+                        source_columns=["acct_id"],
+                        is_nullable=False,
+                    ),
+                    LinkParticipantHashSpec(
+                        hub_name="hub_issuer",
+                        role_name="ISSUER",
+                        key_tier="TIER_3_LOCAL_SCOPED",
+                        bkcc_literal="IBOR",
+                        bkcc_col="bkcc_src",
+                        source_columns=["issuer_cik", "sub_code"],
+                        is_nullable=True,
+                    ),
+                    LinkParticipantHashSpec(
+                        role_name="DEG_SEQ",
+                        source_columns=["seq_tag"],
+                        is_degenerate=True,
+                    ),
+                ],
+            )
+            lnk_types: dict[str, PortableLogicalType] = {
+                "acct_id": "UTF8_STRING",
+                "issuer_cik": "UTF8_STRING",
+                "sub_code": "UTF8_STRING",
+                "seq_tag": "UTF8_STRING",
+                "bkcc_src": "UTF8_STRING",
+            }
+            for tid in SQL_TARGET_IDS:
+                d = get_dialect_profile(tid).sqlglot_dialect or "duckdb"
+                l_sql = compile_hash_recipe_sql(lnk_recipe, d, col_types=lnk_types)
+                l_diags = self._ast_verifier.verify_sql(
+                    f"SELECT {l_sql} AS hk_lnk_vec FROM src_lnk_vec", tid
+                )
+                if l_diags:
+                    errors.append(f"{tid} link_vec: {l_diags[0].message}")
+            conn.execute(
+                "CREATE TABLE src_lnk_vec (acct_id VARCHAR, issuer_cik VARCHAR, "
+                "sub_code VARCHAR, seq_tag VARCHAR, bkcc_src VARCHAR)"
+            )
+            conn.execute(
+                "INSERT INTO src_lnk_vec VALUES "
+                "('AbC-1', 'xYz', 'sUb', 'MixedCase', 'eu_cust'), "
+                "('AbC-2', 'xYz', NULL, 'Case_2', NULL), "
+                "('AbC-3', NULL, NULL, NULL, 'eu_cust'), "
+                "('-1', NULL, NULL, 'KeepDeg', 'eu_cust'), "
+                "('-2', NULL, NULL, 'KeepDeg', 'eu_cust'), "
+                "(NULL, NULL, NULL, 'OnlyDeg', NULL)"
+            )
+            duck_lnk = compile_hash_recipe_sql(lnk_recipe, "duckdb", col_types=lnk_types)
+            lnk_q = (
+                "SELECT acct_id, issuer_cik, sub_code, seq_tag, bkcc_src, "
+                f"LOWER(HEX({duck_lnk})) FROM src_lnk_vec"
+            )
+            for lr in conn.execute(lnk_q).fetchall():
+                py_l = {
+                    "acct_id": lr[0],
+                    "issuer_cik": lr[1],
+                    "sub_code": lr[2],
+                    "seq_tag": lr[3],
+                    "bkcc_src": lr[4],
+                }
+                exp_l = execute_hash_recipe(lnk_recipe, py_l, column_types=lnk_types)
+                if str(lr[5]).lower() != exp_l:
+                    errors.append(f"EVAL-AST-03 link_vec mismatch for {py_l}: {lr[5]} != {exp_l}")
         finally:
             conn.close()
 

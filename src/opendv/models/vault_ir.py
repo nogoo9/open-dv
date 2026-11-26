@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from collections.abc import Sequence
+from typing import Annotated, Literal, Protocol
 
 from pydantic import Field, model_validator
 
@@ -376,6 +377,23 @@ class DraftVaultIR(StrictModel):
     )
 
 
+class _HasBusinessKeys(Protocol):
+    @property
+    def business_keys(self) -> Sequence[BusinessKeyPart]: ...
+
+
+def hub_canonical_bk_cols(hub: _HasBusinessKeys) -> list[str]:
+    """Return deduplicated physical Hub BK column names in declared key order."""
+    seen: set[str] = set()
+    cols: list[str] = []
+    for bk in hub.business_keys:
+        canon = bk.canonical_col_name or bk.col_name
+        if canon not in seen:
+            seen.add(canon)
+            cols.append(canon)
+    return cols
+
+
 __all__ = [
     "ArrayType",
     "BridgeHopSpec",
@@ -400,4 +418,5 @@ __all__ = [
     "SatKind",
     "SatLoadMode",
     "TriageDisposition",
+    "hub_canonical_bk_cols",
 ]

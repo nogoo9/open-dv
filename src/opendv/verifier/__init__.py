@@ -12,6 +12,7 @@ from opendv.verifier._v4_unstructured import (
     compute_canonical_text_sha256,
     normalize_page_text,
 )
+from opendv.verifier.hint_survey import survey_modeling_hints
 from opendv.verifier.l1_codemods import (
     L1CodemodOptions,
     apply_bucket_a_operators,
@@ -36,11 +37,13 @@ from opendv.verifier.v2_5_gates import (
     verify_v5_evolution,
 )
 from opendv.verifier.v6b_antipatterns import (
+    apply_v6b_governance,
     evaluate_v6b_accounting,
     is_diagnostic_waived,
     lint_ontology_antipatterns,
     lint_v6b_antipatterns,
     lint_vault_antipatterns,
+    resolve_effective_v6b_blocking_rules,
 )
 
 __all__ = [
@@ -51,6 +54,7 @@ __all__ = [
     "VerifierReport",
     "apply_alg_a9a_schema_drift",
     "apply_bucket_a_operators",
+    "apply_v6b_governance",
     "build_evolution_lock_from_certified",
     "column_name_similarity",
     "compute_canonical_text_sha256",
@@ -65,8 +69,10 @@ __all__ = [
     "merge_draft_shards",
     "normalize_page_text",
     "promote_draft_to_certified",
+    "resolve_effective_v6b_blocking_rules",
     "run_l1_codemods",
     "run_v1_to_v6_gates",
+    "survey_modeling_hints",
     "verify_v1_structure",
     "verify_v2_hash_and_bkcc",
     "verify_v3_sentinels_and_temporal",

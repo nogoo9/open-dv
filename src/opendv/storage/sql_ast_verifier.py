@@ -117,7 +117,7 @@ def _check_hash_expr_purity(
                 diags.append(("DV-AST-002", entity_label, msg))
             if fname in _BYTE_LEN_FUNCS and (fname != "LENGTH" or dialect == "clickhouse"):
                 has_byte_len = True
-        elif isinstance(sub, exp.Literal) and sub.is_string and sub.this == "-1:^^":
+        elif isinstance(sub, exp.Literal) and sub.is_string and sub.this in ("-1:^^", "-2:^^"):
             has_null_token = True
 
     if has_cols and has_hash_func and not has_byte_len:

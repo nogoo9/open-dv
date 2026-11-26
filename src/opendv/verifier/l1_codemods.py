@@ -6,8 +6,11 @@ Zero duckdb, sqlglot, or opendv.sources imports.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 
+from opendv.models.diagnostics import AntiPatternJustification
 from opendv.models.json_hasher import sha256_jcs
+from opendv.models.modeling_preferences import ModelingPreferences
 from opendv.models.ontology import GraphAOntology
 from opendv.models.project import EvolutionLockSpec
 from opendv.models.sources import SourceProfile
@@ -23,12 +26,46 @@ from opendv.verifier._l1_rules_alg import (
     apply_alg_a3_esat_and_mas,
     apply_alg_a4_bkcc_and_sparse_fks,
 )
-from opendv.verifier._l1_shard_triage import inject_unresolved_triage, merge_draft_shards
+from opendv.verifier._l1_shard_triage import (
+    build_entity_shard_provenance_map,
+    inject_unresolved_triage,
+    merge_draft_shards,
+)
 from opendv.verifier.ports import BucketAExecutionResult
 
 
 def _draft_digest(draft: DraftVaultIR) -> str:
     return sha256_jcs(draft.model_dump(mode="json"))
+
+
+def compile_l1_options_from_preferences(
+    preferences: ModelingPreferences,
+    justifications: Sequence[AntiPatternJustification] = (),
+    *,
+    fk_turnover_by_table: Mapping[str, Mapping[str, float]] | None = None,
+    base_options: L1CodemodOptions | None = None,
+) -> L1CodemodOptions:
+    """Compile deterministic L1CodemodOptions from flat Tier-1 ModelingPreferences."""
+    _ = fk_turnover_by_table
+    base = base_options or L1CodemodOptions()
+    max_enum = 20 if preferences.low_cardinality_strategy == "auto_ref_table" else 0
+    allow_t_lnk = preferences.link_cardinality_strategy == "allow_transactional_links"
+    waived_ap007 = frozenset(
+        j.entity_name for j in justifications if j.rule_id == "DV-AP-007"
+    )
+    waived_ap008 = frozenset(
+        j.entity_name for j in justifications if j.rule_id == "DV-AP-008"
+    )
+    return replace(
+        base,
+        max_enum_cardinality=max_enum,
+        allow_transactional_links=allow_t_lnk,
+        esat_mode=preferences.esat_on_mutable_links,
+        esat_turnover_threshold=0.05,
+        multi_source_hub_strategy=preferences.multi_source_hub_strategy,
+        waived_ap007_entities=waived_ap007,
+        waived_ap008_entities=waived_ap008,
+    )
 
 
 def run_l1_codemods(
@@ -43,6 +80,7 @@ def run_l1_codemods(
     fk_turnover_by_table: Mapping[str, Mapping[str, float]] | None = None,
     entity_count_overrides: Mapping[str, int] | None = None,
     options: L1CodemodOptions | None = None,
+    modeling_preferences: ModelingPreferences | None = None,
     max_passes: int = 3,
 ) -> tuple[DraftVaultIR, CertifiedVaultIR, BucketAExecutionResult | None]:
     """Run S6-03 triage, optional Bucket A ops, 3-pass L1 fixpoint, and Z0-Z4 promotion.
@@ -50,7 +88,15 @@ def run_l1_codemods(
     Pass order inside each bounded iteration (max_passes=3):
         A.9a -> A.4 -> A.2 -> A.3 -> A.1
     """
-    opts = options or L1CodemodOptions()
+    if modeling_preferences is not None:
+        opts = compile_l1_options_from_preferences(
+            modeling_preferences,
+            draft.justifications,
+            fk_turnover_by_table=fk_turnover_by_table,
+            base_options=options,
+        )
+    else:
+        opts = options or L1CodemodOptions()
     working = inject_unresolved_triage(draft, profiles)
 
     bucket_res: BucketAExecutionResult | None = None
@@ -95,7 +141,12 @@ def run_l1_codemods(
         for ref in pass_refs:
             all_refs[ref.ref_name] = ref
 
-        working = apply_alg_a3_esat_and_mas(working, fk_turnover_by_table)
+        working = apply_alg_a3_esat_and_mas(
+            working,
+            fk_turnover_by_table,
+            profiles=profiles,
+            options=opts,
+        )
 
         working = apply_alg_a1_satellite_split(
             working,
@@ -126,6 +177,8 @@ def run_l1_codemods(
 __all__ = [
     "L1CodemodOptions",
     "apply_bucket_a_operators",
+    "build_entity_shard_provenance_map",
+    "compile_l1_options_from_preferences",
     "inject_unresolved_triage",
     "merge_draft_shards",
     "promote_draft_to_certified",

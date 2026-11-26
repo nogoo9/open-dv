@@ -15,6 +15,7 @@ from opendv.models.vault_ir_certified import (
     CertifiedSatelliteSpec,
     CertifiedVaultIR,
     IRField,
+    PitBridgeSpec,
 )
 from opendv.storage.dialects import (
     SqlDialectProfile,
@@ -33,8 +34,11 @@ from opendv.storage.sql_compiler.ddl_builders import (
     build_schema_ddl,
     build_staging_view_ddl,
     compile_full_ddl,
+    is_pit_bridge_excluded,
     planned_exclusion_sets,
     qualify_name,
+    resolve_bridge_hop_columns,
+    resolve_pit_bridge_columns,
     resolve_staging_hd_col_map,
 )
 
@@ -106,6 +110,18 @@ def _alter_add_column_sql(
         if node is not None and any(isinstance(sub, exp.Command) for sub in node.walk()):
             raise ValueError(f"exp.Command generated in ADD COLUMN for {dialect}: {sql}")
     return sql
+
+
+def _pit_bridge_schema_sig(
+    pb: PitBridgeSpec,
+    ir: CertifiedVaultIR,
+    max_ident_bytes: int,
+) -> tuple[object, ...]:
+    if pb.object_kind == "PIT":
+        _, root_hk, targets = resolve_pit_bridge_columns(pb, ir, max_ident_bytes)
+        return ("PIT", root_hk, tuple(targets))
+    _, root_hk, hops = resolve_bridge_hop_columns(pb, ir, max_ident_bytes)
+    return ("BRIDGE", root_hk, tuple((h.brg_link_hk_col, h.brg_to_hub_hk_col) for h in hops))
 
 
 class WaveMigrator:
@@ -248,14 +264,25 @@ class WaveMigrator:
                 build_staging_view_ddl(stg, current_ir, profile, resolved_aliases, hd_col_map)
             )
 
-        # 4. Z3 PIT / Bridge rebuild DDL
+        # 4. Z3 PIT / Bridge DDL schema evolution (new or schema-changed tables)
+        prior_pbs = {p.object_name: p for p in prior_ir.pit_bridges}
         for pb in current_ir.pit_bridges:
-            if pb.root_hub not in planned_hubs:
+            if is_pit_bridge_excluded(pb, planned_hubs, excluded_links):
+                continue
+            prev_pb = prior_pbs.get(pb.object_name)
+            if prev_pb is None or (
+                _pit_bridge_schema_sig(pb, current_ir, profile.max_ident_bytes)
+                != _pit_bridge_schema_sig(prev_pb, prior_ir, profile.max_ident_bytes)
+            ):
                 stmts.extend(build_pit_bridge_ddl(pb, current_ir, profile, resolved_aliases))
 
-        # 5. Z4 Information Mart Views
+        # 5. Z3/Z4 Information Mart & ESAT Interval Views
         for mart in current_ir.information_marts:
-            if mart.root_entity not in planned_hubs:
+            if (
+                mart.root_entity not in planned_hubs
+                and mart.root_entity not in excluded_sats
+                and mart.root_entity not in excluded_links
+            ):
                 stmts.extend(build_mart_view_ddl(mart, current_ir, profile, resolved_aliases))
 
         return stmts

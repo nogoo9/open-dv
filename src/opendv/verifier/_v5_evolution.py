@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 
 from opendv.models.diagnostics import VerifierDiagnostic
+from opendv.models.policy import CEGAR_POLICY_SPECS, CegarPolicy
 from opendv.models.project import EvolutionLockSpec
 from opendv.models.vault_ir import DraftField
 from opendv.models.vault_ir_certified import CertifiedVaultIR, IRField
@@ -41,9 +42,20 @@ def verify_v5_evolution(
     locks: EvolutionLockSpec | None = None,
     prior_ir: CertifiedVaultIR | None = None,
     cold_start_requested: bool = False,
+    policy: CegarPolicy = "balanced",
+    blocking_v6b_rules: frozenset[str] | None = None,
 ) -> list[VerifierDiagnostic]:
     """Run Gate V5 evolution lock checks (DV-EVO-001..008) and IR-only DV-AP-010."""
     diags: list[VerifierDiagnostic] = []
+    policy_spec = CEGAR_POLICY_SPECS[policy]
+    eff_blocking = (
+        policy_spec.blocking_v6b_rules if blocking_v6b_rules is None else blocking_v6b_rules
+    )
+    ap10_sev = (
+        "ERROR"
+        if ("DV-AP-010" in eff_blocking or policy_spec.require_zero_unwaived_v6b)
+        else "ADVISORY"
+    )
 
     z2_sat_sigs: dict[tuple[str, str, tuple[str, ...]], str] = {
         (sat.parent_name, sat.source_table_id, tuple(sorted(a.name for a in sat.attributes))): (
@@ -63,7 +75,7 @@ def verify_v5_evolution(
                 diags.append(
                     _diag(
                         "DV-AP-010",
-                        "ERROR",
+                        ap10_sev,
                         sat.sat_name,
                         f"Z3 Satellite {sat.sat_name} mirrors Z2 {z2_sat_sigs[sig]} 1:1.",
                     )
@@ -74,7 +86,7 @@ def verify_v5_evolution(
             diags.append(
                 _diag(
                     "DV-AP-010",
-                    "ERROR",
+                    ap10_sev,
                     stg.view_name,
                     f"StagingViewSpec {stg.view_name} must bind 1 source_id and source_table_id.",
                 )
@@ -84,7 +96,7 @@ def verify_v5_evolution(
                 diags.append(
                     _diag(
                         "DV-AP-010",
-                        "ERROR",
+                        ap10_sev,
                         stg.view_name,
                         f"Z1 {stg.view_name}.{target_col} leaks soft SQL ({expr!r}).",
                     )
@@ -192,13 +204,14 @@ def verify_v5_evolution(
                 )
             )
 
-    prior_ext_sats = (
-        {s.sat_name: s for s in prior_ir.satellites if s.sat_kind == "EXT"}
-        if prior_ir is not None
-        else {}
-    )
+    prior_sats = {s.sat_name: s for s in prior_ir.satellites} if prior_ir is not None else {}
+    prior_ext_sats = {
+        s_name: ps
+        for s_name, ps in prior_sats.items()
+        if ps.sat_kind == "EXT" or ps.extends_sat_name is not None
+    }
     for sat in ir.satellites:
-        if sat.sat_kind == "EXT":
+        if sat.sat_kind == "EXT" or sat.extends_sat_name is not None:
             if not sat.extends_sat_name or sat.companion_epoch is None:
                 diags.append(
                     _diag(
@@ -221,7 +234,7 @@ def verify_v5_evolution(
                         )
                     )
             elif prior_ir is None and sat.sat_name in locks.locked_sat_hash_diffs:
-                continue
+                pass
             else:
                 prev_epoch = locks.sat_epochs.get(sat.extends_sat_name, 1)
                 if sat.companion_epoch <= prev_epoch:
@@ -234,6 +247,37 @@ def verify_v5_evolution(
                             f"<= prior {prev_epoch}.",
                         )
                     )
+            if sat.extends_sat_name:
+                base_sat = sats_by_name.get(sat.extends_sat_name) or prior_sats.get(
+                    sat.extends_sat_name
+                )
+                if (
+                    base_sat is not None
+                    and (base_sat.sat_kind == "MAS" or bool(base_sat.child_dependent_keys))
+                    and list(sat.child_dependent_keys) != list(base_sat.child_dependent_keys)
+                ):
+                    diags.append(
+                        _diag(
+                            "DV-EVO-006",
+                            "BLOCKER",
+                            sat.sat_name,
+                            f"MAS extension {sat.sat_name} mutated child_dependent_keys from "
+                            f"{base_sat.sat_name}.",
+                        )
+                    )
+        if sat.sat_name in prior_sats:
+            p_sat = prior_sats[sat.sat_name]
+            if (p_sat.sat_kind == "MAS" or bool(p_sat.child_dependent_keys)) and list(
+                sat.child_dependent_keys
+            ) != list(p_sat.child_dependent_keys):
+                diags.append(
+                    _diag(
+                        "DV-EVO-006",
+                        "BLOCKER",
+                        sat.sat_name,
+                        f"Retained Satellite {sat.sat_name} mutated child_dependent_keys.",
+                    )
+                )
 
     prior_field_ids: dict[str, dict[str, int]] = {}
     prior_attrs: dict[str, dict[str, DraftField]] = {}

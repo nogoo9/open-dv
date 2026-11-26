@@ -5,10 +5,14 @@ Strictly Layer 2a: imports only opendv.models, duckdb, ddl_builders, dialect_has
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping
 
 import duckdb
 
+from opendv.models.modeling_preferences import SURROGATE_BK_RE
+from opendv.models.sources import ColumnProfile
+from opendv.models.vault_ir import ArrayType, MapType
 from opendv.models.vault_ir_certified import (
     CertifiedHubSpec,
     CertifiedLinkSpec,
@@ -56,7 +60,7 @@ def query_counterexamples(
     rel = conn.sql(sql)
     proj = [
         (
-            f'STRFTIME("{c}" AT TIME ZONE \'UTC\', \'%Y-%m-%dT%H:%M:%S.%fZ\') AS "{c}"'
+            f"STRFTIME(\"{c}\" AT TIME ZONE 'UTC', '%Y-%m-%dT%H:%M:%S.%fZ') AS \"{c}\""
             if (dt_u := str(dt).upper()) in ("TIMESTAMP WITH TIME ZONE", "TIMESTAMPTZ")
             else (f'CAST("{c}" AS VARCHAR) AS "{c}"' if "TIME ZONE" in dt_u else f'"{c}"')
         )
@@ -77,6 +81,8 @@ def check_satellite_invariants(
     links_by_name: Mapping[str, CertifiedLinkSpec],
     pii_cols: set[str],
     fail_fn: Callable[[str, list[dict[str, str | int | float | None]]], None],
+    *,
+    skip_rules: frozenset[str] = frozenset(),
 ) -> None:
     """Evaluate DV-DYN-004, 005, 006, 008, 011, 013 across all non-planned Satellites."""
     _, _, excluded_sats = planned_exclusion_sets(ir)
@@ -100,7 +106,8 @@ def check_satellite_invariants(
             else "load_dts DESC"
         )
 
-        if sat.sat_kind == "MAS":
+        is_mas = sat.sat_kind == "MAS" or bool(sat.child_dependent_keys)
+        if is_mas:
             cdks = sat.child_dependent_keys or ["load_dts"]
             g_cols = ", ".join([p_hk, "load_dts", *cdks])
             dups = query_counterexamples(
@@ -111,67 +118,72 @@ def check_satellite_invariants(
             if dups:
                 fail_fn("DV-DYN-005", dups)
         else:
-            bitemp_c = (
-                f", {sat.applied_dts_col}" if (sat.is_bitemporal and sat.applied_dts_col) else ""
-            )
-            g_cols = f"{p_hk}, load_dts{bitemp_c}"
-            dups = query_counterexamples(
-                conn,
-                f"SELECT {g_cols}, COUNT(*) AS cnt FROM {sf} GROUP BY {g_cols} HAVING COUNT(*) > 1",
-                pii_cols,
-            )
-            if dups:
-                fail_fn("DV-DYN-004", dups)
-            stg = stg_by_tbl.get(sat.source_table_id)
-            if sat.sat_kind == "STANDARD" and stg is not None and sat.hash_recipe is not None:
-                _, sem, stg_where = _sat_sem_and_where(sat, stg, p_hk, zero_00, zero_ff)
-                if not (sem and sem.dedup_order_cols):
-                    stg_f = qualify_name("Z1", stg.view_name, aliases)
-                    hd_c = hd_col_map.get((stg.view_name, sat.sat_name), "hash_diff")
-                    stg_g_cols = f"src.{p_hk}, src.load_dts" + (
-                        f", src.{sat.applied_dts_col}"
-                        if (sat.is_bitemporal and sat.applied_dts_col)
-                        else ""
-                    )
-                    conflicts = query_counterexamples(
-                        conn,
-                        f"SELECT src.{p_hk} AS parent_hk, "
-                        f"COUNT(DISTINCT src.{hd_c}) AS distinct_variants "
-                        f"FROM {stg_f} AS src WHERE {stg_where} "
-                        f"GROUP BY {stg_g_cols} HAVING COUNT(DISTINCT src.{hd_c}) > 1",
-                        pii_cols,
-                    )
-                    if conflicts:
-                        fail_fn("DV-DYN-004", conflicts)
+            if "DV-DYN-004" not in skip_rules:
+                bitemp_c = (
+                    f", {sat.applied_dts_col}"
+                    if (sat.is_bitemporal and sat.applied_dts_col)
+                    else ""
+                )
+                g_cols = f"{p_hk}, load_dts{bitemp_c}"
+                dups = query_counterexamples(
+                    conn,
+                    f"SELECT {g_cols}, COUNT(*) AS cnt FROM {sf} "
+                    f"GROUP BY {g_cols} HAVING COUNT(*) > 1",
+                    pii_cols,
+                )
+                if dups:
+                    fail_fn("DV-DYN-004", dups)
+                stg = stg_by_tbl.get(sat.source_table_id)
+                if sat.sat_kind == "STANDARD" and stg is not None and sat.hash_recipe is not None:
+                    _, sem, stg_where = _sat_sem_and_where(sat, stg, p_hk, zero_00, zero_ff)
+                    if not (sem and sem.dedup_order_cols):
+                        stg_f = qualify_name("Z1", stg.view_name, aliases)
+                        hd_c = hd_col_map.get((stg.view_name, sat.sat_name), "hash_diff")
+                        stg_g_cols = f"src.{p_hk}, src.load_dts" + (
+                            f", src.{sat.applied_dts_col}"
+                            if (sat.is_bitemporal and sat.applied_dts_col)
+                            else ""
+                        )
+                        conflicts = query_counterexamples(
+                            conn,
+                            f"SELECT src.{p_hk} AS parent_hk, "
+                            f"COUNT(DISTINCT src.{hd_c}) AS distinct_variants "
+                            f"FROM {stg_f} AS src WHERE {stg_where} "
+                            f"GROUP BY {stg_g_cols} HAVING COUNT(DISTINCT src.{hd_c}) > 1",
+                            pii_cols,
+                        )
+                        if conflicts:
+                            fail_fn("DV-DYN-004", conflicts)
 
         # DV-DYN-006: Sat-to-Parent RI
         p_ent_h = hubs_by_name.get(sat.parent_name)
         p_ent_l = links_by_name.get(sat.parent_name)
-        if p_ent_h is not None:
-            pf, pk_c = (
-                qualify_name(p_ent_h.zone_id, p_ent_h.hub_name, aliases),
-                p_ent_h.columns[0].name,
-            )
-        elif p_ent_l is not None:
-            pf, pk_c = (
-                qualify_name(p_ent_l.zone_id, p_ent_l.link_name, aliases),
-                p_ent_l.columns[0].name,
-            )
-        else:
-            pf, pk_c = "", ""
-        if pf:
-            orphans = query_counterexamples(
-                conn,
-                f"SELECT s.{p_hk} AS orphan_hk FROM {sf} AS s LEFT JOIN {pf} AS p "
-                f"ON s.{p_hk} = p.{pk_c} WHERE p.{pk_c} IS NULL",
-                pii_cols,
-            )
-            if orphans:
-                fail_fn("DV-DYN-006", orphans)
+        if "DV-DYN-006" not in skip_rules:
+            if p_ent_h is not None:
+                pf, pk_c = (
+                    qualify_name(p_ent_h.zone_id, p_ent_h.hub_name, aliases),
+                    p_ent_h.columns[0].name,
+                )
+            elif p_ent_l is not None:
+                pf, pk_c = (
+                    qualify_name(p_ent_l.zone_id, p_ent_l.link_name, aliases),
+                    p_ent_l.columns[0].name,
+                )
+            else:
+                pf, pk_c = "", ""
+            if pf:
+                orphans = query_counterexamples(
+                    conn,
+                    f"SELECT s.{p_hk} AS orphan_hk FROM {sf} AS s LEFT JOIN {pf} AS p "
+                    f"ON s.{p_hk} = p.{pk_c} WHERE p.{pk_c} IS NULL",
+                    pii_cols,
+                )
+                if orphans:
+                    fail_fn("DV-DYN-006", orphans)
 
         # DV-DYN-008: Consecutive hash_diff true-delta historization
         if sat.sat_kind != "ESAT" and sat.hash_recipe is not None:
-            part_cols = [p_hk, *sat.child_dependent_keys] if sat.sat_kind == "MAS" else [p_hk]
+            part_cols = [p_hk, *sat.child_dependent_keys] if is_mas else [p_hk]
             part_csv = ", ".join(part_cols)
             red = query_counterexamples(
                 conn,
@@ -250,7 +262,7 @@ def check_satellite_invariants(
                 continue
             stg_f = qualify_name("Z1", stg.view_name, aliases)
             hd_c = hd_col_map.get((stg.view_name, sat.sat_name), "hash_diff")
-            part_cols = [p_hk, *sat.child_dependent_keys] if sat.sat_kind == "MAS" else [p_hk]
+            part_cols = [p_hk, *sat.child_dependent_keys] if is_mas else [p_hk]
             join_cond = " AND ".join(f"stg.{c} = sat.{c}" for c in part_cols)
             part_csv = ", ".join(part_cols)
             sat_sb, sem, stg_where = _sat_sem_and_where(sat, stg, p_hk, zero_00, zero_ff)
@@ -283,4 +295,86 @@ def check_satellite_invariants(
                 fail_fn("DV-DYN-011", mismatch)
 
 
-__all__ = ["check_satellite_invariants", "query_counterexamples"]
+_TEMPORAL_COL_RE = re.compile(
+    r"(?i)(?:^|_)(?:load_dts|applied_dts|effective_from|effective_to|"
+    r"valid_from|valid_to|created_at|updated_at|modified_at|deleted_at|ts|dts|date|timestamp)$"
+)
+_SKIP_CDK_TYPES = ("DATE32", "TIMESTAMP_UTC_US", "FIXED_BINARY_32", "BOOLEAN", "JSON_DOCUMENT")
+
+
+def _scalar_count(conn: duckdb.DuckDBPyConnection, sql: str) -> int:
+    row = conn.execute(sql).fetchone()
+    return int(row[0]) if row else 0
+
+
+def _is_unique_with_col(
+    conn: duckdb.DuckDBPyConnection, table_sql: str, col: str, grp_sql: str, agg_expr: str
+) -> bool:
+    if _scalar_count(conn, f"SELECT COUNT({col}) FROM {table_sql}") == 0:
+        return False
+    q = (
+        f"SELECT COUNT(*) FROM (SELECT 1 FROM {table_sql} "
+        f"GROUP BY {grp_sql}, {col} HAVING {agg_expr} > 1)"
+    )
+    return _scalar_count(conn, q) == 0
+
+
+def find_candidate_cdk(
+    conn: duckdb.DuckDBPyConnection,
+    sat: CertifiedSatelliteSpec,
+    sf: str,
+    g_cols: str,
+    stg: StagingViewSpec | None,
+    stg_ctx: tuple[str, str, str, str],
+    dup_flags: tuple[bool, bool],
+    col_profs: Mapping[str, ColumnProfile],
+) -> str | None:
+    """Find a non-temporal, non-surrogate column restoring Satellite uniqueness."""
+    stg_f, stg_g, stg_w, hd_c = stg_ctx
+    sat_dup, stg_dup = dup_flags
+    sat_sb = (
+        next((b for b in sat.source_bindings if b.table_id == stg.source_table_id), None)
+        if stg
+        else None
+    )
+    cmaps = sat_sb.col_mappings if sat_sb else {}
+    stg_names = (
+        {f.name for f in stg.projected_fields}
+        | set(stg.col_lineage_mappings)
+        | {r.target_col for r in stg.hash_recipes}
+        if stg
+        else set()
+    )
+    sys_cols = {sat.columns[0].name, "load_dts", "rec_src", "hash_diff"} | (
+        {sat.applied_dts_col} if sat.applied_dts_col else set()
+    )
+    sat_cols = {c.name for c in sat.columns}
+    for a in sat.attributes:
+        if (
+            a.name in sys_cols
+            or _TEMPORAL_COL_RE.search(a.name)
+            or a.logical_type in _SKIP_CDK_TYPES
+            or isinstance(a.logical_type, (ArrayType, MapType))
+            or SURROGATE_BK_RE.match(a.name)
+            or ((cp := col_profs.get(a.name)) is not None and cp.surrogate_score >= 0.75)
+        ):
+            continue
+        if stg_dup and stg is not None:
+            sc = a.name if a.name in stg_names else cmaps.get(a.name, a.name)
+            if (sc not in stg_names and sc not in cmaps.values()) or not _is_unique_with_col(
+                conn,
+                f"{stg_f} AS src WHERE {stg_w}",
+                f"src.{sc}",
+                stg_g,
+                f"COUNT(DISTINCT src.{hd_c})",
+            ):
+                continue
+        if sat_dup and (
+            a.name not in sat_cols or not _is_unique_with_col(conn, sf, a.name, g_cols, "COUNT(*)")
+        ):
+            continue
+        return a.name
+    return None
+
+
+__all__ = ["check_satellite_invariants", "find_candidate_cdk", "query_counterexamples"]

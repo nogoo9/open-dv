@@ -350,12 +350,16 @@ def test_e2e1_real_am_wave1_to_wave2_to_wave3_locks_and_bucket_a(tmp_path: Path)
     _, cert_w1, _ = run_l1_codemods(draft_w1, profiles=w1_profiles)
     assert cert_w1.wave_delta is None
     assert any(m.view_name.startswith("information_mart.vw_") for m in cert_w1.information_marts)
-    # BUG-02: binary sparse Link received IS_NOT_NULL filter
+    # BRK-02b: binary sparse Link preserves nullable participant & sets is_optional_inapplicable (no IS_NOT_NULL drop)
     sec_lnk = next(l for l in cert_w1.links if l.link_name == "lnk_security_cusip")
     assert sec_lnk.load_semantics is not None
-    assert isinstance(sec_lnk.load_semantics.filter_ast, PredicateLeaf)
-    assert sec_lnk.load_semantics.filter_ast.op == "IS_NOT_NULL"
-    assert sec_lnk.load_semantics.filter_ast.column == "cusip"
+    assert sec_lnk.load_semantics.filter_ast is None
+    cusip_spec = next(
+        ps
+        for ps in (sec_lnk.hash_recipe.participant_specs if sec_lnk.hash_recipe else [])
+        if ps.hub_name == "hub_cusip_ref"
+    )
+    assert cusip_spec.is_nullable is True
 
     rep_w1 = run_v1_to_v6_gates(cert_w1, VerifierContext(profiles=w1_profiles))
     assert rep_w1.v1_v6_fail_count == 0, rep_w1.v1_v6_diagnostics
@@ -841,6 +845,7 @@ def test_e2e2_ds_cegar_12trap_l1_v1_v5_and_v6_port() -> None:
                         role_name="ACCOUNT",
                         fk_col_name="hk_account",
                         source_col_names=["account_id"],
+                        target_hub_binding_table_id=crm_id,
                     ),
                     LinkParticipantSpec(
                         hub_name="hub_portfolio_manager",
@@ -942,8 +947,8 @@ def test_e2e2_ds_cegar_12trap_l1_v1_v5_and_v6_port() -> None:
 
     # Mock IRRuntimeProver port (V6)
     class _MockProver:
-        def prove(self, certified_ir: CertifiedVaultIR, profs: list[SourceProfile], *, policy: str = "balanced") -> IRProverReport:
-            _ = (certified_ir, profs, policy)
+        def prove(self, certified_ir: CertifiedVaultIR, profs: list[SourceProfile], *, policy: str = "balanced", **kwargs: object) -> IRProverReport:
+            _ = (certified_ir, profs, policy, kwargs)
             return IRProverReport(
                 dyn_results={"DV-DYN-001": True, "DV-DYN-004": False},
                 ast_violations=[],
@@ -1490,13 +1495,15 @@ def test_alg_a4_nary_split_alg_a9a_drop_rename_and_v1_sal_edge_cases() -> None:
         column_triage=_triage_all([prof_w1]),
     )
     draft_w1_out, cert_w1, _ = run_l1_codemods(draft_w1, profiles=[prof_w1])
-    # Alg A.4 split 3-way Link into kernel lnk_trade (2 mandatory) + lnk_trade_advisor (IS_NOT_NULL)
+    # Alg A.4 BRK-02b: retains all 3 participants on lnk_trade with nullable advisor_id preserved
     kernel = next(l for l in cert_w1.links if l.link_name == "lnk_trade")
-    split_adv = next(l for l in cert_w1.links if l.link_name == "lnk_trade_advisor")
-    assert len(kernel.participants) == 2
-    assert len(split_adv.participants) == 2
-    assert isinstance(split_adv.load_semantics.filter_ast, PredicateLeaf)  # type: ignore[union-attr]
-    assert split_adv.load_semantics.filter_ast.column == "advisor_id"  # type: ignore[union-attr]
+    assert len(kernel.participants) == 3
+    adv_spec = next(
+        ps
+        for ps in (kernel.hash_recipe.participant_specs if kernel.hash_recipe else [])
+        if ps.hub_name == "hub_advisor"
+    )
+    assert adv_spec.is_nullable is True
 
     # Wave 2: rename trade_notes -> trade_note (EVO-03), drop legacy_flag (EVO-02), widen qty_int -> INT64 (EVO-04)
     locks_w1 = build_evolution_lock_from_certified(cert_w1)
@@ -1557,7 +1564,7 @@ def test_alg_a4_nary_split_alg_a9a_drop_rename_and_v1_sal_edge_cases() -> None:
             "sat_name": "esat_bad",
             "sat_kind": "ESAT",
             "parent_name": "lnk_trade",
-            "driving_keys": ["hk_account", "hk_sec"],  # Not a strict subset!
+            "driving_keys": ["hk_account", "hk_sec", "hk_advisor"],  # Not a strict subset!
         }
     )
     v1_bad = verify_v1_structure(

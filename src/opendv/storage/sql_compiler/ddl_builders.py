@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from opendv.models.vault_ir import PortableLogicalType
+from opendv.models.vault_ir import PortableLogicalType, hub_canonical_bk_cols
 from opendv.models.vault_ir_certified import (
     BronzeTableSpec,
     CertifiedHubSpec,
@@ -20,16 +20,23 @@ from opendv.models.vault_ir_certified import (
 from opendv.storage.dialects import SqlDialectProfile, lower_logical_type
 from opendv.storage.sql_compiler._ddl_common import (
     ZONE_SCHEMAS,
+    BridgeHopColumnSpec,
     alias_of,
     assert_parsed_clean,
     col_def_sql,
+    is_pit_bridge_excluded,
     planned_exclusion_sets,
     qualify_name,
+    resolve_bridge_hop_columns,
     resolve_pit_bridge_columns,
     resolve_staging_hd_col_map,
     wrap_replace_view,
 )
-from opendv.storage.sql_compiler._z3_z4_ddl import build_mart_view_ddl, build_pit_bridge_ddl
+from opendv.storage.sql_compiler._z3_z4_ddl import (
+    build_esat_intervals_view_ddl,
+    build_mart_view_ddl,
+    build_pit_bridge_ddl,
+)
 from opendv.storage.sql_compiler.dialect_hashing import compile_hash_recipe_sql
 
 
@@ -127,6 +134,7 @@ def build_staging_view_ddl(
     col_names = {c.name for c in bronze.columns}
 
     hub_tier_by_name = {h.hub_name: h.key_tier for h in ir.hubs if not h.is_planned_concept}
+    hub_binding_tiers: dict[tuple[str, str], str] = {}
     hub_tier_by_col: dict[str, str] = {}
     for h in ir.hubs:
         if h.is_planned_concept:
@@ -134,8 +142,10 @@ def build_staging_view_ddl(
         if h.hash_recipe is not None:
             hub_tier_by_col[h.hash_recipe.target_col] = h.key_tier
         for sb in h.source_bindings:
+            eff_tier = sb.key_tier or h.key_tier
+            hub_binding_tiers[(h.hub_name, sb.table_id)] = eff_tier
             if sb.table_id == stg.source_table_id and sb.hash_recipe is not None:
-                hub_tier_by_col[sb.hash_recipe.target_col] = h.key_tier
+                hub_tier_by_col[sb.hash_recipe.target_col] = eff_tier
 
     _, excluded_links, excluded_sats = planned_exclusion_sets(ir)
     for lnk in ir.links:
@@ -147,7 +157,17 @@ def build_staging_view_ddl(
             for p in lnk.participants:
                 if p.hub_name in hub_tier_by_name:
                     fk_target = sb.col_mappings.get(p.fk_col_name, p.fk_col_name)
-                    hub_tier_by_col[fk_target] = hub_tier_by_name[p.hub_name]
+                    target_tbl = p.target_hub_binding_table_id or sb.table_id
+                    eff_p_tier = (
+                        p.key_tier
+                        or hub_binding_tiers.get((p.hub_name, target_tbl))
+                        or sb.key_tier
+                        or hub_tier_by_name[p.hub_name]
+                    )
+                    if fk_target not in hub_tier_by_col:
+                        hub_tier_by_col[fk_target] = eff_p_tier
+            if sb.hash_recipe is not None and sb.key_tier is not None:
+                hub_tier_by_col[sb.hash_recipe.target_col] = sb.key_tier
     sats_for_tbl = [
         s
         for s in ir.satellites
@@ -219,9 +239,14 @@ def build_hub_ddl(
     """Build Z2 Hub DDL."""
     dialect = profile.sqlglot_dialect or "duckdb"
     full_name = qualify_name(hub.zone_id, hub.hub_name, aliases)
-    cols = [col_def_sql(c, profile.target_id, dialect) for c in hub.columns]
     default_hk = f"hk_{hub.hub_name.removeprefix('hub_')}"
     hk_col = next((c.name for c in hub.columns if c.name.startswith("hk_")), default_hk)
+    canon_bks = set(hub_canonical_bk_cols(hub))
+    sys_cols = {hk_col, "bkcc", "load_dts", "rec_src"}
+    hub_fields = [
+        c for c in hub.columns if (not canon_bks) or c.name in sys_cols or c.name in canon_bks
+    ]
+    cols = [col_def_sql(c, profile.target_id, dialect) for c in hub_fields]
     return _wrap_create_table(full_name, cols, [hk_col], profile)
 
 
@@ -246,25 +271,18 @@ def build_sat_ddl(
     """Build Z2/Z3 Satellite DDL (STANDARD, MAS, ESAT, PII, AI_PROVENANCE, EXT)."""
     dialect = profile.sqlglot_dialect or "duckdb"
     full_name = qualify_name(sat.zone_id, sat.sat_name, aliases)
-    cols = [col_def_sql(c, profile.target_id, dialect) for c in sat.columns]
+    is_mas = sat.sat_kind == "MAS" or bool(sat.child_dependent_keys)
+    cdk_set = set(sat.child_dependent_keys) if is_mas else set()
+    cols = [
+        col_def_sql(c, profile.target_id, dialect, is_key_col=(c.name in cdk_set))
+        for c in sat.columns
+    ]
     parent_hk = sat.columns[0].name if sat.columns else "parent_hk"
     pk_cols = [parent_hk, "load_dts"]
     if sat.is_bitemporal and sat.applied_dts_col:
         pk_cols.append(sat.applied_dts_col)
-    if sat.sat_kind == "MAS" and sat.child_dependent_keys:
-        if dialect == "tsql":
-            non_max = [
-                cdk
-                for cdk in sat.child_dependent_keys
-                if any(
-                    f.name == cdk
-                    and f.logical_type in ("INT32", "INT64", "DATE32", "FIXED_BINARY_32")
-                    for f in sat.columns
-                )
-            ]
-            pk_cols.extend(non_max)
-        else:
-            pk_cols.extend(sat.child_dependent_keys)
+    if is_mas and sat.child_dependent_keys:
+        pk_cols.extend(sat.child_dependent_keys)
     return _wrap_create_table(
         full_name, cols, pk_cols, profile, order_by_cols=[parent_hk, "load_dts"]
     )
@@ -298,18 +316,24 @@ def compile_full_ddl(
             stmts.append(build_sat_ddl(sat, profile, aliases))
 
     for pb in ir.pit_bridges:
-        if pb.root_hub not in planned_hubs:
+        if not is_pit_bridge_excluded(pb, planned_hubs, excluded_links):
             stmts.extend(build_pit_bridge_ddl(pb, ir, profile, aliases))
     for mart in ir.information_marts:
-        if mart.root_entity not in planned_hubs:
+        if (
+            mart.root_entity not in planned_hubs
+            and mart.root_entity not in excluded_sats
+            and mart.root_entity not in excluded_links
+        ):
             stmts.extend(build_mart_view_ddl(mart, ir, profile, aliases))
     return stmts
 
 
 __all__ = [
     "ZONE_SCHEMAS",
+    "BridgeHopColumnSpec",
     "alias_of",
     "build_bronze_table_ddl",
+    "build_esat_intervals_view_ddl",
     "build_hub_ddl",
     "build_link_ddl",
     "build_mart_view_ddl",
@@ -319,8 +343,10 @@ __all__ = [
     "build_schema_ddl",
     "build_staging_view_ddl",
     "compile_full_ddl",
+    "is_pit_bridge_excluded",
     "planned_exclusion_sets",
     "qualify_name",
+    "resolve_bridge_hop_columns",
     "resolve_pit_bridge_columns",
     "resolve_staging_hd_col_map",
 ]

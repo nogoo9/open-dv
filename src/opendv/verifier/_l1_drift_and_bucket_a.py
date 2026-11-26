@@ -202,10 +202,10 @@ def apply_alg_a9a_schema_drift(
 
     for sat in draft.satellites:
         s_name = sat.sat_name
-        is_retained_ext = sat.sat_kind == "EXT" and (
+        is_retained_ext = sat.extends_sat_name is not None and (
             s_name in prior_sats or s_name in locks.locked_sat_hash_diffs
         )
-        if sat.sat_kind == "EXT" and sat.extends_sat_name and not is_retained_ext:
+        if sat.extends_sat_name is not None and not is_retained_ext:
             min_epoch = locks.sat_epochs.get(sat.extends_sat_name, 1) + 1
             if sat.companion_epoch is None or sat.companion_epoch < min_epoch:
                 updated_sats.append(sat.model_copy(update={"companion_epoch": min_epoch}))
@@ -220,11 +220,14 @@ def apply_alg_a9a_schema_drift(
         locked_cols_list = locks.locked_sat_hash_diffs[s_name]
         locked_set = set(locked_cols_list)
         tbl_id = sat.source_bindings[0].table_id if sat.source_bindings else ""
+        src_maps = sat.source_bindings[0].col_mappings if sat.source_bindings else {}
         renamed_here = renamed_new_cols.get(tbl_id, set())
 
         prior_sat = prior_sats.get(s_name)
         prior_attr_map = {a.name: a for a in prior_sat.attributes} if prior_sat else {}
         cand_attr_map = {a.name: a for a in sat.attributes}
+        is_mas = sat.sat_kind == "MAS" or bool(sat.child_dependent_keys)
+        cdk_set = set(sat.child_dependent_keys)
 
         preserved_attrs: list[DraftField] = []
         added_attrs: list[DraftField] = []
@@ -239,12 +242,16 @@ def apply_alg_a9a_schema_drift(
                     if old_f is not None and old_f.nullable and not cand_f.nullable
                     else cand_f
                 )
+                if col_name in cdk_set:
+                    safe_cand = safe_cand.model_copy(update={"nullable": False})
                 if old_f is not None and old_f.logical_type != cand_f.logical_type:
                     if is_lossless_type_widening(old_f.logical_type, cand_f.logical_type):
                         preserved_attrs.append(safe_cand)
                     else:
                         preserved_attrs.append(old_f)
-                        incompatible_attrs.append(cand_f.model_copy(update={"nullable": True}))
+                        incompatible_attrs.append(
+                            cand_f.model_copy(update={"nullable": col_name not in cdk_set})
+                        )
                 else:
                     preserved_attrs.append(safe_cand)
             elif col_name in prior_attr_map:
@@ -265,22 +272,45 @@ def apply_alg_a9a_schema_drift(
                     DraftField(
                         name=col_name,
                         logical_type="UTF8_STRING",
-                        nullable=True,
+                        nullable=col_name not in cdk_set,
                         is_pii=False,
                     )
                 )
 
         for fld in sat.attributes:
-            if fld.name not in locked_set and fld.name not in renamed_here:
+            if (
+                fld.name not in locked_set
+                and fld.name not in renamed_here
+                and fld.name not in cdk_set
+            ):
                 added_attrs.append(fld.model_copy(update={"nullable": True}))
 
         updated_sats.append(sat.model_copy(update={"attributes": preserved_attrs}))
 
         ext_payload = [*added_attrs, *incompatible_attrs]
         if ext_payload:
+            cdk_fields: list[DraftField] = []
+            if is_mas:
+                pres_map = {f.name: f for f in preserved_attrs}
+                for cdk_name in sat.child_dependent_keys:
+                    base_cdk = (
+                        pres_map.get(cdk_name)
+                        or prior_attr_map.get(cdk_name)
+                        or cand_attr_map.get(cdk_name)
+                        or DraftField(
+                            name=cdk_name,
+                            logical_type="UTF8_STRING",
+                            nullable=False,
+                            is_pii=False,
+                        )
+                    )
+                    cdk_fields.append(base_cdk.model_copy(update={"nullable": False}))
+
             tbl_cprofs = profile_cols_by_table.get(tbl_id, {})
             pii_payload = [
-                f.model_copy(update={"is_pii": True, "nullable": True})
+                f.model_copy(
+                    update={"is_pii": True, "nullable": f.name not in cdk_set}
+                )
                 for f in ext_payload
                 if _is_pii_field(f, tbl_cprofs.get(f.name))
             ]
@@ -303,7 +333,13 @@ def apply_alg_a9a_schema_drift(
                     ext_parent = base_pii if base_pii in existing_ext_names else s_name
                     comp_ep = p_epoch
                 existing_ext_names.add(pii_name)
-                pii_maps = {f.name: f.name for f in pii_payload}
+                pii_names_set = {f.name for f in pii_payload}
+                pii_attrs = (
+                    [*[cf for cf in cdk_fields if cf.name not in pii_names_set], *pii_payload]
+                    if is_mas
+                    else pii_payload
+                )
+                pii_maps = {f.name: src_maps.get(f.name, f.name) for f in pii_attrs}
                 pii_bindings = [
                     DraftSourceBinding(
                         source_id=b.source_id,
@@ -323,13 +359,14 @@ def apply_alg_a9a_schema_drift(
                         is_bitemporal=sat.is_bitemporal,
                         applied_dts_col=sat.applied_dts_col,
                         load_mode=sat.load_mode,
-                        attributes=pii_payload,
+                        child_dependent_keys=list(sat.child_dependent_keys) if is_mas else [],
+                        attributes=pii_attrs,
                     )
                 )
             if non_pii_payload:
                 base_ext = (
                     sat.extends_sat_name
-                    if (sat.sat_kind == "EXT" and sat.extends_sat_name)
+                    if sat.extends_sat_name is not None
                     else s_name
                 )
                 next_epoch = next_companion_epoch(
@@ -340,7 +377,13 @@ def apply_alg_a9a_schema_drift(
                     next_epoch += 1
                     ext_name = f"{base_ext}_ext_v{next_epoch}"
                 existing_ext_names.add(ext_name)
-                ext_maps = {f.name: f.name for f in non_pii_payload}
+                non_pii_names = {f.name for f in non_pii_payload}
+                ext_attrs = (
+                    [*[cf for cf in cdk_fields if cf.name not in non_pii_names], *non_pii_payload]
+                    if is_mas
+                    else non_pii_payload
+                )
+                ext_maps = {f.name: src_maps.get(f.name, f.name) for f in ext_attrs}
                 ext_bindings = [
                     DraftSourceBinding(
                         source_id=b.source_id,
@@ -352,7 +395,7 @@ def apply_alg_a9a_schema_drift(
                 companion_sats.append(
                     DraftSatelliteSpec(
                         sat_name=ext_name,
-                        sat_kind="EXT",
+                        sat_kind="MAS" if is_mas else "EXT",
                         parent_name=sat.parent_name,
                         source_bindings=ext_bindings,
                         extends_sat_name=base_ext,
@@ -360,7 +403,8 @@ def apply_alg_a9a_schema_drift(
                         is_bitemporal=sat.is_bitemporal,
                         applied_dts_col=sat.applied_dts_col,
                         load_mode=sat.load_mode,
-                        attributes=non_pii_payload,
+                        child_dependent_keys=list(sat.child_dependent_keys) if is_mas else [],
+                        attributes=ext_attrs,
                     )
                 )
 

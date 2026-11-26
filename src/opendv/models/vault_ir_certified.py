@@ -24,6 +24,7 @@ from opendv.models.vault_ir import (
     PredicateNode,
     SatKind,
     SatLoadMode,
+    hub_canonical_bk_cols,
 )
 
 ZoneId = Literal["Z0", "Z1", "Z2", "Z3", "Z4"]
@@ -338,4 +339,5 @@ __all__ = [
     "SourceBindingSpec",
     "StagingViewSpec",
     "ZoneId",
+    "hub_canonical_bk_cols",
 ]

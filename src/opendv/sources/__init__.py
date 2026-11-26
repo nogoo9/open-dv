@@ -20,6 +20,7 @@ from opendv.sources.clustering import (
     cluster_tables,
     collapse_shard_name,
 )
+from opendv.sources.containment import compute_pk_containment_overlaps
 from opendv.sources.document_map import (
     DocumentFormat,
     DocumentMapBuilder,
@@ -38,16 +39,34 @@ from opendv.sources.fibo import (
 )
 from opendv.sources.pii import (
     MASKED_PII_TOKEN,
+    PII_TOKEN_RE,
+    compute_salt_digest,
     compute_shannon_entropy,
     detect_pii_in_column_name,
     detect_pii_in_value,
+    find_high_entropy_tokens,
     is_non_credential_digest_column,
     is_valid_aba_routing,
     is_valid_luhn,
     mask_cell_value,
     mask_pii_text,
+    redact_pii_value_frequencies,
+    tokenize_pii_scalar,
+    tokenize_row_pii,
 )
-from opendv.sources.profiler import preview_table, profile_source
+from opendv.sources.profiler import (
+    MAX_SAMPLE_VALUES,
+    preview_table,
+    profile_source,
+    profile_source_with_samples,
+)
+from opendv.sources.proving_cache import (
+    SAFE_SOURCE_ID_RE,
+    build_proving_cache_file,
+    compute_proving_table_fingerprint,
+    is_cached_table_valid,
+    validate_source_id_slug,
+)
 from opendv.sources.starter_packs import (
     STARTER_PACK_IDS,
     compose_starter_packs,
@@ -60,6 +79,9 @@ from opendv.sources.starter_packs import (
 __all__ = [
     "BLOCKED_SSRF_CIDRS",
     "MASKED_PII_TOKEN",
+    "MAX_SAMPLE_VALUES",
+    "PII_TOKEN_RE",
+    "SAFE_SOURCE_ID_RE",
     "SOURCE_ADAPTERS",
     "SQL_IDENTIFIER_RE",
     "STARTER_PACK_IDS",
@@ -71,20 +93,26 @@ __all__ = [
     "SubclassClosureMatch",
     "SubclassClosureResolver",
     "TableClusterResult",
+    "build_proving_cache_file",
     "build_table_index_entries",
     "clear_fibo_loader_cache",
     "cluster_tables",
     "collapse_shard_name",
     "compose_starter_packs",
     "compute_canonical_text_sha256",
+    "compute_pk_containment_overlaps",
+    "compute_proving_table_fingerprint",
+    "compute_salt_digest",
     "compute_shannon_entropy",
     "compute_starter_pack_sha256",
     "detect_pii_in_column_name",
     "detect_pii_in_value",
+    "find_high_entropy_tokens",
     "get_default_fibo_loader",
     "get_source_adapter",
     "get_starter_pack_ontology",
     "infer_kind_from_filename",
+    "is_cached_table_valid",
     "is_non_credential_digest_column",
     "is_page_scanned_or_low_density",
     "is_valid_aba_routing",
@@ -99,8 +127,13 @@ __all__ = [
     "preview_table",
     "probe_databricks_https_endpoint",
     "profile_source",
+    "profile_source_with_samples",
+    "redact_pii_value_frequencies",
     "resolve_subclass_closure",
+    "tokenize_pii_scalar",
+    "tokenize_row_pii",
     "validate_databricks_host",
     "validate_databricks_options",
+    "validate_source_id_slug",
     "validate_sql_identifier",
 ]
