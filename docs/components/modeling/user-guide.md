@@ -2,25 +2,137 @@
 
 > **Architecture & Stage Walkthrough:** [`docs/designs/dv2-modeling-engine-and-governance.md`](../../designs/dv2-modeling-engine-and-governance.md) · **External Agent Skill:** [`.agents/skills/opendv-modeling/SKILL.md`](../../../.agents/skills/opendv-modeling/SKILL.md) · **Full CLI Reference:** [`docs/16-cli-reference.md`](../../16-cli-reference.md)
 
-The Open-DV Modeling Engine turns **profiled tabular sources** (CSV, Parquet, SQLite, DuckDB, Excel, or Databricks Unity Catalog) plus an optional **business ontology** and **governance rules** into a **mathematically verified Data Vault 2.0 schema (`CertifiedVaultIR`)** and **additive wave lock (`EvolutionLockSpec`)**—without ever letting an LLM write raw SQL DDL or DML.
+The Open-DV Modeling Engine (`src/opendv/modeling/`) turns **profiled tabular sources** (CSV, Parquet, SQLite, DuckDB, Excel, or Databricks Unity Catalog) plus an optional **business ontology** and **governance rules** into a **mathematically verified Data Vault 2.0 schema (`CertifiedVaultIR`)** and **additive wave lock (`EvolutionLockSpec`)**—without ever letting an LLM write raw SQL DDL or DML.
 
-Downstream Step 7 (`opendv storage compile`) then deterministically lowers that `CertifiedVaultIR` into SQL/DDL across **5 Zones (`Z0`–`Z4`)** and **11 targets** (`duckdb_local`, `databricks_uc`, `snowflake`, `postgres`, `bigquery`, `sqlserver_fabric`, `redshift`, `clickhouse`, `iceberg`, `parquet`, and `dbt`).
+Downstream Step 7 (`opendv storage compile`) then deterministically lowers that `CertifiedVaultIR` into executable SQL/DDL across **5 Zones (`Z0`–`Z4`)** and **11 targets** (`duckdb_local`, `databricks_uc`, `snowflake`, `postgres`, `bigquery`, `sqlserver_fabric`, `redshift`, `clickhouse`, `iceberg`, `parquet`, and `dbt`).
 
-```mermaid
-flowchart LR
-    A["1. Structured Sources<br/>(CSV / Parquet / SQLite / DuckDB / XLSX / Databricks)"] --> B["2. Profile & PII-Tokenize<br/>(opendv model profile)"]
-    B --> C{"3. Choose Execution Mode"}
-    C -->|"Mode 1: External Agent / CI<br/>(Zero internal LLM keys)"| D["Agent authors DraftVaultIR JSON<br/>-> opendv model verify (L1 + V1-V6b)"]
-    C -->|"Mode 2: Internal CEGAR Engine<br/>(opendv model run / vault build)"| E["@ship-vault -> L1 -> V1-V6b<br/>-> V7 Critic -> V8 Horizon Critic"]
-    D -->|"exit 0"| F["CertifiedVaultIR + EvolutionLockSpec<br/>(CERTIFIED_FAST)"]
-    E -->|"exit 0"| G["CertifiedVaultIR + EvolutionLockSpec<br/>(CERTIFIED)"]
-    F --> H["Step 7 Storage Compile<br/>(opendv storage compile)"]
-    G --> H
-```
+## Table of Contents
+
+1. [Big Picture: Platform Flow, Steps, Zones, Agents & Expected Outcomes](#1-big-picture-platform-flow-steps-zones-agents--expected-outcomes)
+2. [Choosing Your Workflow: Mode 1 vs. Mode 2](#2-choosing-your-workflow-mode-1-vs-mode-2)
+3. [Prerequisites & Setup](#3-prerequisites--setup)
+4. [Complete Configuration & Parameter Reference](#4-complete-configuration--parameter-reference)
+5. [Step-by-Step Worked Examples (Concrete Inputs & Outputs)](#5-step-by-step-worked-examples-concrete-inputs--outputs)
+6. [Querying Excluded `mas_*` and `sat_*_pii` Satellites & Survivorship](#6-querying-excluded-mas_-and-sat_pii-satellites--survivorship)
+7. [Troubleshooting Common Errors & Remediation Rules](#7-troubleshooting-common-errors--remediation-rules)
 
 ---
 
-## 1. Choosing Your Workflow: Mode 1 vs. Mode 2
+## 1. Big Picture: Platform Flow, Steps, Zones, Agents & Expected Outcomes
+
+### 1.1 Where `opendv.modeling` Sits & Its Responsibility
+
+Open-DV uses a strict **5-Layer architecture**:
+
+```text
+Layer 5: cli / api          (Typer CLI & FastAPI :8420 Web Workbench)
+   │
+Layer 4: service            (OpenDVService, VaultService, DiscoveryService, project.sqlite)
+   │
+Layer 3: modeling & agents  <── THIS COMPONENT: src/opendv/modeling/ (Step 6 Engine)
+   │
+Layer 2: sources | verifier | storage   (Profiling, L1 codemods, V1-V6b + DuckDB Prover, 11 Emitters)
+   │
+Layer 1: models             (Pydantic DTOs, VaultSchemaIR v2.0, ErrorCodes, PII Tokenizer)
+```
+
+End-to-end across Steps 1–7, `opendv.modeling` handles **Step 6 (Data Vault synthesis, verification, critic review, and certification)**:
+
+```mermaid
+flowchart LR
+    S13["Steps 1-3: Sources & Profiling<br/>(opendv.sources / model profile)<br/>PII Tokenization + PK Overlap"] --> S45["Steps 4-5: Ontology & Scope<br/>(GraphAOntology + Preferences + Hints)"]
+    S45 --> M{"Step 6: opendv.modeling [Layer 3]<br/>Choose Execution Mode"}
+    M -->|"Mode 1: Stateless CI / External Agent<br/>(opendv model verify)"| M1["External Agent DraftVaultIR JSON<br/>-> L1 Codemods -> V1-V6b + DuckDB Prover"]
+    M -->|"Mode 2: Autonomous CEGAR Engine<br/>(opendv model run / vault build)"| M2["@ship-vault -> L1 -> V1-V6b<br/>-> V7 Semantic Critic -> V8 Horizon Critic"]
+    M1 -->|"exit 0: CERTIFIED_FAST"| OUT["CertifiedVaultIR + EvolutionLockSpec<br/>(5 Zones Z0-Z4)"]
+    M2 -->|"exit 0: CERTIFIED"| OUT
+    OUT --> S7["Step 7: opendv.storage<br/>(storage compile -> 11 SQL / dbt / Parquet Targets)"]
+```
+
+- **What `opendv.modeling` owns:** Turning profiled schemas + business decisions into a **verified `CertifiedVaultIR`** across Zones `Z0`–`Z4`, orchestrating **CEGAR retries** (`@ship-vault` + `L1` + `V1–V6b` + `V7`/`V8`), enforcing **`ModelingPreferences`** and **`business_context_hints`**, sharding wide catalogs (`> 40` tables or `> 150` cols), managing interactive **`HOLD_CHECKPOINTED`** / **`S6-06 STEER`** / **`revert`** checkpoints, and sealing **`EvolutionLockSpec`**.
+- **What other layers own (outside `opendv.modeling`):**
+  - **Upstream (`Steps 1–5`, `opendv.sources`):** Connecting to CSV/Parquet/SQLite/DuckDB/Excel/Databricks, sampling real rows, HMAC-SHA256 tokenizing PII, computing `PkContainmentOverlap`, and building/committing `GraphAOntology`. *(Stateless `opendv model profile` runs the profiler + zero-LLM `P1–P4` survey helper on demand without creating `.opendv/`.)*
+  - **Verification helpers (`Layer 2`, `opendv.verifier` & `DuckDbProverAdapter`):** Executing `hint_survey`, `L1` deterministic rewrites, static `V1–V5` / `V6b` rules, and running compiled SQL in `:memory:` DuckDB (`V6`).
+  - **Downstream (`Step 7`, `opendv.storage`):** Lowering the certified IR to DDL/DML/dbt bundles for Snowflake, Databricks UC, BigQuery, Postgres, SQL Server, Redshift, ClickHouse, DuckDB, Iceberg, Parquet, and `dbt`.
+
+---
+
+### 1.2 The 7 Platform Steps & Step 6 Internal Stages (`S6-01`..`S6-07`)
+
+#### Platform-Wide 7-Step Workflow
+| Step | Name | What Happens Here | Who Performs It |
+| :---: | :--- | :--- | :--- |
+| **Step 1** | **Scope & Seeds** | Create project (`project init`) or define stateless request (`model spec`), set `CegarPolicy` & `ModelingPreferences`. | User / CLI / UI |
+| **Step 2** | **Sources & Secrets** | Attach structured sources (`csv`, `parquet`, `sqlite`, `duckdb`, `xlsx`, `databricks_uc`) or unstructured PDFs/notes. | `opendv.sources` + OS Keyring |
+| **Step 3** | **Preview & Profiling** | Infer schemas, types, `surrogate_score`, `PkContainmentOverlap`, PII tags, and cache PII-tokenized real proving samples (`proving_sample_rows=200`). | `opendv.sources` + `pii_tokenizer` |
+| **Step 4** | **Discovery & Survey** | Ground sources against ontology (`FIBO Core Pack`) or run zero-LLM `P1–P4` `hint_survey` questions (`opendv model profile`). | `@ontology-first-mate` / `hint_survey` |
+| **Step 5** | **Ontology Explorer** | Review/commit `GraphAOntology` (`concepts`, `relationships`, `enumerations`) or author `DraftVaultIR` + `ontology` JSON. | Human Steward / External Agent |
+| **Step 6** | **DV 2.0 Modeling & CEGAR Verification** | Synthesize, codemod (`L1`), prove (`V1–V6b` in DuckDB), semantically score (`V7`), future-proof (`V8`), and seal `CertifiedVaultIR`. | **`opendv.modeling`** (`S6-01`..`S6-07`) |
+| **Step 7** | **Storage & Targets** | Compile certified IR into runnable SQL DDL/DML across **11 targets** (`storage compile --verify-runtime`), migrate waves, and query data. | `opendv.storage` emitters |
+
+#### Internal Step 6 Stages (`S6-01`..`S6-07` inside `opendv.modeling`)
+Inside Step 6, managed Mode 2 walks through up to 7 sequential stages (`Mode 1` jumps straight into `S6-03` + `S6-04`):
+
+| Stage | Purpose | What Happens Inside |
+| :---: | :--- | :--- |
+| **`S6-01`** | **Initialize & Survey** | Validates tokens/trust (`hints <= 1,500`, `guide <= 2,500`), verifies PII-tokenized sample rows, resolves `Wave` number, and runs `hint_survey` (`P1–P4`). |
+| **`S6-02`** | **Clarify or Synthesize** | If `clarify_mode="ask_on_ambiguity"` and open `P1–P4` items exist, pauses (`HOLD_CHECKPOINTED`). Otherwise runs `@ship-vault` (single-turn or parallel sharded for wide catalogs) to generate/repair `DraftVaultIR`. |
+| **`S6-03`** | **`L1` Deterministic Codemods** | Applies `Alg A.1`–`A.9b` deterministic rules (PII/volatility/source Satellite splits, multi-source Hub key alignment, `Z2` `esat_*` + `Z3` interval views, nullable Link retention, `brg_*` lowering, `persisted_waivers` merge). |
+| **`S6-04`** | **Gates `V1–V6b` + `V7` Loop** | Runs static `V1–V5`, `:memory:` DuckDB proving (`V6`: `schema_proof` + `real_data_proof`), tiered `V6b` anti-patterns, and Mode-2 `@dv-semantic-critic` (`V7`). Loops back to `S6-02` on defects up to `K_max` retries. |
+| **`S6-05`** | **Agent Clarification Hold** | Pauses if `@ship-vault` flagged unresolvable `pending_clarifications`; resumes once Steward supplies `hold_answers`. |
+| **`S6-06`** | **`V8` Horizon Critic & `STEER`** | Single-pass `@dv-horizon-critic` checks future-wave lock-in risks (`BRK-01..08`). May auto-apply bounded `Bucket A` structural fixes (`<= 1` pass), pause for human `Bucket B` answers (`HOLD_CHECKPOINTED`), `accept`, or `revert` to pre-steer snapshot. |
+| **`S6-07`** | **Seal & Lock (`CERTIFIED`)** | Attaches `SchemaWaveDelta` (`Wave >= 2`), builds immutable `EvolutionLockSpec`, stamps `preferences_sha256` + `modeling_guide_sha256`, and returns `CertifiedVaultIR`. |
+
+---
+
+### 1.3 The 5 Data Vault 2.0 Zones (`Z0`–`Z4`)
+
+Every `CertifiedVaultIR` organizes tables and views strictly across **five zones (`Z0`–`Z4`)**, separation-enforced by verification gates:
+
+| Zone | Zone Name | Physical / View Prefix | Role & Mutability |
+| :---: | :--- | :--- | :--- |
+| **`Z0`** | **`bronze`** | Raw source tables + **`ref_*`** (Reference Tables) | Immutable landed raw source data plus non-historized static code/lookup tables (`ref_*`, controlled by `low_cardinality_strategy`). |
+| **`Z1`** | **`staging`** | **`stg_*`** (Hashed Staging Views) | Deterministic transient projections over `Z0` computing SHA-256 `hk_*` (with `BKCC` + `-1`/`-2` sentinels), `LINK_HK`, and alphabetical `hash_diff`. No stateful business logic (`DV-AP-010`). |
+| **`Z2`** | **`raw_vault`** | **`hub_*`**, **`lnk_*`**, **`t_lnk_*`**, **`hal_*`**, **`sat_*`**, **`mas_*`**, **`esat_*`**, **`sat_*_pii`**, **`sat_*_ext_vN`** | **Strictly append-only (insert-only)** Enterprise Data Vault: Business keys (`hub_*`, empty `attributes` per `INV-05`), mutable/hierarchical/transactional associations (`lnk_*`, `hal_*`, `t_lnk_*`), single-source Satellites (`sat_*`), Multi-Active Satellites (`mas_*` with `cdk`), Effectivity Satellites (`esat_*`), isolated PII Satellites (`sat_*_pii`), and additive Wave-2+ extensions (`sat_*_ext_vN`). |
+| **`Z3`** | **`business_vault`** | **`sal_*`**, **`esat_sal_*`**, **`vw_<esat>_intervals`**, **`pit_*`**, **`brg_*`** | Derived Business Vault: Same-As Link crosswalks (`sal_*`, `esat_sal_*`), derived closed/current effectivity interval views (`vw_<esat>_intervals`), Point-In-Time (`pit_*`) snapshot tables, and multi-hop Bridge tables (`brg_*`). `pit_*` and `brg_*` refresh safely; `sal_*` stays append-only. |
+| **`Z4`** | **`information_mart`** | **`vw_<hub>_current`** | Analytical consumption views joining each `hub_*` with its non-`PII`, non-`MAS` Satellites using ordered **`COALESCE` `survivorship_priority`** across multi-source Satellites. |
+
+---
+
+### 1.4 Agents & Deterministic Engines Involved
+
+Open-DV cleanly separates **who reasons about business semantics** from **what enforces correctness and emits SQL**:
+
+| Actor / Agent | Mode | Model Tier | Tools Allowed | Exact Role & Outputs |
+| :--- | :---: | :--- | :---: | :--- |
+| **External Coding Agent** (Antigravity, Claude Code, Codex, Gemini CLI) | **Mode 1** | Caller's own LLM (`0` internal keys) | Caller's IDE / CLI tools | Reads [`SKILL.md`](../../../.agents/skills/opendv-modeling/SKILL.md), runs `model spec` & `model profile`, interviews the human on `P1–P4` questions, authors `GraphAOntology` + `DraftVaultIR` JSON, and iterates using `model verify` hints. |
+| **`@ship-vault`** (`ship-vault`) | **Mode 2** (`S6-02`) | `STANDARD_WORKER` *(overridable)* | **`[]` (Zero tools)** | Synthesizes or repairs `DraftVaultIR` JSON (or parallel `DraftShardIR` shards merged deterministically for wide catalogs) from inline ontology, profiles, `ModelingPreferences`, `dv2-modeling-guide.md`, fenced hints, and prior diagnostics. |
+| **`@dv-semantic-critic`** (`V7`) | **Mode 2** (`S6-04`) | `FRONTIER_CRITIC` *(locked in `strict`)* | **`[]` (Zero tools)** | Runs single-pass semantic quality scoring (`0..100`) after `V1–V6` pass, checks alignment with ontology/preferences/hints, audits `AntiPatternJustification` waivers, and is the sole authority to set `reviewed_by_v7=True`. Uses `wide_catalog_summary` compaction above `40,000` tokens. |
+| **`@dv-horizon-critic`** (`V8`) | **Mode 2** (`S6-06`) | **`FRONTIER_CRITIC`** *(always frontier)* | **`[]` (Zero tools)** | Stress-tests `CertifiedVaultIR` + `FragilitySurfaceSummary` against future-wave lock-in hazards (`BRK-01..08`) using the 4-Guard Protocol (`absorbed_natively`, `bucket_a_ops` auto-steer, `bucket_b_questions` human Hold, `bucket_c_watchlist`). |
+| **Zero-LLM Engines** (`sources`, `hint_survey`, `L1`, `V1–V6b`, `DuckDbProverAdapter`, `storage`) | **Modes 1 & 2** | **None (`0` LLM calls)** | In-process Python + DuckDB `:memory:` | Profiles tables & HMAC-tokenizes PII (`<PII:16hex>`), computes `P1–P4` survey questions, applies `Alg A.1–A.9b`, proves all `15` `DV-DYN` invariants in DuckDB, enforces `V6b`, and compiles final SQL across all `11` targets. |
+
+> **Core Guardrails Across Every Mode:**
+> - **Zero Raw LLM SQL (`OBJ-01`):** No agent (external or internal) writes SQL DDL, `CREATE TABLE`, or hash formulas—every SQL statement is deterministically compiled from verified IR.
+> - **No Prompt Injection Overrides:** Mode-2 `business_context_hints` (`<= 1,500` tokens) are fenced inside `<untrusted_business_context>` and can never relax `V1–V6` or `v7_floor`, nor can `@ship-vault` self-approve waivers.
+
+---
+
+### 1.5 Expected Outcomes & Deliverables
+
+Depending on whether verification converges (`exit 0`) or requires human/agent input (`exit 5`), the modeling engine returns a strongly typed JSON result (`VerifyDraftResult` or `DVModelingResult`):
+
+- **On Certification (`exit 0` — `status="CERTIFIED"` or `"CERTIFIED_FAST"`, `next_action="READY_FOR_DOWNSTREAM"`):**
+  - **`certified_ir` (`CertifiedVaultIR`):** Complete 5-Zone (`Z0`–`Z4`) schema with canonical Hubs, per-binding Link hash specs (`-1`/`-2` sentinel handling), single-source `sat_*` / `mas_*` / `sat_*_pii` / `esat_*`, `Z3` `brg_*` / `sal_*` / `vw_<esat>_intervals`, `Z4` `vw_<hub>_current`, audited `justifications`, and `100%` `column_triage`. Ready for `opendv storage compile`.
+  - **`evolution_lock` (`EvolutionLockSpec`):** Immutable Wave-$N$ lock pinning Hub BKs, Link participants, and Satellite `hash_diff` columns so future Wave-$(N+1)$ schema changes remain additive (`sat_*_ext_vN`, `EVO-01..08`).
+  - **`verifier_report` (`VerifierReport`):** Explicit two-track `V6` proof ledger (`schema_proof_results` on edge cases + `real_data_proof_results` on PII-tokenized attached source rows with `PASS_FULL` / `PASS_SAMPLE_BOUNDED` / `SKIPPED_PARTIAL_SAMPLE` / `DISABLED_BY_USER`) plus `deterministic_energy == 0`.
+  - **`fragility_summary`, `v7_verdict`, & `v8_verdict`:** Zero-token `BRK-01..08` fragility snapshot and (in Mode 2) semantic/horizon scores, findings, and recorded `horizon_assumptions`.
+- **On Pause or Uncertified Draft (`exit 5` — `HOLD_CHECKPOINTED` or `UNCERTIFIED_DRAFT`):**
+  - **`HOLD_CHECKPOINTED` (`next_action="ASK_HUMAN_HOLD"`):** Structured `pending_questions` (`P1–P4` `ClarificationQuestion` or `V8` `HorizonQuestion` with `accept` / `steer` / `revert` options) plus resumable `checkpoint` (`pre_steer_fallback_ref` preserved).
+  - **`UNCERTIFIED_DRAFT` (`REPAIR_DRAFT_IR` or `WAIVE_OR_ADJUST_PREFERENCES`):** Exact `remediation_hints` (`gate`, `rule_id`, `entity_name`, `suggested_fix`, `waivable`) pinpointing every structural or runtime failure to fix or waive.
+
+---
+
+## 2. Choosing Your Workflow: Mode 1 vs. Mode 2
 
 You can use the modeling engine in three ways depending on who authors the model and whether you want `.opendv/` project persistence:
 
@@ -37,7 +149,7 @@ You can use the modeling engine in three ways depending on who authors the model
 
 ---
 
-## 2. Prerequisites & Setup
+## 3. Prerequisites & Setup
 
 ### Mode 1 Setup (Zero LLM Keys)
 
@@ -66,9 +178,9 @@ uv run opendv --json settings trust-workspace --path .
 
 ---
 
-## 3. Complete Configuration & Parameter Reference
+## 4. Complete Configuration & Parameter Reference
 
-### 3.1 CLI Commands & Flags
+### 4.1 CLI Commands & Flags
 
 #### Stateless Modeling Commands (`opendv model`)
 
@@ -106,7 +218,7 @@ uv run opendv --json settings trust-workspace --path .
 
 ---
 
-### 3.2 Exit Codes, `status`, and `next_action` Contract
+### 4.2 Exit Codes, `status`, and `next_action` Contract
 
 Every verification or modeling command communicates its result programmatically through HTTP/CLI exit codes and two top-level JSON fields (`status` and `next_action`):
 
@@ -121,7 +233,7 @@ Every verification or modeling command communicates its result programmatically 
 
 ---
 
-### 3.3 `CegarPolicy` Presets & Energy Scoring
+### 4.3 `CegarPolicy` Presets & Energy Scoring
 
 Set `"policy"` in `req.json` (or `--policy` on `vault build`) to control strictness, critic gates, and loop budget:
 
@@ -140,7 +252,7 @@ Set `"policy"` in `req.json` (or `--policy` on `vault build`) to control strictn
 
 ---
 
-### 3.4 Tier-1 `ModelingPreferences` Reference
+### 4.4 Tier-1 `ModelingPreferences` Reference
 
 All 8 deterministic switches live on `ModelingPreferences` (`src/opendv/models/modeling_preferences.py`). In Mode 1/2 JSON files, place them under `"modeling_preferences"`; in managed projects, update them with repeatable `--pref key=value` flags on `opendv settings project-set`.
 
@@ -169,7 +281,7 @@ uv run opendv --json settings project-set \
 
 ---
 
-### 3.5 Tier-2 Governance (`dv2-modeling-guide.md` & `business_context_hints`)
+### 4.5 Tier-2 Governance (`dv2-modeling-guide.md` & `business_context_hints`)
 
 Governance follows a strict precedence ladder so domain prose can steer naming/grain without weakening Data Vault invariants:
 
@@ -192,7 +304,7 @@ Example `domain_hints.md` for Mode 2:
 
 ---
 
-### 3.6 Request JSON Field Reference (`--input req.json`)
+### 4.6 Request JSON Field Reference (`--input req.json`)
 
 When calling `opendv model verify --input req.json` (Mode 1) or `opendv model run --input req.json` (Mode 2), `req.json` accepts the fields below. When you also pass `--profile profile_bundle.json`, `profiles`, `source_rows_by_table`, and `table_sample_flags` are hydrated automatically if omitted from `req.json`.
 
@@ -220,7 +332,7 @@ When calling `opendv model verify --input req.json` (Mode 1) or `opendv model ru
 
 ---
 
-### 3.7 Supported Source Adapters & Manifest Format
+### 4.7 Supported Source Adapters & Manifest Format
 
 `opendv model profile` supports **6 structured adapters**:
 
@@ -277,9 +389,9 @@ For `databricks_uc`, include `options` and `secret_refs` (never literal tokens i
 
 ---
 
-## 4. Step-by-Step Worked Examples (Concrete Inputs & Outputs)
+## 5. Step-by-Step Worked Examples (Concrete Inputs & Outputs)
 
-### 4.1 Mode 1 End-to-End Walkthrough (Zero Internal LLM Keys)
+### 5.1 Mode 1 End-to-End Walkthrough (Zero Internal LLM Keys)
 
 We use the bundled 6-table fixture in [`tests/fixtures/business_vault_hints/`](../../../tests/fixtures/business_vault_hints/manifest.json):
 - `erp_customers.csv` (`C-100`: `legal_name='Acme Capital'`, `credit_tier='AAA'`, `billing_region=NULL`, `email=NULL`; `C-200`: `email='ops@beacon.io'`)
@@ -777,7 +889,7 @@ Apply each `suggested_fix` to `draft.json` and re-run `opendv --json model verif
 
 ---
 
-### 4.2 Mode 2 End-to-End Walkthrough (Autonomous CEGAR, Hold, `STEER` & `revert`)
+### 5.2 Mode 2 End-to-End Walkthrough (Autonomous CEGAR, Hold, `STEER` & `revert`)
 
 In Mode 2, Open-DV's internal agents (`@ship-vault`, `V7` Semantic Critic, `V8` Horizon Critic) synthesize and verify the schema automatically.
 
@@ -978,7 +1090,7 @@ uv run opendv --json vault horizon \
 
 ---
 
-### 4.3 Programmatic Python API (`opendv.modeling`)
+### 5.3 Programmatic Python API (`opendv.modeling`)
 
 Callers inside Python (such as `VaultService` or custom test harnesses) invoke `verify_draft_vault` (Mode 1) and `model_vault` (Mode 2) directly with injected Layer-2 `IRRuntimeProver` and Layer-3 `ModelingHarnessPort` ports:
 
@@ -1011,7 +1123,7 @@ def run_mode1_example(manifest_path: Path, draft: DraftVaultIR, ontology: GraphA
 
 ---
 
-## 5. Querying Excluded `mas_*` and `sat_*_pii` Satellites & Survivorship
+## 6. Querying Excluded `mas_*` and `sat_*_pii` Satellites & Survivorship
 
 To protect privacy and preserve 1:1 Hub grain, `information_mart.vw_<hub>_current` (`Z4`) **automatically excludes**:
 - **`sat_*_pii` (`sat_kind == "PII"`):** Personal/sensitive attributes remain isolated in `raw_vault.sat_*_pii`.
@@ -1088,7 +1200,7 @@ LEFT JOIN current_pii AS p
 
 ---
 
-## 6. Troubleshooting Common Errors & Remediation Rules
+## 7. Troubleshooting Common Errors & Remediation Rules
 
 | Rule / Error Code | Why It Triggered | Exact Fix |
 | :--- | :--- | :--- |
