@@ -94,6 +94,7 @@ def extract_databricks_uc(
     validate_ident_fn: Callable[[str], str],
     open_conn_fn: DatabricksConnFactory,
     timeout_seconds: float | None = 30.0,
+    shape_sample_limit: int = 200,
 ) -> list[RawTableData]:
     injected_conn = options.get("_connection")
     catalog = validate_ident_fn(str(options.get("catalog", "")))
@@ -181,7 +182,10 @@ def extract_databricks_uc(
         )
         total_rows = int((cnt_row or (0,))[0] or 0)
 
-        fetch_limit = max(0, int(preview_offset)) + max(0, int(preview_limit))
+        fetch_limit = max(
+            max(0, int(preview_offset)) + max(0, int(preview_limit)),
+            max(0, int(shape_sample_limit)),
+        )
         all_preview = _execute_uc_query(
             cur,
             f"SELECT * FROM `{catalog}`.`{schema}`.`{safe_tbl}` LIMIT {fetch_limit}",
@@ -224,12 +228,13 @@ def extract_databricks_uc(
         for idx, (col_name, sql_type, nullable) in enumerate(parsed_cols):
             null_cnt, dist_cnt = agg_stats[idx]
             null_ratio = float(null_cnt) / float(total_rows) if total_rows > 0 else 0.0
-            raw_vals = [
+            col_non_null: list[str | None] = [
                 str(row[idx])
                 for row in all_preview
                 if idx < len(row) and row[idx] is not None
-            ][:sample_limit]
-            samples: list[str | None] = list(raw_vals)
+            ]
+            samples = col_non_null[:sample_limit]
+            shape_samples = col_non_null[:shape_sample_limit] if shape_sample_limit > 0 else []
             explicit_tags = ["UC_TAG:PII"] if col_name in pii_tagged_cols else []
             cols.append(
                 RawColumnData(
@@ -243,6 +248,7 @@ def extract_databricks_uc(
                     distinct_count_est=dist_cnt,
                     raw_samples=samples,
                     explicit_pii_tags=explicit_tags,
+                    shape_samples=shape_samples,
                 )
             )
         tables.append(
@@ -269,6 +275,7 @@ def dispatch_structured_extract(
     preview_limit: int = 50,
     validate_ident_fn: Callable[[str], str],
     open_conn_fn: DatabricksConnFactory,
+    shape_sample_limit: int = 200,
 ) -> list[RawTableData]:
     if kind == "sqlite":
         return extract_sqlite(
@@ -277,6 +284,7 @@ def dispatch_structured_extract(
             sample_limit=sample_limit,
             preview_offset=preview_offset,
             preview_limit=preview_limit,
+            shape_sample_limit=shape_sample_limit,
         )
     if kind in ("duckdb", "parquet", "csv"):
         return extract_duckdb_or_tabular_file(
@@ -286,6 +294,7 @@ def dispatch_structured_extract(
             sample_limit=sample_limit,
             preview_offset=preview_offset,
             preview_limit=preview_limit,
+            shape_sample_limit=shape_sample_limit,
         )
     if kind == "xlsx":
         return extract_xlsx(
@@ -294,6 +303,7 @@ def dispatch_structured_extract(
             sample_limit=sample_limit,
             preview_offset=preview_offset,
             preview_limit=preview_limit,
+            shape_sample_limit=shape_sample_limit,
         )
     if kind == "databricks_uc":
         return extract_databricks_uc(
@@ -307,6 +317,7 @@ def dispatch_structured_extract(
             preview_limit=preview_limit,
             validate_ident_fn=validate_ident_fn,
             open_conn_fn=open_conn_fn,
+            shape_sample_limit=shape_sample_limit,
         )
     raise OpenDVError(
         f"Source kind '{kind}' is not a structured tabular adapter",

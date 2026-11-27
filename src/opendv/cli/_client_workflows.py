@@ -11,6 +11,7 @@ from urllib.parse import quote
 import httpx
 from pydantic import BaseModel, TypeAdapter
 
+from opendv.cli._client_grounding import execute_fibo_sync, execute_ground_ontology
 from opendv.cli._output import CliHandledError
 from opendv.models import (
     AntiPatternJustification,
@@ -18,12 +19,16 @@ from opendv.models import (
     ErrorCode,
     FiboQueryReq,
     FiboQueryResp,
+    FiboSyncReq,
+    FiboSyncResp,
+    GroundingResponse,
     HoldAnswersReq,
     HorizonActionReq,
     MigrationApplyResp,
     NextActionEnum,
     OntologyCommitReq,
     OntologyConstructReq,
+    OntologyGroundReq,
     OntologyRevisionResp,
     OntologyValidateReq,
     OntologyValidationResp,
@@ -323,6 +328,14 @@ class CliWorkflowMixin:
             include_staged=include_staged,
         )
         return {"format": fmt, "content": content}
+
+    def ground_ontology(self, req: OntologyGroundReq) -> GroundingResponse:
+        """Ground table columns against FIBO Pack v2 or YAML glossary."""
+        return execute_ground_ontology(self, req)
+
+    def fibo_sync(self, req: FiboSyncReq) -> FiboSyncResp:
+        """Install/verify FIBO Pack v2 locally and optionally audit/repin a project."""
+        return execute_fibo_sync(self, req)
 
     # ---- Step 6 Vault ----
 

@@ -66,6 +66,8 @@ _CLI_HTTP_ROUTES: dict[str, tuple[str | None, str | None]] = {
     "ontology control": ("POST", "/api/v1/projects/{project_id}/ontology/runs/{rid}/controls"),
     "ontology answer": ("POST", "/api/v1/projects/{project_id}/ontology/runs/{rid}/answers"),
     "ontology fibo-qa": ("POST", "/api/v1/ontology/fibo-qa"),
+    "ontology fibo-sync": (None, None),
+    "ontology ground": ("POST", "/api/v1/ontology/ground"),
     "ontology validate": ("POST", "/api/v1/projects/{project_id}/ontology/validate"),
     "ontology commit": ("POST", "/api/v1/projects/{project_id}/ontology/commit"),
     "ontology export": ("GET", "/api/v1/projects/{project_id}/ontology/export"),

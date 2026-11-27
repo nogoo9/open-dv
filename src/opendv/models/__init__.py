@@ -48,6 +48,13 @@ from opendv.models.events import (
     RunStep,
     RunStreamEvent,
 )
+from opendv.models.grounding import (
+    FiboSyncReq,
+    FiboSyncResp,
+    GroundingRequest,
+    GroundingResponse,
+    OntologyGroundReq,
+)
 from opendv.models.ir_kernel import (
     DEFAULT_DELIMITER,
     ERROR_NULL_TOKEN,
@@ -142,6 +149,8 @@ from opendv.models.ontology_deltas import (
     SetDescription,
     SetParentConcept,
     UpdateAttributeMetadata,
+    UpdateEnumerationMetadata,
+    UpdateRelationshipMetadata,
 )
 from opendv.models.pii_tokenizer import (
     MASKED_PII_TOKEN,
@@ -461,10 +470,14 @@ __all__ = [
     "FiboMatchSpec",
     "FiboQueryReq",
     "FiboQueryResp",
+    "FiboSyncReq",
+    "FiboSyncResp",
     "FloatDomainError",
     "FragilitySurfaceSummary",
     "GateId",
     "GraphAOntology",
+    "GroundingRequest",
+    "GroundingResponse",
     "GroundingWaiverMixin",
     "GuidedDecisionCard",
     "GuidedEntityCardSpec",
@@ -509,6 +522,7 @@ __all__ = [
     "OntologyConstructReq",
     "OntologyDelta",
     "OntologyEnumeration",
+    "OntologyGroundReq",
     "OntologyProposalSpec",
     "OntologyRelationship",
     "OntologyRevisionResp",
@@ -610,6 +624,8 @@ __all__ = [
     "TriageDisposition",
     "TrustedWorkspaceSpec",
     "UpdateAttributeMetadata",
+    "UpdateEnumerationMetadata",
+    "UpdateRelationshipMetadata",
     "V8Mode",
     "ValidationBumpSpec",
     "ValueFreqItem",

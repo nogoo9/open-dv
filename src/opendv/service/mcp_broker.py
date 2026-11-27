@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from mcp.server.mcpserver import MCPServer
     from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
+    from opendv.grounding.spi import KnowledgeSource
+
 from opendv.agents.ports import (
     AgentHarnessPort,
     AgentTurnRequest,
@@ -39,6 +41,7 @@ from opendv.models.wire_dtos_discovery import (
     ImageOcrResult,
     ScoutDigest,
 )
+from opendv.service._mcp_grounding_tool import coord_ground_columns
 from opendv.service._mcp_ports import (
     Bm25MatcherPort,
     ExternalMcpGatewayPort,
@@ -175,6 +178,22 @@ def _build_coord_server(ctx: BrokerToolContext) -> MCPServer:
         return coord_search_fibo(ctx, query, domain_namespace=domain_namespace, top_k=top_k)
 
     @srv.tool()
+    def ground_columns(
+        table_ids: list[str] | None = None,
+        column_offset: int = 0,
+        steward_notes: dict[str, str] | None = None,
+        max_choices: int = 3,
+    ) -> dict[str, Any]:
+        """Synchronously ground columns for bound project tables (<= 64 KB) and mint receipts."""
+        return coord_ground_columns(
+            ctx,
+            table_ids=table_ids,
+            column_offset=column_offset,
+            steward_notes=steward_notes,
+            max_choices=max_choices,
+        )
+
+    @srv.tool()
     def propose_ontology_delta(ops: list[ClientAdditiveOp]) -> DeltaStageResp:
         """Stage additive ontology delta operations for Steward review."""
         return coord_propose_ontology_delta(ctx, ops)
@@ -265,6 +284,8 @@ class JobMcpBroker:
         ontology_rev_id: str | None = None,
         sources_fingerprint: str = "fp-step4",
         discovery_mode: DiscoveryMode = "incremental_new",
+        fibo_source: KnowledgeSource | None = None,
+        steward_answers: Mapping[str, str] | Sequence[str] | None = None,
         bind_host: str | None = None,
         port: int = 0,
     ) -> None:
@@ -300,6 +321,8 @@ class JobMcpBroker:
             ontology_rev_id=ontology_rev_id,
             sources_fingerprint=sources_fingerprint,
             discovery_mode=discovery_mode,
+            fibo_source=fibo_source,
+            steward_answers=steward_answers,
         )
         self.coord_server = _build_coord_server(self.context)
         self.scout_server = _build_scout_server(self.context)

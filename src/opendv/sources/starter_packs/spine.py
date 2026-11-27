@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Literal
 
+from opendv.grounding.providers.fibo.loader import get_bundled_fibo_pack_sha256
 from opendv.models.diagnostics import KeyTierEnum
 from opendv.models.ontology import (
     CanonicalBusinessConcept,
@@ -15,7 +16,6 @@ from opendv.models.ontology import (
     OntologyRelationship,
 )
 from opendv.models.vault_ir import DecimalType, PortableLogicalType
-from opendv.sources.fibo.loader import CANONICAL_FIBO_CORE_SHA256
 
 _DEC_18_4 = DecimalType(kind="DECIMAL", precision=18, scale=4)
 
@@ -63,7 +63,7 @@ def make_fibo_mapping(
     return ExternalMapping(
         standard_uri=uri,
         reference_pack_id="fibo-core",
-        reference_pack_sha256=CANONICAL_FIBO_CORE_SHA256,
+        reference_pack_sha256=get_bundled_fibo_pack_sha256(),
         mapping_type=mapping_type,
         confidence=confidence,
     )
@@ -137,7 +137,7 @@ def get_core_spine_concepts() -> list[CanonicalBusinessConcept]:
             "legal_entity",
             "LegalEntity",
             "Autonomous legal person, corporation, partnership, or sovereign entity.",
-            f"{fibo}BE/LegalEntities/LegalPersons/LegalEntity",
+            "https://www.omg.org/spec/Commons/Organizations/LegalEntity",
             [
                 make_attr("lei", "string", is_bk=True),
                 make_attr("legal_name", "string"),

@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from opendv.service.app_service import OpenDVService
-from opendv.service.bm25_matcher import Bm25ConceptMatcher, Bm25ScoredHit
 from opendv.service.bundles import (
     MAX_BUNDLE_ENTRIES,
     MAX_BUNDLE_UNCOMPRESSED_BYTES,
@@ -97,8 +96,6 @@ __all__ = [
     "MAX_BUNDLE_UNCOMPRESSED_BYTES",
     "MAX_COMPRESSION_RATIO",
     "RATIO_CHECK_THRESHOLD_BYTES",
-    "Bm25ConceptMatcher",
-    "Bm25ScoredHit",
     "BundleMode",
     "CertificationLabel",
     "ConflictPolicy",

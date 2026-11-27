@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import tempfile
 import uuid
 from pathlib import Path
@@ -12,9 +13,14 @@ from typing import Literal, cast
 from fastapi import Request, UploadFile
 
 from opendv.models.errors import ErrorCode, OpenDVError
+from opendv.models.project import WINDOWS_RESERVED_NAMES
 from opendv.models.sources import SourceSummary
 from opendv.models.wire_dtos_discovery import ProjectImportPathReq, SourceReattachReq
 from opendv.service.app_service import OpenDVService
+from opendv.service.bundles.zip_guard import (
+    reject_symlinks_on_path_and_ancestors,
+    safe_open_no_follow,
+)
 from opendv.service.os_platform import atomic_write_bytes, validate_workspace_containment
 
 from ._security import (
@@ -23,6 +29,14 @@ from ._security import (
     parse_env_workspace_roots,
 )
 from ._tasks import RunTaskManager
+
+_DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:")
+
+
+def _upper_win_drive(path_str: str) -> str:
+    if os.name == "nt" and len(path_str) >= 2 and path_str[1] == ":":
+        return path_str[0].upper() + path_str[1:]
+    return path_str
 
 
 def get_service(request: Request) -> OpenDVService:
@@ -65,6 +79,178 @@ def enforce_api_workspace_path(
         )
         return str(resolved)
     return raw_path
+
+
+def enforce_grounding_asset_path(
+    request: Request,
+    service: OpenDVService,
+    raw_path: str,
+    *,
+    default_roots: tuple[Path, ...] | None = None,
+) -> tuple[Path, Path]:
+    """Validate grounding asset path (UNC/ADS/containment/symlinks) returning (path, root)."""
+    if is_remote_request(request):
+        raise OpenDVError(
+            "Server filesystem asset paths are forbidden on remote requests.",
+            error_code=ErrorCode.LOOPBACK_ORIGIN_FORBIDDEN,
+        )
+    stripped = raw_path.strip()
+    if (
+        not stripped
+        or "\x00" in raw_path
+        or any(ord(ch) < 32 or ord(ch) == 127 for ch in raw_path)
+        or raw_path.startswith(("\\\\", "//"))
+        or stripped.startswith(("\\\\", "//"))
+    ):
+        raise OpenDVError(
+            "Invalid or forbidden grounding asset path.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    has_drive_prefix = bool(_DRIVE_PREFIX_RE.match(stripped))
+    if has_drive_prefix and (len(stripped) < 3 or stripped[2] not in ("/", "\\")):
+        raise OpenDVError(
+            f"Drive-relative path is forbidden in asset path: '{raw_path}'.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    remainder = stripped[2:] if has_drive_prefix else stripped
+    if ":" in remainder:
+        raise OpenDVError(
+            f"Alternate Data Stream ':' is forbidden in asset path: '{raw_path}'.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    for seg in remainder.replace("\\", "/").split("/"):
+        if not seg:
+            continue
+        if seg == "..":
+            raise OpenDVError(
+                f"Path traversal '..' is forbidden in asset path: '{raw_path}'.",
+                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+            )
+        stem = seg.split(".", 1)[0].lower()
+        if seg.lower() in WINDOWS_RESERVED_NAMES or stem in WINDOWS_RESERVED_NAMES:
+            raise OpenDVError(
+                f"Reserved device name forbidden in asset path: '{raw_path}'.",
+                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+            )
+
+    cand = Path(stripped)
+    if not cand.is_absolute():
+        cand = service.workspace_root / cand
+    env_roots = parse_env_workspace_roots()
+    if env_roots is not None:
+        roots = tuple(env_roots)
+    elif default_roots is not None:
+        roots = default_roots
+    else:
+        raw_ws = getattr(service, "raw_workspace_root", service.workspace_root)
+        packs_root = service.state_dir / "packs" / "fibo"
+        default_list: list[Path] = [raw_ws]
+        if os.path.normcase(str(service.workspace_root)) != os.path.normcase(str(raw_ws)):
+            default_list.append(service.workspace_root)
+        default_list.append(packs_root)
+        roots = tuple(default_list)
+    cand_real = os.path.realpath(str(cand))
+    if cand_real.startswith("\\\\?\\UNC\\") or cand_real.startswith("\\\\"):
+        raise OpenDVError(
+            f"UNC asset path rejected after resolution: '{raw_path}'.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+
+    matched: tuple[Path, Path] | None = None
+    cand_real_norm = os.path.normcase(cand_real)
+    for raw_root in roots:
+        resolved_root = raw_root.resolve()
+        root_norm = os.path.normcase(str(resolved_root))
+        try:
+            if os.path.commonpath([cand_real_norm, root_norm]) == root_norm:
+                matched = (raw_root, resolved_root)
+                break
+        except ValueError:
+            continue
+    if matched is None:
+        raise OpenDVError(
+            f"Grounding asset path '{raw_path}' escapes allowed containment roots.",
+            error_code=ErrorCode.LOOPBACK_ORIGIN_FORBIDDEN,
+        )
+    raw_matched_root, resolved_matched_root = matched
+
+    raw_root_str = os.path.normpath(_upper_win_drive(os.path.abspath(str(raw_matched_root))))
+    resolved_root_str = os.path.normpath(
+        _upper_win_drive(os.path.realpath(str(resolved_matched_root)))
+    )
+    raw_prefix = raw_root_str if raw_root_str.endswith(os.sep) else raw_root_str + os.sep
+    res_prefix = (
+        resolved_root_str if resolved_root_str.endswith(os.sep) else resolved_root_str + os.sep
+    )
+    cand_abs_str = os.path.normpath(_upper_win_drive(os.path.abspath(str(cand))))
+    active_prefix = raw_prefix if cand_abs_str.startswith(raw_prefix) else res_prefix
+    if not cand_abs_str.startswith(active_prefix):
+        raise OpenDVError(
+            f"Grounding asset path '{raw_path}' escapes allowed containment roots.",
+            error_code=ErrorCode.LOOPBACK_ORIGIN_FORBIDDEN,
+        )
+    cand_abs = Path(cand_abs_str)
+    raw_root_abs = Path(raw_root_str)
+    try:
+        reject_symlinks_on_path_and_ancestors(
+            cand_abs, stop_roots=[raw_matched_root, resolved_matched_root]
+        )
+    except OpenDVError as exc:
+        if exc.error_code == ErrorCode.ARCHIVE_SECURITY_VIOLATION:
+            raise OpenDVError(exc.message, error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT) from exc
+        raise
+
+    if cand_abs_str.startswith(raw_prefix):
+        suffix_parts = cand_abs.parts[len(raw_root_abs.parts) :]
+        resolved_path = Path(resolved_root_str).joinpath(*suffix_parts)
+    else:
+        resolved_path = Path(cand_real)
+    resolved_str = os.path.normpath(_upper_win_drive(os.path.abspath(str(resolved_path))))
+    if not resolved_str.startswith(res_prefix):
+        raise OpenDVError(
+            f"Grounding asset path '{raw_path}' escapes allowed containment roots.",
+            error_code=ErrorCode.LOOPBACK_ORIGIN_FORBIDDEN,
+        )
+    return Path(resolved_str), Path(resolved_root_str)
+
+
+def read_grounding_asset_bytes(
+    resolved_path: Path,
+    resolved_matched_root: Path,
+    *,
+    max_bytes: int,
+    label: str,
+) -> bytes:
+    """Open verified grounding asset via O_NOFOLLOW and read bounded bytes."""
+    safe_root = os.path.normpath(_upper_win_drive(os.path.realpath(str(resolved_matched_root))))
+    safe_root_prefix = safe_root if safe_root.endswith(os.sep) else safe_root + os.sep
+    safe_target = os.path.normpath(_upper_win_drive(os.path.abspath(str(resolved_path))))
+    if not safe_target.startswith(safe_root_prefix):
+        raise OpenDVError(
+            f"{label} path escapes allowed containment root.",
+            error_code=ErrorCode.LOOPBACK_ORIGIN_FORBIDDEN,
+        )
+    try:
+        fd = safe_open_no_follow(
+            Path(safe_target), os.O_RDONLY, stop_roots=[Path(safe_root)]
+        )
+    except FileNotFoundError as exc:
+        raise OpenDVError(
+            f"{label} file not found: '{resolved_path.name}'.",
+            error_code=ErrorCode.RESOURCE_NOT_FOUND,
+        ) from exc
+    except OpenDVError as exc:
+        if exc.error_code == ErrorCode.ARCHIVE_SECURITY_VIOLATION:
+            raise OpenDVError(exc.message, error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT) from exc
+        raise
+    with os.fdopen(fd, "rb") as fh:
+        raw_bytes = fh.read(max_bytes + 1)
+    if len(raw_bytes) > max_bytes:
+        raise OpenDVError(
+            f"{label} file exceeds maximum size of {max_bytes} bytes.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    return raw_bytes
 
 
 def enforce_import_containment(
@@ -277,9 +463,11 @@ def dual_request_body_openapi(
 __all__ = [
     "dual_request_body_openapi",
     "enforce_api_workspace_path",
+    "enforce_grounding_asset_path",
     "get_service",
     "get_task_manager",
     "handle_project_import",
     "handle_source_reattach",
+    "read_grounding_asset_bytes",
     "read_upload_bounded",
 ]

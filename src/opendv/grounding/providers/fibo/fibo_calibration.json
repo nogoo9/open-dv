@@ -1,0 +1,68 @@
+{
+  "T": 0.5,
+  "c_cal": 2.95,
+  "channel_weights": {
+    "agent": 2.0,
+    "anchor": 1.1,
+    "lex": 2.2,
+    "shape_range": 1.8,
+    "surface": 2.4
+  },
+  "gamma_null": 0.1,
+  "heldout_metrics": {
+    "abstain_ECE": 0.0332,
+    "ci90_coverage": 0.931,
+    "cusip_fast_path_ok": true,
+    "n_dev": 130,
+    "n_dev_views": 194,
+    "n_heldout": 60,
+    "n_positive": 52,
+    "no_match_f1": 0.875,
+    "oof_ci90_coverage": 0.8539,
+    "overall_acc": 0.95,
+    "path_b1_f1": 0.8571,
+    "per_stratum": {
+      "FDIC": {
+        "acc": 1.0,
+        "approx_95ci_halfwidth": 0.0,
+        "n": 9.0
+      },
+      "FRED/ECB": {
+        "acc": 0.8889,
+        "approx_95ci_halfwidth": 0.2053,
+        "n": 9.0
+      },
+      "GLEIF": {
+        "acc": 0.8889,
+        "approx_95ci_halfwidth": 0.2053,
+        "n": 9.0
+      },
+      "ISDA/OTC": {
+        "acc": 1.0,
+        "approx_95ci_halfwidth": 0.0,
+        "n": 9.0
+      },
+      "NO_MATCH": {
+        "acc": 0.875,
+        "approx_95ci_halfwidth": 0.2292,
+        "n": 8.0
+      },
+      "OpenFIGI": {
+        "acc": 1.0,
+        "approx_95ci_halfwidth": 0.0,
+        "n": 8.0
+      },
+      "SEC EDGAR 13F/XBRL": {
+        "acc": 1.0,
+        "approx_95ci_halfwidth": 0.0,
+        "n": 8.0
+      }
+    },
+    "starter_packs_ok": true,
+    "top1_acc": 0.9615,
+    "top3_recall": 0.9808
+  },
+  "s_null_base": -1.22,
+  "schema_version": 1,
+  "split_seed": 20261126
+}

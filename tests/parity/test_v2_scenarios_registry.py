@@ -74,7 +74,7 @@ from opendv.models.wire_dtos_vault import (
 )
 from opendv.service.app_service import OpenDVService
 from opendv.service.guided_translator import contains_forbidden_jargon
-from opendv.sources.fibo.loader import CANONICAL_FIBO_CORE_SHA256
+from opendv.grounding.providers.fibo.loader import get_bundled_fibo_pack_sha256
 from opendv.storage.prover import DuckDbProverAdapter, decollide_masked_pii
 from opendv.storage.prover.edge_batches import run_adversarial_batches
 from opendv.storage.sql_compiler.compiler import SqlGlotVaultCompiler
@@ -201,7 +201,7 @@ async def _scen_01(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
                                 {
                                     "standard_uri": top["concept_uri"],
                                     "reference_pack_id": "fibo_core",
-                                    "reference_pack_sha256": CANONICAL_FIBO_CORE_SHA256,
+                                    "reference_pack_sha256": get_bundled_fibo_pack_sha256(),
                                     "mapping_type": "skos:exactMatch",
                                     "confidence": 0.92,
                                 }
@@ -235,7 +235,7 @@ async def _scen_02(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
                         {
                             "standard_uri": match_uri,
                             "reference_pack_id": "fibo_core",
-                            "reference_pack_sha256": CANONICAL_FIBO_CORE_SHA256,
+                            "reference_pack_sha256": get_bundled_fibo_pack_sha256(),
                             "mapping_type": "skos:closeMatch",
                             "confidence": 0.72,
                         }

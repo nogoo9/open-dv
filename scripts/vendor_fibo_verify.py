@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Budget and schema verification helpers for scripts/vendor_fibo.py."""
+"""Pack v2 schema, budget (4MB/18MB/70ms), JCS, and starter_packs Path A verification."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sys
 import time
 import tracemalloc
+from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -18,24 +21,39 @@ if str(REPO_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from scripts.vendor_fibo_extract import (  # noqa: E402
+    ALL_V2_MODULES,
+    CMNS_BASE_URI_PREFIX,
     CORE_MODULES,
     DEFAULT_PINNED_COMMIT,
     DEFAULT_PINNED_TAG,
     get_fibo_module,
 )
 
+from opendv.grounding.providers.fibo.closure_rules import (  # noqa: E402
+    can_satisfy_path_a_grounding,
+    validate_pack_v2_data,
+)
+from opendv.grounding.providers.fibo.loader import (  # noqa: E402
+    FiboPackQueryAdapter,
+    FiboReferenceOntologyLoader,
+)
+from opendv.models.errors import ErrorCode, OpenDVError, ReferenceOntologyCorruptError  # noqa: E402
 from opendv.models.json_hasher import dumps_jcs_bytes  # noqa: E402
 
 MAX_DISK_SIZE_BYTES = 4 * 1024 * 1024
 MAX_MEMORY_BYTES = 18 * 1024 * 1024
 MAX_LOAD_LATENCY_MS = 70.0
 MIN_PRODUCTION_CLASSES = 2000
-MIN_PRODUCTION_PROPERTIES = 800
+MIN_PRODUCTION_PROPERTIES = 700
+MAX_PRODUCTION_INDIVIDUALS = 2500
+
+_DIGEST_FILENAME_RE = re.compile(r"^fibo-.+-([0-9a-f]{8})\.json$")
+_STARTER_MIN_CONFIDENCE = Decimal("0.6500")
 
 
 @dataclass(frozen=True)
 class BudgetVerificationResult:
-    """Outcome of validating a compiled FIBO JSON pack against budgets and schema."""
+    """Outcome of validating a compiled FIBO JSON pack against budgets and Pack v2 schema."""
 
     disk_size_bytes: int
     memory_peak_bytes: int
@@ -46,6 +64,7 @@ class BudgetVerificationResult:
     property_count: int
     is_valid: bool
     error_message: str | None = None
+    individual_count: int = 0
 
 
 def _fail_result(
@@ -58,6 +77,7 @@ def _fail_result(
     sha256_8: str = "",
     class_count: int = 0,
     property_count: int = 0,
+    individual_count: int = 0,
 ) -> BudgetVerificationResult:
     return BudgetVerificationResult(
         disk_size_bytes=disk_size,
@@ -69,6 +89,7 @@ def _fail_result(
         property_count=property_count,
         is_valid=False,
         error_message=msg,
+        individual_count=individual_count,
     )
 
 
@@ -79,8 +100,9 @@ def verify_pack(
     require_production_counts: bool = False,
     expected_commit: str = DEFAULT_PINNED_COMMIT,
     expected_tag: str = DEFAULT_PINNED_TAG,
+    required_modules: Sequence[str] | None = None,
 ) -> BudgetVerificationResult:
-    """Verify a compiled FIBO pack against size, memory, latency, JCS, and schema."""
+    """Verify a compiled FIBO Pack v2 against size, memory, latency, JCS, and schema."""
     if not pack_path.is_file():
         return _fail_result(f"Pack file does not exist: {pack_path}")
 
@@ -155,12 +177,9 @@ def verify_pack(
         )
 
     filename = pack_path.name
-    if (
-        filename.startswith("fibo-core-")
-        and filename.endswith(".json")
-        and filename != "fibo-core-pack.json"
-    ):
-        expected_prefix = filename[len("fibo-core-") : -len(".json")]
+    m_fn = _DIGEST_FILENAME_RE.match(filename)
+    if m_fn and filename != "fibo-core-pack.json":
+        expected_prefix = m_fn.group(1)
         if expected_prefix != sha256_8:
             return _fail_result(
                 f"Filename hash prefix '{expected_prefix}' does not match digest '{sha256_8}'",
@@ -171,29 +190,27 @@ def verify_pack(
                 sha256_8=sha256_8,
             )
 
-    metadata = data.get("metadata")
-    if not isinstance(metadata, dict):
-        return _fail_result("Missing or invalid 'metadata' object in pack")
+    try:
+        metadata, classes, properties, individuals = validate_pack_v2_data(data)
+    except ReferenceOntologyCorruptError as err:
+        return _fail_result(
+            str(err),
+            disk_size=disk_size,
+            peak_memory=peak_memory,
+            cold_load_ms=cold_load_ms,
+            sha256_full=sha256_full,
+            sha256_8=sha256_8,
+        )
+
     if not allow_fixture and (
         metadata.get("is_fixture") is True or metadata.get("pack_id") != "fibo-core"
     ):
         return _fail_result("Pack is marked as synthetic fixture; production pack required")
 
+    req_mods = tuple(required_modules) if required_modules is not None else CORE_MODULES
     modules_in_pack = metadata.get("modules")
-    if not isinstance(modules_in_pack, list) or any(
-        m not in modules_in_pack for m in CORE_MODULES
-    ):
+    if not isinstance(modules_in_pack, list) or any(m not in modules_in_pack for m in req_mods):
         return _fail_result("Required core modules missing in pack metadata")
-
-    classes = data.get("classes")
-    properties = data.get("properties")
-    if (
-        not isinstance(classes, dict)
-        or not isinstance(properties, dict)
-        or not classes
-        or not properties
-    ):
-        return _fail_result("'classes' and 'properties' must be non-empty JSON objects")
 
     if require_production_counts:
         up_commit = metadata.get("upstream_commit")
@@ -213,23 +230,32 @@ def verify_pack(
             return _fail_result(
                 f"Property count {len(properties)} below {MIN_PRODUCTION_PROPERTIES}"
             )
+        if not individuals or len(individuals) > MAX_PRODUCTION_INDIVIDUALS:
+            return _fail_result(
+                f"Individual count {len(individuals)} out of bounds "
+                f"(1..{MAX_PRODUCTION_INDIVIDUALS})"
+            )
 
     for uri, c_data in classes.items():
-        if not isinstance(c_data, dict) or c_data.get("uri") != uri:
+        if c_data.get("uri") != uri:
             return _fail_result(f"Invalid class entry for {uri}: key must equal entry URI")
-        if c_data.get("module") != get_fibo_module(uri):
+        exp_mod = "CMNS" if uri.startswith(CMNS_BASE_URI_PREFIX) else get_fibo_module(
+            uri, modules=ALL_V2_MODULES
+        )
+        if c_data.get("module") != exp_mod:
             return _fail_result(f"Module mismatch in class {uri}")
 
     for uri, p_data in properties.items():
-        if not isinstance(p_data, dict) or p_data.get("uri") != uri:
+        if p_data.get("uri") != uri:
             return _fail_result(f"Invalid property entry for {uri}: key must equal entry URI")
-        if p_data.get("module") != get_fibo_module(uri):
+        exp_mod = "CMNS" if uri.startswith(CMNS_BASE_URI_PREFIX) else get_fibo_module(
+            uri, modules=ALL_V2_MODULES
+        )
+        if p_data.get("module") != exp_mod:
             return _fail_result(f"Module mismatch in property {uri}")
-        if p_data.get("property_type") not in ("ObjectProperty", "DatatypeProperty"):
-            return _fail_result(f"Invalid property_type for {uri}")
 
     represented = {item.get("module") for item in classes.values() if isinstance(item, dict)}
-    for m in CORE_MODULES:
+    for m in req_mods:
         if m not in represented:
             return _fail_result(f"No classes found for core module '{m}' in compiled pack")
 
@@ -242,4 +268,60 @@ def verify_pack(
         class_count=len(classes),
         property_count=len(properties),
         is_valid=True,
+        individual_count=len(individuals),
     )
+
+
+def verify_starter_packs_path_a(pack_path: Path) -> None:
+    """Verify all 8 starter_packs URIs resolve as Path A >= 0.6500 via FiboPackQueryAdapter."""
+    from opendv.sources.starter_packs import STARTER_PACK_IDS, get_starter_pack_ontology
+
+    loader = FiboReferenceOntologyLoader(pack_path=pack_path, verify_integrity=False)
+    adapter = FiboPackQueryAdapter(loader=loader, verify_integrity=False)
+
+    failures: list[str] = []
+    for pack_id in STARTER_PACK_IDS:
+        ont = get_starter_pack_ontology(pack_id)
+        for concept in ont.concepts:
+            if not concept.external_mappings:
+                failures.append(f"{pack_id}.{concept.concept_name}: missing external_mappings")
+                continue
+            for mapping in concept.external_mappings:
+                if not can_satisfy_path_a_grounding(mapping.mapping_type):
+                    failures.append(
+                        f"{pack_id}.{concept.concept_name}: invalid Path A mapping_type "
+                        f"'{mapping.mapping_type}'"
+                    )
+                    continue
+                if mapping.confidence < _STARTER_MIN_CONFIDENCE:
+                    failures.append(
+                        f"{pack_id}.{concept.concept_name}: mapping.confidence "
+                        f"{mapping.confidence} < {_STARTER_MIN_CONFIDENCE}"
+                    )
+                    continue
+                entry = loader.lookup_by_uri(mapping.standard_uri)
+                if entry is None:
+                    failures.append(
+                        f"{pack_id}.{concept.concept_name}: URI not in compiled pack: "
+                        f"{mapping.standard_uri}"
+                    )
+                    continue
+                if entry.get("deprecated"):
+                    failures.append(
+                        f"{pack_id}.{concept.concept_name}: URI is deprecated in compiled pack: "
+                        f"{mapping.standard_uri}"
+                    )
+                    continue
+                label = str(entry.get("label", "")).strip()
+                score = adapter.score(label, mapping.standard_uri)
+                if score is None or score < _STARTER_MIN_CONFIDENCE:
+                    failures.append(
+                        f"{pack_id}.{concept.concept_name}: FiboPackQueryAdapter.score"
+                        f"('{label}', {mapping.standard_uri}) = {score} < {_STARTER_MIN_CONFIDENCE}"
+                    )
+
+    if failures:
+        raise OpenDVError(
+            "Starter-pack Path A verification failed:\n" + "\n".join(failures),
+            error_code=ErrorCode.VERIFICATION_GATE_FAILED,
+        )

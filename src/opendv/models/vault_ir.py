@@ -67,6 +67,47 @@ PortableLogicalType = (
 ArrayType.model_rebuild()
 MapType.model_rebuild()
 
+_CANONICAL_PORTABLE_LOGICAL_TYPES: dict[str, PortableLogicalType] = {
+    "FIXED_BINARY_32": "FIXED_BINARY_32",
+    "UTF8_STRING": "UTF8_STRING",
+    "INT32": "INT32",
+    "INT64": "INT64",
+    "DATE32": "DATE32",
+    "TIMESTAMP_UTC_US": "TIMESTAMP_UTC_US",
+    "BOOLEAN": "BOOLEAN",
+    "JSON_DOCUMENT": "JSON_DOCUMENT",
+}
+
+
+def map_sql_to_portable_type(sql_type: str) -> PortableLogicalType:
+    """Map SQL type strings or canonical PortableLogicalType literals to PortableLogicalType."""
+    upper = sql_type.strip().upper()
+    if upper in _CANONICAL_PORTABLE_LOGICAL_TYPES:
+        return _CANONICAL_PORTABLE_LOGICAL_TYPES[upper]
+    if upper.startswith(("DECIMAL", "NUMERIC")):
+        inner = upper.split("(", 1)[1].rstrip(")") if "(" in upper else "38,10"
+        parts = [p.strip() for p in inner.split(",")]
+        prec = min(38, max(1, int(parts[0]))) if parts and parts[0].isdigit() else 38
+        scale = min(prec, max(0, int(parts[1]))) if len(parts) > 1 and parts[1].isdigit() else 0
+        return DecimalType(precision=prec, scale=scale)
+    if "BOOL" in upper:
+        return "BOOLEAN"
+    if upper in ("INT", "INT4", "INTEGER", "SMALLINT", "TINYINT"):
+        return "INT32"
+    if any(tok in upper for tok in ("BIGINT", "INT8", "INT64", "HUGEINT")):
+        return "INT64"
+    if upper in ("DOUBLE", "FLOAT", "REAL", "FLOAT8", "FLOAT4"):
+        return DecimalType(precision=38, scale=10)
+    if upper == "DATE":
+        return "DATE32"
+    if "TIMESTAMP" in upper or "DATETIME" in upper:
+        return "TIMESTAMP_UTC_US"
+    if "JSON" in upper:
+        return "JSON_DOCUMENT"
+    if "BLOB" in upper or "BINARY" in upper:
+        return "FIXED_BINARY_32"
+    return "UTF8_STRING"
+
 
 class PredicateLeaf(StrictModel):
     """Atomic filter/sentinel predicate leaf node."""
@@ -419,4 +460,5 @@ __all__ = [
     "SatLoadMode",
     "TriageDisposition",
     "hub_canonical_bk_cols",
+    "map_sql_to_portable_type",
 ]

@@ -76,11 +76,11 @@ def reject_symlinks_on_path_and_ancestors(
     stop_norms = {os.path.normcase(os.path.abspath(str(r))) for r in stop_roots}
     cur = Path(os.path.abspath(str(target)))
     while True:
-        if _is_reparse_or_symlink(cur):
-            raise _sec_error(f"Symlink or reparse point rejected at {cur}")
         cur_norm = os.path.normcase(str(cur))
         if cur_norm in stop_norms:
             break
+        if _is_reparse_or_symlink(cur):
+            raise _sec_error(f"Symlink or reparse point rejected at {cur}")
         parent = cur.parent
         if parent == cur:
             break
@@ -96,13 +96,39 @@ def validate_containment(base_dir: Path, target: Path) -> Path:
     return Path(target_real)
 
 
-def safe_open_no_follow(path: Path, flags: int, mode: int = 0o600) -> int:
+def _upper_win_drive(path_str: str) -> str:
+    if os.name == "nt" and len(path_str) >= 2 and path_str[1] == ":":
+        return path_str[0].upper() + path_str[1:]
+    return path_str
+
+
+def safe_open_no_follow(
+    path: Path,
+    flags: int,
+    mode: int = 0o600,
+    *,
+    stop_roots: Sequence[Path] = (),
+) -> int:
     """Open a file with O_NOFOLLOW/O_BINARY after checking parent has no symlinks."""
-    reject_symlinks_on_path_and_ancestors(path.parent)
-    if path.exists() and _is_reparse_or_symlink(path):
+    if ".." in path.parts:
+        raise _sec_error(f"Path traversal '..' rejected in {path}")
+    path_str = os.path.normpath(_upper_win_drive(os.path.abspath(str(path))))
+    if stop_roots:
+        allowed = False
+        for root in stop_roots:
+            root_str = os.path.normpath(_upper_win_drive(os.path.abspath(str(root))))
+            prefix = root_str if root_str.endswith(os.sep) else root_str + os.sep
+            if path_str == root_str or path_str.startswith(prefix):
+                allowed = True
+                break
+        if not allowed:
+            raise _sec_error(f"Path '{path}' escapes allowed containment roots")
+    safe_path = Path(path_str)
+    reject_symlinks_on_path_and_ancestors(safe_path.parent, stop_roots=stop_roots)
+    if _is_reparse_or_symlink(safe_path):
         raise _sec_error(f"Refusing to open symlink or reparse target: {path}")
     open_flags = flags | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
-    fd = os.open(str(path), open_flags, mode)
+    fd = os.open(path_str, open_flags, mode)
     try:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode):

@@ -94,6 +94,7 @@ def test_uat_v25_agt_01_pack_loader_and_trusted_workspace_overrides(tmp_path: Pa
         assert "<role>" not in detail.markdown_body
         if agent_id == "ontology-first-mate":
             assert "dispatch_scout" in cfg.allowed_tools
+            assert "ground_columns" in cfg.allowed_tools
             assert "inspect_table_cluster" in cfg.disallowed_tools
             assert "Agent" in cfg.disallowed_tools
         if stage == "step6":
@@ -514,7 +515,7 @@ async def test_uat_v25_agt_04_sdk_runner_fail_closed_tool_scoping_and_tokens() -
         scout_dispatcher=dispatcher,
     )
     assert "tools" in captured_calls[-1]
-    assert len(captured_calls[-1]["tools"]) == 5
+    assert len(captured_calls[-1]["tools"]) == 6
     assert res_step4.token_count_source == "estimated"
     assert res_step4.total_tokens == (
         count_cl100k_tokens("Coordinate discovery") + count_cl100k_tokens(res_step4.text_output)

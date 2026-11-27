@@ -141,6 +141,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ontology/ground": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ground Ontology */
+        post: operations["ground_ontology_api_v1_ontology_ground_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects": {
         parameters: {
             query?: never;
@@ -1342,7 +1359,7 @@ export interface components {
          * AddRelationship
          * @description Introduce an OntologyRelationship.
          */
-        AddRelationship: {
+        "AddRelationship-Input": {
             /** Op Id */
             op_id?: string | null;
             /**
@@ -1355,7 +1372,26 @@ export interface components {
              * @default
              */
             rationale: string;
-            relationship: components["schemas"]["OntologyRelationship"];
+            relationship: components["schemas"]["OntologyRelationship-Input"];
+        };
+        /**
+         * AddRelationship
+         * @description Introduce an OntologyRelationship.
+         */
+        "AddRelationship-Output": {
+            /** Op Id */
+            op_id?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op_type: "AddRelationship";
+            /**
+             * Rationale
+             * @default
+             */
+            rationale: string;
+            relationship: components["schemas"]["OntologyRelationship-Output"];
         };
         /**
          * AddSourceCitation
@@ -1660,6 +1696,39 @@ export interface components {
              * @description Source table identifier.
              */
             table_id: string;
+        };
+        /**
+         * CandidateMapping
+         * @description Ranked candidate mapping emitted for a grounded column.
+         */
+        CandidateMapping: {
+            confidence: components["schemas"]["ConfidenceInterval"];
+            /** Entry Id */
+            entry_id: string;
+            /**
+             * Entry Kind
+             * @enum {string}
+             */
+            entry_kind: "class" | "datatype_property" | "object_property" | "individual_lifted" | "glossary_term" | "enumeration" | "other";
+            /** Evidence Contributions */
+            evidence_contributions?: components["schemas"]["EvidenceContribution"][];
+            /** Label */
+            label: string;
+            /**
+             * Origin Kind
+             * @enum {string}
+             */
+            origin_kind: "project_graph_a" | "reference_standard";
+            /** Rank */
+            rank: number;
+            /** Replaces Uris */
+            replaces_uris?: string[];
+            semantic_context: components["schemas"]["SemanticContext"];
+            /**
+             * Suggested Predicate
+             * @enum {string}
+             */
+            suggested_predicate: "skos:exactMatch" | "skos:closeMatch" | "skos:relatedMatch";
         };
         /**
          * CanonicalBusinessConcept
@@ -2012,6 +2081,97 @@ export interface components {
             rationale: string;
         };
         /**
+         * ColumnEvidence
+         * @description Input physical/metadata evidence for a single table column.
+         */
+        ColumnEvidence: {
+            /** Column Name */
+            column_name: string;
+            /** Data Type */
+            data_type: string;
+            /** Distinct Count Est */
+            distinct_count_est?: number | null;
+            /** Fk Ref */
+            fk_ref?: string | null;
+            /**
+             * Is Pk
+             * @default false
+             */
+            is_pk: boolean;
+            /**
+             * Null Ratio
+             * @default 0
+             */
+            null_ratio: number;
+            /**
+             * Nullable
+             * @default true
+             */
+            nullable: boolean;
+            /** Pii Tags */
+            pii_tags?: string[];
+            /** Pk Ord */
+            pk_ord?: number | null;
+            precomputed_shape?: components["schemas"]["ColumnShapeStats"] | null;
+            /** Sample Values */
+            sample_values?: unknown[];
+            /** Steward Note */
+            steward_note?: string | null;
+        };
+        /**
+         * ColumnGroundingResult
+         * @description Final grounding outcome and diagnostics for a single column.
+         */
+        ColumnGroundingResult: {
+            best_rejected_candidate?: components["schemas"]["CandidateMapping"] | null;
+            /** Choices */
+            choices?: components["schemas"]["CandidateMapping"][];
+            /** Column Name */
+            column_name: string;
+            /**
+             * Execution Mode Used
+             * @enum {string}
+             */
+            execution_mode_used: "symbolic_fast_path" | "agentic_reranked" | "symbolic_only" | "deterministic_only";
+            /** Grounding Receipt Id */
+            grounding_receipt_id?: string | null;
+            inferred_value_profile: components["schemas"]["InferredValueProfile"];
+            /** No Match Category */
+            no_match_category?: ("out_of_vocabulary_domain" | "technical_surrogate" | "system_audit_metadata" | "insufficient_evidence" | "below_threshold") | null;
+            /** No Match Detail */
+            no_match_detail?: string | null;
+            /** No Match Probability */
+            no_match_probability: number;
+            /** Review Reason */
+            review_reason?: ("competing_candidates" | "wide_confidence_interval" | "elevated_null_probability" | "unverified_masked_values" | "close_match_nuance") | null;
+            /** Selection Rule Applied */
+            selection_rule_applied: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "MATCHED" | "AMBIGUOUS" | "NO_MATCH";
+            /** Steward Summary */
+            steward_summary: string;
+            /** Suggested Broad Parent Uri */
+            suggested_broad_parent_uri?: string | null;
+            /** Table Name */
+            table_name: string;
+        };
+        /**
+         * ColumnPair
+         * @description Detected multi-column semantic relationship within a table.
+         */
+        ColumnPair: {
+            /** Columns */
+            columns: string[];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "amount_currency" | "effective_interval" | "composite_key" | "alternative_keys";
+        };
+        /**
          * ColumnProfile
          * @description Physical column profile in Graph B (up to 5 masked sample values).
          */
@@ -2068,6 +2228,8 @@ export interface components {
              * @description Up to 5 masked sample values for column inspection.
              */
             sample_values?: (string | null)[];
+            /** @description Pre-masking column value shape, pattern, and sentinel summary. */
+            shape_stats?: components["schemas"]["ColumnShapeStats"] | null;
             /**
              * Sql Type
              * @description Source SQL data type string.
@@ -2084,6 +2246,48 @@ export interface components {
              * @description PII-redacted top frequent values when distinct <= 20.
              */
             top_value_frequencies?: components["schemas"]["ValueFreqItem"][];
+        };
+        /**
+         * ColumnShapeStats
+         * @description Pre-masking column value shape, pattern, and sentinel summary.
+         */
+        ColumnShapeStats: {
+            /** Detected Sentinels */
+            detected_sentinels?: ("" | "N/A" | "NA" | "NONE" | "NULL" | "UNKNOWN" | "TBD" | "-1" | "-2")[];
+            /** Distinct Ratio */
+            distinct_ratio: number;
+            /** Length Max */
+            length_max?: number | null;
+            /** Length Min */
+            length_min?: number | null;
+            /**
+             * Looks Like Enum
+             * @default false
+             */
+            looks_like_enum: boolean;
+            /** Numeric Max */
+            numeric_max?: number | null;
+            /** Numeric Min */
+            numeric_min?: number | null;
+            /** Observed Enum Values */
+            observed_enum_values?: string[];
+            /**
+             * Pii Suppressed
+             * @default false
+             */
+            pii_suppressed: boolean;
+            /** Profiled Non Null Count */
+            profiled_non_null_count: number;
+            /** Structural Patterns */
+            structural_patterns?: {
+                [key: string]: number;
+            };
+            /**
+             * Surrogate Kind
+             * @default none
+             * @enum {string}
+             */
+            surrogate_kind: "none" | "monotonic_int" | "random_uuid_v4" | "prefixed_operational_id";
         };
         /**
          * ColumnTriageEntry
@@ -2152,6 +2356,11 @@ export interface components {
              * @description Informational SQL type hint from profiling.
              */
             sql_type_hint: string;
+            /**
+             * Standard Property Uri
+             * @description Optional external standard property URI (e.g. FIBO).
+             */
+            standard_property_uri?: string | null;
         };
         /**
          * ConceptAttribute
@@ -2198,6 +2407,11 @@ export interface components {
              * @description Informational SQL type hint from profiling.
              */
             sql_type_hint: string;
+            /**
+             * Standard Property Uri
+             * @description Optional external standard property URI (e.g. FIBO).
+             */
+            standard_property_uri?: string | null;
         };
         /**
          * ConceptMemorySpec
@@ -2249,6 +2463,25 @@ export interface components {
              * @description Source table identifier.
              */
             table_id: string;
+        };
+        /**
+         * ConfidenceInterval
+         * @description Calibrated point probability and Logit-Normal confidence interval.
+         */
+        ConfidenceInterval: {
+            /**
+             * Calibration Mode
+             * @enum {string}
+             */
+            calibration_mode: "analytic_logit_normal" | "empirical_calibrated";
+            /** Level */
+            level: number;
+            /** Lower */
+            lower: number;
+            /** Point */
+            point: number;
+            /** Upper */
+            upper: number;
         };
         /**
          * ConnectorAdapterSpec
@@ -2803,6 +3036,20 @@ export interface components {
             summary: string;
         };
         /**
+         * EvidenceContribution
+         * @description Per-modality evidence contribution for candidate explainability.
+         */
+        EvidenceContribution: {
+            /** Channel */
+            channel: string;
+            /** Detail */
+            detail: string;
+            /** Score */
+            score: number;
+            /** Weight */
+            weight: number;
+        };
+        /**
          * EvidenceGroundingApproval
          * @description Explicit evidence grounding approval tying a concept to formatted source_refs.
          */
@@ -2861,6 +3108,11 @@ export interface components {
              */
             confidence: number | string;
             /**
+             * Grounding Receipt Id
+             * @description Optional server-minted GroundingReceipt identifier.
+             */
+            grounding_receipt_id?: string | null;
+            /**
              * Mapping Type
              * @description SKOS alignment strength.
              * @enum {string}
@@ -2892,6 +3144,11 @@ export interface components {
              * @description Quantized alignment confidence [0, 1].
              */
             confidence: string;
+            /**
+             * Grounding Receipt Id
+             * @description Optional server-minted GroundingReceipt identifier.
+             */
+            grounding_receipt_id?: string | null;
             /**
              * Mapping Type
              * @description SKOS alignment strength.
@@ -3068,7 +3325,90 @@ export interface components {
              * Relationships
              * @description Canonical Unit-of-Work relationships.
              */
-            relationships?: components["schemas"]["OntologyRelationship"][];
+            relationships?: components["schemas"]["OntologyRelationship-Output"][];
+        };
+        /**
+         * GroundingPolicy
+         * @description Execution policy controlling agentic reranking, calibration CI, and selection.
+         */
+        GroundingPolicy: {
+            /**
+             * Ci Level
+             * @default 0.9
+             */
+            ci_level: number;
+            /**
+             * Cumulative Mass Target
+             * @default 0.9
+             */
+            cumulative_mass_target: number;
+            /**
+             * Enable Table Context
+             * @default true
+             */
+            enable_table_context: boolean;
+            /**
+             * Max Choices
+             * @default 3
+             */
+            max_choices: number;
+            /**
+             * Mode
+             * @default agentic
+             * @enum {string}
+             */
+            mode: "agentic" | "deterministic_only";
+            /**
+             * No Match Threshold
+             * @default 0.65
+             */
+            no_match_threshold: number;
+            /** Skip Reason */
+            skip_reason?: string | null;
+        };
+        /**
+         * GroundingRequest
+         * @description Bounded batch request for synchronous/orchestrated column grounding.
+         */
+        GroundingRequest: {
+            /** Global Steward Notes */
+            global_steward_notes?: string[];
+            /**
+             * Max Columns
+             * @default 500
+             */
+            max_columns: number;
+            /**
+             * Max Tables
+             * @default 50
+             */
+            max_tables: number;
+            policy?: components["schemas"]["GroundingPolicy"];
+            /** Tables */
+            tables: components["schemas"]["TableEvidence"][];
+        };
+        /**
+         * GroundingResponse
+         * @description Top-level response returned by the column grounding engine/service.
+         */
+        GroundingResponse: {
+            /** Engine Version */
+            engine_version: string;
+            /** Knowledge Source Id */
+            knowledge_source_id: string;
+            /** Knowledge Source Sha256 */
+            knowledge_source_sha256: string;
+            /** Knowledge Source Version */
+            knowledge_source_version: string;
+            /**
+             * Mode Used
+             * @enum {string}
+             */
+            mode_used: "symbolic_fast_path" | "agentic_reranked" | "symbolic_only" | "deterministic_only";
+            /** Skip Reason */
+            skip_reason?: string | null;
+            /** Tables */
+            tables?: components["schemas"]["TableGroundingResult"][];
         };
         /**
          * GroundingWaiverMixin
@@ -3403,6 +3743,27 @@ export interface components {
             unverified_receipt_ids: string[];
         };
         /**
+         * InferredValueProfile
+         * @description Inferred logical type, counts, PII flags, and shape stats for a column.
+         */
+        InferredValueProfile: {
+            /** Declared Logical Type */
+            declared_logical_type: ("FIXED_BINARY_32" | "UTF8_STRING" | "INT32" | "INT64" | "DATE32" | "TIMESTAMP_UTC_US" | "BOOLEAN" | "JSON_DOCUMENT") | components["schemas"]["DecimalType"] | components["schemas"]["ArrayType-Output"] | components["schemas"]["MapType-Output"];
+            /** Inferred Logical Type */
+            inferred_logical_type: ("FIXED_BINARY_32" | "UTF8_STRING" | "INT32" | "INT64" | "DATE32" | "TIMESTAMP_UTC_US" | "BOOLEAN" | "JSON_DOCUMENT") | components["schemas"]["DecimalType"] | components["schemas"]["ArrayType-Output"] | components["schemas"]["MapType-Output"] | "unknown";
+            /** Masked Count */
+            masked_count: number;
+            /** Non Null Count */
+            non_null_count: number;
+            /** Observed Sample Count */
+            observed_sample_count: number;
+            /** Pii Tags */
+            pii_tags?: string[];
+            shape: components["schemas"]["ColumnShapeStats"];
+            /** Type Confidence */
+            type_confidence: number;
+        };
+        /**
          * KeyAuthorityPattern
          * @description 3-Tier Business Key Authority pattern attached to a concept.
          */
@@ -3733,7 +4094,7 @@ export interface components {
             /** Ont Ap Waivers */
             ont_ap_waivers?: components["schemas"]["OntologyWaiverSpec"][];
             /** Operations */
-            operations?: (components["schemas"]["AddConcept-Input"] | components["schemas"]["AddAttribute-Input"] | components["schemas"]["AddRelationship"] | components["schemas"]["AddEnumeration"] | components["schemas"]["AddEnumerationCode"] | components["schemas"]["AddSynonym"] | components["schemas"]["AddExternalMapping-Input"] | components["schemas"]["SetParentConcept"] | components["schemas"]["SetDescription"] | components["schemas"]["SetConceptKeyAuthority"] | components["schemas"]["SetConceptGovernanceTags"] | components["schemas"]["UpdateAttributeMetadata-Input"] | components["schemas"]["AddTableBinding"] | components["schemas"]["AddSourceCitation"] | components["schemas"]["AddMcpEvidence"] | components["schemas"]["AddKeyAuthorityPattern"] | components["schemas"]["ReparentConcept"] | components["schemas"]["ClearParentConcept"] | components["schemas"]["DeleteConcept"] | components["schemas"]["RenameConcept"] | components["schemas"]["RemoveAttribute"] | components["schemas"]["RemoveExternalMapping"] | components["schemas"]["RemoveSynonym"] | components["schemas"]["DeleteRelationship"] | components["schemas"]["DeleteEnumeration"] | components["schemas"]["RemoveEnumerationCode"] | components["schemas"]["ChangeDomainNamespace"] | components["schemas"]["ReviseDescription"] | components["schemas"]["RepinExternalMapping"] | components["schemas"]["RemoveTableBinding"] | components["schemas"]["RemoveSourceCitation"] | components["schemas"]["RemoveMcpEvidence"] | components["schemas"]["RemoveKeyAuthorityPattern"] | components["schemas"]["RescoreExternalMapping-Input"])[] | null;
+            operations?: (components["schemas"]["AddConcept-Input"] | components["schemas"]["AddAttribute-Input"] | components["schemas"]["AddRelationship-Input"] | components["schemas"]["AddEnumeration"] | components["schemas"]["AddEnumerationCode"] | components["schemas"]["AddSynonym"] | components["schemas"]["AddExternalMapping-Input"] | components["schemas"]["SetParentConcept"] | components["schemas"]["SetDescription"] | components["schemas"]["SetConceptKeyAuthority"] | components["schemas"]["SetConceptGovernanceTags"] | components["schemas"]["UpdateAttributeMetadata-Input"] | components["schemas"]["AddTableBinding"] | components["schemas"]["AddSourceCitation"] | components["schemas"]["AddMcpEvidence"] | components["schemas"]["AddKeyAuthorityPattern"] | components["schemas"]["ReparentConcept"] | components["schemas"]["ClearParentConcept"] | components["schemas"]["DeleteConcept"] | components["schemas"]["RenameConcept"] | components["schemas"]["RemoveAttribute"] | components["schemas"]["RemoveExternalMapping"] | components["schemas"]["RemoveSynonym"] | components["schemas"]["DeleteRelationship"] | components["schemas"]["DeleteEnumeration"] | components["schemas"]["RemoveEnumerationCode"] | components["schemas"]["ChangeDomainNamespace"] | components["schemas"]["ReviseDescription"] | components["schemas"]["RepinExternalMapping"] | components["schemas"]["RemoveTableBinding"] | components["schemas"]["RemoveSourceCitation"] | components["schemas"]["RemoveMcpEvidence"] | components["schemas"]["RemoveKeyAuthorityPattern"] | components["schemas"]["UpdateRelationshipMetadata"] | components["schemas"]["UpdateEnumerationMetadata"] | components["schemas"]["RescoreExternalMapping-Input"])[] | null;
             /** Rationale */
             rationale: string;
             /**
@@ -3782,10 +4143,35 @@ export interface components {
              */
             enumeration_name: string;
             /**
+             * Standard Uri
+             * @description Optional external standard enumeration URI.
+             */
+            standard_uri?: string | null;
+            /**
              * Target Reference Table
              * @description Target Zone Z0 reference table name (ref_*).
              */
             target_reference_table: string;
+        };
+        /**
+         * OntologyGroundReq
+         * @description Top-level API/CLI request for standalone or project-backed ontology grounding.
+         */
+        OntologyGroundReq: {
+            /** Fibo Pack */
+            fibo_pack?: string | null;
+            /** Glossary Path */
+            glossary_path?: string | null;
+            /**
+             * Knowledge Source
+             * @default fibo
+             * @enum {string}
+             */
+            knowledge_source: "fibo" | "glossary";
+            policy?: components["schemas"]["GroundingPolicy"] | null;
+            /** Project Id */
+            project_id?: string | null;
+            request?: components["schemas"]["GroundingRequest"] | null;
         };
         /**
          * OntologyProposalSpec
@@ -3793,7 +4179,7 @@ export interface components {
          */
         OntologyProposalSpec: {
             /** Delta Ops */
-            delta_ops: (components["schemas"]["AddConcept-Output"] | components["schemas"]["AddAttribute-Output"] | components["schemas"]["AddRelationship"] | components["schemas"]["AddEnumeration"] | components["schemas"]["AddEnumerationCode"] | components["schemas"]["AddSynonym"] | components["schemas"]["AddExternalMapping-Output"] | components["schemas"]["SetParentConcept"] | components["schemas"]["SetDescription"] | components["schemas"]["SetConceptKeyAuthority"] | components["schemas"]["SetConceptGovernanceTags"] | components["schemas"]["UpdateAttributeMetadata-Output"] | components["schemas"]["AddTableBinding"] | components["schemas"]["AddSourceCitation"] | components["schemas"]["AddMcpEvidence"] | components["schemas"]["AddKeyAuthorityPattern"] | components["schemas"]["ReparentConcept"] | components["schemas"]["ClearParentConcept"] | components["schemas"]["DeleteConcept"] | components["schemas"]["RenameConcept"] | components["schemas"]["RemoveAttribute"] | components["schemas"]["RemoveExternalMapping"] | components["schemas"]["RemoveSynonym"] | components["schemas"]["DeleteRelationship"] | components["schemas"]["DeleteEnumeration"] | components["schemas"]["RemoveEnumerationCode"] | components["schemas"]["ChangeDomainNamespace"] | components["schemas"]["ReviseDescription"] | components["schemas"]["RepinExternalMapping"] | components["schemas"]["RemoveTableBinding"] | components["schemas"]["RemoveSourceCitation"] | components["schemas"]["RemoveMcpEvidence"] | components["schemas"]["RemoveKeyAuthorityPattern"] | components["schemas"]["RescoreExternalMapping-Output"])[];
+            delta_ops: (components["schemas"]["AddConcept-Output"] | components["schemas"]["AddAttribute-Output"] | components["schemas"]["AddRelationship-Output"] | components["schemas"]["AddEnumeration"] | components["schemas"]["AddEnumerationCode"] | components["schemas"]["AddSynonym"] | components["schemas"]["AddExternalMapping-Output"] | components["schemas"]["SetParentConcept"] | components["schemas"]["SetDescription"] | components["schemas"]["SetConceptKeyAuthority"] | components["schemas"]["SetConceptGovernanceTags"] | components["schemas"]["UpdateAttributeMetadata-Output"] | components["schemas"]["AddTableBinding"] | components["schemas"]["AddSourceCitation"] | components["schemas"]["AddMcpEvidence"] | components["schemas"]["AddKeyAuthorityPattern"] | components["schemas"]["ReparentConcept"] | components["schemas"]["ClearParentConcept"] | components["schemas"]["DeleteConcept"] | components["schemas"]["RenameConcept"] | components["schemas"]["RemoveAttribute"] | components["schemas"]["RemoveExternalMapping"] | components["schemas"]["RemoveSynonym"] | components["schemas"]["DeleteRelationship"] | components["schemas"]["DeleteEnumeration"] | components["schemas"]["RemoveEnumerationCode"] | components["schemas"]["ChangeDomainNamespace"] | components["schemas"]["ReviseDescription"] | components["schemas"]["RepinExternalMapping"] | components["schemas"]["RemoveTableBinding"] | components["schemas"]["RemoveSourceCitation"] | components["schemas"]["RemoveMcpEvidence"] | components["schemas"]["RemoveKeyAuthorityPattern"] | components["schemas"]["UpdateRelationshipMetadata"] | components["schemas"]["UpdateEnumerationMetadata"] | components["schemas"]["RescoreExternalMapping-Output"])[];
             /** Proposal Id */
             proposal_id: string;
             /**
@@ -3810,7 +4196,7 @@ export interface components {
          * OntologyRelationship
          * @description Canonical Unit-of-Work relationship between concepts in GraphAOntology.
          */
-        OntologyRelationship: {
+        "OntologyRelationship-Input": {
             /**
              * Cardinality
              * @description Structural relationship cardinality.
@@ -3828,6 +4214,16 @@ export interface components {
              */
             grain_semantics: string;
             /**
+             * Link Attributes
+             * @description Optional junction/transactional link payload attributes.
+             */
+            link_attributes?: components["schemas"]["ConceptAttribute-Input"][];
+            /**
+             * Played By Uri
+             * @description Optional entity class URI playing this role.
+             */
+            played_by_uri?: string | null;
+            /**
              * Relationship Name
              * @description Human-readable relationship name.
              */
@@ -3838,10 +4234,127 @@ export interface components {
              */
             relationship_uri: string;
             /**
+             * Role Uri
+             * @description Optional standard role class URI.
+             */
+            role_uri?: string | null;
+            /**
+             * Source Anchor Col Name
+             * @description Origin anchor column name when distinct from FK.
+             */
+            source_anchor_col_name?: string | null;
+            /**
+             * Source Col Name
+             * @description Origin source column name.
+             */
+            source_col_name?: string | null;
+            /**
              * Source Concept Uri
              * @description Origin concept URI.
              */
             source_concept_uri: string;
+            /**
+             * Source Table Id
+             * @description Source table identifier.
+             */
+            source_table_id?: string | null;
+            /**
+             * Standard Property Uri
+             * @description Optional external standard property URI.
+             */
+            standard_property_uri?: string | null;
+            /**
+             * Target Col Name
+             * @description Target source column name.
+             */
+            target_col_name?: string | null;
+            /**
+             * Target Concept Uri
+             * @description Target concept URI.
+             */
+            target_concept_uri: string;
+            /**
+             * Target Link
+             * @description Intended Zone Z2 Link entity name (lnk_*).
+             */
+            target_link: string;
+        };
+        /**
+         * OntologyRelationship
+         * @description Canonical Unit-of-Work relationship between concepts in GraphAOntology.
+         */
+        "OntologyRelationship-Output": {
+            /**
+             * Cardinality
+             * @description Structural relationship cardinality.
+             * @enum {string}
+             */
+            cardinality: "ONE_TO_ONE" | "ONE_TO_MANY" | "MANY_TO_ONE" | "MANY_TO_MANY";
+            /**
+             * Description
+             * @description Business meaning of the relationship.
+             */
+            description: string;
+            /**
+             * Grain Semantics
+             * @description Unit-of-Work grain definition for the relationship.
+             */
+            grain_semantics: string;
+            /**
+             * Link Attributes
+             * @description Optional junction/transactional link payload attributes.
+             */
+            link_attributes?: components["schemas"]["ConceptAttribute-Output"][];
+            /**
+             * Played By Uri
+             * @description Optional entity class URI playing this role.
+             */
+            played_by_uri?: string | null;
+            /**
+             * Relationship Name
+             * @description Human-readable relationship name.
+             */
+            relationship_name: string;
+            /**
+             * Relationship Uri
+             * @description Unique canonical relationship URI.
+             */
+            relationship_uri: string;
+            /**
+             * Role Uri
+             * @description Optional standard role class URI.
+             */
+            role_uri?: string | null;
+            /**
+             * Source Anchor Col Name
+             * @description Origin anchor column name when distinct from FK.
+             */
+            source_anchor_col_name?: string | null;
+            /**
+             * Source Col Name
+             * @description Origin source column name.
+             */
+            source_col_name?: string | null;
+            /**
+             * Source Concept Uri
+             * @description Origin concept URI.
+             */
+            source_concept_uri: string;
+            /**
+             * Source Table Id
+             * @description Source table identifier.
+             */
+            source_table_id?: string | null;
+            /**
+             * Standard Property Uri
+             * @description Optional external standard property URI.
+             */
+            standard_property_uri?: string | null;
+            /**
+             * Target Col Name
+             * @description Target source column name.
+             */
+            target_col_name?: string | null;
             /**
              * Target Concept Uri
              * @description Target concept URI.
@@ -3875,7 +4388,7 @@ export interface components {
             /** Base Revision Id */
             base_revision_id?: string | null;
             /** Operations */
-            operations?: (components["schemas"]["AddConcept-Input"] | components["schemas"]["AddAttribute-Input"] | components["schemas"]["AddRelationship"] | components["schemas"]["AddEnumeration"] | components["schemas"]["AddEnumerationCode"] | components["schemas"]["AddSynonym"] | components["schemas"]["AddExternalMapping-Input"] | components["schemas"]["SetParentConcept"] | components["schemas"]["SetDescription"] | components["schemas"]["SetConceptKeyAuthority"] | components["schemas"]["SetConceptGovernanceTags"] | components["schemas"]["UpdateAttributeMetadata-Input"] | components["schemas"]["AddTableBinding"] | components["schemas"]["AddSourceCitation"] | components["schemas"]["AddMcpEvidence"] | components["schemas"]["AddKeyAuthorityPattern"] | components["schemas"]["ReparentConcept"] | components["schemas"]["ClearParentConcept"] | components["schemas"]["DeleteConcept"] | components["schemas"]["RenameConcept"] | components["schemas"]["RemoveAttribute"] | components["schemas"]["RemoveExternalMapping"] | components["schemas"]["RemoveSynonym"] | components["schemas"]["DeleteRelationship"] | components["schemas"]["DeleteEnumeration"] | components["schemas"]["RemoveEnumerationCode"] | components["schemas"]["ChangeDomainNamespace"] | components["schemas"]["ReviseDescription"] | components["schemas"]["RepinExternalMapping"] | components["schemas"]["RemoveTableBinding"] | components["schemas"]["RemoveSourceCitation"] | components["schemas"]["RemoveMcpEvidence"] | components["schemas"]["RemoveKeyAuthorityPattern"] | components["schemas"]["RescoreExternalMapping-Input"])[] | null;
+            operations?: (components["schemas"]["AddConcept-Input"] | components["schemas"]["AddAttribute-Input"] | components["schemas"]["AddRelationship-Input"] | components["schemas"]["AddEnumeration"] | components["schemas"]["AddEnumerationCode"] | components["schemas"]["AddSynonym"] | components["schemas"]["AddExternalMapping-Input"] | components["schemas"]["SetParentConcept"] | components["schemas"]["SetDescription"] | components["schemas"]["SetConceptKeyAuthority"] | components["schemas"]["SetConceptGovernanceTags"] | components["schemas"]["UpdateAttributeMetadata-Input"] | components["schemas"]["AddTableBinding"] | components["schemas"]["AddSourceCitation"] | components["schemas"]["AddMcpEvidence"] | components["schemas"]["AddKeyAuthorityPattern"] | components["schemas"]["ReparentConcept"] | components["schemas"]["ClearParentConcept"] | components["schemas"]["DeleteConcept"] | components["schemas"]["RenameConcept"] | components["schemas"]["RemoveAttribute"] | components["schemas"]["RemoveExternalMapping"] | components["schemas"]["RemoveSynonym"] | components["schemas"]["DeleteRelationship"] | components["schemas"]["DeleteEnumeration"] | components["schemas"]["RemoveEnumerationCode"] | components["schemas"]["ChangeDomainNamespace"] | components["schemas"]["ReviseDescription"] | components["schemas"]["RepinExternalMapping"] | components["schemas"]["RemoveTableBinding"] | components["schemas"]["RemoveSourceCitation"] | components["schemas"]["RemoveMcpEvidence"] | components["schemas"]["RemoveKeyAuthorityPattern"] | components["schemas"]["UpdateRelationshipMetadata"] | components["schemas"]["UpdateEnumerationMetadata"] | components["schemas"]["RescoreExternalMapping-Input"])[] | null;
             /** Yaml Text */
             yaml_text?: string | null;
         };
@@ -4662,6 +5175,8 @@ export interface components {
         RepinExternalMapping: {
             /** Concept Uri */
             concept_uri: string;
+            /** Grounding Receipt Id */
+            grounding_receipt_id?: string | null;
             /**
              * Mapping Type
              * @default skos:exactMatch
@@ -4684,6 +5199,8 @@ export interface components {
             reference_pack_id: string;
             /** Reference Pack Sha256 */
             reference_pack_sha256: string;
+            /** Replaced Standard Uri */
+            replaced_standard_uri?: string | null;
             /** Standard Uri */
             standard_uri: string;
         };
@@ -4981,6 +5498,30 @@ export interface components {
              * @default 0000000000000000000000000000000000000000000000000000000000000000
              */
             unknown_hk_hex: string;
+        };
+        /**
+         * SemanticContext
+         * @description Semantic role, domain/target entity, identifier scope, and PII hints.
+         */
+        SemanticContext: {
+            /** Archetype */
+            archetype?: ("identifier" | "code_classifier" | "temporal" | "quantity_measure" | "value_object" | "party_role" | "event_occurrence" | "agreement" | "entity") | null;
+            /** Domain Entity Uri */
+            domain_entity_uri?: string | null;
+            /** Identified Entity Uri */
+            identified_entity_uri?: string | null;
+            /** Identifier Scope */
+            identifier_scope?: ("global_standard" | "enterprise_sor" | "local_source") | null;
+            /** Pii Category Hint */
+            pii_category_hint?: string | null;
+            /** Played By Uri */
+            played_by_uri?: string | null;
+            /** Role Uri */
+            role_uri?: string | null;
+            /** Standard Authority */
+            standard_authority?: string | null;
+            /** Target Entity Uri */
+            target_entity_uri?: string | null;
         };
         /**
          * SetConceptGovernanceTags
@@ -5359,6 +5900,71 @@ export interface components {
             target_id: string;
         };
         /**
+         * TableAnchorCandidate
+         * @description Inferred table-level anchor concept hypothesis.
+         */
+        TableAnchorCandidate: {
+            /**
+             * Archetype
+             * @enum {string}
+             */
+            archetype: "identifier" | "code_classifier" | "temporal" | "quantity_measure" | "value_object" | "party_role" | "event_occurrence" | "agreement" | "entity";
+            /** Confidence */
+            confidence: number;
+            /** Entry Id */
+            entry_id: string;
+            /** Grounding Receipt Id */
+            grounding_receipt_id?: string | null;
+            /** Label */
+            label: string;
+            /**
+             * Origin Kind
+             * @enum {string}
+             */
+            origin_kind: "project_graph_a" | "reference_standard";
+            /** Replaces Uris */
+            replaces_uris?: string[];
+            /**
+             * Suggested Predicate
+             * @enum {string}
+             */
+            suggested_predicate: "skos:exactMatch" | "skos:closeMatch" | "skos:relatedMatch";
+            /** Supporting Columns */
+            supporting_columns?: string[];
+        };
+        /**
+         * TableEvidence
+         * @description Input evidence bundle for a physical or logical table.
+         */
+        TableEvidence: {
+            /** Columns */
+            columns: components["schemas"]["ColumnEvidence"][];
+            /** Row Count Est */
+            row_count_est?: number | null;
+            /** Steward Notes */
+            steward_notes?: string[];
+            /** Table Id */
+            table_id?: string | null;
+            /** Table Name */
+            table_name: string;
+        };
+        /**
+         * TableGroundingResult
+         * @description Grounding outputs for a single table.
+         */
+        TableGroundingResult: {
+            /** Columns */
+            columns?: components["schemas"]["ColumnGroundingResult"][];
+            /** Inferred Table Anchors */
+            inferred_table_anchors?: components["schemas"]["TableAnchorCandidate"][];
+            /** Paired Columns */
+            paired_columns?: components["schemas"]["ColumnPair"][];
+            /** Table Id */
+            table_id?: string | null;
+            /** Table Name */
+            table_name: string;
+        };
+        /**
          * TableIndexEntry
          * @description MinHash-clustered table index entry exposed in Step 3a.
          */
@@ -5537,6 +6143,8 @@ export interface components {
             rationale: string;
             /** Sql Type Hint */
             sql_type_hint?: string | null;
+            /** Standard Property Uri */
+            standard_property_uri?: string | null;
         };
         /**
          * UpdateAttributeMetadata
@@ -5573,6 +6181,56 @@ export interface components {
             rationale: string;
             /** Sql Type Hint */
             sql_type_hint?: string | null;
+            /** Standard Property Uri */
+            standard_property_uri?: string | null;
+        };
+        /**
+         * UpdateEnumerationMetadata
+         * @description Update non-breaking reference standard_uri metadata on an OntologyEnumeration.
+         */
+        UpdateEnumerationMetadata: {
+            /** Enum Uri */
+            enum_uri: string;
+            /** Op Id */
+            op_id?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op_type: "UpdateEnumerationMetadata";
+            /**
+             * Rationale
+             * @default
+             */
+            rationale: string;
+            /** Standard Uri */
+            standard_uri?: string | null;
+        };
+        /**
+         * UpdateRelationshipMetadata
+         * @description Update non-breaking reference URI/role metadata on an OntologyRelationship.
+         */
+        UpdateRelationshipMetadata: {
+            /** Op Id */
+            op_id?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op_type: "UpdateRelationshipMetadata";
+            /** Played By Uri */
+            played_by_uri?: string | null;
+            /**
+             * Rationale
+             * @default
+             */
+            rationale: string;
+            /** Relationship Uri */
+            relationship_uri: string;
+            /** Role Uri */
+            role_uri?: string | null;
+            /** Standard Property Uri */
+            standard_property_uri?: string | null;
         };
         /**
          * ValidationBumpSpec
@@ -6022,6 +6680,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FiboQueryResp"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ground_ontology_api_v1_ontology_ground_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OntologyGroundReq"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroundingResponse"];
                 };
             };
             /** @description Validation Error */

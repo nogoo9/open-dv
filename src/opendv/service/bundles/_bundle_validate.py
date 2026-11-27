@@ -10,7 +10,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from opendv.models.diagnostics import AntiPatternJustification
 from opendv.models.errors import ErrorCode, OpenDVError
-from opendv.models.events import AuditLogRecord, ExternalMcpReceipt, OcrPageReceipt
+from opendv.models.events import (
+    AuditLogRecord,
+    ExternalMcpReceipt,
+    GroundingReceipt,
+    OcrPageReceipt,
+)
 from opendv.models.ontology import GraphAOntology
 from opendv.models.project import (
     ConceptMemorySpec,
@@ -68,6 +73,7 @@ class PrevalidatedBundle:
     validated_revs: list[tuple[str, str, str, str | None, BaseModel, RevisionMetadata]]
     mcp_receipts: list[ExternalMcpReceipt]
     ocr_receipts: list[OcrPageReceipt]
+    grounding_receipts: list[GroundingReceipt]
     audit_records: list[AuditLogRecord]
 
 
@@ -231,6 +237,12 @@ def prevalidate_bundle_entries(
             OcrPageReceipt.model_validate(r)
             for r in parse_jsonl(entries.get("ocr_receipts.jsonl"), "ocr_receipts.jsonl")
         ]
+        grounding_receipts = [
+            GroundingReceipt.model_validate(r)
+            for r in parse_jsonl(
+                entries.get("grounding_receipts.jsonl"), "grounding_receipts.jsonl"
+            )
+        ]
         audit_records = [
             AuditLogRecord.model_validate(r)
             for r in parse_jsonl(entries.get("audit.jsonl"), "audit.jsonl")
@@ -249,6 +261,7 @@ def prevalidate_bundle_entries(
         validated_revs=validated_revs,
         mcp_receipts=mcp_receipts,
         ocr_receipts=ocr_receipts,
+        grounding_receipts=grounding_receipts,
         audit_records=audit_records,
     )
 

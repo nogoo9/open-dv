@@ -1,4 +1,4 @@
-"""M2C tests for server-side 34-op OntologyDelta compiler, OCC, locks, quarantine, and Step 4 safety."""
+"""M2C tests for server-side 36-op OntologyDelta compiler, OCC, locks, quarantine, and Step 4 safety."""
 
 from __future__ import annotations
 
@@ -6,22 +6,26 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
+import zipfile
+
 import pytest
 from pydantic import ValidationError
 
+from opendv.grounding.providers.fibo.loader import get_bundled_fibo_pack_sha256
 from opendv.models.diagnostics import (
     ClarificationQuestion,
     DocumentCitationRef,
     ExternalMcpEvidenceRef,
 )
 from opendv.models.errors import ErrorCode, OpenDVError
-from opendv.models.events import OcrPageReceipt
+from opendv.models.events import GroundingReceipt, OcrPageReceipt
 from opendv.models.json_hasher import sha256_jcs
 from opendv.models.ontology import (
     CanonicalBusinessConcept,
     ConceptAttribute,
     ConceptTableBinding,
     ExternalMapping,
+    GraphAOntology,
     KeyAuthorityPattern,
     OntologyEnumeration,
     OntologyRelationship,
@@ -64,6 +68,8 @@ from opendv.models.ontology_deltas import (
     SetDescription,
     SetParentConcept,
     UpdateAttributeMetadata,
+    UpdateEnumerationMetadata,
+    UpdateRelationshipMetadata,
 )
 from opendv.models.project import (
     EvolutionLockSpec,
@@ -71,7 +77,13 @@ from opendv.models.project import (
     OntologyWaiverSpec,
     RevisionMetadata,
 )
-from opendv.models.sources import ConnectorConfigPayload, DocumentMap, SourceProfile
+from opendv.models.sources import (
+    ColumnProfile,
+    ConnectorConfigPayload,
+    DocumentMap,
+    SourceProfile,
+    TableProfile,
+)
 from opendv.models.vault_ir_certified import (
     CertifiedHubSpec,
     CertifiedVaultIR,
@@ -86,13 +98,15 @@ from opendv.models.wire_dtos_discovery import (
     SourceAttachReq,
 )
 from opendv.service import OpenDVService
+from opendv.service.bundles.exporter import export_project_bundle
+from opendv.service.bundles.importer import import_project_bundle
 from opendv.service.workflows._ontology_deltas import (
     check_evolution_locks_diff,
     compile_and_apply_deltas,
 )
+from opendv.service.workflows._ontology_human_ops import reconcile_yaml_ontology
 from opendv.service.workflows._vault_helpers import load_verifier_inputs
 from opendv.sources.document_map import compute_canonical_text_sha256
-from opendv.sources.fibo.loader import CANONICAL_FIBO_CORE_SHA256
 from opendv.verifier._v4_unstructured import verify_v4_unstructured
 from tests.helpers import DeterministicMockHarness, MockTurnScript
 
@@ -214,7 +228,7 @@ def test_all_34_delta_ops_accounted_and_compiled(tmp_path: Path) -> None:
             mapping=ExternalMapping(
                 standard_uri=fibo_hit.concept_uri,
                 reference_pack_id="fibo-core",
-                reference_pack_sha256=CANONICAL_FIBO_CORE_SHA256,
+                reference_pack_sha256=get_bundled_fibo_pack_sha256(),
                 mapping_type="skos:exactMatch",
                 confidence=Decimal("0.5000"),
             ),
@@ -293,7 +307,7 @@ def test_all_34_delta_ops_accounted_and_compiled(tmp_path: Path) -> None:
     )
     assert rev1.ontology_version == "0.1.0"
 
-    # Now exercise all 17 HUMAN_ONLY_OPS
+    # Now exercise all 19 HUMAN_ONLY_OPS
     human_ops = [
         ReparentConcept(
             concept_uri="urn:asset_mgmt:Security",
@@ -310,7 +324,7 @@ def test_all_34_delta_ops_accounted_and_compiled(tmp_path: Path) -> None:
             concept_uri="urn:asset_mgmt:Security",
             standard_uri=fibo_hit.concept_uri,
             reference_pack_id="fibo-core",
-            reference_pack_sha256=CANONICAL_FIBO_CORE_SHA256,
+            reference_pack_sha256=get_bundled_fibo_pack_sha256(),
         ),
         RemoveSynonym(concept_uri="urn:asset_mgmt:Security", synonym="Legal Entity"),
         RemoveTableBinding(
@@ -333,14 +347,22 @@ def test_all_34_delta_ops_accounted_and_compiled(tmp_path: Path) -> None:
             concept_uri="urn:asset_mgmt:Security", description="Steward-revised security node."
         ),
         RemoveAttribute(concept_uri="urn:asset_mgmt:Security", attribute_name="cusip"),
+        UpdateRelationshipMetadata(
+            relationship_uri="urn:asset_mgmt:rel:Holds",
+            standard_property_uri="https://spec.edmcouncil.org/fibo/ontology/FND/Relations/holds",
+        ),
         DeleteRelationship(relationship_uri="urn:asset_mgmt:rel:Holds"),
         RemoveEnumerationCode(enum_uri="urn:asset_mgmt:enum:VoteCast", code="AGAINST"),
+        UpdateEnumerationMetadata(
+            enum_uri="urn:asset_mgmt:enum:VoteCast",
+            standard_uri="https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/VoteCast",
+        ),
         DeleteEnumeration(enum_uri="urn:asset_mgmt:enum:VoteCast"),
         DeleteConcept(concept_uri="urn:asset_mgmt:Security"),
         ChangeDomainNamespace(domain_namespace="asset_mgmt_v2"),
     ]
     assert {op.op_type for op in human_ops} == HUMAN_ONLY_OPS
-    assert len(AGENT_ADDITIVE_OPS) + len(HUMAN_ONLY_OPS) + len(SERVER_ONLY_OPS) == 34
+    assert len(AGENT_ADDITIVE_OPS) + len(HUMAN_ONLY_OPS) + len(SERVER_ONLY_OPS) == 36
 
     rev2 = svc.commit_ontology(
         "delta-proj",
@@ -456,7 +478,7 @@ def test_quarantine_waiver_and_proposal_transitions(tmp_path: Path) -> None:
             ExternalMapping(
                 standard_uri="https://spec.edmcouncil.org/fibo/ontology/FND/Agents/AutonomousAgent",
                 reference_pack_id="fibo-core",
-                reference_pack_sha256=CANONICAL_FIBO_CORE_SHA256,
+                reference_pack_sha256=get_bundled_fibo_pack_sha256(),
                 mapping_type="skos:exactMatch",
                 confidence=Decimal("0.9900"),
             )
@@ -1096,4 +1118,373 @@ def test_step6_persist_cegar_proposals_across_hold_and_preserves_statuses(tmp_pa
         p.proposal_id: p.status for p in svc.get_ontology_bundle("prop-persist").ontology_proposals
     }
     assert statuses == {"prop-w2-keep": "COMMITTED", "prop-w2-new": "PENDING_STEWARD"}
+
+
+def test_step8_delta_locks_governance_union_and_receipt_verification(tmp_path: Path) -> None:
+    svc = _make_service(tmp_path)
+    proj = svc.init_project(ProjectInitReq(project_id="step8-ops", domain_namespace="am"))
+    fibo_uri = "https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalEntity/LegalEntity"
+    pack_sha = get_bundled_fibo_pack_sha256()
+    fp = "a" * 64
+    profile = SourceProfile(
+        source_id="src1",
+        schema_fingerprint=fp,
+        table_count=1,
+        tables=[
+            TableProfile(
+                table_id="src1:entities",
+                table_name="entities",
+                row_count_est=10,
+                columns=[
+                    ColumnProfile(
+                        col_name="lei",
+                        sql_type="VARCHAR",
+                        nullable=False,
+                        is_pk=True,
+                        distinct_count_est=10,
+                        null_ratio=0.0,
+                    )
+                ],
+            )
+        ],
+    )
+    rcpt = GroundingReceipt(
+        target_kind="column",
+        table_id="src1:entities",
+        source_column="lei",
+        schema_fingerprint=fp,
+        standard_uri=fibo_uri,
+        reference_pack_id="fibo-core",
+        reference_pack_sha256=pack_sha,
+        confidence=Decimal("0.9400"),
+        mapping_type="skos:exactMatch",
+        provenance="server_verified",
+    )
+    base_concept = CanonicalBusinessConcept(
+        concept_uri="urn:am:LegalEntity",
+        concept_name="Legal Entity",
+        description="Legal entity concept.",
+        key_authority_tier="TIER_1_GLOBAL_STANDARD",
+        governance_tags=["BASE_TAG"],
+        governance_constraints={"bk_list": ["lei"], "owner": "steward"},
+        table_bindings=[
+            ConceptTableBinding(source_id="src1", table_id="src1:entities", col_name="lei")
+        ],
+        external_mappings=[
+            ExternalMapping(
+                standard_uri=fibo_uri,
+                reference_pack_id="fibo-core",
+                reference_pack_sha256=pack_sha,
+                mapping_type="skos:exactMatch",
+                confidence=Decimal("0.9400"),
+                grounding_receipt_id=rcpt.receipt_id,
+            )
+        ],
+    )
+    base_ont = GraphAOntology(
+        ontology_version="0.1.0",
+        domain_namespace="am",
+        concepts=[base_concept],
+    )
+    lock = EvolutionLockSpec(
+        wave_number=1,
+        locked_links={"lnk_existing_locked": []},
+        locked_hub_bks={"urn:am:LegalEntity": ["lei"]},
+    )
+
+    # 1. Agent SetConceptGovernanceTags union-merges tags and constraints; human replaces
+    merged = compile_and_apply_deltas(
+        base_ont,
+        [
+            SetConceptGovernanceTags(
+                concept_uri="urn:am:LegalEntity",
+                governance_tags=["PII_ISOLATION"],
+                governance_constraints={"bk_list": ["cik"], "extra": "v1"},
+            )
+        ],
+        actor="agent",
+        receipts_by_id={rcpt.receipt_id: rcpt},
+        profiles=[profile],
+    )
+    mc = merged.concepts[0]
+    assert mc.governance_tags == ["BASE_TAG", "PII_ISOLATION"]
+    assert mc.governance_constraints == {
+        "bk_list": ["lei", "cik"],
+        "owner": "steward",
+        "extra": "v1",
+    }
+
+    # 2. RemoveTableBinding clears receipt_id and rescores mapping
+    trimmed = compile_and_apply_deltas(
+        base_ont,
+        [
+            RemoveTableBinding(
+                concept_uri="urn:am:LegalEntity",
+                source_id="src1",
+                table_id="src1:entities",
+                col_name="lei",
+            )
+        ],
+        actor="human",
+        receipts_by_id={rcpt.receipt_id: rcpt},
+        profiles=[profile],
+    )
+    assert trimmed.concepts[0].external_mappings[0].grounding_receipt_id is None
+
+    # 3. AddRelationship into locked_links raises ONT_EVO_LOCKED_VIOLATION
+    with pytest.raises(OpenDVError) as lk_exc:
+        compile_and_apply_deltas(
+            base_ont,
+            [
+                AddRelationship(
+                    relationship=OntologyRelationship(
+                        relationship_uri="urn:am:rel:bad",
+                        relationship_name="bad",
+                        source_concept_uri="urn:am:LegalEntity",
+                        target_concept_uri="urn:am:LegalEntity",
+                        cardinality="MANY_TO_ONE",
+                        target_link="lnk_existing_locked",
+                        grain_semantics="bad",
+                        description="bad",
+                    )
+                )
+            ],
+            actor="agent",
+            locks=[lock],
+            receipts_by_id={rcpt.receipt_id: rcpt},
+            profiles=[profile],
+        )
+    assert lk_exc.value.error_code == ErrorCode.ONT_EVO_CONTRACT_VIOLATION
+
+    # Net-new check_evolution_locks_diff blocks newly added locked target_link in YAML
+    bad_rel_ont = base_ont.model_copy(
+        update={
+            "relationships": [
+                OntologyRelationship(
+                    relationship_uri="urn:am:rel:new_locked",
+                    relationship_name="new_locked",
+                    source_concept_uri="urn:am:LegalEntity",
+                    target_concept_uri="urn:am:LegalEntity",
+                    cardinality="MANY_TO_ONE",
+                    target_link="lnk_existing_locked",
+                    grain_semantics="x",
+                    description="x",
+                )
+            ]
+        }
+    )
+    with pytest.raises(OpenDVError) as diff_exc:
+        check_evolution_locks_diff(base_ont, bad_rel_ont, [lock])
+    assert diff_exc.value.error_code == ErrorCode.ONT_EVO_CONTRACT_VIOLATION
+
+    # 4. Receipt tampering (wrong fingerprint or imported_unverified) rejected fail-closed
+    bad_fp_profile = profile.model_copy(update={"schema_fingerprint": "b" * 64})
+    with pytest.raises(OpenDVError) as fp_exc:
+        compile_and_apply_deltas(
+            base_ont,
+            [SetDescription(concept_uri="urn:am:LegalEntity", description="Edited description")],
+            actor="agent",
+            receipts_by_id={rcpt.receipt_id: rcpt},
+            profiles=[bad_fp_profile],
+        )
+    assert fp_exc.value.error_code == ErrorCode.ONT_EVO_CONTRACT_VIOLATION
+
+    # 5. reconcile_yaml_ontology preserves unchanged base receipt but rejects forged imported receipt
+    preserved = reconcile_yaml_ontology(
+        base_ont,
+        base_ont.model_copy(update={"ontology_version": "0.1.1"}),
+        svc.matcher,
+        receipts_by_id={rcpt.receipt_id: rcpt},
+        profiles=[profile],
+    )
+    assert preserved.concepts[0].external_mappings[0].grounding_receipt_id == rcpt.receipt_id
+
+    forged_rcpt = rcpt.model_copy(
+        update={"receipt_id": "grnd_imported_forged", "provenance": "imported_unverified"}
+    )
+    forged_ont = base_ont.model_copy(
+        update={
+            "concepts": [
+                base_concept.model_copy(
+                    update={
+                        "external_mappings": [
+                            base_concept.external_mappings[0].model_copy(
+                                update={"grounding_receipt_id": forged_rcpt.receipt_id}
+                            )
+                        ]
+                    }
+                )
+            ]
+        }
+    )
+    with pytest.raises(OpenDVError) as forged_exc:
+        reconcile_yaml_ontology(
+            base_ont,
+            forged_ont,
+            svc.matcher,
+            receipts_by_id={forged_rcpt.receipt_id: forged_rcpt},
+            profiles=[profile],
+        )
+    assert forged_exc.value.error_code == ErrorCode.ONT_EVO_CONTRACT_VIOLATION
+    assert proj.project_id == "step8-ops"
+
+
+def test_bundle_export_import_isolates_grounding_receipts(tmp_path: Path) -> None:
+    svc = _make_service(tmp_path)
+    proj = svc.init_project(ProjectInitReq(project_id="rcpt-iso", domain_namespace="am"))
+    fibo_uri = "https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalEntity/LegalEntity"
+    pack_sha = get_bundled_fibo_pack_sha256()
+    fp = "c" * 64
+    rcpt = GroundingReceipt(
+        target_kind="column",
+        table_id="src1:tbl",
+        source_column="lei",
+        schema_fingerprint=fp,
+        standard_uri=fibo_uri,
+        reference_pack_id="fibo-core",
+        reference_pack_sha256=pack_sha,
+        confidence=Decimal("0.9200"),
+        mapping_type="skos:exactMatch",
+        provenance="server_verified",
+    )
+    svc.state_manager.upsert_source(
+        "rcpt-iso",
+        source_id="src1",
+        kind="sqlite",
+        uri_or_filename="am.sqlite",
+        binary_sha256=None,
+        connector_config=ConnectorConfigPayload(adapter_id="sqlite", display_name="SQLite"),
+        status="READY_OFFLINE",
+        profile=SourceProfile(
+            source_id="src1",
+            schema_fingerprint=fp,
+            table_count=1,
+            tables=[
+                TableProfile(
+                    table_id="src1:tbl",
+                    table_name="tbl",
+                    row_count_est=5,
+                    columns=[
+                        ColumnProfile(
+                            col_name="lei",
+                            sql_type="VARCHAR",
+                            nullable=False,
+                            is_pk=True,
+                            distinct_count_est=5,
+                            null_ratio=0.0,
+                        )
+                    ],
+                )
+            ],
+        ),
+        document_map=None,
+        tables_index=[],
+        approved_scan_pages=[],
+    )
+    svc.state_manager.append_event_or_receipt(
+        "rcpt-iso", record_kind="grounding_receipt", run_id="run-1", payload=rcpt,
+    )
+    stale_rcpt = rcpt.model_copy(
+        update={
+            "receipt_id": "grnd_stale_fp",
+            "schema_fingerprint": "d" * 64,
+        }
+    )
+    svc.state_manager.append_event_or_receipt(
+        "rcpt-iso", record_kind="grounding_receipt", run_id="run-1", payload=stale_rcpt,
+    )
+    ont = GraphAOntology(
+        ontology_version="0.1.0",
+        domain_namespace="am",
+        concepts=[
+            CanonicalBusinessConcept(
+                concept_uri="urn:am:LegalEntity",
+                concept_name="Legal Entity",
+                description="Legal entity",
+                key_authority_tier="TIER_1_GLOBAL_STANDARD",
+                table_bindings=[
+                    ConceptTableBinding(source_id="src1", table_id="src1:tbl", col_name="lei")
+                ],
+                external_mappings=[
+                    ExternalMapping(
+                        standard_uri=fibo_uri,
+                        reference_pack_id="fibo-core",
+                        reference_pack_sha256=pack_sha,
+                        mapping_type="skos:exactMatch",
+                        confidence=Decimal("0.9200"),
+                        grounding_receipt_id=rcpt.receipt_id,
+                    )
+                ],
+            )
+        ],
+    )
+    svc.state_manager.save_revision(
+        "rcpt-iso",
+        revision_id="rev-rcpt-1",
+        rev_kind="ontology_version",
+        rev_key="rev-rcpt-1",
+        parent_rev_id=proj.active_ontology_rev_id,
+        payload=ont,
+        metadata=RevisionMetadata(actor="agent", reason="seeded with verified receipt"),
+    )
+    svc.state_manager.update_project_pointers("rcpt-iso", active_ontology_rev_id="rev-rcpt-1")
+
+    bundle_path = tmp_path / "rcpt-iso.opendv.zip"
+    export_project_bundle(
+        svc.state_manager,
+        project_id="rcpt-iso",
+        output_path=bundle_path,
+        mode="core_project_state",
+    )
+    with zipfile.ZipFile(bundle_path, "r") as zf:
+        assert "grounding_receipts.jsonl" in zf.namelist()
+
+    imp_svc = _make_service(tmp_path / "imp")
+    report = import_project_bundle(
+        imp_svc.state_manager,
+        imp_svc.secret_store,
+        bundle_path,
+        projects_root=tmp_path / "imp" / "projects",
+        conflict="fail",
+    )
+    assert stale_rcpt.receipt_id in report.unverified_receipt_ids
+    imp_rows = imp_svc.state_manager.list_events_or_receipts(
+        "rcpt-iso", record_kind="grounding_receipt",
+    )
+    assert len(imp_rows) == 2
+    for row in imp_rows:
+        assert GroundingReceipt.model_validate(row["payload"]).provenance == "imported_unverified"
+
+    # Claiming an imported_unverified receipt on a new commit must fail closed
+    with pytest.raises(OpenDVError) as imp_exc:
+        imp_svc.commit_ontology(
+            "rcpt-iso",
+            OntologyCommitReq(
+                operations=[
+                    AddConcept(
+                        concept_uri="urn:am:ShadowEntity",
+                        concept_name="ShadowEntity",
+                        description="Shadow entity claiming imported receipt",
+                        key_authority_tier="TIER_1_GLOBAL_STANDARD",
+                        table_bindings=[
+                            ConceptTableBinding(source_id="src1", table_id="src1:tbl", col_name="lei")
+                        ],
+                        external_mappings=[
+                            ExternalMapping(
+                                standard_uri=fibo_uri,
+                                reference_pack_id="fibo-core",
+                                reference_pack_sha256=pack_sha,
+                                mapping_type="skos:exactMatch",
+                                confidence=Decimal("0.9200"),
+                                grounding_receipt_id=rcpt.receipt_id,
+                            )
+                        ],
+                    )
+                ],
+                base_revision_id="rev-rcpt-1",
+                rationale="Verify imported grounding receipts cannot pass as server_verified.",
+            ),
+        )
+    assert imp_exc.value.error_code == ErrorCode.ONT_EVO_CONTRACT_VIOLATION
+
 

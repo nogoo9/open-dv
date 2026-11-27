@@ -24,6 +24,7 @@ def test_no_monkeypatched_llm_seams() -> None:
     scan_dirs = [
         REPO_ROOT / "src" / "opendv",
         REPO_ROOT / "tests" / "agents",
+        REPO_ROOT / "tests" / "grounding",
         REPO_ROOT / "tests" / "service",
         REPO_ROOT / "tests" / "api",
         REPO_ROOT / "tests" / "cli",

@@ -32,7 +32,7 @@ def private_equity_buyout() -> tuple[
             "limited_partner",
             "LimitedPartner",
             "Institutional or high-net-worth investor committing fund capital.",
-            f"{_FIBO}BE/LegalEntities/LegalPersons/LegalEntity",
+            "https://www.omg.org/spec/Commons/Organizations/LegalEntity",
             [
                 make_attr("lp_code", "string", is_bk=True),
                 make_attr("lp_name", "string"),
@@ -59,7 +59,7 @@ def private_equity_buyout() -> tuple[
             "distribution",
             "Distribution",
             "Cash or in-kind capital return distributed by fund to investors.",
-            f"{_FIBO}SEC/Funds/CollectiveInvestmentVehicles/FundCashDistributionPolicy",
+            f"{_FIBO}FND/GoalsAndObjectives/Objectives/DistributionStrategy",
             [
                 make_attr("distribution_id", "string", is_bk=True),
                 make_attr("dist_date", "date"),
@@ -144,7 +144,7 @@ def private_credit_direct_lending() -> tuple[
             "borrower",
             "Borrower",
             "Corporate debtor or sponsor company incurring credit liability.",
-            f"{_FIBO}BE/LegalEntities/LegalPersons/LegalEntity",
+            "https://www.omg.org/spec/Commons/Organizations/LegalEntity",
             [
                 make_attr("borrower_id", "string", is_bk=True),
                 make_attr("borrower_name", "string"),

@@ -65,6 +65,7 @@ VALID_RECORD_KINDS: Final[frozenset[str]] = frozenset(
         "audit_log",
         "mcp_receipt",
         "ocr_receipt",
+        "grounding_receipt",
         "run_checkpoint",
         "run_state",
         "attempt_snapshot",

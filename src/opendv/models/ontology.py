@@ -42,6 +42,9 @@ class ConceptAttribute(StrictModel):
     enum_uri: str | None = Field(
         default=None, description="Optional reference enumeration URI for domain values."
     )
+    standard_property_uri: str | None = Field(
+        default=None, description="Optional external standard property URI (e.g. FIBO)."
+    )
 
 
 class ExternalMapping(StrictModel):
@@ -55,6 +58,9 @@ class ExternalMapping(StrictModel):
     )
     confidence: Decimal = Field(
         ge=Decimal("0"), le=Decimal("1"), description="Quantized alignment confidence [0, 1]."
+    )
+    grounding_receipt_id: str | None = Field(
+        default=None, description="Optional server-minted GroundingReceipt identifier."
     )
 
 
@@ -121,6 +127,22 @@ class OntologyRelationship(StrictModel):
     target_link: str = Field(description="Intended Zone Z2 Link entity name (lnk_*).")
     grain_semantics: str = Field(description="Unit-of-Work grain definition for the relationship.")
     description: str = Field(description="Business meaning of the relationship.")
+    standard_property_uri: str | None = Field(
+        default=None, description="Optional external standard property URI."
+    )
+    role_uri: str | None = Field(default=None, description="Optional standard role class URI.")
+    played_by_uri: str | None = Field(
+        default=None, description="Optional entity class URI playing this role."
+    )
+    source_table_id: str | None = Field(default=None, description="Source table identifier.")
+    source_col_name: str | None = Field(default=None, description="Origin source column name.")
+    target_col_name: str | None = Field(default=None, description="Target source column name.")
+    source_anchor_col_name: str | None = Field(
+        default=None, description="Origin anchor column name when distinct from FK."
+    )
+    link_attributes: list[ConceptAttribute] = Field(
+        default_factory=list, description="Optional junction/transactional link payload attributes."
+    )
 
 
 class OntologyEnumeration(StrictModel):
@@ -131,6 +153,9 @@ class OntologyEnumeration(StrictModel):
     target_reference_table: str = Field(description="Target Zone Z0 reference table name (ref_*).")
     codes: dict[str, str] = Field(description="Mapping of canonical code values to labels.")
     description: str = Field(description="Business definition of the enumeration.")
+    standard_uri: str | None = Field(
+        default=None, description="Optional external standard enumeration URI."
+    )
 
 
 class GraphAOntology(StrictModel):

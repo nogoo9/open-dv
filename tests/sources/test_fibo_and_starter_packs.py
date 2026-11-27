@@ -12,15 +12,15 @@ import pytest
 
 from opendv.models.errors import ErrorCode, OpenDVError, ReferenceOntologyCorruptError
 from opendv.models.ontology import ExternalMapping, GraphAOntology
-from opendv.sources.fibo import (
+from opendv.grounding.providers.fibo import (
     BROAD_MATCH_PREDICATE,
-    CANONICAL_FIBO_CORE_SHA256,
     FiboReferenceOntologyLoader,
     SubclassClosureResolver,
     TaxonomyCycleError,
     UngroundedSeedMappingError,
     can_satisfy_path_a_grounding,
     clear_fibo_loader_cache,
+    get_bundled_fibo_pack_sha256,
     get_default_fibo_loader,
     resolve_subclass_closure,
     validate_closure_grounding_eligibility,
@@ -96,11 +96,19 @@ def test_fibo_loader_integrity_and_zero_rdflib_runtime(tmp_path: Path) -> None:
     assert "rdflib" not in sys.modules or "opendv.sources" not in str(sys.modules["rdflib"])
 
     loader = get_default_fibo_loader()
-    assert loader.pack_sha256 == CANONICAL_FIBO_CORE_SHA256
-    assert loader.class_count == 2206
-    assert loader.property_count == 999
+    baselines = json.loads(BASELINE_DIGESTS_PATH.read_text(encoding="utf-8"))
+    fibo_meta = baselines["fibo_core_pack"]
+    assert loader.pack_sha256 == get_bundled_fibo_pack_sha256()
+    assert loader.pack_sha256 == fibo_meta["sha256"]
+    assert loader.pack_schema_version == "2.0.0"
+    assert loader.class_count == fibo_meta["concept_count"]
+    assert loader.property_count == fibo_meta["property_count"]
+    assert loader.individual_count == fibo_meta["individual_count"]
+    assert loader.class_count >= 2000
+    assert loader.property_count >= 700
+    assert 0 < loader.individual_count <= 2500
 
-    le_uri = "https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/LegalEntity"
+    le_uri = "https://www.omg.org/spec/Commons/Organizations/LegalEntity"
     entry = loader.lookup_by_uri(le_uri)
     assert entry is not None
     assert entry["entity_type"] == "class"

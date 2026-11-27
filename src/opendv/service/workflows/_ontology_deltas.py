@@ -1,11 +1,13 @@
-"""Server-side 34-op OntologyDelta compiler, additive ops, and evolution lock checks."""
+"""Server-side 36-op OntologyDelta compiler, additive ops, and evolution lock checks."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
+from opendv.grounding.providers.fibo.loader import FiboPackQueryAdapter
 from opendv.models.errors import ErrorCode, OpenDVError
+from opendv.models.events import GroundingReceipt
 from opendv.models.ontology import (
     CanonicalBusinessConcept,
     GraphAOntology,
@@ -19,7 +21,8 @@ from opendv.models.ontology_deltas import (
     OntologyDelta,
 )
 from opendv.models.project import EvolutionLockSpec
-from opendv.service.bm25_matcher import Bm25ConceptMatcher
+from opendv.models.sources import SourceProfile
+from opendv.service.workflows._ontology_grounding import GROUNDING_MIN_CONFIDENCE
 from opendv.service.workflows._ontology_human_ops import (
     apply_human_delta_op,
     is_concept_locked,
@@ -29,6 +32,7 @@ from opendv.service.workflows._ontology_human_ops import (
     require_enum,
     rescore_concept,
     rescore_mapping,
+    verify_grounding_receipt_binding,
 )
 
 
@@ -89,6 +93,16 @@ def check_evolution_locks_diff(
                 f"Cannot mutate Vault-locked relationship '{rel.relationship_uri}'.",
                 error_code=ErrorCode.ONT_EVO_CONTRACT_VIOLATION,
             )
+    base_rels = {r.relationship_uri for r in base.relationships}
+    for new_rel in candidate.relationships:
+        if new_rel.relationship_uri not in base_rels and (
+            new_rel.relationship_uri in locked_links or new_rel.target_link in locked_links
+        ):
+            raise OpenDVError(
+                f"Cannot add relationship '{new_rel.relationship_uri}' onto locked "
+                f"target_link '{new_rel.target_link}'.",
+                error_code=ErrorCode.ONT_EVO_CONTRACT_VIOLATION,
+            )
 
 
 def _apply_additive_op(
@@ -100,7 +114,7 @@ def _apply_additive_op(
     actor: Literal["human", "agent"],
     locked_hubs: set[str],
     locked_links: set[str],
-    bm25: Bm25ConceptMatcher,
+    bm25: FiboPackQueryAdapter,
 ) -> None:
     if op.op_type == "AddConcept":
         if op.concept_uri in concepts:
@@ -153,6 +167,15 @@ def _apply_additive_op(
                     f"Relationship '{op.relationship.relationship_uri}' already exists.",
                     error_code=ErrorCode.ONT_EVO_CONTRACT_VIOLATION,
                 )
+        elif (
+            op.relationship.relationship_uri in locked_links
+            or op.relationship.target_link in locked_links
+        ):
+            raise OpenDVError(
+                f"Cannot add relationship '{op.relationship.relationship_uri}' onto locked "
+                f"target_link '{op.relationship.target_link}'.",
+                error_code=ErrorCode.ONT_EVO_CONTRACT_VIOLATION,
+            )
         rels[op.relationship.relationship_uri] = op.relationship
     elif op.op_type == "AddEnumeration":
         enums[op.enumeration.enum_uri] = op.enumeration
@@ -163,8 +186,12 @@ def _apply_additive_op(
         enums[op.enum_uri] = enum_obj.model_copy(update={"codes": codes})
     elif op.op_type == "AddSynonym":
         c = require_concept(concepts, op.concept_uri)
-        syns = c.synonyms if op.synonym in c.synonyms else [*c.synonyms, op.synonym]
-        concepts[op.concept_uri] = rescore_concept(c.model_copy(update={"synonyms": syns}), bm25)
+        if op.synonym not in c.synonyms:
+            concepts[op.concept_uri] = rescore_concept(
+                c.model_copy(update={"synonyms": [*c.synonyms, op.synonym]}),
+                bm25,
+                clear_receipts=True,
+            )
     elif op.op_type == "AddExternalMapping":
         c = require_concept(concepts, op.concept_uri)
         rescored_map = rescore_mapping(c, op.mapping, bm25)
@@ -200,12 +227,32 @@ def _apply_additive_op(
         )
     elif op.op_type == "SetConceptGovernanceTags":
         c = require_concept(concepts, op.concept_uri)
-        concepts[op.concept_uri] = c.model_copy(
-            update={
-                "governance_tags": list(op.governance_tags),
-                "governance_constraints": dict(op.governance_constraints),
-            }
-        )
+        if actor == "agent":
+            merged_tags = list(dict.fromkeys([*c.governance_tags, *op.governance_tags]))
+            merged_constraints = dict(c.governance_constraints)
+            for k, v in op.governance_constraints.items():
+                prev_v = merged_constraints.get(k)
+                if isinstance(prev_v, list) and isinstance(v, list):
+                    merged_constraints[k] = list(dict.fromkeys([*prev_v, *v]))
+                elif isinstance(prev_v, list) and isinstance(v, str):
+                    merged_constraints[k] = list(dict.fromkeys([*prev_v, v]))
+                elif isinstance(prev_v, str) and isinstance(v, list):
+                    merged_constraints[k] = list(dict.fromkeys([prev_v, *v]))
+                else:
+                    merged_constraints[k] = list(v) if isinstance(v, list) else v
+            concepts[op.concept_uri] = c.model_copy(
+                update={
+                    "governance_tags": merged_tags,
+                    "governance_constraints": merged_constraints,
+                }
+            )
+        else:
+            concepts[op.concept_uri] = c.model_copy(
+                update={
+                    "governance_tags": list(op.governance_tags),
+                    "governance_constraints": dict(op.governance_constraints),
+                }
+            )
     elif op.op_type == "UpdateAttributeMetadata":
         c = require_concept(concepts, op.concept_uri)
         updated_attrs = []
@@ -222,6 +269,7 @@ def _apply_additive_op(
                     "is_pii",
                     "pii_category",
                     "enum_uri",
+                    "standard_property_uri",
                 ):
                     val = getattr(op, fld)
                     if val is not None:
@@ -263,10 +311,12 @@ def compile_and_apply_deltas(
     *,
     actor: Literal["human", "agent"] = "human",
     locks: Sequence[EvolutionLockSpec] = (),
-    matcher: Bm25ConceptMatcher | None = None,
+    matcher: FiboPackQueryAdapter | None = None,
+    receipts_by_id: Mapping[str, GroundingReceipt] | None = None,
+    profiles: Sequence[SourceProfile] = (),
 ) -> GraphAOntology:
-    """Validate and apply 34-op OntologyDelta list server-side onto base GraphAOntology."""
-    bm25 = matcher or Bm25ConceptMatcher()
+    """Validate and apply 36-op OntologyDelta list server-side onto base GraphAOntology."""
+    bm25 = matcher or FiboPackQueryAdapter()
     locked_hubs = locked_hub_keys(locks)
     locked_links = locked_link_keys(locks)
     concepts: dict[str, CanonicalBusinessConcept] = {c.concept_uri: c for c in base.concepts}
@@ -308,6 +358,7 @@ def compile_and_apply_deltas(
                 locked_hubs=locked_hubs,
                 locked_links=locked_links,
                 bm25=bm25,
+                receipts_by_id=receipts_by_id,
             )
         else:
             raise OpenDVError(
@@ -322,5 +373,61 @@ def compile_and_apply_deltas(
         relationships=list(rels.values()),
         enumerations=list(enums.values()),
     )
+    table_fp_map = {t.table_id: p.schema_fingerprint for p in profiles for t in p.tables}
+    base_by_uri = {c.concept_uri: c for c in base.concepts}
+    for c in candidate.concepts:
+        base_c = base_by_uri.get(c.concept_uri)
+        base_maps = {m.standard_uri: m for m in base_c.external_mappings} if base_c else {}
+        for m in c.external_mappings:
+            prev_m = base_maps.get(m.standard_uri)
+            if (prev_m is None or m != prev_m) and m.grounding_receipt_id is not None:
+                verify_grounding_receipt_binding(
+                    m,
+                    c,
+                    actor=actor,
+                    receipts_by_id=receipts_by_id,
+                    table_fp_map=table_fp_map,
+                )
     check_evolution_locks_diff(base, candidate, locks)
     return candidate
+
+
+def index_existing_ontology_for_projection(
+    g: GraphAOntology, locks: Sequence[EvolutionLockSpec], slug_fn: Any,
+) -> tuple[
+    dict[str, str], dict[str, str], dict[str, str], dict[str, str], dict[str, set[str]],
+    set[tuple[str, str, str, str]], dict[str, set[str]], dict[str, str], set[str],
+    dict[str, list[str]], dict[str, dict[str, str | list[str]]], dict[str, set[str]], set[str],
+]:
+    """Pre-index existing GraphAOntology and evolution locks for 4-step projection."""
+    cn, pby, s2u, n2u, ats, tgs, cns = {}, {}, {}, {}, {}, {}, {}
+    bds: set[tuple[str, str, str, str]] = set()
+    for c in g.concepts:
+        u = c.concept_uri
+        cn[u], n2u[slug_fn(c.concept_name)] = c.concept_name, u
+        ats[u] = {a.name for a in c.attributes}
+        tgs[u], cns[u] = list(c.governance_tags), dict(c.governance_constraints)
+        if isinstance(pb := c.governance_constraints.get("played_by_uri"), str):
+            pby[pb] = u
+        bds.update((u, b.source_id, b.table_id, b.col_name) for b in c.table_bindings)
+        for m in c.external_mappings:
+            if (
+                m.mapping_type in {"skos:exactMatch", "skos:closeMatch"}
+                and m.confidence >= GROUNDING_MIN_CONFIDENCE
+            ):
+                s2u[m.standard_uri] = u
+    ens = {e.enum_uri: set(e.codes) for e in g.enumerations}
+    s2e = {e.standard_uri: e.enum_uri for e in g.enumerations if e.standard_uri}
+    rus = {r.relationship_uri for r in g.relationships}
+    lhb: dict[str, set[str]] = {}
+    llk: set[str] = set()
+    for lk in locks:
+        llk.update(lk.locked_links)
+        for k, bks in lk.locked_hub_bks.items():
+            for c in g.concepts:
+                cn_slug = slug_fn(c.concept_name)
+                if k in (c.concept_uri, c.concept_name, cn_slug, f"hub_{cn_slug}"):
+                    lhb.setdefault(c.concept_uri, set(bks)).update(
+                        a.name for a in c.attributes if a.is_business_key
+                    )
+    return cn, pby, s2u, n2u, ats, bds, ens, s2e, rus, tgs, cns, lhb, llk

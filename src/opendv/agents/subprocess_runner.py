@@ -120,6 +120,7 @@ def build_claude_cli_command(
     system_prompt: str | None = None,
     json_schema_arg: str | None = None,
     effort: str = "low",
+    role_kind: RoleKind | None = None,
 ) -> tuple[list[str], str]:
     """Build claude-cli 2.1.318 argv and stdin text with strict MCP & tool isolation."""
     cmd: list[str] = [
@@ -139,7 +140,7 @@ def build_claude_cli_command(
         mcp_config_path,
         "--strict-mcp-config",
     ]
-    if step == "step4":
+    if step == "step4" and role_kind != "none":
         cmd.extend(["--allowedTools", "mcp__opendv_broker__*"])
 
     extra_prefix_parts: list[str] = []
@@ -306,6 +307,12 @@ class SubprocessHarnessRunner(AgentHarnessPort):
             cegar_policy=request.cegar_policy,
             env=self._env,
         )
+        if (
+            self._provider == "agy"
+            and request.agent_id == "grounding-reranker"
+            and resolved.source == "default"
+        ):
+            resolved = resolved.model_copy(update={"model_id": "gemini-3.8-flash-low"})
         role_kind: RoleKind = request.role_kind if request.step == "step4" else "none"
         child_env = build_isolated_child_env(
             provider=self._provider,
@@ -378,6 +385,7 @@ class SubprocessHarnessRunner(AgentHarnessPort):
                     system_prompt=request.system_instructions,
                     json_schema_arg=schema_json,
                     effort=effort or "low",
+                    role_kind=role_kind,
                 )
 
             async for line in self._stream_fn(

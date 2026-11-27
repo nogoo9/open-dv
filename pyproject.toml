@@ -45,7 +45,10 @@ ocr = ["pytesseract>=0.3.13", "Pillow>=10.0.0"]
 packages = ["src/opendv"]
 artifacts = [
     "src/opendv/api/static/**",
-    "src/opendv/sources/fibo/fibo-core-pack.json",
+    "src/opendv/grounding/kernel/iso_codes.json",
+    "src/opendv/grounding/providers/fibo/fibo-core-pack.json",
+    "src/opendv/grounding/providers/fibo/fibo_calibration.json",
+    "src/opendv/grounding/providers/glossary/example_glossary.yaml",
 ]
 
 [tool.hatch.build.targets.wheel.force-include]

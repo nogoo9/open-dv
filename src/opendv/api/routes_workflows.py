@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Literal
 
@@ -9,6 +10,7 @@ from fastapi import APIRouter, Header, Query, Request, Response
 from fastapi.responses import StreamingResponse
 
 from opendv.models.errors import ErrorCode, OpenDVError
+from opendv.models.grounding import GroundingResponse, OntologyGroundReq
 from opendv.models.wire_dtos_discovery import (
     CitationResolveReq,
     CitationSpanResp,
@@ -25,12 +27,19 @@ from opendv.models.wire_dtos_discovery import (
     RunStateResp,
 )
 
-from ._route_helpers import get_service, get_task_manager
+from ._route_helpers import (
+    enforce_grounding_asset_path,
+    get_service,
+    get_task_manager,
+    read_grounding_asset_bytes,
+)
 from ._routes_vault_storage import router as vault_storage_router
 from .sse import SseStreamAdapter
 
 router = APIRouter()
 _SSE = SseStreamAdapter()
+_MAX_FIBO_PACK_BYTES = 4 * 1024 * 1024
+_MAX_GLOSSARY_BYTES = 2 * 1024 * 1024
 
 
 @router.get("/projects/{project_id}/ontology", response_model=OntologyBundleResp)
@@ -132,6 +141,39 @@ async def answer_ontology_hold(
         step="step4",
         allow_sync_failure_cleanup=False,
     )
+
+
+@router.post("/ontology/ground", response_model=GroundingResponse)
+async def ground_ontology(request: Request, body: OntologyGroundReq) -> GroundingResponse:
+    svc = get_service(request)
+    fibo_pack_bytes: bytes | None = None
+    glossary_bytes: bytes | None = None
+    if body.fibo_pack is not None:
+        r_path, r_root = enforce_grounding_asset_path(request, svc, body.fibo_pack)
+        fibo_pack_bytes = read_grounding_asset_bytes(
+            r_path, r_root, max_bytes=_MAX_FIBO_PACK_BYTES, label="fibo_pack"
+        )
+    if body.glossary_path is not None:
+        r_path, r_root = enforce_grounding_asset_path(request, svc, body.glossary_path)
+        glossary_bytes = read_grounding_asset_bytes(
+            r_path, r_root, max_bytes=_MAX_GLOSSARY_BYTES, label="glossary"
+        )
+    sanitized_body = OntologyGroundReq.model_construct(
+        request=body.request,
+        project_id=body.project_id,
+        knowledge_source=body.knowledge_source,
+        fibo_pack=None,
+        glossary_path="<preloaded>" if glossary_bytes is not None else None,
+        policy=body.policy,
+    )
+    sem = getattr(request.app.state, "ground_semaphore", None)
+    if sem is None:
+        sem = asyncio.Semaphore(4)
+        request.app.state.ground_semaphore = sem
+    async with sem:
+        return await svc.ground_ontology(
+            sanitized_body, fibo_pack_bytes=fibo_pack_bytes, glossary_bytes=glossary_bytes
+        )
 
 
 @router.post("/ontology/fibo-qa", response_model=FiboQueryResp)

@@ -34,7 +34,7 @@ def _mask_table_profile(tp: TableProfile) -> TableProfile:
             mask_cell_value(v, col_name=col.col_name, column_pii_tags=col.pii_tags)
             for v in col.sample_values[:5]
         ]
-        masked_cols.append(col.model_copy(update={"sample_values": samples}))
+        masked_cols.append(col.model_copy(update={"sample_values": samples, "shape_stats": None}))
     return tp.model_copy(update={"columns": masked_cols})
 
 

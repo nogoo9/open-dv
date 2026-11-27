@@ -248,13 +248,15 @@ def test_budget_verification_missing_module(
     raw_bytes = dumps_jcs_bytes(
         {
             "classes": classes_no_ind,
+            "individuals": {},
             "metadata": {
                 "compiled_at": DEFAULT_COMPILED_AT,
                 "modules": sorted(list(CORE_MODULES)),
                 "pack_id": "fibo-core",
+                "pack_schema_version": "2.0.0",
                 "upstream_commit": UPSTREAM_COMMIT,
                 "upstream_tag": UPSTREAM_TAG,
-                "version": "1.0.0",
+                "version": "2.0.0",
             },
             "properties": properties,
         }
@@ -442,11 +444,11 @@ def test_ensure_fibo_source_git_rev_parse_failure(tmp_path: Path) -> None:
             MagicMock(returncode=1, stderr="fatal: ambiguous argument 'HEAD'"),  # git rev-parse
         ]
         with pytest.raises(RuntimeError, match="rev-parse HEAD failed"):
-            ensure_fibo_source(cache_dir=cache)
+            ensure_fibo_source(cache_dir=cache, source_mode="git")
 
 
 def test_real_pack_verification_if_present() -> None:
-    """Assert canonical compiled pack in src/opendv/sources/fibo satisfies all budgets (0 skips)."""
+    """Assert canonical compiled pack in grounding/providers/fibo satisfies all budgets (0 skips)."""
     target_pack = DEFAULT_OUTPUT_DIR / "fibo-core-pack.json"
     assert target_pack.is_file(), f"Missing canonical V2 FIBO pack: {target_pack}"
     result = verify_pack(target_pack, allow_fixture=False, require_production_counts=True)
@@ -455,7 +457,8 @@ def test_real_pack_verification_if_present() -> None:
     assert result.memory_peak_bytes < MAX_MEMORY_BYTES
     assert result.cold_load_ms < MAX_LOAD_LATENCY_MS
     assert result.class_count >= 2000
-    assert result.property_count >= 800
+    assert result.property_count >= 700
+    assert 0 < result.individual_count <= 2500
 
 
 def test_ensure_fibo_source_unmanaged_dir_raises(tmp_path: Path) -> None:
@@ -481,7 +484,7 @@ def test_ensure_fibo_source_fresh_clone_head_mismatch_raises(tmp_path: Path) -> 
             MagicMock(returncode=0, stdout="mismatched_commit_abc123\n"),  # rev-parse
         ]
         with pytest.raises(RuntimeError, match="does not match expected pinned commit"):
-            ensure_fibo_source(cache_dir=cache)
+            ensure_fibo_source(cache_dir=cache, source_mode="git")
 
 
 def test_ensure_fibo_source_cached_checkout_failure_raises(tmp_path: Path) -> None:
@@ -502,7 +505,7 @@ def test_ensure_fibo_source_cached_checkout_failure_raises(tmp_path: Path) -> No
             MagicMock(returncode=0, stdout="old_commit\n"),  # rev-parse
         ]
         with pytest.raises(RuntimeError, match="Failed to check out expected commit"):
-            ensure_fibo_source(cache_dir=cache)
+            ensure_fibo_source(cache_dir=cache, source_mode="git")
 
 
 def test_ensure_fibo_source_offline_archive_sha_validation(tmp_path: Path) -> None:
@@ -604,7 +607,7 @@ def test_offline_then_git_same_cache_dir(tmp_path: Path) -> None:
             MagicMock(returncode=0),  # git clone
             MagicMock(returncode=0, stdout=f"{UPSTREAM_COMMIT}\n"),  # rev-parse HEAD
         ]
-        source2, commit2 = ensure_fibo_source(cache_dir=cache)
+        source2, commit2 = ensure_fibo_source(cache_dir=cache, source_mode="git")
         assert source2.is_dir()
         assert commit2 == UPSTREAM_COMMIT
         assert (cache / "git").is_dir()
@@ -626,7 +629,7 @@ def test_cached_git_dirty_working_tree_rejected(tmp_path: Path) -> None:
             MagicMock(returncode=0, stdout=" M FND/Agreements.rdf\n"),  # git status --porcelain
         ]
         with pytest.raises(RuntimeError, match="uncommitted or untracked changes"):
-            ensure_fibo_source(cache_dir=cache)
+            ensure_fibo_source(cache_dir=cache, source_mode="git")
 
 
 def test_verify_pack_non_dict_rejected(tmp_path: Path) -> None:
@@ -658,20 +661,24 @@ def test_verify_pack_rejects_unverified_commit_in_production(tmp_path: Path) -> 
         "classes": {
             "https://spec.edmcouncil.org/fibo/ontology/FND/Test": {
                 "uri": "https://spec.edmcouncil.org/fibo/ontology/FND/Test",
+                "label": "Test",
                 "module": "FND",
             }
         },
+        "individuals": {},
         "metadata": {
             "compiled_at": DEFAULT_COMPILED_AT,
             "modules": list(CORE_MODULES),
             "pack_id": "fibo-core",
+            "pack_schema_version": "2.0.0",
             "upstream_commit": "unverified-123456789abc",
             "upstream_tag": UPSTREAM_TAG,
-            "version": "1.0.0",
+            "version": "2.0.0",
         },
         "properties": {
             "https://spec.edmcouncil.org/fibo/ontology/FND/p": {
                 "uri": "https://spec.edmcouncil.org/fibo/ontology/FND/p",
+                "label": "p",
                 "module": "FND",
                 "property_type": "DatatypeProperty",
             }
@@ -717,7 +724,7 @@ def test_git_cache_manifest_stored_outside_working_tree(tmp_path: Path) -> None:
             MagicMock(returncode=0),  # git clone
             MagicMock(returncode=0, stdout=f"{UPSTREAM_COMMIT}\n"),  # rev-parse HEAD
         ]
-        git_dir, commit = ensure_fibo_source(cache_dir=cache)
+        git_dir, commit = ensure_fibo_source(cache_dir=cache, source_mode="git")
         assert git_dir == cache / "git"
         assert commit == UPSTREAM_COMMIT
 
@@ -761,9 +768,10 @@ def test_hash_file_sha256_chunked(tmp_path: Path) -> None:
 
 def test_load_baseline_fibo_config() -> None:
     """Verify _load_baseline_fibo_config loads upstream_commit and upstream_tag (MIN-03)."""
-    commit, tag, _ = _load_baseline_fibo_config()
-    assert commit == "69dbbe7a6a4e32049ba3f3988b48877bc954f061"
-    assert tag == "master_2024Q4"
+    commit, tag, archive_sha = _load_baseline_fibo_config()
+    assert commit == "2d73435a4419b66b7c9f44cb9763e35fe8ac7890"
+    assert tag == "master_2026Q3"
+    assert archive_sha is not None and len(archive_sha) == 64
 
 
 def test_main_compile_offline_archive_non_production(tmp_path: Path) -> None:
@@ -880,7 +888,7 @@ def test_cached_git_repo_url_mismatch_reclones(tmp_path: Path) -> None:
             MagicMock(returncode=0),  # fresh git clone
             MagicMock(returncode=0, stdout=f"{UPSTREAM_COMMIT}\n"),  # rev-parse HEAD
         ]
-        source, commit = ensure_fibo_source(cache_dir=cache)
+        source, commit = ensure_fibo_source(cache_dir=cache, source_mode="git")
         assert source == git_cache
         assert commit == UPSTREAM_COMMIT
 
@@ -950,3 +958,57 @@ def test_zip_rejects_zip_slip_and_streaming_decompression_bomb(
         pytest.raises(ArchiveSecurityError, match="Archive uncompressed size exceeds limit"),
     ):
         safe_extract_archive(bomb_zip, tmp_path / "out_bomb_stream")
+
+
+def test_tar_rejects_internal_dotdot_reserved_names_and_zip_dir_file_collision(
+    tmp_path: Path,
+) -> None:
+    """Regression: tar rejects internal '..'/'.'/reserved/control names; zip rejects dir/file collisions."""
+    # 1. Tar internal traversal, dot segments, reserved names, trailing dot/space, control chars
+    for idx, bad_name in enumerate(
+        (
+            "FND/../evil.ttl",
+            "FND/./evil.ttl",
+            "FND/CON.ttl",
+            "FND/NUL.rdf",
+            "FND/bad.",
+            "FND/bad ",
+            "FND/ctrl\x01.ttl",
+        )
+    ):
+        bad_tar = tmp_path / f"bad_tar_{idx}.tar.gz"
+        with tarfile.open(bad_tar, "w:gz") as tar:
+            ti = tarfile.TarInfo(name=bad_name)
+            ti.size = 1
+            tar.addfile(ti, io.BytesIO(b"x"))
+        with pytest.raises(ArchiveSecurityError):
+            safe_extract_archive(bad_tar, tmp_path / f"out_tar_{idx}")
+
+    # 2. Zip dir followed by same-named file (and vice versa, plus implicit dir collision)
+    dir_then_file = tmp_path / "dir_then_file.zip"
+    with zipfile.ZipFile(dir_then_file, "w") as zf:
+        zf.writestr("FND/", "")
+        zf.writestr("FND", b"file-over-dir")
+    with pytest.raises(ArchiveSecurityError, match="collision"):
+        safe_extract_archive(dir_then_file, tmp_path / "out_z1")
+
+    file_then_dir = tmp_path / "file_then_dir.zip"
+    with zipfile.ZipFile(file_then_dir, "w") as zf:
+        zf.writestr("FND", b"file-first")
+        zf.writestr("FND/", "")
+    with pytest.raises(ArchiveSecurityError, match="collision"):
+        safe_extract_archive(file_then_dir, tmp_path / "out_z2")
+
+    implicit_dir_then_file = tmp_path / "implicit_dir_then_file.zip"
+    with zipfile.ZipFile(implicit_dir_then_file, "w") as zf:
+        zf.writestr("FND/Ok.ttl", b"ok")
+        zf.writestr("FND", b"file-over-implicit-dir")
+    with pytest.raises(ArchiveSecurityError, match="collision"):
+        safe_extract_archive(implicit_dir_then_file, tmp_path / "out_z3")
+
+    file_then_child = tmp_path / "file_then_child.zip"
+    with zipfile.ZipFile(file_then_child, "w") as zf:
+        zf.writestr("FND", b"file-first")
+        zf.writestr("FND/Ok.ttl", b"child")
+    with pytest.raises(ArchiveSecurityError, match="collision"):
+        safe_extract_archive(file_then_child, tmp_path / "out_z4")

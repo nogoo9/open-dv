@@ -846,10 +846,10 @@ async def test_uat_v26_api_05_step4_step6_202_runs_logs_pause_and_sse_replay(
 async def test_uat_v26_api_06_all_70_routes_scale_200_and_public_am_w001_w002(
     tmp_path: Path,
 ) -> None:
-    # Verify OpenAPI schema exposes exactly 71 operations and expected schemas
+    # Verify OpenAPI schema exposes exactly 72 operations and expected schemas
     schema = export_openapi_schema()
     op_count = sum(len(methods) for methods in schema["paths"].values())
-    assert op_count == 71
+    assert op_count == 72
     for comp in (
         "ProjectImportPathReq",
         "SourceReattachReq",
@@ -860,6 +860,8 @@ async def test_uat_v26_api_06_all_70_routes_scale_200_and_public_am_w001_w002(
         "DoctorResponse",
         "ProjectSettingsPatchReq",
         "RevokeTrustedWorkspaceReq",
+        "OntologyGroundReq",
+        "GroundingResponse",
     ):
         assert comp in schema["components"]["schemas"]
 
@@ -1043,7 +1045,7 @@ async def test_uat_v26_api_06_all_70_routes_scale_200_and_public_am_w001_w002(
                 _walk_routes(list(route.routes), f"{prefix}{sub_prefix}")
 
     _walk_routes(list(app.routes))
-    assert len(expected_ops) == 71
+    assert len(expected_ops) == 72
     called_ops: set[tuple[str, str]] = set()
 
     def _mark(method: str, path_tmpl: str) -> None:
@@ -1314,6 +1316,16 @@ async def test_uat_v26_api_06_all_70_routes_scale_200_and_public_am_w001_w002(
                 )
             ).status_code == 200
             _mark("POST", "/api/v1/projects/{project_id}/ontology/fibo-qa")
+
+            gnd_resp = await client.post(
+                "/api/v1/ontology/ground",
+                json={
+                    "project_id": "am-e2e",
+                    "policy": {"mode": "deterministic_only", "skip_reason": "route_smoke"},
+                },
+            )
+            assert gnd_resp.status_code == 200
+            _mark("POST", "/api/v1/ontology/ground")
 
             md_pages = (
                 await client.get(

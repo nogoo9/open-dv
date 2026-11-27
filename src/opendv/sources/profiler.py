@@ -12,6 +12,7 @@ import secrets
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from opendv.grounding.structured.profiler import compute_column_shape_stats
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.modeling_preferences import (
     SURROGATE_BK_RE,
@@ -39,6 +40,7 @@ from opendv.sources.pii import (
 )
 
 MAX_SAMPLE_VALUES: int = 5
+SHAPE_SAMPLE_LIMIT: int = 200
 _MAX_PROVING_SAMPLE_ROWS: int = 5000
 
 _UUID_RE = re.compile(
@@ -128,10 +130,16 @@ def _build_column_profile(
     raw: RawColumnData,
     *,
     observed_values: Sequence[str] | None = None,
+    row_count_est: int | None = None,
+    include_shape_stats: bool = True,
 ) -> ColumnProfile:
     non_null_samples = [v for v in raw.raw_samples if v is not None]
-    stat_vals = list(observed_values) if observed_values else non_null_samples
-
+    shape_pool = raw.shape_samples if raw.shape_samples else raw.raw_samples
+    stat_vals = (
+        list(observed_values)
+        if observed_values
+        else ([v for v in raw.shape_samples if v is not None] or non_null_samples)
+    )
     tags: list[str] = list(raw.explicit_pii_tags)
     tags.extend(detect_pii_in_column_name(raw.col_name))
     for val in dict.fromkeys((*non_null_samples, *stat_vals)):
@@ -162,6 +170,19 @@ def _build_column_profile(
             is_pii_col=bool(dedup_tags),
             col_name=raw.col_name,
         )
+    shape_stats = (
+        compute_column_shape_stats(
+            shape_pool,
+            col_name=raw.col_name,
+            sql_type=raw.sql_type,
+            pii_tags=dedup_tags,
+            row_count_est=row_count_est,
+            distinct_count_est=raw.distinct_count_est,
+            null_ratio=raw.null_ratio,
+        )
+        if include_shape_stats
+        else None
+    )
 
     return ColumnProfile(
         col_name=raw.col_name,
@@ -177,6 +198,7 @@ def _build_column_profile(
         format_shape=format_shape,
         surrogate_score=surrogate_score,
         top_value_frequencies=top_freqs,
+        shape_stats=shape_stats,
     )
 
 
@@ -185,6 +207,7 @@ def _to_table_profile(
     raw: RawTableData,
     *,
     row_slice: Sequence[Sequence[str | None]] | None = None,
+    include_shape_stats: bool = True,
 ) -> TableProfile:
     rows_for_stats = row_slice if row_slice is not None else raw.preview_rows
     cols: list[ColumnProfile] = []
@@ -194,7 +217,14 @@ def _to_table_profile(
             for r in rows_for_stats
             if idx < len(r) and (cell := r[idx]) is not None
         ]
-        cols.append(_build_column_profile(raw_col, observed_values=col_vals))
+        cols.append(
+            _build_column_profile(
+                raw_col,
+                observed_values=col_vals,
+                row_count_est=raw.row_count_est,
+                include_shape_stats=include_shape_stats,
+            )
+        )
 
     pk_cols = [c for c in sorted(cols, key=lambda c: c.pk_ord or 999) if c.is_pk]
     pk_ratio: float | None = None
@@ -243,7 +273,6 @@ def _to_table_profile(
             best_key, best_col = max(candidates, key=lambda item: item[0])
             best_bk_col = best_col.col_name
             best_bk_ratio = round(best_key[0], 6)
-
     table_id = f"{source_id}:{raw.table_name}"
     return TableProfile(
         table_id=table_id,
@@ -311,8 +340,11 @@ def profile_source(
         sample_limit=MAX_SAMPLE_VALUES,
         preview_offset=0,
         preview_limit=MAX_SAMPLE_VALUES,
+        shape_sample_limit=SHAPE_SAMPLE_LIMIT,
     )
-    table_profiles = _assign_clusters([_to_table_profile(source_id, rt) for rt in raw_tables])
+    table_profiles = _assign_clusters(
+        [_to_table_profile(source_id, rt, include_shape_stats=True) for rt in raw_tables]
+    )
     fingerprint = _compute_schema_fingerprint(table_profiles)
     return SourceProfile(
         source_id=source_id,
@@ -373,6 +405,7 @@ def profile_source_with_samples(
         sample_limit=MAX_SAMPLE_VALUES,
         preview_offset=0,
         preview_limit=proving_sample_rows + 1,
+        shape_sample_limit=SHAPE_SAMPLE_LIMIT,
     )
 
     effective_salt: bytes | str = pii_salt if pii_salt is not None else secrets.token_bytes(32)
@@ -383,7 +416,9 @@ def profile_source_with_samples(
     for rt in raw_tables:
         is_complete = len(rt.preview_rows) <= proving_sample_rows
         sliced_rows = rt.preview_rows[:proving_sample_rows]
-        tbl_prof = _to_table_profile(source_id, rt, row_slice=sliced_rows)
+        tbl_prof = _to_table_profile(
+            source_id, rt, row_slice=sliced_rows, include_shape_stats=True
+        )
         table_profiles.append(tbl_prof)
 
         col_names = [c.col_name for c in tbl_prof.columns]
@@ -451,6 +486,7 @@ def preview_table(
         sample_limit=MAX_SAMPLE_VALUES,
         preview_offset=offset,
         preview_limit=limit,
+        shape_sample_limit=0,
     )
     if not raw_tables:
         raise OpenDVError(
@@ -458,7 +494,7 @@ def preview_table(
             error_code=ErrorCode.RESOURCE_NOT_FOUND,
         )
     raw = raw_tables[0]
-    table_profile = _to_table_profile(source_id, raw)
+    table_profile = _to_table_profile(source_id, raw, include_shape_stats=False)
     col_names = [c.col_name for c in table_profile.columns]
     col_tags = [c.pii_tags for c in table_profile.columns]
 
@@ -481,6 +517,7 @@ def preview_table(
 
 __all__ = [
     "MAX_SAMPLE_VALUES",
+    "SHAPE_SAMPLE_LIMIT",
     "preview_table",
     "profile_source",
     "profile_source_with_samples",

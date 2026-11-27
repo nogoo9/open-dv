@@ -755,7 +755,7 @@
       ]
     },
     {
-      "help": "Query vendored FIBO-core reference pack using deterministic `bm25_fibo_v1`.",
+      "help": "Query bundled FIBO Pack v2 classes using deterministic LexicalIndex.",
       "http_method": "POST",
       "http_route": "/api/v1/ontology/fibo-qa",
       "options": [
@@ -803,6 +803,138 @@
       "path": [
         "ontology",
         "fibo-qa"
+      ]
+    },
+    {
+      "help": "Install/verify a FIBO Pack v2 file locally and audit/repin project drift.",
+      "http_method": null,
+      "http_route": null,
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--pack-file",
+          "help": "Path to Pack v2 JSON file to verify and install.",
+          "name": "pack_file",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--tag",
+          "help": "Optional pack tag label for install or --check-project.",
+          "name": "tag",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--check-project",
+          "help": "Audit committed FIBO mappings in project_id.",
+          "name": "check_project",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--apply-repin",
+          "help": "Apply non-breaking replacement repins (requires --check-project).",
+          "name": "apply_repin",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "ontology",
+        "fibo-sync"
+      ]
+    },
+    {
+      "help": "Ground table columns against FIBO Pack v2 or a YAML glossary.",
+      "http_method": "POST",
+      "http_route": "/api/v1/ontology/ground",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier (mutually exclusive with --input).",
+          "name": "project",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--input",
+          "help": "Path to GroundingRequest JSON file (mutually exclusive with --project).",
+          "name": "input_path",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": "fibo",
+          "flag": "--knowledge-source",
+          "help": "Knowledge source: fibo or glossary.",
+          "name": "knowledge_source",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--fibo-pack",
+          "help": "Path to custom FIBO Pack v2 JSON file.",
+          "name": "fibo_pack",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--glossary",
+          "help": "Path to YAML glossary file (required with --knowledge-source glossary).",
+          "name": "glossary",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--mode",
+          "help": "Execution mode: agentic or deterministic_only.",
+          "name": "mode",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--skip-reason",
+          "help": "Required rationale when --mode deterministic_only.",
+          "name": "skip_reason",
+          "required": false,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "ontology",
+        "ground"
       ]
     },
     {

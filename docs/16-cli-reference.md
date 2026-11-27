@@ -207,7 +207,7 @@ Export active Graph A ontology (optionally including staged candidates).
 
 ### `opendv ontology fibo-qa`
 
-Query vendored FIBO-core reference pack using deterministic `bm25_fibo_v1`.
+Query bundled FIBO Pack v2 classes using deterministic LexicalIndex.
 
 - **HTTP Route:** `POST /api/v1/ontology/fibo-qa`
 
@@ -217,6 +217,35 @@ Query vendored FIBO-core reference pack using deterministic `bm25_fibo_v1`.
 | `--project` | `string` | no | — | Optional project context. |
 | `--namespace` | `string` | no | — |  |
 | `--top-k` | `integer` | no | `10` |  |
+
+### `opendv ontology fibo-sync`
+
+Install/verify a FIBO Pack v2 file locally and audit/repin project drift.
+
+- **Execution:** Local / In-process
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--pack-file` | `string` | no | — | Path to Pack v2 JSON file to verify and install. |
+| `--tag` | `string` | no | — | Optional pack tag label for install or --check-project. |
+| `--check-project` | `string` | no | — | Audit committed FIBO mappings in project_id. |
+| `--apply-repin` | `boolean` | no | `False` | Apply non-breaking replacement repins (requires --check-project). |
+
+### `opendv ontology ground`
+
+Ground table columns against FIBO Pack v2 or a YAML glossary.
+
+- **HTTP Route:** `POST /api/v1/ontology/ground`
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--project` | `string` | no | — | Project identifier (mutually exclusive with --input). |
+| `--input` | `string` | no | — | Path to GroundingRequest JSON file (mutually exclusive with --project). |
+| `--knowledge-source` | `string` | no | `fibo` | Knowledge source: fibo or glossary. |
+| `--fibo-pack` | `string` | no | — | Path to custom FIBO Pack v2 JSON file. |
+| `--glossary` | `string` | no | — | Path to YAML glossary file (required with --knowledge-source glossary). |
+| `--mode` | `string` | no | — | Execution mode: agentic or deterministic_only. |
+| `--skip-reason` | `string` | no | — | Required rationale when --mode deterministic_only. |
 
 ### `opendv ontology validate`
 

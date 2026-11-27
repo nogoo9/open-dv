@@ -998,7 +998,7 @@ def test_cli_05_contract_exports_and_markdown_reference() -> None:
 
     top_groups = {cmd["path"][0] for cmd in cli_spec["subcommands"]}
     assert len(top_groups) == 12
-    assert len(cli_spec["subcommands"]) == 59
+    assert len(cli_spec["subcommands"]) == 61
     assert top_groups == {
         "serve",
         "doctor",

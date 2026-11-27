@@ -16,6 +16,7 @@ from opendv.models.vault_ir import (
     DraftSourceBinding,
     DraftVaultIR,
     PortableLogicalType,
+    map_sql_to_portable_type,
 )
 from opendv.models.vault_ir_certified import CertifiedVaultIR
 from opendv.verifier._l1_alg_a1 import _is_pii_field
@@ -50,34 +51,6 @@ def _token_dice_similarity(left: str, right: str) -> float:
 def column_name_similarity(left: str, right: str) -> float:
     """Self-contained column rename similarity combining Levenshtein and token Dice."""
     return max(_levenshtein_similarity(left, right), _token_dice_similarity(left, right))
-
-
-def map_sql_to_portable_type(sql_type: str) -> PortableLogicalType:
-    """Map SQL type strings from Graph B ColumnProfile to PortableLogicalType."""
-    upper = sql_type.strip().upper()
-    if upper.startswith(("DECIMAL", "NUMERIC")):
-        inner = upper.split("(", 1)[1].rstrip(")") if "(" in upper else "38,10"
-        parts = [p.strip() for p in inner.split(",")]
-        prec = min(38, max(1, int(parts[0]))) if parts and parts[0].isdigit() else 38
-        scale = min(prec, max(0, int(parts[1]))) if len(parts) > 1 and parts[1].isdigit() else 0
-        return DecimalType(precision=prec, scale=scale)
-    if "BOOL" in upper:
-        return "BOOLEAN"
-    if upper in ("INT", "INT4", "INTEGER", "SMALLINT", "TINYINT"):
-        return "INT32"
-    if any(tok in upper for tok in ("BIGINT", "INT8", "INT64", "HUGEINT")):
-        return "INT64"
-    if upper in ("DOUBLE", "FLOAT", "REAL", "FLOAT8", "FLOAT4"):
-        return DecimalType(precision=38, scale=10)
-    if upper == "DATE":
-        return "DATE32"
-    if "TIMESTAMP" in upper or "DATETIME" in upper:
-        return "TIMESTAMP_UTC_US"
-    if "JSON" in upper:
-        return "JSON_DOCUMENT"
-    if "BLOB" in upper or "BINARY" in upper:
-        return "FIXED_BINARY_32"
-    return "UTF8_STRING"
 
 
 def _portable_to_sql_hint(ltype: PortableLogicalType) -> str:

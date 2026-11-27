@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from opendv.models.diagnostics import StrictModel
 from opendv.models.modeling_preferences import (
@@ -12,6 +13,25 @@ from opendv.models.modeling_preferences import (
     PkContainmentOverlap,
     ValueFreqItem,
 )
+
+CanonicalSentinel = Literal[
+    "",
+    "N/A",
+    "NA",
+    "NONE",
+    "NULL",
+    "UNKNOWN",
+    "TBD",
+    "-1",
+    "-2",
+]
+
+SurrogateKind = Literal[
+    "none",
+    "monotonic_int",
+    "random_uuid_v4",
+    "prefixed_operational_id",
+]
 
 SourceKind = Literal[
     "sqlite",
@@ -79,6 +99,59 @@ class SourceSummary(StrictModel):
     connector_config: ConnectorConfigPayload | None = None
 
 
+class ColumnShapeStats(StrictModel):
+    """Pre-masking column value shape, pattern, and sentinel summary."""
+
+    profiled_non_null_count: int = Field(ge=0)
+    distinct_ratio: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    length_min: int | None = Field(default=None, ge=0)
+    length_max: int | None = Field(default=None, ge=0)
+    numeric_min: float | None = Field(default=None, allow_inf_nan=False)
+    numeric_max: float | None = Field(default=None, allow_inf_nan=False)
+    looks_like_enum: bool = False
+    observed_enum_values: list[str] = Field(default_factory=list)
+    surrogate_kind: SurrogateKind = "none"
+    structural_patterns: dict[str, float] = Field(default_factory=dict)
+    detected_sentinels: list[CanonicalSentinel] = Field(default_factory=list)
+    pii_suppressed: bool = False
+
+    @model_validator(mode="after")
+    def _validate_pii_suppression(self) -> ColumnShapeStats:
+        if self.pii_suppressed and (
+            self.length_min is not None
+            or self.length_max is not None
+            or self.numeric_min is not None
+            or self.numeric_max is not None
+            or self.observed_enum_values
+        ):
+            raise ValueError(
+                "pii_suppressed=True requires length/numeric bounds to be None "
+                "and observed_enum_values to be empty"
+            )
+        if (
+            self.length_min is not None
+            and self.length_max is not None
+            and self.length_min > self.length_max
+        ):
+            raise ValueError(
+                f"length_min ({self.length_min}) must be <= length_max ({self.length_max})"
+            )
+        if (
+            self.numeric_min is not None
+            and self.numeric_max is not None
+            and self.numeric_min > self.numeric_max
+        ):
+            raise ValueError(
+                f"numeric_min ({self.numeric_min}) must be <= numeric_max ({self.numeric_max})"
+            )
+        for pat_key, pat_val in self.structural_patterns.items():
+            if not math.isfinite(pat_val) or pat_val < 0.0 or pat_val > 1.0:
+                raise ValueError(
+                    f"structural_patterns['{pat_key}'] must be finite in [0.0, 1.0], got {pat_val}"
+                )
+        return self
+
+
 class ColumnProfile(StrictModel):
     """Physical column profile in Graph B (up to 5 masked sample values)."""
 
@@ -122,6 +195,10 @@ class ColumnProfile(StrictModel):
     top_value_frequencies: list[ValueFreqItem] = Field(
         default_factory=list,
         description="PII-redacted top frequent values when distinct <= 20.",
+    )
+    shape_stats: ColumnShapeStats | None = Field(
+        default=None,
+        description="Pre-masking column value shape, pattern, and sentinel summary.",
     )
 
 
@@ -257,7 +334,9 @@ class ExternalMcpServerSpec(StrictModel):
 
 
 __all__ = [
+    "CanonicalSentinel",
     "ColumnProfile",
+    "ColumnShapeStats",
     "ConnectorAdapterSpec",
     "ConnectorConfigPayload",
     "ConnectorFieldSpec",
@@ -270,6 +349,7 @@ __all__ = [
     "SourceProfile",
     "SourceStatus",
     "SourceSummary",
+    "SurrogateKind",
     "TableIndexEntry",
     "TablePreviewPage",
     "TableProfile",
