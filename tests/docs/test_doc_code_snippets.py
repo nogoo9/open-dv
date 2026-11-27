@@ -39,6 +39,7 @@ ACTIVE_SNIPPET_DOCS = [
     REPO_ROOT / ".agents" / "skills" / "open-dv-workflow" / "references" / "ui_and_dual_cli_playbook.md",
     REPO_ROOT / ".agents" / "skills" / "opendv-modeling" / "SKILL.md",
     REPO_ROOT / "docs" / "components" / "modeling" / "user-guide.md",
+    REPO_ROOT / "docs" / "components" / "modeling" / "contributor-guide.md",
 ]
 
 
