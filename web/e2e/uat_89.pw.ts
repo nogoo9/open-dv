@@ -809,6 +809,13 @@ test.describe("Open-DV V2-7 Batched 3-Viewport Real-Browser E2E", () => {
 		await expect(balancedRadio).toBeVisible({ timeout: 10_000 });
 		await balancedRadio.check();
 		await expect(balancedRadio).toBeChecked();
+		// Legacy Wave-2 test fixture wave2_bitemporal_nav_restatements.csv has duplicate
+		// (fund_code, share_class, as_of_date, applied_dts) rows tested as STANDARD sat_nav_bitemp.
+		const w2SettingsPatch = await page.request.patch(
+			"/api/v1/projects/am-ibor-w1/settings",
+			{ data: { real_row_proving: false } },
+		);
+		expect(w2SettingsPatch.ok()).toBe(true);
 		const [w2RunResp] = await Promise.all([
 			page.waitForResponse(
 				(res) =>

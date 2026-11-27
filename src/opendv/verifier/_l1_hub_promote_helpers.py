@@ -14,6 +14,7 @@ from opendv.models.vault_ir import (
     DraftSourceBinding,
     DraftVaultIR,
     LinkParticipantSpec,
+    hub_canonical_bk_cols,
 )
 from opendv.models.wire_dtos_vault import BucketAOperatorCall
 
@@ -225,7 +226,7 @@ def apply_locked_promote_hub_bk(
             )
         )
     else:
-        existing_canon_bks = list(dict.fromkeys(bk.col_name for bk in existing_canon.business_keys))
+        existing_canon_bks = hub_canonical_bk_cols(existing_canon)
         existing_bk_keys = {(bk.table_id, bk.col_name) for bk in existing_canon.business_keys}
         missing_bks = [bk for bk in canon_bks if (bk.table_id, bk.col_name) not in existing_bk_keys]
         existing_bind_tids = {sb.table_id for sb in existing_canon.source_bindings}

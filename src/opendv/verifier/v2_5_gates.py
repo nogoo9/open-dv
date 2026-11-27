@@ -5,8 +5,18 @@ Zero duckdb, sqlglot, or opendv.sources imports.
 
 from __future__ import annotations
 
-from opendv.models.diagnostics import IRProverReport, VerifierDiagnostic
-from opendv.models.policy import compute_cegar_energy
+from collections.abc import Sequence
+
+from opendv.models.diagnostics import (
+    AntiPatternJustification,
+    IRProverReport,
+    VerifierDiagnostic,
+)
+from opendv.models.policy import (
+    CEGAR_POLICY_SPECS,
+    compute_cegar_energy,
+    compute_deterministic_energy,
+)
 from opendv.models.project import EvolutionLockSpec
 from opendv.models.vault_ir_certified import CertifiedVaultIR
 from opendv.verifier._v2_v3_checks import (
@@ -18,9 +28,26 @@ from opendv.verifier._v5_evolution import verify_v5_evolution
 from opendv.verifier.ports import IRRuntimeProver, VerifierContext, VerifierReport
 from opendv.verifier.v1_structure import verify_v1_structure
 from opendv.verifier.v6b_antipatterns import (
+    apply_v6b_governance,
     evaluate_v6b_accounting,
+    is_diagnostic_waived,
     lint_v6b_antipatterns,
+    resolve_effective_v6b_blocking_rules,
 )
+
+
+def _merge_justifications(
+    ir_justifications: Sequence[AntiPatternJustification],
+    persisted_waivers: Sequence[AntiPatternJustification],
+) -> list[AntiPatternJustification]:
+    merged: list[AntiPatternJustification] = []
+    seen: set[tuple[str, str, str]] = set()
+    for just in (*ir_justifications, *persisted_waivers):
+        key = (just.waiver_id, just.rule_id, just.entity_name)
+        if key not in seen:
+            seen.add(key)
+            merged.append(just)
+    return merged
 
 
 def build_evolution_lock_from_certified(ir: CertifiedVaultIR) -> EvolutionLockSpec:
@@ -79,6 +106,12 @@ def run_v1_to_v6_gates(
 ) -> VerifierReport:
     """Run symbolic Gates V1-V5, optional V6 IRRuntimeProver port, and V6b linter."""
     context = ctx or VerifierContext()
+    effective_blocking_rules = resolve_effective_v6b_blocking_rules(
+        context.policy, context.modeling_preferences
+    )
+    merged_justifications = _merge_justifications(
+        ir.justifications, context.persisted_waivers
+    )
 
     v1 = verify_v1_structure(ir, profiles=context.profiles, ontology=context.ontology)
     v2 = verify_v2_hash_and_bkcc(ir)
@@ -89,6 +122,8 @@ def run_v1_to_v6_gates(
         locks=context.evolution_locks,
         prior_ir=context.prior_certified_ir,
         cold_start_requested=context.cold_start_requested,
+        policy=context.policy,
+        blocking_v6b_rules=effective_blocking_rules,
     )
 
     v1_v6_diags: list[VerifierDiagnostic] = [*v1, *v2, *v3, *v4, *v5]
@@ -96,7 +131,14 @@ def run_v1_to_v6_gates(
     prover_report: IRProverReport | None = None
 
     if prover is not None:
-        prover_report = prover.prove(ir, context.profiles, policy=context.policy)
+        prover_report = prover.prove(
+            ir,
+            context.profiles,
+            policy=context.policy,
+            source_rows_by_table=context.source_rows_by_table,
+            table_sample_flags=context.table_sample_flags,
+            real_row_proving=context.real_row_proving,
+        )
         for rule_id, passed_flag in sorted(prover_report.dyn_results.items()):
             if not passed_flag:
                 v1_v6_diags.append(
@@ -111,7 +153,15 @@ def run_v1_to_v6_gates(
                     )
                 )
         v1_v6_diags.extend(prover_report.ast_violations)
-        v6_empirical.extend(prover_report.empirical_smells)
+        v6_empirical.extend(
+            apply_v6b_governance(
+                prover_report.empirical_smells,
+                policy=context.policy,
+                modeling_preferences=context.modeling_preferences,
+                justifications=merged_justifications,
+                ontology_waivers=context.ontology_waivers,
+            )
+        )
 
     v6b_diags: list[VerifierDiagnostic] = []
     if include_v6b:
@@ -124,6 +174,8 @@ def run_v1_to_v6_gates(
             cdc_volatility_by_table=context.cdc_volatility_by_table,
             fk_turnover_by_table=context.fk_turnover_by_table,
             entity_count_overrides=context.entity_count_overrides,
+            modeling_preferences=context.modeling_preferences,
+            justifications=merged_justifications,
         )
     v6b_all = [*v6b_diags, *v6_empirical]
 
@@ -132,13 +184,27 @@ def run_v1_to_v6_gates(
     )
     v6b_fail, waived_cnt, advisory_cnt = evaluate_v6b_accounting(
         v6b_all,
-        justifications=ir.justifications,
+        justifications=merged_justifications,
         ontology_waivers=context.ontology_waivers,
+    )
+    policy_spec = CEGAR_POLICY_SPECS[context.policy]
+    blocking_v6b_fail = len(
+        {
+            (d.rule_id, d.entity_name)
+            for d in v6b_all
+            if (d.rule_id in effective_blocking_rules or policy_spec.require_zero_unwaived_v6b)
+            and d.severity != "ADVISORY"
+            and not is_diagnostic_waived(
+                d,
+                justifications=merged_justifications,
+                ontology_waivers=context.ontology_waivers,
+            )
+        }
     )
 
     energy = compute_cegar_energy(v1_v6_fail, v6b_fail, policy=context.policy)
-    strict_fail = context.policy == "strict" and v6b_fail > 0
-    passed = v1_v6_fail == 0 and not strict_fail
+    deterministic_energy = compute_deterministic_energy(v1_v6_fail, blocking_v6b_fail)
+    passed = deterministic_energy == 0
 
     return VerifierReport(
         passed=passed,
@@ -151,6 +217,13 @@ def run_v1_to_v6_gates(
         advisory_count=advisory_cnt,
         prover_report=prover_report,
         energy_e=energy,
+        deterministic_energy=deterministic_energy,
+        schema_proof=(
+            dict(prover_report.schema_proof_results) if prover_report is not None else {}
+        ),
+        real_data_proof=(
+            dict(prover_report.real_data_proof_results) if prover_report is not None else {}
+        ),
     )
 
 

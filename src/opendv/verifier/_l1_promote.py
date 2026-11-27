@@ -9,8 +9,8 @@ from collections.abc import Mapping, Sequence
 from typing import Literal
 
 from opendv.models.project import EvolutionLockSpec
-from opendv.models.sources import SourceProfile
-from opendv.models.vault_ir import DraftVaultIR, LinkParticipantSpec, PredicateNode
+from opendv.models.sources import ColumnProfile, SourceProfile
+from opendv.models.vault_ir import DraftVaultIR, PredicateNode, hub_canonical_bk_cols
 from opendv.models.vault_ir_certified import (
     CertifiedHubSpec,
     CertifiedLinkSpec,
@@ -25,6 +25,13 @@ from opendv.models.vault_ir_certified import (
     SourceBindingSpec,
     ZoneId,
 )
+from opendv.verifier._l1_link_promote_helpers import (
+    build_link_binding_hash_recipe,
+    lower_draft_bridges,
+    sanitize_link_col_mappings,
+    should_emit_sal,
+    synthesize_link_fk_recipe,
+)
 from opendv.verifier._l1_zone_builders import (
     FieldSpec,
     assign_ir_fields,
@@ -34,82 +41,6 @@ from opendv.verifier._l1_zone_builders import (
     collect_prior_field_ids,
     dedup_field_specs,
 )
-
-
-def _sanitize_link_col_mappings(
-    raw_maps: Mapping[str, str],
-    *,
-    hk_col: str,
-    participants: Sequence[LinkParticipantSpec],
-    table_recipes: Sequence[HashRecipeSpec],
-) -> dict[str, str]:
-    """Ensure Link HK/FK col_mappings reference hashed staging targets, never raw columns."""
-    hash_targets = {r.target_col for r in table_recipes}
-    hub_recipes = [r for r in table_recipes if r.recipe_kind == "HUB_HK"]
-    part_by_fk = {p.fk_col_name: p for p in participants}
-    link_hash_cols = {hk_col, *part_by_fk}
-    out: dict[str, str] = {}
-    for k, v in raw_maps.items():
-        if k not in link_hash_cols or v in hash_targets:
-            out[k] = v
-            continue
-        if k == hk_col:
-            continue
-        part = part_by_fk[k]
-        cand_cols = set(part.source_col_names) | {v}
-        matched = next((r for r in hub_recipes if cand_cols & set(r.source_columns)), None)
-        if matched is None:
-            hub_hk = f"hk_{part.hub_name.removeprefix('hub_')}"
-            matched = next((r for r in hub_recipes if r.target_col == hub_hk), None)
-        if matched is not None and matched.target_col != k:
-            out[k] = matched.target_col
-    return out
-
-
-def _synthesize_link_fk_recipe(
-    *,
-    needed_col: str,
-    participant: LinkParticipantSpec,
-    col_mappings: Mapping[str, str],
-    ref_hub: CertifiedHubSpec | None,
-    tbl_cols: set[str],
-) -> HashRecipeSpec | None:
-    """Synthesize a missing Link participant HUB_HK recipe on a staging table."""
-
-    def _cols_ok(cols: Sequence[str]) -> bool:
-        return bool(cols) and (not tbl_cols or all(c in tbl_cols for c in cols))
-
-    fk_src_cols: list[str] = []
-    if _cols_ok(participant.source_col_names):
-        fk_src_cols = list(participant.source_col_names)
-    elif (mapped := col_mappings.get(participant.fk_col_name)) and _cols_ok([mapped]):
-        fk_src_cols = [mapped]
-    elif ref_hub is not None and _cols_ok([bk.col_name for bk in ref_hub.business_keys]):
-        fk_src_cols = [bk.col_name for bk in ref_hub.business_keys]
-    if not fk_src_cols:
-        return None
-    hub_recipe = ref_hub.hash_recipe if ref_hub is not None else None
-    bkcc_col = (
-        hub_recipe.bkcc_col
-        if hub_recipe is not None
-        and hub_recipe.bkcc_col
-        and (not tbl_cols or hub_recipe.bkcc_col in tbl_cols)
-        else None
-    )
-    bkcc_lit = (
-        hub_recipe.bkcc_literal
-        if hub_recipe is not None and hub_recipe.bkcc_literal
-        else (None if bkcc_col is not None else "GLOBAL")
-    )
-    return HashRecipeSpec(
-        target_col=needed_col,
-        recipe_kind="HUB_HK",
-        bkcc_literal=bkcc_lit,
-        bkcc_col=bkcc_col,
-        source_columns=fk_src_cols,
-        sort_alphabetically=False,
-        key_columns=fk_src_cols,
-    )
 
 
 def promote_draft_to_certified(
@@ -130,28 +61,33 @@ def promote_draft_to_certified(
     z1_ovr = z1_lineage_overrides or {}
     dedup_map = dedup_order_cols_by_sat or {}
     hub_recipes_by_table: dict[str, list[HashRecipeSpec]] = {}
-    profile_cols_by_table = {
-        t.table_id: {c.col_name for c in t.columns} for p in profiles for t in p.tables
-    }
+    col_idx: dict[tuple[str, str], ColumnProfile] = {}
+    profile_cols_by_table: dict[str, set[str]] = {}
+    for prof in profiles:
+        for tbl in prof.tables:
+            profile_cols_by_table[tbl.table_id] = {c.col_name for c in tbl.columns}
+            for col in tbl.columns:
+                col_idx[(tbl.table_id, col.col_name)] = col
 
     hubs_cert: list[CertifiedHubSpec] = []
     for h in draft.hubs:
+        if h.attributes:
+            raise ValueError(
+                f"INV-05 violation: DraftHubSpec '{h.hub_name}' must have empty attributes."
+            )
         slug = h.hub_name.removeprefix("hub_")
         hk_col = f"hk_{slug}"
         hub_recipe, bindings_h = build_hash_recipes_for_hub(h)
         for bh in bindings_h:
             if bh.hash_recipe is not None:
                 hub_recipes_by_table.setdefault(bh.table_id, []).append(bh.hash_recipe)
+        canon_bk_cols = hub_canonical_bk_cols(h)
         col_specs_h: list[FieldSpec] = [
             (hk_col, "FIXED_BINARY_32", False, False, "HASH_KEY"),
             ("bkcc", "UTF8_STRING", False, False, "BKCC"),
             ("load_dts", "TIMESTAMP_UTC_US", False, False, "AUDIT_DTS"),
             ("rec_src", "UTF8_STRING", False, False, "AUDIT_SRC"),
-            *((bk.col_name, "UTF8_STRING", False, False, "BUSINESS_KEY") for bk in h.business_keys),
-            *(
-                (a.name, a.logical_type, a.nullable, a.is_pii, a.classification_tag)
-                for a in h.attributes
-            ),
+            *((col, "UTF8_STRING", False, False, "BUSINESS_KEY") for col in canon_bk_cols),
         ]
         ir_cols = assign_ir_fields(
             h.hub_name,
@@ -171,8 +107,9 @@ def promote_draft_to_certified(
                 business_keys=list(h.business_keys),
                 key_tier=h.key_tier,
                 source_bindings=bindings_h,
-                attributes=list(h.attributes),
+                attributes=[],
                 is_planned_concept=h.is_planned_concept,
+                survivorship_priority=list(h.survivorship_priority),
                 columns=ir_cols,
                 hash_recipe=hub_recipe,
                 load_semantics=(
@@ -186,21 +123,17 @@ def promote_draft_to_certified(
 
     hub_cert_by_name = {h.hub_name: h for h in hubs_cert}
     links_cert: list[CertifiedLinkSpec] = []
+    skipped_sal_links: set[str] = set()
+
     for lnk in draft.links:
+        if lnk.link_kind == "SAME_AS" and not should_emit_sal(lnk):
+            skipped_sal_links.add(lnk.link_name)
+            continue
+
         slug = lnk.link_name.removeprefix("lnk_").removeprefix("t_lnk_").removeprefix("sal_")
         hk_col = f"hk_{lnk.link_name}" if lnk.link_name.startswith("sal_") else f"hk_{slug}"
         zone: ZoneId = (
             "Z3" if lnk.link_kind == "SAME_AS" or lnk.link_name.startswith("sal_") else "Z2"
-        )
-        src_cols = [c for p in lnk.participants for c in (p.source_col_names or [p.fk_col_name])]
-        all_key_cols = list(dict.fromkeys([*src_cols, *lnk.degenerate_keys]))
-        lnk_recipe = HashRecipeSpec(
-            target_col=hk_col,
-            recipe_kind="LINK_HK",
-            bkcc_literal="GLOBAL",
-            source_columns=all_key_cols,
-            sort_alphabetically=False,
-            key_columns=all_key_cols,
         )
         flt_ast = filters.get(lnk.link_name)
         req_review: Literal["APPROVED"] | None = (
@@ -214,25 +147,47 @@ def promote_draft_to_certified(
         )
         bindings_l: list[SourceBindingSpec] = []
         for bl in lnk.source_bindings:
+            tbl_cols = profile_cols_by_table.get(bl.table_id, set())
+            bl_recipe = build_link_binding_hash_recipe(
+                lnk,
+                bl,
+                hk_col=hk_col,
+                hub_cert_by_name=hub_cert_by_name,
+                col_idx=col_idx,
+                tbl_cols=tbl_cols,
+            )
             table_recipes = hub_recipes_by_table.setdefault(bl.table_id, [])
-            table_recipes.append(lnk_recipe)
-            sanitized_maps = _sanitize_link_col_mappings(
+            table_recipes.append(bl_recipe)
+            sanitized_maps = sanitize_link_col_mappings(
                 bl.col_mappings,
                 hk_col=hk_col,
                 participants=lnk.participants,
                 table_recipes=table_recipes,
             )
-            tbl_cols = profile_cols_by_table.get(bl.table_id, set())
             existing_targets = {r.target_col for r in table_recipes}
+            p_null_by_role = {
+                ps.role_name: (ps.is_nullable is True) for ps in bl_recipe.participant_specs
+            }
             for p in lnk.participants:
                 needed_col = sanitized_maps.get(p.fk_col_name, p.fk_col_name)
                 if needed_col in existing_targets:
+                    if p_null_by_role.get(p.role_name):
+                        for idx_r, rec in enumerate(table_recipes):
+                            if (
+                                rec.target_col == needed_col
+                                and rec.recipe_kind == "HUB_HK"
+                                and not rec.is_optional_inapplicable
+                            ):
+                                table_recipes[idx_r] = rec.model_copy(
+                                    update={"is_optional_inapplicable": True}
+                                )
                     continue
-                synth = _synthesize_link_fk_recipe(
+                synth = synthesize_link_fk_recipe(
                     needed_col=needed_col,
                     participant=p,
-                    col_mappings=bl.col_mappings,
+                    link_binding=bl,
                     ref_hub=hub_cert_by_name.get(p.hub_name),
+                    col_idx=col_idx,
                     tbl_cols=tbl_cols,
                 )
                 if synth is not None:
@@ -243,7 +198,7 @@ def promote_draft_to_certified(
                     source_id=bl.source_id,
                     table_id=bl.table_id,
                     col_mappings=sanitized_maps,
-                    hash_recipe=lnk_recipe,
+                    hash_recipe=bl_recipe,
                     load_semantics=LoadSemanticsSpec(
                         source_table_id=bl.table_id,
                         filter_ast=flt_ast,
@@ -253,6 +208,18 @@ def promote_draft_to_certified(
                     mcp_evidence=list(bl.mcp_evidence),
                 )
             )
+        lnk_recipe = (
+            bindings_l[0].hash_recipe
+            if bindings_l and bindings_l[0].hash_recipe is not None
+            else build_link_binding_hash_recipe(
+                lnk,
+                None,
+                hk_col=hk_col,
+                hub_cert_by_name=hub_cert_by_name,
+                col_idx=col_idx,
+                tbl_cols=set(),
+            )
+        )
         col_specs_l: list[FieldSpec] = [
             (hk_col, "FIXED_BINARY_32", False, False, "HASH_KEY"),
             *(
@@ -292,8 +259,11 @@ def promote_draft_to_certified(
         )
 
     hub_names = {h.hub_name for h in draft.hubs}
+    link_kind_by_name = {lnk.link_name: lnk.link_kind for lnk in links_cert}
     sats_cert: list[CertifiedSatelliteSpec] = []
     for sat in draft.satellites:
+        if sat.sat_kind == "ESAT" and sat.parent_name in skipped_sal_links:
+            continue
         sb0 = sat.source_bindings[0] if sat.source_bindings else None
         src_id = sb0.source_id if sb0 else "unknown_source"
         tbl_id = sb0.table_id if sb0 else sat.sat_name
@@ -308,7 +278,15 @@ def promote_draft_to_certified(
             if bitemp_col
             else list(sat.attributes)
         )
-        payload_cols = sorted(a.name for a in sat_attrs)
+        sat_cmaps = sb0.col_mappings if sb0 is not None else {}
+        payload_cols = sorted(
+            {sat_cmaps.get(a.name, a.name) for a in sat_attrs}
+            | (
+                {sat_cmaps.get(cdk, cdk) for cdk in sat.child_dependent_keys}
+                if (sat.sat_kind == "MAS" or bool(sat.child_dependent_keys))
+                else set()
+            )
+        )
         sat_recipe = (
             HashRecipeSpec(
                 target_col="hash_diff",
@@ -322,11 +300,11 @@ def promote_draft_to_certified(
         )
         if sat_recipe is not None and sb0 is not None:
             hub_recipes_by_table.setdefault(tbl_id, []).append(sat_recipe)
-        s_zone: ZoneId = (
-            "Z3"
-            if sat.sat_kind == "ESAT" and sat.parent_name.startswith("sal_")
-            else "Z2"
+        is_sal_esat = sat.sat_kind == "ESAT" and (
+            sat.parent_name.startswith("sal_")
+            or link_kind_by_name.get(sat.parent_name) == "SAME_AS"
         )
+        s_zone: ZoneId = "Z3" if is_sal_esat else "Z2"
         sat_dedup = list(dedup_map.get(sat.sat_name, ()))
         bindings_s = [
             SourceBindingSpec(
@@ -400,6 +378,7 @@ def promote_draft_to_certified(
         z1_ovr,
         prior_fids=prior_fids,
         hwm_map=hwm_map,
+        hubs=draft.hubs,
     )
     pit_bridges, marts = build_z3_z4_specs(
         hubs_cert,
@@ -408,6 +387,8 @@ def promote_draft_to_certified(
         prior_fids=prior_fids,
         hwm_map=hwm_map,
     )
+    bridge_specs = lower_draft_bridges(draft.bridges, hubs_cert, links_cert)
+    pit_bridges = [*pit_bridges, *bridge_specs]
 
     wave_delta: SchemaWaveDelta | None = None
     if draft.wave_number >= 2:
@@ -425,14 +406,14 @@ def promote_draft_to_certified(
             if locks
             else []
         )
-        ext_names = [cs.sat_name for cs in sats_cert if cs.sat_kind == "EXT"]
+        ext_names = [cs.sat_name for cs in sats_cert if cs.extends_sat_name is not None]
         added_ents = [
             *(ch.hub_name for ch in hubs_cert if ch.hub_name not in locked_ents),
             *(lnk.link_name for lnk in links_cert if lnk.link_name not in locked_ents),
             *(
                 cs.sat_name
                 for cs in sats_cert
-                if cs.sat_name not in locked_ents and cs.sat_kind != "EXT"
+                if cs.sat_name not in locked_ents and cs.extends_sat_name is None
             ),
         ]
         wave_delta = SchemaWaveDelta(

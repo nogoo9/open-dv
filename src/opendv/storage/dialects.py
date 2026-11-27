@@ -217,6 +217,12 @@ def assign_physical_aliases(
     used: set[str] = set(locked_map.values())
     aliases: dict[str, str] = dict(locked_map)
 
+    planned_hubs = {h.hub_name for h in ir.hubs if h.is_planned_concept}
+    excluded_links = {
+        lk.link_name
+        for lk in ir.links
+        if any(p.hub_name in planned_hubs for p in lk.participants)
+    }
     entities: list[tuple[int, str, str]] = [
         *((ir.wave_number, b.zone_id, b.table_name) for b in ir.bronze_tables),
         *((ir.wave_number, r.zone_id, r.ref_name) for r in ir.reference_tables),
@@ -224,7 +230,18 @@ def assign_physical_aliases(
         *((ir.wave_number, h.zone_id, h.hub_name) for h in ir.hubs if not h.is_planned_concept),
         *((ir.wave_number, lk.zone_id, lk.link_name) for lk in ir.links),
         *((ir.wave_number, sat.zone_id, sat.sat_name) for sat in ir.satellites),
-        *((ir.wave_number, pb.zone_id, pb.object_name) for pb in ir.pit_bridges),
+        *(
+            (ir.wave_number, pb.zone_id, pb.object_name)
+            for pb in ir.pit_bridges
+            if pb.root_hub not in planned_hubs
+            and not (
+                pb.object_kind == "BRIDGE"
+                and any(
+                    lk in excluded_links
+                    for lk in ([h.link_name for h in pb.hops] or pb.target_satellites_or_links)
+                )
+            )
+        ),
         *((ir.wave_number, m.zone_id, m.view_name) for m in ir.information_marts),
     ]
     entities.sort(key=lambda item: (item[0], item[1], item[2]))

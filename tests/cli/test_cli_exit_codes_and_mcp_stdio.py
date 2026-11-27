@@ -997,8 +997,8 @@ def test_cli_05_contract_exports_and_markdown_reference() -> None:
     jsonschema.validate(instance=cli_spec, schema=cli_schema)
 
     top_groups = {cmd["path"][0] for cmd in cli_spec["subcommands"]}
-    assert len(top_groups) == 11
-    assert len(cli_spec["subcommands"]) == 53
+    assert len(top_groups) == 12
+    assert len(cli_spec["subcommands"]) == 59
     assert top_groups == {
         "serve",
         "doctor",
@@ -1011,6 +1011,7 @@ def test_cli_05_contract_exports_and_markdown_reference() -> None:
         "ontology",
         "vault",
         "storage",
+        "model",
     }
     cmd_paths = {" ".join(cmd["path"]) for cmd in cli_spec["subcommands"]}
     assert {

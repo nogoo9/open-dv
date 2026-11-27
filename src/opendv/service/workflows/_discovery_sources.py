@@ -7,7 +7,6 @@ import uuid
 from pathlib import Path
 
 from opendv.models.errors import ErrorCode, OpenDVError
-from opendv.models.project import SecretPrecedence
 from opendv.models.sources import (
     ConnectorAdapterSpec,
     ConnectorConfigPayload,
@@ -26,7 +25,6 @@ from opendv.models.wire_dtos_discovery import (
     SourceInspectReq,
     SourceReattachReq,
 )
-from opendv.service._remediation import build_remediation
 from opendv.service.os_platform import atomic_write_bytes, validate_workspace_containment
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.state_store import ProjectStateManager
@@ -36,7 +34,6 @@ from opendv.service.workflows._source_docs import (
     approve_scan_pages,
     as_doc_format,
     as_source_kind,
-    attach_driver_remediation,
     get_document_map,
     get_document_pages,
     list_document_maps,
@@ -46,15 +43,24 @@ from opendv.service.workflows._source_docs import (
     preview_table_by_id,
     resolve_local_source_path,
 )
+from opendv.service.workflows._source_docs import (
+    check_databricks_binding as _check_databricks_binding,
+)
+from opendv.service.workflows._source_docs import (
+    profile_with_remediation as _profile_with_remediation,
+)
+from opendv.service.workflows._vault_proving import (
+    ProvingSampleBatch,
+    delete_proving_sample_cache,
+    profile_structured_with_proving,
+    sync_proving_sample_cache,
+)
 from opendv.sources import (
     DocumentMapBuilder,
     build_table_index_entries,
     get_source_adapter,
     infer_kind_from_filename,
     list_source_adapters,
-    profile_source,
-    validate_databricks_host,
-    validate_databricks_options,
 )
 
 MAX_UPLOAD_BYTES: int = 250 * 1024 * 1024
@@ -63,85 +69,6 @@ MAX_UPLOAD_BYTES: int = 250 * 1024 * 1024
 def list_adapters() -> list[ConnectorAdapterSpec]:
     """Return the catalog of supported structured source connector adapters."""
     return list_source_adapters()
-
-
-def _check_databricks_binding(
-    uri_or_path: str,
-    options: dict[str, str | int | bool],
-    secret_refs: list[str],
-    secret_store: KeyringSecretStore,
-    *,
-    project_precedence: SecretPrecedence | None = None,
-) -> tuple[str, str]:
-    if "host" in options and not isinstance(options["host"], str):
-        raise OpenDVError(
-            "Databricks connector option 'host' must be a string.",
-            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
-        )
-    try:
-        validate_databricks_options(options, secret_refs, require_secret_ref=True)
-    except OpenDVError as exc:
-        if exc.error_code == ErrorCode.NEEDS_LOCAL_SECRET_BINDING and exc.remediation is None:
-            raise OpenDVError(
-                exc.detail,
-                error_code=exc.error_code,
-                remediation=build_remediation(
-                    ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
-                    missing_secrets=secret_refs,
-                ),
-            ) from exc
-        raise
-    raw_opt_host = options.get("host")
-    opt_host = raw_opt_host.strip() if isinstance(raw_opt_host, str) else ""
-    uri_stripped = uri_or_path.strip()
-    eff_host = opt_host or uri_stripped
-    validate_databricks_host(eff_host, resolve_dns=True)
-    if opt_host and uri_stripped and uri_stripped != opt_host:
-        validate_databricks_host(uri_stripped, resolve_dns=True)
-    missing: list[str] = []
-    tokens: list[str] = []
-    for ref in secret_refs:
-        val = secret_store.get_secret(ref, project_precedence=project_precedence)
-        if val is None:
-            missing.append(ref)
-        else:
-            tokens.append(val)
-    if missing:
-        raise OpenDVError(
-            f"Missing required local secret binding(s): {', '.join(missing)}",
-            error_code=ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
-            remediation=build_remediation(
-                ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
-                missing_secrets=missing,
-            ),
-        )
-    return eff_host, tokens[0]
-
-
-def _profile_with_remediation(
-    source_id: str,
-    kind: SourceKind,
-    uri: str,
-    *,
-    options: dict[str, str | int | bool],
-    secret_refs: list[str],
-    selected_tables: list[str] | None = None,
-    profile_timeout_seconds: int = 30,
-    access_token: str | None = None,
-) -> SourceProfile:
-    try:
-        return profile_source(
-            source_id,
-            kind,
-            uri,
-            options=options,
-            secret_refs=secret_refs,
-            selected_tables=selected_tables,
-            profile_timeout_seconds=profile_timeout_seconds,
-            access_token=access_token,
-        )
-    except OpenDVError as exc:
-        raise attach_driver_remediation(exc) from exc
 
 
 class DiscoverySourcesHelper:
@@ -186,12 +113,15 @@ class DiscoverySourcesHelper:
     def attach_source(self, project_id: str, req: SourceAttachReq) -> SourceSummary:
         """Attach an existing workspace file or remote connector to a project."""
         proj = self._state.get_project(project_id)
+        proving_limit = proj.settings_snapshot.proving_sample_rows
+        real_row = proj.settings_snapshot.real_row_proving
         kind = as_source_kind(req.kind)
         source_id = f"src-{uuid.uuid4().hex[:10]}"
         status: SourceStatus = "READY_OFFLINE"
         binary_sha256: str | None = None
         doc_map: DocumentMap | None = None
         tables_index: list[TableIndexEntry] = []
+        proving_batch: ProvingSampleBatch | None = None
 
         if kind == "databricks_uc":
             adapter_spec = get_source_adapter(kind)
@@ -202,10 +132,14 @@ class DiscoverySourcesHelper:
                 self._secrets,
                 project_precedence=proj.settings_snapshot.secret_precedence,
             )
-            profile = _profile_with_remediation(
+            profile, proving_batch = profile_structured_with_proving(
+                self._secrets,
+                project_id,
                 source_id,
                 kind,
                 uri_str,
+                proving_sample_rows=proving_limit,
+                real_row_proving=real_row,
                 options=req.options,
                 secret_refs=req.secret_refs,
                 selected_tables=req.selected_tables,
@@ -251,10 +185,14 @@ class DiscoverySourcesHelper:
                 )
             binary_sha256 = hashlib.sha256(local_path.read_bytes()).hexdigest()
             uri_str = str(local_path)
-            profile = profile_source(
+            profile, proving_batch = profile_structured_with_proving(
+                self._secrets,
+                project_id,
                 source_id,
                 kind,
                 uri_str,
+                proving_sample_rows=proving_limit,
+                real_row_proving=real_row,
                 options=req.options,
                 secret_refs=req.secret_refs,
                 selected_tables=req.selected_tables,
@@ -262,6 +200,8 @@ class DiscoverySourcesHelper:
             )
             tables_index = build_table_index_entries(profile.tables, source_id)
 
+        if proving_batch is not None:
+            sync_proving_sample_cache(self._state, proving_batch)
         cfg = ConnectorConfigPayload(
             adapter_id=adapter_spec.adapter_id,
             display_name=adapter_spec.display_name,
@@ -293,7 +233,9 @@ class DiscoverySourcesHelper:
         kind: str | None = None,
     ) -> SourceSummary:
         """Persist an uploaded source binary (<= 250 MB), profile/map it, and register it."""
-        self._state.get_project(project_id)
+        proj = self._state.get_project(project_id)
+        proving_limit = proj.settings_snapshot.proving_sample_rows
+        real_row = proj.settings_snapshot.real_row_proving
         if len(content) > MAX_UPLOAD_BYTES:
             raise OpenDVError(
                 f"Uploaded source '{filename}' exceeds 250 MB limit ({len(content)} bytes).",
@@ -338,8 +280,17 @@ class DiscoverySourcesHelper:
             adapter_spec = get_source_adapter(resolved_kind)
             adapter_id = adapter_spec.adapter_id
             display_name = adapter_spec.display_name
-            profile = profile_source(source_id, resolved_kind, str(dest))
+            profile, proving_batch = profile_structured_with_proving(
+                self._secrets,
+                project_id,
+                source_id,
+                resolved_kind,
+                str(dest),
+                proving_sample_rows=proving_limit,
+                real_row_proving=real_row,
+            )
             tables_index = build_table_index_entries(profile.tables, source_id)
+            sync_proving_sample_cache(self._state, proving_batch)
 
         cfg = ConnectorConfigPayload(
             adapter_id=adapter_id,
@@ -373,6 +324,8 @@ class DiscoverySourcesHelper:
     ) -> SourceSummary:
         """Reattach/update a source, enforcing evolution_locks column compatibility."""
         proj = self._state.get_project(project_id)
+        proving_limit = proj.settings_snapshot.proving_sample_rows
+        real_row = proj.settings_snapshot.real_row_proving
         rec = self._state.get_source_record(project_id, source_id)
         cfg = ConnectorConfigPayload.model_validate(rec["connector_config"])
         kind = as_source_kind(str(rec["kind"]))
@@ -392,6 +345,7 @@ class DiscoverySourcesHelper:
             else None
         )
         tables_index = [TableIndexEntry.model_validate(t) for t in rec["tables_index"]]
+        proving_batch: ProvingSampleBatch | None = None
 
         if kind == "databricks_uc":
             if req.uri_or_filename is not None:
@@ -410,10 +364,14 @@ class DiscoverySourcesHelper:
                 project_precedence=proj.settings_snapshot.secret_precedence,
             )
             new_uri = eff_host
-            new_profile = _profile_with_remediation(
+            new_profile, proving_batch = profile_structured_with_proving(
+                self._secrets,
+                project_id,
                 source_id,
                 kind,
                 new_uri,
+                proving_sample_rows=proving_limit,
+                real_row_proving=real_row,
                 options=new_opts,
                 secret_refs=new_refs,
                 selected_tables=new_tables,
@@ -467,10 +425,14 @@ class DiscoverySourcesHelper:
                     if resolved_local.is_relative_to(project_dir)
                     else None
                 )
-            new_profile = profile_source(
+            new_profile, proving_batch = profile_structured_with_proving(
+                self._secrets,
+                project_id,
                 source_id,
                 kind,
                 new_uri,
+                proving_sample_rows=proving_limit,
+                real_row_proving=real_row,
                 options=new_opts,
                 secret_refs=new_refs,
                 selected_tables=new_tables,
@@ -494,6 +456,8 @@ class DiscoverySourcesHelper:
                     )
             tables_index = build_table_index_entries(new_profile.tables, source_id)
 
+        if proving_batch is not None:
+            sync_proving_sample_cache(self._state, proving_batch)
         updated_cfg = ConnectorConfigPayload(
             adapter_id=cfg.adapter_id,
             display_name=cfg.display_name,
@@ -529,6 +493,7 @@ class DiscoverySourcesHelper:
                 error_code=ErrorCode.SOURCE_COMMITTED_IN_VAULT,
             )
         self._state.delete_source(project_id, source_id)
+        delete_proving_sample_cache(self._state, project_id, source_id)
 
     def list_tables_index(self, project_id: str) -> list[TableIndexEntry]:
         return list_tables_index(self._state, project_id)

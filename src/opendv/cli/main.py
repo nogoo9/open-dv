@@ -1,4 +1,4 @@
-"""Root Typer application wiring all 11 Open-DV CLI groups cleanly."""
+"""Root Typer application wiring all 12 Open-DV CLI entries (10 groups + 2 commands)."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ from opendv.cli.commands_core import (
     secrets_app,
     serve_command,
 )
+from opendv.cli.commands_model import model_app, register_settings_project_set
 from opendv.cli.commands_workflows import (
     ontology_app,
     storage_app,
@@ -39,10 +40,11 @@ from opendv.cli.commands_workflows import (
 from opendv.models import CliExitCode, ErrorCode, OpenDVError
 
 project_app.add_typer(project_settings_app, name="settings")
+register_settings_project_set(settings_app)
 
 
 def build_cli_app() -> typer.Typer:
-    """Construct the unified `opendv` Typer application with all 11 subcommands."""
+    """Construct the unified `opendv` Typer application with 10 Typer groups and 2 commands."""
     cli = typer.Typer(
         name="opendv",
         help="Open-DV V2 CLI for ontology discovery, Data Vault 2.0 synthesis, and storage.",
@@ -91,6 +93,7 @@ def build_cli_app() -> typer.Typer:
     cli.add_typer(ontology_app, name="ontology")
     cli.add_typer(vault_app, name="vault")
     cli.add_typer(storage_app, name="storage")
+    cli.add_typer(model_app, name="model")
     return cli
 
 

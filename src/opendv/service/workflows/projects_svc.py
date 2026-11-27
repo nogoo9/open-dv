@@ -12,6 +12,7 @@ from opendv.models.project import (
     BundleManifest,
     ConceptMemorySpec,
     ImportReadinessReport,
+    ProjectSettingsPatchReq,
     ProjectSettingsSnapshot,
     ProjectState,
     ProjectSummary,
@@ -33,6 +34,7 @@ from opendv.service.bundles import (
 from opendv.service.os_platform import validate_workspace_containment
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.settings_store import SettingsStore
+from opendv.service.settings_svc import apply_project_settings_update
 from opendv.service.state_store import ProjectStateManager
 from opendv.service.workflows._project_seeds import (
     discover_workspace_seeds,
@@ -72,6 +74,19 @@ class ProjectsService:
         clean_pid = validate_project_id_or_error(project_id)
         return self.state_manager.get_project(clean_pid)
 
+    def update_project_settings(
+        self,
+        project_id: str,
+        req: ProjectSettingsPatchReq | ProjectSettingsSnapshot,
+    ) -> ProjectState:
+        """Partially or fully update per-project settings snapshot with governance checks."""
+        return apply_project_settings_update(
+            self.state_manager,
+            project_id,
+            req,
+            require_no_active_lease=True,
+        )
+
     def init_project(self, req: ProjectInitReq) -> ProjectState:
         """Create a project from Blank, StarterPack, WorkspaceSeed, or YAML/JSON baseline."""
         ont, init_mode = resolve_initial_ontology(req, self.workspace_root)
@@ -94,6 +109,7 @@ class ProjectsService:
             max_tokens=ws_settings.max_tokens,
             timeout_seconds=ws_settings.timeout_seconds,
             secret_precedence=ws_settings.secret_precedence,
+            modeling_preferences=ws_settings.modeling_preferences,
         )
 
         self.state_manager.create_project(req.project_id, req.domain_namespace, snapshot)

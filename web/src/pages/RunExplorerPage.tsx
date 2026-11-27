@@ -403,7 +403,7 @@ export function RunExplorerPage() {
 											<div className="row">
 												{attempts.map((a, i) => (
 													<button
-														key={a.attempt}
+														key={`${a.attempt}-${i}`}
 														type="button"
 														className={`btn btn-sm ${i === selectedAttemptIdx ? "btn-coral-fill" : "btn-secondary"}`}
 														onClick={() => setSelectedAttemptIdx(i)}

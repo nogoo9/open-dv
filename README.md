@@ -2,6 +2,7 @@
 
 [![Architecture: Zero Unverified LLM SQL](https://img.shields.io/badge/Architecture-Zero%20Unverified%20LLM%20SQL-cc785c.svg)](docs/designs/v2-clean-sheet-architecture.md)
 [![Data Vault: 2.0 Verified](https://img.shields.io/badge/Data%20Vault-2.0%205--Zone%20(Z0--Z4)-181715.svg)](docs/DV2_AGENT_REFERENCE_GUIDE.md)
+[![Modeling Engine: Two-Mode DV 2.0](https://img.shields.io/badge/Modeling%20Engine-Two--Mode%20DV%202.0-2d7a4f.svg)](docs/components/modeling/user-guide.md)
 [![Design System: WCAG 2.1 AA](https://img.shields.io/badge/Design%20System-Claude%20WCAG%20AA-8f442d.svg)](DESIGN.md)
 [![Storage Targets: 11 Emitters](https://img.shields.io/badge/Emitters-11%20Targets-2d7a4f.svg)](src/opendv/storage/)
 
@@ -15,7 +16,7 @@
 2. [5-Minute Developer Quick Start](#2-5-minute-developer-quick-start)
 3. [7-Step Workbench Workflow & Explorer Surfaces](#3-7-step-workbench-workflow--explorer-surfaces)
 4. [CLI Command Reference (`opendv`) & MCP Server](#4-cli-command-reference-opendv--mcp-server)
-5. [Repository Structure & 4-Layer Architecture](#5-repository-structure--4-layer-architecture)
+5. [Repository Structure & 5-Layer Architecture](#5-repository-structure--5-layer-architecture)
 6. [11 Step-7 Dialect & Orchestrator Emitters](#6-11-step-7-dialect--orchestrator-emitters)
 7. [Portable `.opendv.zip` Bundles & `data/public_am/` Walkthrough](#7-portable-opendvzip-bundles--datapublic_am-walkthrough)
 8. [Documentation & Specification Map](#8-documentation--specification-map)
@@ -37,9 +38,12 @@ flowchart LR
 
 ### Core V2 Capabilities
 - **Zero Unverified LLM SQL (`OBJ-01`):** Agents never generate SQL DDL or DML; they emit `OntologyDelta` (`34` operations) and declarative `VaultSchemaIR v2.0` (`UniversalVaultSchemaIR`) specifications compiled deterministically in Python.
+- **Two-Mode DV 2.0 Modeling Engine ([User Guide](docs/components/modeling/user-guide.md) | [Architecture Design](docs/designs/dv2-modeling-engine-and-governance.md)):**
+  - **Mode 1 (Stateless External-Agent CLI + Skill):** `opendv model spec | profile | verify` together with [`.agents/skills/opendv-modeling/SKILL.md`](.agents/skills/opendv-modeling/SKILL.md) lets external coding agents (Antigravity, Claude Code, Codex, Gemini CLI) profile sources, author `VaultSchemaIR v2.0`, and verify against deterministic `V1`–`V6b` gates plus real-row DuckDB proving with zero project DB setup.
+  - **Mode 2 (Managed Autonomous CEGAR Engine):** `src/opendv/modeling/` (`opendv model run` and `opendv vault build`) orchestrates multi-turn synthesis, static/evolution/runtime `V1`–`V6b` gates, Horizon Critic (`V7`/`V8`) review, real-row DuckDB proving (`real_row_proving`, `proving_sample_rows`), large-catalog domain sharding, and `ModelingPreferences` (`business_context_hints`) governance.
 - **5-Zone Standard (`Z0–Z4`):** `bronze` (`Z0`), `staging` (`Z1`), `raw_vault` (`Z2`), `business_vault` (`Z3`), and `information_mart` (`Z4`).
-- **4-Layer Python Core (`src/opendv/`):** Consolidated clean-sheet package replacing legacy multi-package workspaces, backed by SQLite WAL `project.sqlite` persistence (`5` tables), Win32/POSIX ACL-hardened `KeyringSecretStore`, and `34` closed `ErrorCode`s.
-- **Unified `opendv` CLI + `:8420` Web Workbench:** One Python CLI (`53` subcommands across `11` groups defined in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json)) running either in-process or remotely via `--api-url`, plus a React 19 WCAG 2.1 AA Web Workbench ([`web/`](web/)) and read-only MCP bridge (`opendv mcp serve`).
+- **5-Layer Python Core (`src/opendv/`):** Consolidated clean-sheet package backed by SQLite WAL `project.sqlite` persistence (`5` tables), Win32/POSIX ACL-hardened `KeyringSecretStore`, and `34` closed `ErrorCode`s.
+- **Unified `opendv` CLI + `:8420` Web Workbench:** One Python CLI (`59` subcommands across `12` groups defined in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json)) running either in-process or remotely via `--api-url`, plus a React 19 WCAG 2.1 AA Web Workbench ([`web/`](web/)) and read-only MCP bridge (`opendv mcp serve`).
 
 ---
 
@@ -53,7 +57,7 @@ Requires **Python 3.12+**, **`uv`**, and **Bun 1.x** (for the React 19 Web Workb
 # Install Python dependencies and unified opendv CLI entrypoint
 uv sync
 
-# Build the React 19 Web Workbench bundle into web/dist/
+# Build the React 19 Web Workbench bundle into src/opendv/api/static/
 bun install --cwd web
 bun run --cwd web build
 
@@ -92,6 +96,22 @@ uv run opendv --json vault verify --project am_demo
 uv run opendv --json storage compile --project am_demo --target duckdb_local --verify-runtime
 ```
 
+Or run the **stateless Mode 1 / standalone Mode 2 Modeling CLI** (`opendv model`) directly over any local file or profile without creating a project database (see [`docs/components/modeling/user-guide.md`](docs/components/modeling/user-guide.md)):
+
+```bash
+# Inspect the normative DV 2.0 VaultSchemaIR v2.0 spec & rule catalog
+uv run opendv model spec --part overview
+
+# Profile a local source and cache bounded real-row proving samples
+uv run opendv --json model profile --source data/public_am/sec_13f_holdings.csv --out profile.json
+
+# Verify an agent-authored VaultSchemaIR v2.0 draft (gates V1-V6b + real-row DuckDB proving)
+uv run opendv --json model verify --draft-ir draft_ir.json --profile profile.json
+
+# Or invoke the autonomous Mode-2 CEGAR modeling engine end-to-end
+uv run opendv --json model run --profile profile.json --out modeling_result.json
+```
+
 ### Step 4: Launch the Unified Server & 4-Tab Web Workbench (`:8420`)
 
 ```bash
@@ -118,35 +138,38 @@ The React 19 Web Workbench ([`web/`](web/), governed by [`DESIGN.md`](DESIGN.md)
 
 ## 4. CLI Command Reference (`opendv`) & MCP Server
 
-All `53` subcommands across `11` groups are defined canonically in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json) and auto-documented in [`docs/16-cli-reference.md`](docs/16-cli-reference.md):
+All `59` subcommands across `12` groups are defined canonically in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json) and auto-documented in [`docs/16-cli-reference.md`](docs/16-cli-reference.md):
 
 | Command Group | Key Subcommands | Purpose |
 | :--- | :--- | :--- |
 | `opendv project` | `init`, `list`, `show`, `delete`, `export`, `import`, `settings show\|set` | Create, inspect, configure per-project settings snapshots, and export/import portable `.opendv.zip` archives (`core_project_state` default; `--full-demo` optional). |
 | `opendv source` | `adapters`, `inspect`, `attach`, `list`, `reattach`, `detach`, `note`, `approve-scan` | Inspect/attach CSV, Parquet, SQLite, DuckDB, Postgres, PDF, Markdown, or unstructured notes with SSRF/PII checks. |
+| `opendv model` | `spec`, `profile`, `verify`, `run` | Mode 1 stateless external-agent spec/profile/real-row IR verification (`V1`–`V6b`) and Mode 2 autonomous CEGAR modeling runs ([Component Guide](docs/components/modeling/user-guide.md)). |
 | `opendv ontology` | `construct`, `answer`, `control`, `validate`, `commit`, `export`, `fibo-qa` | Construct & evolve `GraphAOntology` via CAS `OntologyDelta`s and FIBO BM25 citation resolution. |
-| `opendv vault` | `build`, `control`, `hold`, `horizon`, `logs`, `verify`, `waive` | Run the 3-Loop CEGAR `VaultSchemaIR v2.0` builder, inspect SSE logs, resolve steward holds, manage waivers & Horizon Critic checks. |
+| `opendv vault` | `build`, `status`, `control`, `hold`, `horizon`, `logs`, `verify`, `waive` | Run the 3-Loop CEGAR `VaultSchemaIR v2.0` builder, inspect SSE logs, resolve steward holds, manage waivers & Horizon Critic checks. |
 | `opendv storage` | `compile`, `migrate`, `query`, `regenerate` | Lower verified `VaultSchemaIR v2.0` to any of the `11` Step-7 targets (`v7`), run sandbox/migrations, and issue guarded read-only SQL queries. |
 | `opendv agents` / `mcp` | `agents list\|inspect`, `mcp list\|register\|remove\|serve` | Manage built-in agent harnesses and launch the read-only local MCP server (`opendv mcp serve`). |
-| `opendv secrets` / `settings` / `doctor` / `serve` | `secrets set\|list\|delete`, `settings show\|set\|models\|trust-workspace\|profile {list,set,delete,test}`, `doctor [--probe]`, `serve` | Manage user-global OS keyring secrets, CEGAR policies, connection profiles, trusted workspaces, system/harness readiness, and the `:8420` HTTP/SSE host. |
+| `opendv secrets` / `settings` / `doctor` / `serve` | `secrets set\|list\|delete`, `settings show\|set\|project-set\|models\|trust-workspace\|profile {list,set,delete,test}`, `doctor [--probe]`, `serve` | Manage user-global OS keyring secrets, CEGAR & modeling policies, connection profiles, trusted workspaces, system/harness readiness, and the `:8420` HTTP/SSE host. |
 
 Use global `--api-url http://127.0.0.1:8420` to proxy any CLI command through a running `:8420` server, or omit it for direct in-process execution over `.opendv/projects/<id>/project.sqlite`.
 
 ---
 
-## 5. Repository Structure & 4-Layer Architecture
+## 5. Repository Structure & 5-Layer Architecture
 
 ```text
 open-dv/
-├── src/opendv/                    # Consolidated Python core (strict downward 4-layer DAG)
+├── src/opendv/                    # Consolidated Python core (strict downward 5-layer DAG)
 │   ├── models/                    # Layer 1: StrictModel DTOs, VaultSchemaIR v2.0, 34 ErrorCodes, RFC 8785 JCS
 │   ├── sources/                   # Layer 2: ConnectorAdapter SPI, profiler, PII/NER taint, FIBO Core Pack (2,206)
 │   ├── verifier/                  # Layer 2: 3-loop CEGAR prover, static/evolution rules, ProblemDetails patches
 │   ├── storage/                   # Layer 2: DuckDB prover sandbox, readonly SQL guard, 11 Step-7 dialect emitters
-│   ├── agents/                    # Layer 3: Harness adapters (agy, claude-cli, claude, gemini), Tier-2 probes, CEGAR critics
+│   ├── agents/                    # Layer 3: Harness adapters (agy, claude-cli, claude, gemini), Tier-2 probes, budget meter
+│   ├── modeling/                  # Layer 3: DV 2.0 Modeling Engine (Mode 1/2, CEGAR loop, V7/V8 critics, sharding, steering)
 │   ├── service/                   # Layer 4: OpenDVService, project.sqlite WAL store, zip_guard, KeyringSecretStore
 │   ├── api/                       # Layer 5: FastAPI REST + SSE (:8420), loopback security guard, static UI host
-│   └── cli/                       # Layer 5: Unified Typer CLI (53 subcommands) + stdio MCP + schemas/v2 contract exporter
+│   └── cli/                       # Layer 5: Unified Typer CLI (59 subcommands) + stdio MCP + schemas/v2 contract exporter
+├── .agents/skills/opendv-modeling/# External-agent SKILL.md for Mode 1 stateless DV 2.0 modeling
 ├── web/                           # React 19 + Vite + Bun 4-tab WCAG 2.1 AA Web Workbench
 ├── apps/opendv-website/           # Astro documentation & V2 showcase site
 ├── schemas/v2/                    # Canonical cli-spec.json, error-codes.json, openapi.json, baseline-digests.json
@@ -181,6 +204,12 @@ open-dv/
 
 ## 8. Documentation & Specification Map
 
+- **DV 2.0 Modeling Component & Architecture:**
+  - **Component README:** [`docs/components/modeling/README.md`](docs/components/modeling/README.md) — entry index for the `src/opendv/modeling/` 4-doc suite (`REQ-DOC-01`)
+  - **Component User Guide:** [`docs/components/modeling/user-guide.md`](docs/components/modeling/user-guide.md) — Mode 1 (`opendv model spec|profile|verify`), Mode 2 (`opendv model run` / `opendv vault build`), `ModelingPreferences`, real-row proving, & troubleshooting
+  - **Component Contributor Guide:** [`docs/components/modeling/contributor-guide.md`](docs/components/modeling/contributor-guide.md) — `src/opendv/modeling/` module map, Layer-3 import contracts, `D16` token budget, & extension recipes
+  - **Architecture & Governance Design:** [`docs/designs/dv2-modeling-engine-and-governance.md`](docs/designs/dv2-modeling-engine-and-governance.md) — `src/opendv/modeling/` CEGAR loop, Horizon Critics (`V7`/`V8`), domain sharding, & IR-level governance
+  - **External-Agent Modeling Skill:** [`.agents/skills/opendv-modeling/SKILL.md`](.agents/skills/opendv-modeling/SKILL.md) — normative Mode 1 protocol for external coding agents
 - **Authoritative Sitemap:** [`docs/designs/SITEMAP.md`](docs/designs/SITEMAP.md)
 - **Clean-Sheet V2 Architecture & UI Specs:** [`docs/designs/v2-clean-sheet-architecture.md`](docs/designs/v2-clean-sheet-architecture.md), [`docs/designs/v2-workbench-ui-design.md`](docs/designs/v2-workbench-ui-design.md)
 - **V2 Discovery, Modeling, E2E & UAT Suite (`docs/29..33`):**

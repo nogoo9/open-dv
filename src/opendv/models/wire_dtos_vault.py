@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, field_validator
 
 from opendv.models.diagnostics import (
+    AntiPatternJustification,
+    ClarificationQuestion,
     HorizonOptionSpec,
     HorizonQuestion,
     StrictModel,
     VerifierDiagnostic,
 )
+from opendv.models.modeling_preferences import (
+    ModelingPreferences,
+    NextActionEnum,
+    PkContainmentOverlap,
+)
 from opendv.models.policy import CegarPolicy
 from opendv.models.project import DbtSqlDialect, TargetManifest
+from opendv.models.sources import SourceProfile
 from opendv.models.vault_ir import DraftVaultIR
 
 BucketAOperator = Literal[
@@ -30,6 +38,10 @@ class VaultBuildReq(StrictModel):
     """Request payload for POST /api/v1/projects/{id}/runs."""
 
     policy: CegarPolicy | None = None
+    cdc_volatility_by_table: dict[str, dict[str, float]] | None = None
+    fk_turnover_by_table: dict[str, dict[str, float]] | None = None
+    real_row_proving: bool | None = None
+    business_context_hints: str | None = Field(default=None, max_length=12_000)
 
 
 class WaiverSubmitReq(StrictModel):
@@ -58,7 +70,7 @@ class VaultVerifyResp(StrictModel):
 class HorizonActionReq(StrictModel):
     """Request payload for POST /api/v1/projects/{id}/runs/{rid}/horizon."""
 
-    action: Literal["accept", "steer"]
+    action: Literal["accept", "steer", "revert"]
     answers: dict[str, str] = Field(default_factory=dict)
     notes: str = ""
     added_fields: list[str] = Field(default_factory=list)
@@ -237,6 +249,46 @@ class SqlQueryResult(StrictModel):
     row_count: int = Field(ge=0)
 
 
+class ProfileBundle(StrictModel):
+    """Stateless Step 2/3 profile and prioritized clarification survey bundle."""
+
+    profiles: list[SourceProfile] = Field(default_factory=list)
+    pk_containment_overlaps: list[PkContainmentOverlap] = Field(default_factory=list)
+    source_rows_by_table: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    table_sample_flags: dict[str, bool] = Field(default_factory=dict)
+    questions: list[ClarificationQuestion] = Field(default_factory=list)
+    total_candidates: int = Field(default=0, ge=0)
+    returned_count: int = Field(default=0, ge=0)
+    offset: int = Field(default=0, ge=0)
+    remaining_count: int = Field(default=0, ge=0)
+    by_priority: dict[str, int] = Field(default_factory=dict)
+
+
+class ModelSpecResp(StrictModel):
+    """Annotated schema, constraint, guide, and preference spec from `opendv model spec`."""
+
+    part: Literal["all", "schema", "guide", "preferences"] = "all"
+    schemas: dict[str, Any] = Field(default_factory=dict)
+    examples: dict[str, Any] = Field(default_factory=dict)
+    constraints: dict[str, Any] = Field(default_factory=dict)
+    guide_markdown: str | None = None
+    guide_sha256: str | None = None
+    preferences: ModelingPreferences | None = None
+    preferences_schema: dict[str, Any] = Field(default_factory=dict)
+
+
+class VaultStatusResp(StrictModel):
+    """Project vault governance, run, open-hold, and waiver status summary."""
+
+    project_id: str
+    active_wave_id: str | None = None
+    run_id: str | None = None
+    status: str | None = None
+    next_action: NextActionEnum | None = None
+    open_holds: list[ClarificationQuestion | HorizonQuestion] = Field(default_factory=list)
+    waived_rules: list[AntiPatternJustification] = Field(default_factory=list)
+
+
 __all__ = [
     "ArtifactFileSpec",
     "AttemptSnapshotSpec",
@@ -253,6 +305,8 @@ __all__ = [
     "HorizonOptionSpec",
     "HorizonQuestion",
     "MigrationApplyResp",
+    "ModelSpecResp",
+    "ProfileBundle",
     "SemanticCriticVerdict",
     "SqlQueryReq",
     "SqlQueryResult",
@@ -260,6 +314,7 @@ __all__ = [
     "StorageTargetReq",
     "TargetBundleResp",
     "VaultBuildReq",
+    "VaultStatusResp",
     "VaultVerifyResp",
     "WaiverSubmitReq",
 ]

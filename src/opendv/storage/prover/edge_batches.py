@@ -14,9 +14,19 @@ from typing import Any
 import duckdb
 
 from opendv.models.diagnostics import VerifierDiagnostic
+from opendv.models.pii_tokenizer import PII_TOKEN_RE
+from opendv.models.policy import CegarPolicy
 from opendv.models.sources import ColumnProfile, SourceProfile, TableProfile
-from opendv.models.vault_ir import ArrayType, DecimalType, MapType, PortableLogicalType
-from opendv.models.vault_ir_certified import CertifiedVaultIR
+from opendv.models.vault_ir import (
+    ArrayType,
+    DecimalType,
+    MapType,
+    PortableLogicalType,
+    PredicateBranch,
+    PredicateLeaf,
+    PredicateNode,
+)
+from opendv.models.vault_ir_certified import CertifiedLinkSpec, CertifiedVaultIR, LoadSemanticsSpec
 from opendv.storage.prover._batch_probes import (
     MASKED_PII_TOKEN,
     detect_batch3_churn,
@@ -27,6 +37,7 @@ from opendv.storage.prover._batch_probes import (
 )
 from opendv.storage.sql_compiler.compiler import CompiledSqlBundle
 from opendv.storage.sql_compiler.ddl_builders import planned_exclusion_sets, qualify_name
+from opendv.storage.sql_compiler.dialect_hashing import zero_key_hex_sql
 
 
 def decollide_masked_pii(
@@ -40,7 +51,7 @@ def decollide_masked_pii(
     for row in rows:
         new_row: dict[str, Any] = {}
         for k, v in row.items():
-            if isinstance(v, str) and MASKED_PII_TOKEN in v:
+            if isinstance(v, str) and not PII_TOKEN_RE.fullmatch(v) and MASKED_PII_TOKEN in v:
                 new_row[k] = v.replace(MASKED_PII_TOKEN, f"<MASKED_PII_#{idx}>")
                 idx += 1
             else:
@@ -117,11 +128,45 @@ def _coerce_sample_val(
     return f"{col_name}_v{row_idx + 1}"
 
 
+def _collect_eq_hints(node: PredicateNode | None, out: dict[str, Any]) -> None:
+    if node is None:
+        return
+    if isinstance(node, PredicateLeaf):
+        if node.op == "EQ" and node.literal is not None:
+            out.setdefault(node.column, node.literal)
+        return
+    if isinstance(node, PredicateBranch) and node.op == "AND":
+        for child in node.children:
+            _collect_eq_hints(child, out)
+
+
+def _table_eq_hints(ir: CertifiedVaultIR) -> dict[str, dict[str, Any]]:
+    hints: dict[str, dict[str, Any]] = {}
+    sems: list[tuple[str, LoadSemanticsSpec | None]] = [
+        (sat.source_table_id, sat.load_semantics) for sat in ir.satellites
+    ]
+    for sat in ir.satellites:
+        for sb in sat.source_bindings:
+            sems.append((sb.table_id, sb.load_semantics))
+    for lnk in ir.links:
+        for sb in lnk.source_bindings:
+            sems.append((sb.table_id, sb.load_semantics or lnk.load_semantics))
+    for tid, sem in sems:
+        if sem is None:
+            continue
+        tbl_h = hints.setdefault(tid, {})
+        if sem.require_review_status == "APPROVED":
+            tbl_h.setdefault("steward_gate_status", "APPROVED")
+        _collect_eq_hints(sem.filter_ast, tbl_h)
+    return hints
+
+
 def _synthesize_rows_for_table(
     tbl_prof: TableProfile | None,
     col_defs: list[tuple[str, PortableLogicalType, bool]],
     *,
     pii_start_idx: int,
+    eq_hints: Mapping[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     prof_cols: dict[str, ColumnProfile] = (
         {c.col_name: c for c in tbl_prof.columns} if tbl_prof else {}
@@ -132,6 +177,9 @@ def _synthesize_rows_for_table(
     for i in range(num_rows):
         row: dict[str, Any] = {}
         for cname, ltype, nullable in col_defs:
+            if eq_hints and cname in eq_hints:
+                row[cname] = eq_hints[cname]
+                continue
             cp = prof_cols.get(cname)
             if cp is not None and i < len(cp.sample_values):
                 sv = cp.sample_values[i]
@@ -141,7 +189,9 @@ def _synthesize_rows_for_table(
                     row[cname] = MASKED_PII_TOKEN
                 elif sv == MASKED_PII_TOKEN and ltype == "JSON_DOCUMENT":
                     row[cname] = f'"{MASKED_PII_TOKEN}"'
-                elif sv == MASKED_PII_TOKEN:
+                elif sv == MASKED_PII_TOKEN or (
+                    isinstance(sv, str) and PII_TOKEN_RE.fullmatch(sv) and ltype != "UTF8_STRING"
+                ):
                     row[cname] = _coerce_sample_val(None, ltype, cname, i, is_pk=cp.is_pk)
                 else:
                     row[cname] = _coerce_sample_val(sv, ltype, cname, i, is_pk=cp.is_pk)
@@ -262,7 +312,87 @@ class AdversarialBatchSummary:
     empirical_smells: list[VerifierDiagnostic] = field(default_factory=list)
     boundary_shift_ok: bool = True
     bitemporal_proof_ok: bool = True
+    brk02b_ok: bool = True
+    brk02b_counterexamples: list[dict[str, str | int | float | None]] = field(default_factory=list)
     pii_columns: set[str] = field(default_factory=set)
+
+
+def _inject_brk02b_edge_rows(
+    ir: CertifiedVaultIR,
+    table_rows: dict[str, list[dict[str, Any]]],
+) -> list[tuple[CertifiedLinkSpec, str]]:
+    """Inject one partial-NULL BRK-02b row per nullable-optional STANDARD Link."""
+    _, excluded_links, _ = planned_exclusion_sets(ir)
+    bronze_by_tbl = {b.source_table_id: b for b in ir.bronze_tables}
+    stg_by_tbl = {s.source_table_id: s for s in ir.staging_views}
+    targets: list[tuple[CertifiedLinkSpec, str]] = []
+
+    for lnk in ir.links:
+        if lnk.link_name in excluded_links or lnk.link_kind != "STANDARD":
+            continue
+        hk_col = lnk.columns[0].name
+        for sb in lnk.source_bindings:
+            bronze = bronze_by_tbl.get(sb.table_id)
+            rows = table_rows.get(sb.table_id)
+            if bronze is None or not rows:
+                continue
+            b_cols = {c.name: c for c in bronze.columns}
+            stg = stg_by_tbl.get(sb.table_id)
+            recipe = sb.hash_recipe or lnk.hash_recipe
+            if recipe is None and stg is not None:
+                recipe = next((r for r in stg.hash_recipes if r.target_col == hk_col), None)
+            specs_by_role = (
+                {p.role_name: p for p in recipe.participant_specs if not p.is_degenerate}
+                if recipe is not None
+                else {}
+            )
+            opt_lp = None
+            opt_cols: list[str] = []
+            has_valid_other = False
+            for lp in lnk.participants:
+                p_spec = specs_by_role.get(lp.role_name)
+                is_opt = (
+                    (p_spec.is_nullable is True) if p_spec is not None else (lp.is_nullable is True)
+                )
+                src_cols = (
+                    list(p_spec.source_columns) if p_spec is not None else list(lp.source_col_names)
+                )
+                if (
+                    is_opt
+                    and opt_lp is None
+                    and src_cols
+                    and all((bc := b_cols.get(c)) is not None and bc.nullable for c in src_cols)
+                ):
+                    opt_lp = lp
+                    opt_cols = src_cols
+                elif src_cols:
+                    has_valid_other = True
+            if opt_lp is None or not has_valid_other:
+                continue
+
+            edge_row = dict(rows[0])
+            row_idx = len(rows)
+            for h in ir.hubs:
+                if any(hsb.table_id == sb.table_id for hsb in h.source_bindings):
+                    for bk in h.business_keys:
+                        if (
+                            bk.table_id == sb.table_id
+                            and bk.col_name in b_cols
+                            and bk.col_name not in opt_cols
+                        ):
+                            edge_row[bk.col_name] = _coerce_sample_val(
+                                None,
+                                b_cols[bk.col_name].logical_type,
+                                bk.col_name,
+                                row_idx,
+                                is_pk=True,
+                            )
+            for c in opt_cols:
+                edge_row[c] = None
+            rows.append(edge_row)
+            targets.append((lnk, opt_lp.fk_col_name))
+            break
+    return targets
 
 
 def run_adversarial_batches(
@@ -272,6 +402,7 @@ def run_adversarial_batches(
     bundle: CompiledSqlBundle,
     *,
     source_rows_by_table: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
+    policy: CegarPolicy = "balanced",
 ) -> AdversarialBatchSummary:
     """Execute Batches 1..4 inside isolated DuckDB and return observations."""
     summary = AdversarialBatchSummary()
@@ -292,9 +423,10 @@ def run_adversarial_batches(
     # Batch 1: Execute Z0..Z4 DDL, load Z0 (real/profile rows with PII de-collision), run Z2/Z3 DML
     exec_statements(conn, bundle.ddl_statements)
 
+    eq_hints_by_tbl = _table_eq_hints(ir)
     pii_idx = 1
+    table_rows: dict[str, list[dict[str, Any]]] = {}
     for b in ir.bronze_tables:
-        b_full = qualify_name("Z0", b.table_name, bundle.physical_aliases)
         col_defs = [(c.name, c.logical_type, c.nullable) for c in b.columns]
         if source_rows_by_table and b.source_table_id in source_rows_by_table:
             rows, pii_idx = decollide_masked_pii(
@@ -302,11 +434,41 @@ def run_adversarial_batches(
             )
         else:
             rows, pii_idx = _synthesize_rows_for_table(
-                prof_tables.get(b.source_table_id), col_defs, pii_start_idx=pii_idx
+                prof_tables.get(b.source_table_id),
+                col_defs,
+                pii_start_idx=pii_idx,
+                eq_hints=eq_hints_by_tbl.get(b.source_table_id),
             )
-        _insert_rows(conn, b_full, [c.name for c in b.columns], rows)
+        table_rows[b.source_table_id] = rows
+
+    brk02b_targets = (
+        _inject_brk02b_edge_rows(ir, table_rows) if source_rows_by_table is None else []
+    )
+    for b in ir.bronze_tables:
+        b_full = qualify_name("Z0", b.table_name, bundle.physical_aliases)
+        _insert_rows(conn, b_full, [c.name for c in b.columns], table_rows[b.source_table_id])
 
     exec_statements(conn, bundle.dml_statements)
+
+    if brk02b_targets:
+        zero_00 = zero_key_hex_sql("duckdb", is_error=False)
+        zero_ff = zero_key_hex_sql("duckdb", is_error=True)
+        for lnk, opt_fk_col in brk02b_targets:
+            lf = qualify_name(lnk.zone_id, lnk.link_name, bundle.physical_aliases)
+            hk = lnk.columns[0].name
+            hit = conn.execute(
+                f"SELECT COUNT(*) FROM {lf} "
+                f"WHERE {hk} <> {zero_00} AND {hk} <> {zero_ff} AND {opt_fk_col} = {zero_ff}"
+            ).fetchone()
+            if not hit or int(hit[0]) < 1:
+                summary.brk02b_ok = False
+                summary.brk02b_counterexamples.append(
+                    {
+                        "link_name": lnk.link_name,
+                        "missing_fk_col": opt_fk_col,
+                        "issue": "brk02b_partial_null_missing_or_zero_hk",
+                    }
+                )
 
     # Batch 2: Replay idempotency at t2 > t1 (re-execute DML without changing business payloads)
     counts_before = _table_counts(conn, ir, bundle.physical_aliases)
@@ -318,7 +480,9 @@ def run_adversarial_batches(
 
     # Batch 3: DuckDB SQL boundary-shift parity check + technical churn probe (DV-AP-011)
     summary.boundary_shift_ok = probe_delimiter_and_utf8_parity(conn)
-    summary.empirical_smells = detect_batch3_churn(conn, ir, bundle, summary.pii_columns)
+    summary.empirical_smells = detect_batch3_churn(
+        conn, ir, bundle, summary.pii_columns, policy=policy
+    )
 
     # Batch 4: Real DuckDB bi-temporal applied_dts restatement probe & PIT rebuild
     summary.bitemporal_proof_ok = probe_batch4_bitemporal(conn, ir, bundle)

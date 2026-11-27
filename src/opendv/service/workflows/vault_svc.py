@@ -7,17 +7,12 @@ import uuid
 from collections.abc import Sequence
 from pathlib import Path
 
-from opendv.agents import (
-    AgentHarnessPort,
-    CegarRunRequest,
-    CegarRunResult,
-    run_step6_cegar,
-    run_v8_horizon_review,
-)
+from opendv.agents import AgentHarnessPort
+from opendv.modeling import DVModelingResult, model_vault, run_v8_horizon_review
 from opendv.models.diagnostics import AntiPatternJustification
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.policy import CEGAR_POLICY_SPECS, CegarPolicy
-from opendv.models.project import RevisionMetadata
+from opendv.models.project import RevisionMetadata, WorkspaceSettings
 from opendv.models.vault_ir_certified import CertifiedVaultIR
 from opendv.models.wire_dtos_discovery import HoldAnswersReq, RunControlReq, RunStateResp
 from opendv.models.wire_dtos_vault import (
@@ -25,17 +20,17 @@ from opendv.models.wire_dtos_vault import (
     GuidedRunView,
     HorizonActionReq,
     VaultBuildReq,
+    VaultStatusResp,
     VaultVerifyResp,
     WaiverSubmitReq,
 )
 from opendv.service.guided_translator import GuidedUxTranslator
 from opendv.service.readiness import HarnessReadinessService
 from opendv.service.secrets import KeyringSecretStore
+from opendv.service.settings_store import SettingsStore
 from opendv.service.state_store import ProjectStateManager
 from opendv.service.workflows._run_adapters import (
-    ServiceControlSignalReader,
     ServiceRunCheckpointStore,
-    ServiceRunEventSink,
     acquire_project_job_lease,
     coalesce_snapshot_budget,
     compute_job_lease_ttl,
@@ -49,12 +44,13 @@ from opendv.service.workflows._run_adapters import (
     resolve_harness,
 )
 from opendv.service.workflows._vault_helpers import (
+    build_initial_modeling_request,
     build_vault_guided_view,
+    build_vault_status,
     load_cegar_result,
     load_verifier_inputs,
     persist_cegar_result,
     prepare_resume_cegar_request,
-    resolve_step6_v7_tier,
     save_horizon_assumption_revision,
 )
 from opendv.storage.prover.duckdb_prover import DuckDbProverAdapter
@@ -76,9 +72,9 @@ def _require_step6_run(
 
 
 def _carry_prior_proposals(
-    prior_res: CegarRunResult | None,
-    current: CegarRunResult,
-) -> CegarRunResult:
+    prior_res: DVModelingResult | None,
+    current: DVModelingResult,
+) -> DVModelingResult:
     """Carry unseen prior ontology proposals across HOLD/Horizon resumes."""
     if prior_res is None or not prior_res.ontology_proposals:
         return current
@@ -101,14 +97,19 @@ class VaultService:
         secret_store: KeyringSecretStore,
         workspace_root: Path,
         injected_harness: AgentHarnessPort | None = None,
+        settings_store: SettingsStore | None = None,
         readiness_service: HarnessReadinessService | None = None,
     ) -> None:
         self._state = state_manager
         self._secrets = secret_store
         self._workspace_root = workspace_root
         self._injected_harness = injected_harness
+        self._settings = settings_store
         self._readiness_service = readiness_service
         self._translator = GuidedUxTranslator()
+
+    def _load_ws_settings(self) -> WorkspaceSettings:
+        return self._settings.load_settings() if self._settings is not None else WorkspaceSettings()
 
     async def build_vault(
         self,
@@ -119,19 +120,10 @@ class VaultService:
     ) -> RunStateResp:
         """Start and execute a Step 6 CEGAR synthesis run wired with DuckDbProverAdapter."""
         proj = self._state.get_project(project_id)
+        ws = self._load_ws_settings()
         snap = proj.settings_snapshot
         effective_policy: CegarPolicy = req.policy or snap.cegar_policy
-        (
-            ontology,
-            profiles,
-            clusters,
-            locks,
-            prior_ir,
-            assumptions,
-            ctx,
-        ) = load_verifier_inputs(self._state, self._workspace_root, project_id)
-        ctx = ctx.model_copy(update={"policy": effective_policy})
-        harness = resolve_harness(
+        raw_harness = resolve_harness(
             snap,
             self._secrets,
             injected_harness=self._injected_harness,
@@ -139,7 +131,17 @@ class VaultService:
         )
         eff_run_id = run_id or f"run6-{uuid.uuid4().hex[:10]}"
         budget = coalesce_snapshot_budget(CEGAR_POLICY_SPECS[effective_policy].budget, snap)
-        v7_tier = resolve_step6_v7_tier(effective_policy, snap)
+        modeling_req = build_initial_modeling_request(
+            self._state,
+            self._workspace_root,
+            proj=proj,
+            run_id=eff_run_id,
+            req=req,
+            harness=raw_harness,
+            secret_store=self._secrets,
+            trusted_workspaces=ws.trusted_workspaces,
+            model_overrides=dict(snap.model_overrides) or None,
+        )
         acquire_project_job_lease(
             self._state,
             project_id,
@@ -164,27 +166,7 @@ class VaultService:
 
         try:
             record_run_state(self._state, project_id, running)
-            cegar_req = CegarRunRequest(
-                run_id=eff_run_id,
-                project_id=project_id,
-                ontology=ontology,
-                profiles=profiles,
-                clusters=clusters,
-                policy=effective_policy,
-                budget=budget,
-                v7_critic_tier=v7_tier,
-                model_overrides=dict(snap.model_overrides),
-                evolution_locks=locks,
-                prior_certified_ir=prior_ir,
-                verifier_ctx=ctx,
-                prover=DuckDbProverAdapter(),
-                harness=harness,
-                event_sink=ServiceRunEventSink(self._state, project_id),
-                control_reader=ServiceControlSignalReader(self._state, project_id),
-                checkpoint_store=ServiceRunCheckpointStore(self._state, project_id),
-                horizon_assumptions=assumptions,
-            )
-            result = await run_step6_cegar(cegar_req)
+            result = await model_vault(modeling_req)
             return persist_cegar_result(
                 self._state,
                 project_id=project_id,
@@ -203,6 +185,21 @@ class VaultService:
     def get_vault_run(self, project_id: str, run_id: str) -> RunStateResp:
         """Return latest RunStateResp for a Step 6 Vault run."""
         return _require_step6_run(self._state, project_id, run_id)
+
+    def get_vault_status(
+        self,
+        project_id: str,
+        *,
+        run_id: str | None = None,
+        holds_only: bool = False,
+    ) -> VaultStatusResp:
+        """Return project vault status, open holds, and persisted waivers."""
+        return build_vault_status(
+            self._state,
+            project_id,
+            run_id=run_id,
+            holds_only=holds_only,
+        )
 
     def list_vault_attempts(self, project_id: str, run_id: str) -> list[AttemptSnapshotSpec]:
         """List recorded CEGAR AttemptSnapshotSpec records for run_id."""
@@ -235,11 +232,12 @@ class VaultService:
         self,
         project_id: str,
         run_id: str,
-        prior_res: CegarRunResult,
+        prior_res: DVModelingResult,
         *,
         horizon_req: HorizonActionReq | None = None,
     ) -> RunStateResp:
         proj = self._state.get_project(project_id)
+        ws = self._load_ws_settings()
         prior_state = load_latest_run_state(self._state, project_id, run_id)
         harness = resolve_harness(
             proj.settings_snapshot,
@@ -247,7 +245,7 @@ class VaultService:
             injected_harness=self._injected_harness,
             readiness_service=self._readiness_service,
         )
-        ont_rev_id, prior_wave_rev_id, cegar_req = prepare_resume_cegar_request(
+        ont_rev_id, prior_wave_rev_id, modeling_req = prepare_resume_cegar_request(
             self._state,
             self._workspace_root,
             project_id=project_id,
@@ -255,6 +253,9 @@ class VaultService:
             policy=prior_res.policy,
             harness=harness,
             prior_res=prior_res,
+            secret_store=self._secrets,
+            trusted_workspaces=ws.trusted_workspaces,
+            model_overrides=dict(proj.settings_snapshot.model_overrides) or None,
             prior_state=prior_state,
         )
         running_state = prior_state.model_copy(
@@ -273,11 +274,11 @@ class VaultService:
             record_run_state(self._state, project_id, running_state)
             if horizon_req is not None:
                 saved = save_horizon_assumption_revision(self._state, project_id, horizon_req)
-                cegar_req = cegar_req.model_copy(
-                    update={"horizon_assumptions": [*cegar_req.horizon_assumptions, saved]}
+                modeling_req = modeling_req.model_copy(
+                    update={"horizon_assumptions": [*modeling_req.horizon_assumptions, saved]}
                 )
             upgraded = _carry_prior_proposals(
-                prior_res, await run_v8_horizon_review(cegar_req, prior_res)
+                prior_res, await run_v8_horizon_review(modeling_req, prior_res)
             )
             return persist_cegar_result(
                 self._state,
@@ -301,8 +302,9 @@ class VaultService:
         req: HoldAnswersReq,
         *,
         horizon_req: HorizonActionReq | None = None,
+        revert: bool = False,
     ) -> RunStateResp:
-        """Resume a HOLD_CHECKPOINTED Step 6 CEGAR run with Steward answers."""
+        """Resume a HOLD_CHECKPOINTED Step 6 CEGAR run with Steward answers or revert."""
         prior_state = _require_step6_run(self._state, project_id, run_id)
         if prior_state.status not in ("HOLD_CHECKPOINTED", "UNCERTIFIED_DRAFT"):
             raise OpenDVError(
@@ -314,6 +316,7 @@ class VaultService:
         ckpt = ckpt_store.load_checkpoint(run_id)
         prior_res = load_cegar_result(self._state, project_id, run_id)
         proj = self._state.get_project(project_id)
+        ws = self._load_ws_settings()
         eff_policy: CegarPolicy = prior_state.policy or proj.settings_snapshot.cegar_policy
         harness = resolve_harness(
             proj.settings_snapshot,
@@ -321,7 +324,7 @@ class VaultService:
             injected_harness=self._injected_harness,
             readiness_service=self._readiness_service,
         )
-        ont_rev_id, prior_wave_rev_id, cegar_req = prepare_resume_cegar_request(
+        ont_rev_id, prior_wave_rev_id, modeling_req = prepare_resume_cegar_request(
             self._state,
             self._workspace_root,
             project_id=project_id,
@@ -332,6 +335,10 @@ class VaultService:
             ckpt_store=ckpt_store,
             checkpoint=ckpt,
             hold_answers=req,
+            secret_store=self._secrets,
+            trusted_workspaces=ws.trusted_workspaces,
+            model_overrides=dict(proj.settings_snapshot.model_overrides) or None,
+            revert_to_pre_steer=revert,
             prior_state=prior_state,
         )
         running_state = prior_state.model_copy(update={"status": "RUNNING", "phase": "resuming"})
@@ -346,12 +353,12 @@ class VaultService:
         )
         try:
             record_run_state(self._state, project_id, running_state)
-            if horizon_req is not None:
+            if horizon_req is not None and not revert:
                 saved = save_horizon_assumption_revision(self._state, project_id, horizon_req)
-                cegar_req = cegar_req.model_copy(
-                    update={"horizon_assumptions": [*cegar_req.horizon_assumptions, saved]}
+                modeling_req = modeling_req.model_copy(
+                    update={"horizon_assumptions": [*modeling_req.horizon_assumptions, saved]}
                 )
-            resumed = _carry_prior_proposals(prior_res, await run_step6_cegar(cegar_req))
+            resumed = _carry_prior_proposals(prior_res, await model_vault(modeling_req))
             return persist_cegar_result(
                 self._state,
                 project_id=project_id,
@@ -373,7 +380,7 @@ class VaultService:
         run_id: str,
         req: HorizonActionReq,
     ) -> RunStateResp:
-        """Apply Steward Accept or Steer response to a Horizon Critic review or Hold."""
+        """Apply Steward Accept, Steer, or Revert response to a Horizon review or Hold."""
         prior_state = _require_step6_run(self._state, project_id, run_id)
         prior_res = load_cegar_result(self._state, project_id, run_id)
         if prior_state.status == "COMPLETED":
@@ -389,6 +396,12 @@ class VaultService:
                     error_code=ErrorCode.VERIFICATION_GATE_FAILED,
                     run_id=run_id,
                 )
+            if req.action == "revert":
+                raise OpenDVError(
+                    f"Run '{run_id}' cannot revert from COMPLETED without an active Hold.",
+                    error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+                    run_id=run_id,
+                )
             return await self._run_horizon_upgrade(
                 project_id, run_id, prior_res, horizon_req=req
             )
@@ -397,6 +410,13 @@ class VaultService:
                 f"Run '{run_id}' cannot accept Hold decisions in status '{prior_state.status}'.",
                 error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
                 run_id=run_id,
+            )
+        if req.action == "revert":
+            return await self.submit_vault_decisions(
+                project_id,
+                run_id,
+                HoldAnswersReq(answers={"__action__": "revert", **req.answers}),
+                revert=True,
             )
         answers = {"hq-v8-low-score": req.action, **req.answers}
         return await self.submit_vault_decisions(
@@ -414,7 +434,10 @@ class VaultService:
         """Execute deterministic V1-V6 + V6b verification with DuckDbProverAdapter."""
         ir = self.get_vault_ir(project_id)
         _ont, _profs, _cls, _locks, _prior, _assump, ctx = load_verifier_inputs(
-            self._state, self._workspace_root, project_id
+            self._state,
+            self._workspace_root,
+            project_id,
+            secret_store=self._secrets,
         )
         report: VerifierReport = run_v1_to_v6_gates(
             ir, ctx, prover=DuckDbProverAdapter(), include_v6b=True
@@ -461,10 +484,12 @@ class VaultService:
         project_id: str,
         req: WaiverSubmitReq,
     ) -> AntiPatternJustification:
-        """Server-stamp a single WAIV-<sha8> waiver onto active CertifiedVaultIR."""
-        ir = self.get_vault_ir(project_id)
+        """Server-stamp a single WAIV-<sha8> waiver (pre-certification or active wave IR)."""
         proj = self._state.get_project(project_id)
         just = self._record_single_waiver(project_id, proj.active_wave_id, req)
+        if proj.active_wave_id is None:
+            return just
+        ir = self.get_vault_ir(project_id)
         existing = [
             j
             for j in ir.justifications

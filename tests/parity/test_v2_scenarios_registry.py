@@ -600,7 +600,9 @@ async def _mod_03(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         }
     )
     smelly_ir = ir.model_copy(update={"satellites": [god_sat, *ir.satellites[1:]]})
-    diags = lint_vault_antipatterns(smelly_ir, policy="balanced")
+    diags_bal = lint_vault_antipatterns(smelly_ir, policy="balanced")
+    assert any(d.rule_id == "DV-AP-005" and d.severity == "ADVISORY" for d in diags_bal)
+    diags = lint_vault_antipatterns(smelly_ir, policy="strict")
     ap5 = next(d for d in diags if d.rule_id == "DV-AP-005")
     self_dealing = AntiPatternJustification(
         waiver_id="W-AGENT", rule_id="DV-AP-005", entity_name=ap5.entity_name, rationale="Agent self-waive", actor="agent", reviewed_by_v7=False
@@ -728,7 +730,7 @@ async def _mod_06(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     srcs = [s.model_dump(mode="json") for s in svc.list_sources("scen-proj")]
     svc.commit_ontology("scen-proj", OntologyCommitReq(base_revision_id=rev1_id, operations=list(build_wave2_commit_ops(srcs)), rationale="MOD-06 W2 additive commit", low_confidence_grounding_waiver=True, grounding_rationale="W2 approved", waive_quarantine=True))
     wave_box[0] = 2
-    await svc.build_vault("scen-proj", VaultBuildReq(policy="balanced"))
+    await svc.build_vault("scen-proj", VaultBuildReq(policy="balanced", real_row_proving=False))
     m2 = svc.migrate_target("scen-proj", StorageTargetReq(target_id="duckdb_local"))
     assert m2.wave_number == 2 and m2.verified is True
     v2_sql = (env.opendv_home / "projects" / "scen-proj" / "targets" / "duckdb_local" / "migrations" / "V002_migrate.sql").read_text(encoding="utf-8")
@@ -755,7 +757,7 @@ async def _mod_07(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> None:
     d_bal = lint_vault_antipatterns(no_pit, policy="balanced")
     d_str = lint_vault_antipatterns(no_pit, policy="strict")
     assert any(d.rule_id == "DV-AP-012" and d.severity == "ADVISORY" for d in d_bal)
-    assert any(d.rule_id == "DV-AP-012" and d.severity == "WARN" for d in d_str)
+    assert any(d.rule_id == "DV-AP-012" and d.severity == "ERROR" for d in d_str)
     bad_v1 = ir.model_copy(
         update={
             "satellites": [
@@ -1029,7 +1031,12 @@ def _verify_trap(trap_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         )
         _, l1_cert, _ = run_l1_codemods(sparse_draft, profiles=profs)
         assert l1_cert.links[0].load_semantics is not None
-        assert l1_cert.links[0].load_semantics.filter_ast == PredicateLeaf(op="IS_NOT_NULL", column="executing_broker_lei")
+        assert l1_cert.links[0].load_semantics.filter_ast is None
+        assert l1_cert.links[0].hash_recipe is not None
+        exec_part = next(
+            p for p in l1_cert.links[0].hash_recipe.participant_specs if p.role_name == "EXECUTING_BROKER"
+        )
+        assert exec_part.is_nullable is True
         mega_lnk = clean_ir.links[1].model_copy(
             update={
                 "link_name": "lnk_mega_sparse",

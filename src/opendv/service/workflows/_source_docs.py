@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 from opendv.models.errors import ErrorCode, OpenDVError
-from opendv.models.project import EvolutionLockSpec
+from opendv.models.project import EvolutionLockSpec, SecretPrecedence
 from opendv.models.sources import (
     ConnectorConfigPayload,
     DocumentMap,
@@ -28,6 +28,9 @@ from opendv.sources import (
     DocumentMapBuilder,
     build_table_index_entries,
     cluster_tables,
+    profile_source,
+    validate_databricks_host,
+    validate_databricks_options,
 )
 from opendv.sources import (
     preview_table as run_table_preview,
@@ -162,12 +165,19 @@ def list_tables_index(
     all_tables: list[tuple[str, TableProfile]] = []
     for s in sources:
         rec = state_manager.get_source_record(project_id, s.source_id)
-        prof = SourceProfile.model_validate(rec["profile"])
+        prof = (
+            rec["profile"]
+            if isinstance(rec["profile"], SourceProfile)
+            else SourceProfile.model_validate(rec["profile"])
+        )
         for tbl in prof.tables:
             all_tables.append((s.source_id, tbl))
     if not all_tables:
         return []
-    clustered = cluster_tables([t for _sid, t in all_tables])
+    if len(sources) == 1 and all(tbl.cluster_id for _sid, tbl in all_tables):
+        cluster_map = {tbl.table_id: tbl.cluster_id or "cluster-0" for _sid, tbl in all_tables}
+    else:
+        cluster_map = cluster_tables([t for _sid, t in all_tables]).table_to_cluster
     locks = active_evolution_locks(state_manager, project_id)
     locked_cols: dict[str, set[str]] = {}
     locked_wave_by_tbl: dict[str, int] = {}
@@ -187,14 +197,17 @@ def list_tables_index(
             badge_map[tbl.table_id] = "NEW"
     out: list[TableIndexEntry] = []
     for sid, tbl in all_tables:
-        cluster_id = clustered.table_to_cluster.get(tbl.table_id, "cluster-0")
         tbl_wave = locked_wave_by_tbl.get(tbl.table_id)
         modeled_ver = f"v{tbl_wave}" if tbl_wave is not None else None
-        entries = build_table_index_entries(
-            [tbl], sid, badge_map=badge_map, modeled_version=modeled_ver
+        out.extend(
+            build_table_index_entries(
+                [tbl],
+                sid,
+                badge_map=badge_map,
+                modeled_version=modeled_ver,
+                precomputed_clusters=cluster_map,
+            )
         )
-        for item in entries:
-            out.append(item.model_copy(update={"cluster_id": cluster_id}))
     return out
 
 
@@ -489,3 +502,84 @@ def approve_scan_pages(
         approved_scan_pages=merged,
     )
     return updated_map
+
+
+def check_databricks_binding(
+    uri_or_path: str,
+    options: dict[str, str | int | bool],
+    secret_refs: list[str],
+    secret_store: KeyringSecretStore,
+    *,
+    project_precedence: SecretPrecedence | None = None,
+) -> tuple[str, str]:
+    """Validate Databricks connector options, host, and resolve required token secret."""
+    if "host" in options and not isinstance(options["host"], str):
+        raise OpenDVError(
+            "Databricks connector option 'host' must be a string.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    try:
+        validate_databricks_options(options, secret_refs, require_secret_ref=True)
+    except OpenDVError as exc:
+        if exc.error_code == ErrorCode.NEEDS_LOCAL_SECRET_BINDING and exc.remediation is None:
+            raise OpenDVError(
+                exc.detail,
+                error_code=exc.error_code,
+                remediation=build_remediation(
+                    ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+                    missing_secrets=secret_refs,
+                ),
+            ) from exc
+        raise
+    raw_opt_host = options.get("host")
+    opt_host = raw_opt_host.strip() if isinstance(raw_opt_host, str) else ""
+    uri_stripped = uri_or_path.strip()
+    eff_host = opt_host or uri_stripped
+    validate_databricks_host(eff_host, resolve_dns=True)
+    if opt_host and uri_stripped and uri_stripped != opt_host:
+        validate_databricks_host(uri_stripped, resolve_dns=True)
+    missing: list[str] = []
+    tokens: list[str] = []
+    for ref in secret_refs:
+        val = secret_store.get_secret(ref, project_precedence=project_precedence)
+        if val is None:
+            missing.append(ref)
+        else:
+            tokens.append(val)
+    if missing:
+        raise OpenDVError(
+            f"Missing required local secret binding(s): {', '.join(missing)}",
+            error_code=ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+            remediation=build_remediation(
+                ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+                missing_secrets=missing,
+            ),
+        )
+    return eff_host, tokens[0]
+
+
+def profile_with_remediation(
+    source_id: str,
+    kind: SourceKind,
+    uri: str,
+    *,
+    options: dict[str, str | int | bool],
+    secret_refs: list[str],
+    selected_tables: list[str] | None = None,
+    profile_timeout_seconds: int = 30,
+    access_token: str | None = None,
+) -> SourceProfile:
+    """Profile structured source and enrich missing-driver errors with remediation."""
+    try:
+        return profile_source(
+            source_id,
+            kind,
+            uri,
+            options=options,
+            secret_refs=secret_refs,
+            selected_tables=selected_tables,
+            profile_timeout_seconds=profile_timeout_seconds,
+            access_token=access_token,
+        )
+    except OpenDVError as exc:
+        raise attach_driver_remediation(exc) from exc

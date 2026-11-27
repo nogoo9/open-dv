@@ -8,21 +8,22 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 
-from opendv.models.diagnostics import VerifierDiagnostic
+from opendv.models.diagnostics import AntiPatternJustification, VerifierDiagnostic
+from opendv.models.modeling_preferences import SURROGATE_BK_RE, ModelingPreferences
 from opendv.models.ontology import GraphAOntology
-from opendv.models.policy import CegarPolicy
+from opendv.models.policy import CEGAR_POLICY_SPECS, CegarPolicy
 from opendv.models.sources import SourceProfile
 from opendv.models.vault_ir_certified import CertifiedVaultIR
 from opendv.verifier._v6b_ontology_ap import (
     FLOAT_SQL_RE,
     SEQ_COL_RE,
     SOURCE_PREFIX_RE,
+    apply_v6b_governance,
     index_profiles,
     is_sensitive_col,
     waiver_id,
 )
 
-_SURROGATE_BK_RE = re.compile(r"(?i)(?:^seq_id$|^row_id$|^uuid$|^surrogate_id$|^auto_id$)")
 _ENUM_LOOKUP_RE = re.compile(r"(?i)(?:_code|_status|_type|_tier|_grade|_category)$")
 _TIER1_ID_SET: frozenset[str] = frozenset(
     {"lei", "lei_code", "isin", "cusip", "figi", "iban", "swift_bic", "bic", "cik"}
@@ -60,22 +61,43 @@ def lint_vault_antipatterns(
     cdc_volatility_by_table: Mapping[str, Mapping[str, float]] | None = None,
     fk_turnover_by_table: Mapping[str, Mapping[str, float]] | None = None,
     entity_count_overrides: Mapping[str, int] | None = None,
+    modeling_preferences: ModelingPreferences | None = None,
+    justifications: Sequence[AntiPatternJustification] = (),
 ) -> list[VerifierDiagnostic]:
     """Detect Vault DV-AP-001..010, 012 anti-patterns on CertifiedVaultIR."""
     diags: list[VerifierDiagnostic] = []
+    prefs = modeling_preferences or ModelingPreferences()
+    policy_spec = CEGAR_POLICY_SPECS[policy]
     col_idx, tbl_idx = index_profiles(profiles)
     cdc = cdc_volatility_by_table or {}
     turnover = fk_turnover_by_table or {}
     ent_counts = entity_count_overrides or {}
 
+    sal_hubs = {
+        p.hub_name for lnk in ir.links if lnk.link_kind == "SAME_AS" for p in lnk.participants
+    }
     hub_sigs: list[tuple[str, set[str]]] = []
     table_to_hubs: dict[str, set[str]] = {}
     for h in ir.hubs:
         if h.is_planned_concept or h.hub_name.endswith("_canonical"):
             continue
         if SOURCE_PREFIX_RE.search(h.hub_name):
+            prefix_sev = (
+                "ADVISORY"
+                if (
+                    policy_spec.allow_preference_exemptions
+                    and prefs.multi_source_hub_strategy == "companion_hub_with_sal"
+                    and h.hub_name in sal_hubs
+                )
+                else "WARN"
+            )
             diags.append(
-                _dv_diag("DV-AP-001", h.hub_name, f"Hub {h.hub_name} carries source prefix.")
+                _dv_diag(
+                    "DV-AP-001",
+                    h.hub_name,
+                    f"Hub {h.hub_name} carries source prefix.",
+                    severity=prefix_sev,
+                )
             )
         sig_h = {bk.col_name.lower() for bk in h.business_keys} | {
             a.name.lower() for a in h.attributes
@@ -153,9 +175,6 @@ def lint_vault_antipatterns(
                 )
             )
 
-    sal_hubs = {
-        p.hub_name for lnk in ir.links if lnk.link_kind == "SAME_AS" for p in lnk.participants
-    }
     for h in ir.hubs:
         if h.is_planned_concept:
             continue
@@ -175,18 +194,46 @@ def lint_vault_antipatterns(
         for bk in h.business_keys:
             cp = col_idx.get((bk.table_id, bk.col_name))
             tp = tbl_idx.get(bk.table_id)
-            if _SURROGATE_BK_RE.search(bk.col_name) or (
-                cp is not None and FLOAT_SQL_RE.match(cp.sql_type.strip())
-            ):
+            is_surrogate_bk = bool(SURROGATE_BK_RE.search(bk.col_name)) or (
+                cp is not None and cp.surrogate_score >= 0.75
+            )
+            is_float_bk = cp is not None and bool(FLOAT_SQL_RE.match(cp.sql_type.strip()))
+            if is_surrogate_bk or is_float_bk:
+                bkcc_norm = bk.bkcc_value.strip().upper()
+                unfixable_legacy_surrogate = (
+                    is_surrogate_bk
+                    and not is_float_bk
+                    and bk.key_tier == "TIER_3_LOCAL_SCOPED"
+                    and bkcc_norm != "GLOBAL"
+                    and policy != "strict"
+                    and tp is not None
+                    and (
+                        tp.best_non_surrogate_bk_uniqueness_ratio is None
+                        or tp.best_non_surrogate_bk_uniqueness_ratio < 0.99
+                    )
+                )
+                pref_allow_surrogate = (
+                    is_surrogate_bk
+                    and not is_float_bk
+                    and policy_spec.allow_preference_exemptions
+                    and prefs.surrogate_key_strategy == "allow_with_bkcc_note"
+                )
+                sev = (
+                    "ADVISORY"
+                    if (unfixable_legacy_surrogate or pref_allow_surrogate)
+                    else "WARN"
+                )
+                kind_lbl = "float" if is_float_bk else "surrogate"
                 diags.append(
                     _dv_diag(
                         "DV-AP-003",
                         h.hub_name,
-                        f"Hub {h.hub_name} uses surrogate/float BK '{bk.col_name}'.",
+                        f"Hub {h.hub_name} uses {kind_lbl} BK '{bk.col_name}'.",
+                        severity=sev,
                     )
                 )
             is_tier1_or_entity_id = bk.col_name.lower() in _TIER1_ID_SET or (
-                bk.col_name.lower().endswith("_id") and not _SURROGATE_BK_RE.search(bk.col_name)
+                bk.col_name.lower().endswith("_id") and not SURROGATE_BK_RE.search(bk.col_name)
             )
             if SEQ_COL_RE.search(bk.col_name) or (
                 not is_tier1_or_entity_id
@@ -329,7 +376,6 @@ def lint_vault_antipatterns(
                 )
 
     pit_hubs = {pb.root_hub for pb in ir.pit_bridges}
-    pit_sev = "WARN" if policy == "strict" else "ADVISORY"
     for h in ir.hubs:
         if h.is_planned_concept:
             continue
@@ -340,7 +386,6 @@ def lint_vault_antipatterns(
                     "DV-AP-012",
                     h.hub_name,
                     f"Hub {h.hub_name} has {sat_count} Satellites without pit_* accelerator.",
-                    severity=pit_sev,
                 )
             )
     for mart in ir.information_marts:
@@ -350,11 +395,16 @@ def lint_vault_antipatterns(
                     "DV-AP-012",
                     mart.view_name,
                     f"Mart {mart.view_name} joins {len(mart.joined_entities)} entities w/o PIT.",
-                    severity=pit_sev,
                 )
             )
 
-    return diags
+    merged_justs = [*ir.justifications, *justifications]
+    return apply_v6b_governance(
+        diags,
+        policy=policy,
+        modeling_preferences=prefs,
+        justifications=merged_justs,
+    )
 
 
 __all__ = ["lint_vault_antipatterns"]

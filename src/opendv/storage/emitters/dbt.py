@@ -12,8 +12,15 @@ from typing import Any
 import yaml
 
 from opendv.models.project import DbtSqlDialect, EvolutionLockSpec, TargetManifest
+from opendv.models.vault_ir import hub_canonical_bk_cols
 from opendv.models.vault_ir_certified import CertifiedVaultIR
 from opendv.storage.dialects import assign_physical_aliases, get_dialect_profile
+from opendv.storage.sql_compiler._ddl_common import is_pit_bridge_excluded
+from opendv.storage.sql_compiler._z3_z4_dml import (
+    build_dbt_esat_sql,
+    build_pit_bridge_select_sql,
+    rewrite_dbt_vault_refs,
+)
 from opendv.storage.sql_compiler.ddl_builders import (
     build_mart_view_ddl,
     build_staging_view_ddl,
@@ -133,11 +140,12 @@ class DbtEmitter:
         # Z2 Raw Vault & Z3 Business Vault AutomateDV models
         stg_by_tbl = {s.source_table_id: s.view_name for s in ir.staging_views}
         z2_models: list[dict[str, Any]] = []
+        z3_models: list[dict[str, Any]] = []
         for h in ir.hubs:
             if h.hub_name in planned_hubs:
                 continue
             hk = h.columns[0].name
-            bks = [bk.col_name for bk in h.business_keys]
+            bks = hub_canonical_bk_cols(h)
             src_models = [
                 stg_by_tbl[sb.table_id] for sb in h.source_bindings if sb.table_id in stg_by_tbl
             ]
@@ -166,10 +174,11 @@ class DbtEmitter:
                 f"{{{{ automate_dv.{macro}(src_pk='{hk}', src_fk={fks!r}, src_ldts='load_dts', "
                 f"src_source='rec_src', source_model='{src_model}') }}}}\n"
             )
+            model_entry = {"name": lk.link_name, "columns": [{"name": c.name} for c in lk.columns]}
             if zone_dir == "Z2_raw_vault":
-                z2_models.append(
-                    {"name": lk.link_name, "columns": [{"name": c.name} for c in lk.columns]}
-                )
+                z2_models.append(model_entry)
+            else:
+                z3_models.append(model_entry)
 
         for sat in ir.satellites:
             if sat.sat_name in excluded_sats:
@@ -179,19 +188,24 @@ class DbtEmitter:
             payload = [a.name for a in sat.attributes]
             zone_dir = "Z3_business_vault" if sat.zone_id == "Z3" else "Z2_raw_vault"
             src_hd = hd_col_map.get((src_model, sat.sat_name), "hash_diff")
-            if sat.sat_kind == "MAS":
+            model_entry = {"name": sat.sat_name, "columns": [{"name": c.name} for c in sat.columns]}
+            if sat.sat_kind == "ESAT":
+                is_z3_view = sat.zone_id == "Z3"
+                files[f"models/{zone_dir}/{sat.sat_name}.sql"] = build_dbt_esat_sql(
+                    sat, src_model, ir, profile, is_z3_view=is_z3_view
+                )
+                if is_z3_view:
+                    z3_models.append(model_entry)
+                else:
+                    z2_models.append(model_entry)
+                continue
+
+            if sat.sat_kind == "MAS" or bool(sat.child_dependent_keys):
                 macro_call = (
                     f"automate_dv.ma_sat(src_pk='{parent_hk}', "
                     f"src_cdk={sat.child_dependent_keys!r}, "
                     f"src_hashdiff={src_hd!r}, src_payload={payload!r}, "
                     f"src_ldts='load_dts', src_source='rec_src', source_model='{src_model}')"
-                )
-            elif sat.sat_kind == "ESAT":
-                macro_call = (
-                    f"automate_dv.eff_sat(src_pk='{parent_hk}', src_dfk={sat.driving_keys!r}, "
-                    "src_sfk=[], src_start_date='load_dts', src_end_date='load_dts', "
-                    f"src_eff='load_dts', src_ldts='load_dts', src_source='rec_src', "
-                    f"source_model='{src_model}')"
                 )
             else:
                 macro_call = (
@@ -203,34 +217,38 @@ class DbtEmitter:
                 "{{ config(materialized='incremental') }}\n{{ " + macro_call + " }}\n"
             )
             if zone_dir == "Z2_raw_vault":
-                z2_models.append(
-                    {"name": sat.sat_name, "columns": [{"name": c.name} for c in sat.columns]}
-                )
+                z2_models.append(model_entry)
+            else:
+                z3_models.append(model_entry)
 
         files["models/Z2_raw_vault/schema.yml"] = yaml.safe_dump(
             {"version": 2, "models": z2_models}, sort_keys=False
         )
 
-        # Z3 PITs / Bridges
-        z3_models: list[dict[str, Any]] = []
+        # Z3 PITs / Bridges (SELECT-only views)
         for pb in ir.pit_bridges:
-            if pb.root_hub in planned_hubs:
+            if is_pit_bridge_excluded(pb, planned_hubs, excluded_links):
                 continue
-            macro = "pit" if pb.object_kind == "PIT" else "bridge"
-            hk_n = f"hk_{pb.root_hub.removeprefix('hub_')}"
+            built = build_pit_bridge_select_sql(pb, ir, ir.seed_records, profile, aliases)
+            if built is None:
+                continue
+            pb_cols, select_sql = built
+            select_jinja = rewrite_dbt_vault_refs(select_sql, ir, aliases)
             files[f"models/Z3_business_vault/{pb.object_name}.sql"] = (
-                "{{ config(materialized='table') }}\n"
-                f"{{{{ automate_dv.{macro}(source_model='{pb.root_hub}', src_pk='{hk_n}') }}}}\n"
+                "{{ config(materialized='view') }}\n\n" + select_jinja + "\n"
             )
-            z3_models.append({"name": pb.object_name})
-        files["models/Z3_business_vault/schema.yml"] = yaml.safe_dump(
-            {"version": 2, "models": z3_models}, sort_keys=False
-        )
+            z3_models.append(
+                {"name": pb.object_name, "columns": [{"name": c} for c in pb_cols]}
+            )
 
-        # Z4 Information Marts
+        # Z3 ESAT_INTERVALS & Z4 Information Marts
         z4_models: list[dict[str, Any]] = []
         for mart in ir.information_marts:
-            if mart.root_entity in planned_hubs:
+            if (
+                mart.root_entity in planned_hubs
+                or mart.root_entity in excluded_sats
+                or mart.root_entity in excluded_links
+            ):
                 continue
             ddl_list = build_mart_view_ddl(mart, ir, profile, aliases)
             if not ddl_list:
@@ -239,12 +257,24 @@ class DbtEmitter:
             select_body = (
                 ddl_list[-1].split(" AS\n", 1)[1] if " AS\n" in ddl_list[-1] else ddl_list[-1]
             )
-            files[f"models/Z4_information_mart/{obj_name}.sql"] = (
-                "{{ config(materialized='view') }}\n\n" + select_body + "\n"
-            )
-            z4_models.append(
-                {"name": obj_name, "columns": [{"name": c.name} for c in mart.columns]}
-            )
+            model_entry = {
+                "name": obj_name,
+                "columns": [{"name": c.name} for c in mart.columns],
+            }
+            if mart.zone_id == "Z3" or mart.view_kind == "ESAT_INTERVALS":
+                select_jinja = rewrite_dbt_vault_refs(select_body, ir, aliases)
+                files[f"models/Z3_business_vault/{obj_name}.sql"] = (
+                    "{{ config(materialized='view') }}\n\n" + select_jinja + "\n"
+                )
+                z3_models.append(model_entry)
+            else:
+                files[f"models/Z4_information_mart/{obj_name}.sql"] = (
+                    "{{ config(materialized='view') }}\n\n" + select_body + "\n"
+                )
+                z4_models.append(model_entry)
+        files["models/Z3_business_vault/schema.yml"] = yaml.safe_dump(
+            {"version": 2, "models": z3_models}, sort_keys=False
+        )
         files["models/Z4_information_mart/schema.yml"] = yaml.safe_dump(
             {"version": 2, "models": z4_models}, sort_keys=False
         )

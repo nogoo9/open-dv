@@ -17,6 +17,7 @@ from opendv.models.project import (
     HarnessProvider,
     ImportReadinessReport,
     ProjectSettingsPatchReq,
+    ProjectSettingsSnapshot,
     ProjectState,
     ProjectSummary,
     TargetManifest,
@@ -77,6 +78,7 @@ from opendv.models.wire_dtos_vault import (
     StorageTargetReq,
     TargetBundleResp,
     VaultBuildReq,
+    VaultStatusResp,
     VaultVerifyResp,
     WaiverSubmitReq,
 )
@@ -166,6 +168,7 @@ class OpenDVService:
             secret_store=self.secret_store,
             workspace_root=self.workspace_root,
             injected_harness=self.injected_harness,
+            settings_store=self.settings_store,
             readiness_service=self._readiness,
         )
         self.storage = StorageService(
@@ -247,9 +250,11 @@ class OpenDVService:
         return self.harnesses.run_doctor(check_agents=check_agents, check_mcp=check_mcp)
 
     def update_project_settings(
-        self, project_id: str, req: ProjectSettingsPatchReq
+        self,
+        project_id: str,
+        req: ProjectSettingsPatchReq | ProjectSettingsSnapshot,
     ) -> ProjectState:
-        """Atomically patch ProjectSettingsSnapshot for future runs in project_id."""
+        """Atomically patch or replace ProjectSettingsSnapshot for future runs in project_id."""
         return self.settings.update_project_settings(project_id, req)
 
     def revoke_trusted_workspace(self, workspace_root: Path | str) -> WorkspaceSettings:
@@ -496,6 +501,15 @@ class OpenDVService:
 
     def get_vault_run(self, project_id: str, run_id: str) -> RunStateResp:
         return self.vault.get_vault_run(project_id, run_id)
+
+    def get_vault_status(
+        self,
+        project_id: str,
+        *,
+        run_id: str | None = None,
+        holds_only: bool = False,
+    ) -> VaultStatusResp:
+        return self.vault.get_vault_status(project_id, run_id=run_id, holds_only=holds_only)
 
     def list_vault_attempts(self, project_id: str, run_id: str) -> list[AttemptSnapshotSpec]:
         return self.vault.list_vault_attempts(project_id, run_id)

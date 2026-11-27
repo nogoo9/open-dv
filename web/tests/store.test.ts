@@ -131,6 +131,8 @@ const mkProject = (
 		dbt_sql_dialect: "duckdb",
 		discovery_mode: "incremental_new",
 		secret_precedence: "store_first",
+		proving_sample_rows: 200,
+		real_row_proving: true,
 		max_turns: null,
 		max_tokens: null,
 		timeout_seconds: null,

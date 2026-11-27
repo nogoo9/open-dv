@@ -152,6 +152,8 @@ const mkProject = (over: Partial<ProjectState> = {}): ProjectState => ({
 		dbt_sql_dialect: "duckdb",
 		discovery_mode: "incremental_new",
 		secret_precedence: "store_first",
+		proving_sample_rows: 200,
+		real_row_proving: true,
 		max_turns: null,
 		max_tokens: null,
 		timeout_seconds: null,
@@ -552,6 +554,7 @@ describe("Track C Step 5 Explorer, YAML CST, 409 Rebase, Graph Builders & Export
 				{
 					zone_id: "Z4",
 					view_name: "vw_a",
+					view_kind: "CURRENT",
 					root_entity: "pit_a",
 					joined_entities: [],
 					select_exprs: {},

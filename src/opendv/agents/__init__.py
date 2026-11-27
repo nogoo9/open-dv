@@ -1,14 +1,7 @@
-"""Layer 2b Open-DV V2 agent packs, subprocess/SDK runners, CEGAR loop, and V7/V8 critics."""
+"""Layer 2b Open-DV V2 agent packs and subprocess/SDK runners."""
 
 from __future__ import annotations
 
-from opendv.agents.cegar_runner import (
-    CegarRunRequest,
-    CegarRunResult,
-    CegarStatus,
-    run_step6_cegar,
-    run_v8_horizon_review,
-)
 from opendv.agents.cli_subprocess_base import (
     _MAX_CLI_FLAG_CHARS,
     IsolatedTempCwd,
@@ -28,17 +21,6 @@ from opendv.agents.cli_subprocess_base import (
     unwrap_windows_npm_shim,
     validate_cli_structured_output,
 )
-from opendv.agents.critics import (
-    CompactColumnTuple,
-    FragilitySurfaceSummary,
-    audit_v6b_justifications,
-    build_compact_7tuple_summary,
-    build_v7_critic_prompt,
-    build_v8_horizon_prompt,
-    run_v7_semantic_critic,
-    run_v8_horizon_critic,
-    scan_fragility_surface,
-)
 from opendv.agents.harness_probes import (
     ProbeFn,
     Tier2ProbeOutcome,
@@ -56,6 +38,7 @@ from opendv.agents.pack_loader import (
     list_agent_packs,
     load_agent_pack,
     load_agent_pack_with_config,
+    load_modeling_guide,
     verify_workspace_override_trust,
 )
 from opendv.agents.ports import (
@@ -104,13 +87,8 @@ __all__ = [
     "AgentPackConfig",
     "AgentTurnRequest",
     "AgentTurnResult",
-    "CegarRunRequest",
-    "CegarRunResult",
-    "CegarStatus",
     "CliProvider",
-    "CompactColumnTuple",
     "ControlSignalReader",
-    "FragilitySurfaceSummary",
     "IsolatedTempCwd",
     "ModuleLoaderFn",
     "ProbeFn",
@@ -127,15 +105,11 @@ __all__ = [
     "SubprocessStreamFn",
     "Tier2ProbeOutcome",
     "attach_windows_job_object",
-    "audit_v6b_justifications",
     "build_agy_command",
     "build_broker_mcp_config_json",
     "build_claude_cli_command",
-    "build_compact_7tuple_summary",
     "build_empty_mcp_config_json",
     "build_isolated_child_env",
-    "build_v7_critic_prompt",
-    "build_v8_horizon_prompt",
     "close_sdk_client",
     "compute_pack_sha256",
     "compute_workspace_agents_sha256",
@@ -149,6 +123,7 @@ __all__ = [
     "list_agent_packs",
     "load_agent_pack",
     "load_agent_pack_with_config",
+    "load_modeling_guide",
     "load_optional_sdk_module",
     "parse_ndjson_step_events",
     "parse_ndjson_stream_line",
@@ -161,11 +136,6 @@ __all__ = [
     "resolve_model_for_agent",
     "resolve_sdk_api_key",
     "run_cli_subprocess_capture",
-    "run_step6_cegar",
-    "run_v7_semantic_critic",
-    "run_v8_horizon_critic",
-    "run_v8_horizon_review",
-    "scan_fragility_surface",
     "select_sdk_tools",
     "stream_cli_subprocess_lines",
     "strip_markdown_json_fences",

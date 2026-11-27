@@ -846,10 +846,10 @@ async def test_uat_v26_api_05_step4_step6_202_runs_logs_pause_and_sse_replay(
 async def test_uat_v26_api_06_all_70_routes_scale_200_and_public_am_w001_w002(
     tmp_path: Path,
 ) -> None:
-    # Verify OpenAPI schema exposes exactly 70 operations and expected schemas
+    # Verify OpenAPI schema exposes exactly 71 operations and expected schemas
     schema = export_openapi_schema()
     op_count = sum(len(methods) for methods in schema["paths"].values())
-    assert op_count == 70
+    assert op_count == 71
     for comp in (
         "ProjectImportPathReq",
         "SourceReattachReq",
@@ -1043,7 +1043,7 @@ async def test_uat_v26_api_06_all_70_routes_scale_200_and_public_am_w001_w002(
                 _walk_routes(list(route.routes), f"{prefix}{sub_prefix}")
 
     _walk_routes(list(app.routes))
-    assert len(expected_ops) == 70
+    assert len(expected_ops) == 71
     called_ops: set[tuple[str, str]] = set()
 
     def _mark(method: str, path_tmpl: str) -> None:
@@ -1130,6 +1130,18 @@ async def test_uat_v26_api_06_all_70_routes_scale_200_and_public_am_w001_w002(
             _mark("GET", "/api/v1/projects")
             proj = (await client.get("/api/v1/projects/am-e2e")).json()
             _mark("GET", "/api/v1/projects/{project_id}")
+            assert (
+                await client.patch(
+                    "/api/v1/projects/am-e2e/settings",
+                    json={"proving_sample_rows": 500},
+                )
+            ).status_code == 200
+            _mark("PATCH", "/api/v1/projects/{project_id}/settings")
+            proj_settings = (await client.get("/api/v1/projects/am-e2e")).json()["settings_snapshot"]
+            assert (
+                await client.put("/api/v1/projects/am-e2e/settings", json=proj_settings)
+            ).status_code == 200
+            _mark("PUT", "/api/v1/projects/{project_id}/settings")
 
             r_ps = await client.patch(
                 "/api/v1/projects/am-e2e/settings",
@@ -1514,6 +1526,14 @@ async def test_uat_v26_api_06_all_70_routes_scale_200_and_public_am_w001_w002(
             ).json()
             assert rev2["ontology_version"] == "0.2.0"
 
+            # Legacy Wave-2 test fixture wave2_bitemporal_nav_restatements.csv has duplicate
+            # (fund_code, share_class, as_of_date, applied_dts) rows tested as STANDARD sat_nav_bitemp.
+            assert (
+                await client.patch(
+                    "/api/v1/projects/am-e2e/settings",
+                    json={"real_row_proving": False},
+                )
+            ).status_code == 200
             wave_mode["wave"] = 2
             rid_w2 = (
                 await client.post("/api/v1/projects/am-e2e/runs", json={"policy": "balanced"})
@@ -2458,19 +2478,30 @@ async def test_remediation_s6_05_s6_06_resume_payload_and_step4_isolation(tmp_pa
         assert (await client.get(f"/api/v1/projects/p-iso/runs/{rid_b}")).json()["status"] == "COMPLETED"
         assert observed_v8[-1] == expected_v8_budget
 
-        # Also verify S6-06 _v8_resume_payload preserves accept_best_requested when set
-        from opendv.agents._cegar_horizon import _v8_resume_payload
+        # Also verify S6-06 save_checkpoint preserves accept_best_requested when set
+        from opendv.modeling._engine_helpers import save_checkpoint
 
-        v8_p = _v8_resume_payload(
-            {"v8_low_score_pause": True},
-            horizon_review_requested=False,
-            v7_verdict=None,
+        v8_p = save_checkpoint(
+            run_id="run-s606-check",
+            phase="S6-06",
+            status="HOLD_CHECKPOINTED",
+            ontology_version="1.0.0",
+            src_fingerprint="fp",
+            pending_questions=[],
+            turns_used=1,
+            tokens_used=100,
+            token_count_source="estimated",
+            seq_ref=[0],
+            event_sink=None,
+            checkpoint_store=None,
+            extra={"v8_low_score_pause": True},
             last_sig_seq=2,
             hints=["s6_06_hint"],
             accept_best_requested=True,
+            horizon_review_requested=False,
             effective_budget=base_b.model_copy(update={"max_turns": base_b.max_turns + 5}),
-            base_budget=base_b,
-        )
+            policy="balanced",
+        ).resume_payload
         assert v8_p["accept_best_requested"] is True
         assert v8_p["hints"] == ["s6_06_hint"]
         assert v8_p["budget_max_turns"] == base_b.max_turns + 5
@@ -3006,6 +3037,12 @@ async def test_r4_certified_fast_in_place_horizon_upgrade_wave1_and_wave2(
             ),
         )
 
+        assert (
+            await client.patch(
+                "/api/v1/projects/p-fast-1/settings",
+                json={"real_row_proving": False},
+            )
+        ).status_code == 200
         state["wave"] = 2
         state["v8_score"] = 71
         r_w2 = await client.post("/api/v1/projects/p-fast-1/runs", json={"policy": "fast"})
@@ -3191,6 +3228,12 @@ async def test_r5_post_waiver_wave2_horizon_preserves_locks_and_isolates_low_sco
             ),
         )
 
+        assert (
+            await client.patch(
+                "/api/v1/projects/p-r5-waiv/settings",
+                json={"real_row_proving": False},
+            )
+        ).status_code == 200
         state["wave"] = 2
         r_w2 = await client.post("/api/v1/projects/p-r5-waiv/runs", json={"policy": "fast"})
         assert r_w2.status_code == 202
@@ -3232,16 +3275,16 @@ async def test_r5_post_waiver_wave2_horizon_preserves_locks_and_isolates_low_sco
             harness=mock_harness,
             prior_res=w2_res_hold,
         )
-        assert resume_req.evolution_locks is not None
-        assert resume_req.evolution_locks.wave_number == 1
+        assert resume_req.wave.evolution_locks is not None
+        assert resume_req.wave.evolution_locks.wave_number == 1
         assert w2_res_hold.certified_ir is not None
         mutated_ir = w2_res_hold.certified_ir.model_copy(
             update={"hubs": [h for h in w2_res_hold.certified_ir.hubs if h.hub_name != "hub_filer"]}
         )
         evo_diags = verify_v5_evolution(
             mutated_ir,
-            locks=resume_req.evolution_locks,
-            prior_ir=resume_req.prior_certified_ir,
+            locks=resume_req.wave.evolution_locks,
+            prior_ir=resume_req.wave.prior_certified_ir,
         )
         assert any(d.rule_id == "DV-EVO-002" and d.entity_name == "hub_filer" for d in evo_diags)
 
@@ -3472,6 +3515,12 @@ async def test_r5_horizon_assumptions_pause_watermark_and_out_of_order_active_wa
             ),
         )
 
+        assert (
+            await client.patch(
+                "/api/v1/projects/p-r5-h345/settings",
+                json={"real_row_proving": False},
+            )
+        ).status_code == 200
         state["wave"] = 2
         r_w2 = await client.post("/api/v1/projects/p-r5-h345/runs", json={"policy": "balanced"})
         assert r_w2.status_code == 202

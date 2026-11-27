@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from opendv.agents._cegar_helpers import poll_control_signals
+from opendv.modeling._engine_helpers import poll_control_signals
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.events import (
     AuditLogRecord,
@@ -390,7 +390,7 @@ def test_jsonl_stream_incomplete_frame_tolerance_and_agent_ports(tmp_path: Path)
 
     last_sig_seq = [0]
     hints: list[str] = []
-    paused, _, _, _ = poll_control_signals(
+    paused, _, _, _, _ = poll_control_signals(
         reader,
         run_id="run-x",
         last_signal_seq=last_sig_seq,
@@ -402,7 +402,7 @@ def test_jsonl_stream_incomplete_frame_tolerance_and_agent_ports(tmp_path: Path)
     assert last_sig_seq[0] == 2
 
     # Second poll MUST return empty (no replay!)
-    paused2, _, _, _ = poll_control_signals(
+    paused2, _, _, _, _ = poll_control_signals(
         reader,
         run_id="run-x",
         last_signal_seq=last_sig_seq,

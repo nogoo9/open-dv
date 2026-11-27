@@ -246,6 +246,230 @@
       ]
     },
     {
+      "help": "Statelessly profile sources, compute PK containment, and survey modeling hints.",
+      "http_method": null,
+      "http_route": null,
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--source",
+          "help": "Repeatable <kind>:<uri> source specification.",
+          "name": "source",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--sources-file",
+          "help": "Path to JSON or YAML source manifest.",
+          "name": "sources_file",
+          "required": false,
+          "short": null,
+          "type": "path"
+        },
+        {
+          "choices": null,
+          "default": 200,
+          "flag": "--sample-rows",
+          "help": "Max proving rows sampled per table (1..5000).",
+          "name": "sample_rows",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--no-real-row-proving",
+          "help": "Disable real-row proving capture.",
+          "name": "no_real_row_proving",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": 5,
+          "flag": "--max-questions",
+          "help": "Max clarification survey questions (0 returns all remaining).",
+          "name": "max_questions",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": 0,
+          "flag": "--questions-offset",
+          "help": "Zero-based pagination offset for questions.",
+          "name": "questions_offset",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--out",
+          "help": "Write ProfileBundle JSON to file.",
+          "name": "out",
+          "required": false,
+          "short": null,
+          "type": "path"
+        }
+      ],
+      "path": [
+        "model",
+        "profile"
+      ]
+    },
+    {
+      "help": "Mode-2 stateless managed CEGAR modeling run (with optional --guide and --profile).",
+      "http_method": null,
+      "http_route": null,
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--input",
+          "help": "Path to DVModelingRequest JSON.",
+          "name": "input_path",
+          "required": true,
+          "short": null,
+          "type": "path"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--profile",
+          "help": "Optional ProfileBundle JSON from `opendv model profile`.",
+          "name": "profile_path",
+          "required": false,
+          "short": null,
+          "type": "path"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--guide",
+          "help": "Optional workspace dv2-modeling-guide.md path.",
+          "name": "guide",
+          "required": false,
+          "short": null,
+          "type": "path"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--dry-run",
+          "help": "Validate request, guide trust, and PII only.",
+          "name": "dry_run",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--out",
+          "help": "Write modeling result JSON to file.",
+          "name": "out",
+          "required": false,
+          "short": null,
+          "type": "path"
+        }
+      ],
+      "path": [
+        "model",
+        "run"
+      ]
+    },
+    {
+      "help": "Emit annotated DV2.0 schemas, constraints, modeling guide, and preferences.",
+      "http_method": null,
+      "http_route": null,
+      "options": [
+        {
+          "choices": null,
+          "default": "all",
+          "flag": "--part",
+          "help": "all, schema, guide, or preferences.",
+          "name": "part",
+          "required": false,
+          "short": null,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "model",
+        "spec"
+      ]
+    },
+    {
+      "help": "Mode-1 zero-LLM deterministic verification (L1 + V1-V6 + tiered V6b).",
+      "http_method": null,
+      "http_route": null,
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--input",
+          "help": "Path to modeling request JSON.",
+          "name": "input_path",
+          "required": true,
+          "short": null,
+          "type": "path"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--draft-ir",
+          "help": "Path to DraftVaultIR JSON.",
+          "name": "draft_ir_path",
+          "required": true,
+          "short": null,
+          "type": "path"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--profile",
+          "help": "Optional ProfileBundle JSON from `opendv model profile`.",
+          "name": "profile_path",
+          "required": false,
+          "short": null,
+          "type": "path"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--dry-run",
+          "help": "Validate schemas and PII tokenization without proving.",
+          "name": "dry_run",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--out",
+          "help": "Write verification result JSON to file.",
+          "name": "out",
+          "required": false,
+          "short": null,
+          "type": "path"
+        }
+      ],
+      "path": [
+        "model",
+        "verify"
+      ]
+    },
+    {
       "help": "Submit clarification answers for a Step 4 HOLD_CHECKPOINTED run.",
       "http_method": "POST",
       "http_route": "/api/v1/projects/{project_id}/ontology/runs/{rid}/answers",
@@ -1340,6 +1564,77 @@
       ]
     },
     {
+      "help": "Partially update per-project modeling preferences, hints, and proving settings.",
+      "http_method": "PATCH",
+      "http_route": "/api/v1/projects/{project_id}/settings",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--pref",
+          "help": "Repeatable ModelingPreferences key=value update.",
+          "name": "pref",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--hints-file",
+          "help": "Path to business context hints file.",
+          "name": "hints_file",
+          "required": false,
+          "short": null,
+          "type": "path"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--hints-text",
+          "help": "Inline business context hints text.",
+          "name": "hints_text",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--proving-sample-rows",
+          "help": "Proving sample row limit (1..5000).",
+          "name": "proving_sample_rows",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--real-row-proving",
+          "help": "Toggle Step 2/3 real-row proving capture.",
+          "name": "real_row_proving",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "settings",
+        "project-set"
+      ]
+    },
+    {
       "help": "Update workspace-level defaults with strict schema validation.",
       "http_method": "PUT",
       "http_route": "/api/v1/settings",
@@ -2108,7 +2403,7 @@
       ]
     },
     {
-      "help": "Send live pause, hint, accept-best, raise-budget, or horizon-review control.",
+      "help": "Send live pause, hint, accept-best, raise-budget, horizon-review, or revert control.",
       "http_method": "POST",
       "http_route": "/api/v1/projects/{project_id}/runs/{rid}/controls",
       "options": [
@@ -2240,7 +2535,7 @@
       ]
     },
     {
-      "help": "Accept or steer provisional horizon assumptions for a Step 6 run.",
+      "help": "Accept, steer, or revert provisional horizon assumptions for a Step 6 run.",
       "http_method": "POST",
       "http_route": "/api/v1/projects/{project_id}/runs/{rid}/horizon",
       "options": [
@@ -2268,7 +2563,7 @@
           "choices": null,
           "default": null,
           "flag": "--action",
-          "help": "accept or steer.",
+          "help": "accept, steer, or revert.",
           "name": "action",
           "required": true,
           "short": null,
@@ -2369,6 +2664,47 @@
       "path": [
         "vault",
         "logs"
+      ]
+    },
+    {
+      "help": "Inspect Step 6 vault governance, active wave, open Holds, and waived rules.",
+      "http_method": "GET",
+      "http_route": "/api/v1/projects/{project_id}/runs",
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--project",
+          "help": "Project identifier.",
+          "name": "project",
+          "required": true,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--run",
+          "help": "Optional Step 6 run identifier.",
+          "name": "run",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--holds-only",
+          "help": "Show only open Hold questions.",
+          "name": "holds_only",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        }
+      ],
+      "path": [
+        "vault",
+        "status"
       ]
     },
     {

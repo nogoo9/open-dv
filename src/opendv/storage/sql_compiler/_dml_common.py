@@ -1,4 +1,4 @@
-"""Shared DML helpers, seed/ghost builders, and Z3 PIT/Bridge population DML.
+"""Shared DML helpers and Satellite Ghost record builders.
 
 Strictly Layer 2a: imports only opendv.models, dialects, sqlglot, _ddl_common, dialect_hashing.
 """
@@ -12,14 +12,9 @@ from sqlglot import exp
 
 from opendv.models.project import DbtSqlDialect
 from opendv.models.vault_ir import ArrayType, DecimalType, MapType, PortableLogicalType
-from opendv.models.vault_ir_certified import (
-    CertifiedSatelliteSpec,
-    CertifiedVaultIR,
-    PitBridgeSpec,
-    SeedRecordsSpec,
-)
+from opendv.models.vault_ir_certified import CertifiedSatelliteSpec, SeedRecordsSpec
 from opendv.storage.dialects import SqlDialectProfile, lower_logical_type
-from opendv.storage.sql_compiler._ddl_common import qualify_name, resolve_pit_bridge_columns
+from opendv.storage.sql_compiler._ddl_common import qualify_name
 from opendv.storage.sql_compiler.dialect_hashing import zero_key_hex_sql
 
 
@@ -117,8 +112,16 @@ def idempotent_insert_from_select(
     cols_csv = ", ".join(cols)
 
     if dialect == "postgres":
+        if extra_not_exists:
+            sel_q = ", ".join(f"src_q.{c}" for c in cols)
+            body = (
+                f"SELECT {sel_q} FROM (\n{select_sql}\n) AS src_q\n"
+                f"WHERE NOT EXISTS (SELECT 1 FROM {target_full} AS ex WHERE {extra_not_exists})"
+            )
+        else:
+            body = select_sql
         sql = (
-            f"INSERT INTO {target_full} ({cols_csv})\n{select_sql}\n"
+            f"INSERT INTO {target_full} ({cols_csv})\n{body}\n"
             f"ON CONFLICT ({', '.join(pk_cols)}) DO NOTHING"
         )
         return assert_clean_dml(sql, dialect)
@@ -147,7 +150,8 @@ def idempotent_insert_from_select(
         sql = (
             f"INSERT INTO {target_full} ({cols_csv})\n"
             f"SELECT {sel_q} FROM (\n{select_sql}\n) AS src_q\n"
-            f"LEFT ANTI JOIN {target_full} AS ex ON {on_cond}{inv_join}"
+            f"LEFT ANTI JOIN {target_full} AS ex ON {on_cond}{inv_join}\n"
+            f"SETTINGS join_use_nulls = 1"
         )
         return assert_clean_dml(sql, dialect)
 
@@ -176,6 +180,20 @@ def build_sat_ghost_dml(
     zero_00 = zero_key_hex_sql(dialect, is_error=False)
     ghost_ts = ts_literal_sql(seed.ghost_load_dts, profile.target_id, dialect)
 
+    app_col = sat.applied_dts_col if (sat.is_bitemporal and sat.applied_dts_col) else None
+    app_ghost_val = ghost_ts
+    if app_col is not None:
+        app_f = next((c for c in sat.columns if c.name == app_col), None)
+        if app_f is not None:
+            if app_f.logical_type == "TIMESTAMP_UTC_US":
+                app_ghost_val = ghost_ts
+            elif app_f.logical_type == "UTF8_STRING":
+                app_ghost_val = f"'{seed.ghost_load_dts}'"
+            else:
+                app_ghost_val = ghost_col_default_sql(
+                    app_f.name, app_f.logical_type, False, seed, profile.target_id, dialect
+                )
+
     cols = [c.name for c in sat.columns]
     vals: list[str] = []
     for c in sat.columns:
@@ -187,8 +205,8 @@ def build_sat_ghost_dml(
             vals.append(f"'{seed.ghost_rec_src}'")
         elif c.name == "hash_diff":
             vals.append(zero_00)
-        elif sat.is_bitemporal and c.name == sat.applied_dts_col:
-            vals.append(ghost_ts)
+        elif app_col is not None and c.name == app_col:
+            vals.append(app_ghost_val)
         else:
             vals.append(
                 ghost_col_default_sql(
@@ -198,13 +216,27 @@ def build_sat_ghost_dml(
 
     col_list = ", ".join(cols)
     val_list = ", ".join(vals)
-    cond = f"tgt.{parent_hk} = {zero_00} AND tgt.load_dts = {ghost_ts}"
+    is_mas = sat.sat_kind == "MAS" or bool(sat.child_dependent_keys)
+    cond_parts = [f"tgt.{parent_hk} = {zero_00}", f"tgt.load_dts = {ghost_ts}"]
+    if app_col is not None:
+        cond_parts.append(f"tgt.{app_col} = {app_ghost_val}")
+    if is_mas and sat.child_dependent_keys:
+        for cdk in sat.child_dependent_keys:
+            cdk_f = next((c for c in sat.columns if c.name == cdk), None)
+            if cdk_f is not None:
+                cdk_def = ghost_col_default_sql(
+                    cdk_f.name, cdk_f.logical_type, cdk_f.nullable, seed, profile.target_id, dialect
+                )
+                cond_parts.append(
+                    f"tgt.{cdk} IS NULL" if cdk_def == "NULL" else f"tgt.{cdk} = {cdk_def}"
+                )
+    cond = " AND ".join(cond_parts)
 
     if dialect == "postgres":
         pk_cols = [parent_hk, "load_dts"]
         if sat.is_bitemporal and sat.applied_dts_col:
             pk_cols.append(sat.applied_dts_col)
-        if sat.sat_kind == "MAS" and sat.child_dependent_keys:
+        if is_mas and sat.child_dependent_keys:
             pk_cols.extend(sat.child_dependent_keys)
         sql = (
             f"INSERT INTO {sat_full} ({col_list}) VALUES ({val_list}) "
@@ -219,6 +251,8 @@ def build_sat_ghost_dml(
         on_parts = [f"tgt.{parent_hk} = src.{parent_hk}", "tgt.load_dts = src.load_dts"]
         if sat.is_bitemporal and sat.applied_dts_col:
             on_parts.append(f"tgt.{sat.applied_dts_col} = src.{sat.applied_dts_col}")
+        if is_mas and sat.child_dependent_keys:
+            on_parts.extend(f"tgt.{cdk} = src.{cdk}" for cdk in sat.child_dependent_keys)
         sql = (
             f"MERGE INTO {sat_full}{hold} AS tgt USING (SELECT {src_aliases}) AS src "
             f"ON {' AND '.join(on_parts)} "
@@ -236,140 +270,8 @@ def build_sat_ghost_dml(
     return assert_clean_dml(sql, dialect)
 
 
-def build_pit_bridge_dml(
-    pb: PitBridgeSpec,
-    ir: CertifiedVaultIR,
-    seed: SeedRecordsSpec,
-    profile: SqlDialectProfile,
-    aliases: Mapping[str, str],
-) -> list[str]:
-    """Emit Z3 PIT or Bridge population DML with Ghost fallback and bitemporal applied_dts."""
-    dialect = profile.sqlglot_dialect or "duckdb"
-    pb_full = qualify_name("Z3", pb.object_name, aliases)
-    hub_full = qualify_name("Z2", pb.root_hub, aliases)
-    src_root_hk, root_hk, targets = resolve_pit_bridge_columns(pb, ir, profile.max_ident_bytes)
-    zero_00 = zero_key_hex_sql(dialect, is_error=False)
-    zero_ff = zero_key_hex_sql(dialect, is_error=True)
-    ghost_ts = ts_literal_sql(seed.ghost_load_dts, profile.target_id, dialect)
-    t_ts = lower_logical_type("TIMESTAMP_UTC_US", profile.target_id)
-
-    if pb.object_kind == "PIT":
-        sats_by_name = {s.sat_name: s for s in ir.satellites}
-        if not any(tgt in sats_by_name for tgt, *_ in targets):
-            return []
-        snap_parts: list[str] = [
-            f"SELECT {src_root_hk} AS _hk, load_dts AS _snap FROM {hub_full} "
-            f"WHERE {src_root_hk} <> {zero_00} AND {src_root_hk} <> {zero_ff}"
-        ]
-        for tgt, _, _, app_col, app_ltype in targets:
-            s = sats_by_name.get(tgt)
-            if s is None:
-                continue
-            s_full = qualify_name(s.zone_id, s.sat_name, aliases)
-            p_hk = s.columns[0].name
-            eff_col = s.applied_dts_col if (s.is_bitemporal and s.applied_dts_col) else "load_dts"
-            snap_expr = (
-                f"CAST({eff_col} AS {t_ts})" if (app_col and app_ltype == "DATE32") else eff_col
-            )
-            snap_parts.append(
-                f"SELECT {p_hk} AS _hk, {snap_expr} AS _snap FROM {s_full} "
-                f"WHERE {p_hk} <> {zero_00} AND {p_hk} <> {zero_ff}"
-            )
-        union_kw = (
-            "\n    UNION DISTINCT\n    "
-            if dialect in ("bigquery", "clickhouse")
-            else "\n    UNION\n    "
-        )
-        snap_union = union_kw.join(snap_parts)
-
-        cols = [root_hk, "snapshot_dts"]
-        sel_exprs = [f"pts._hk AS {root_hk}", "pts._snap AS snapshot_dts"]
-        joins: list[str] = []
-        for idx, (tgt, hk_col, ldts_col, app_col, app_ltype) in enumerate(targets):
-            s = sats_by_name.get(tgt)
-            cols.extend([hk_col, ldts_col])
-            if app_col is not None:
-                cols.append(app_col)
-            if s is None:
-                sel_exprs.extend([f"{zero_00} AS {hk_col}", f"{ghost_ts} AS {ldts_col}"])
-                if app_col is not None:
-                    sel_exprs.append(f"{ghost_ts} AS {app_col}")
-                continue
-            s_full = qualify_name(s.zone_id, s.sat_name, aliases)
-            p_hk = s.columns[0].name
-            eff_col = s.applied_dts_col if (s.is_bitemporal and s.applied_dts_col) else "load_dts"
-            alias_s = f"s{idx}"
-            sel_exprs.append(f"COALESCE({alias_s}._s_hk, {zero_00}) AS {hk_col}")
-            sel_exprs.append(f"COALESCE({alias_s}._s_dts, {ghost_ts}) AS {ldts_col}")
-            extra_sel = ""
-            if app_col is not None and s.applied_dts_col:
-                ghost_app = ghost_col_default_sql(
-                    s.applied_dts_col, app_ltype, False, seed, profile.target_id, dialect
-                )
-                sel_exprs.append(f"COALESCE({alias_s}._s_app, {ghost_app}) AS {app_col}")
-                extra_sel = f", sat.{s.applied_dts_col} AS _s_app"
-            eff_cmp = (
-                f"CAST(sat.{eff_col} AS {t_ts})"
-                if (app_col and app_ltype == "DATE32")
-                else f"sat.{eff_col}"
-            )
-            joins.append(
-                f"LEFT JOIN (\n"
-                f"    SELECT p._hk AS _p_hk, p._snap AS _p_snap, "
-                f"sat.{p_hk} AS _s_hk, sat.load_dts AS _s_dts{extra_sel},\n"
-                f"           ROW_NUMBER() OVER (PARTITION BY p._hk, p._snap "
-                f"ORDER BY sat.{eff_col} DESC, sat.load_dts DESC) AS _rn\n"
-                f"    FROM (\n    {snap_union}\n    ) AS p\n"
-                f"    INNER JOIN {s_full} AS sat ON sat.{p_hk} = p._hk "
-                f"AND {eff_cmp} <= p._snap AND sat.{p_hk} <> {zero_00}\n"
-                f") AS {alias_s} ON {alias_s}._p_hk = pts._hk "
-                f"AND {alias_s}._p_snap = pts._snap AND {alias_s}._rn = 1"
-            )
-        select_sql = (
-            f"SELECT {', '.join(sel_exprs)}\n"
-            f"FROM (\n    {snap_union}\n) AS pts\n" + "\n".join(joins)
-        )
-        return [
-            idempotent_insert_from_select(
-                pb_full, cols, [root_hk, "snapshot_dts"], select_sql, profile
-            )
-        ]
-
-    cols = [root_hk]
-    sel_exprs = [f"h.{src_root_hk} AS {root_hk}"]
-    joins = []
-    links_by_name = {lk.link_name: lk for lk in ir.links}
-    for idx, (tgt, fk_col, _, _, _) in enumerate(targets):
-        lnk = links_by_name.get(tgt)
-        cols.append(fk_col)
-        if lnk is None:
-            sel_exprs.append(f"{zero_00} AS {fk_col}")
-            continue
-        l_full = qualify_name(lnk.zone_id, lnk.link_name, aliases)
-        raw_fk = lnk.columns[0].name
-        part_fk = next(
-            (p.fk_col_name for p in lnk.participants if p.hub_name == pb.root_hub),
-            lnk.participants[0].fk_col_name,
-        )
-        la = f"l{idx}"
-        sel_exprs.append(f"COALESCE({la}.{raw_fk}, {zero_00}) AS {fk_col}")
-        joins.append(
-            f"LEFT JOIN {l_full} AS {la} ON {la}.{part_fk} = h.{src_root_hk} "
-            f"AND {la}.{raw_fk} <> {zero_00} AND {la}.{raw_fk} <> {zero_ff}"
-        )
-    cols.append("load_dts")
-    sel_exprs.append("h.load_dts AS load_dts")
-    select_sql = (
-        f"SELECT {', '.join(sel_exprs)}\nFROM {hub_full} AS h\n"
-        + ("\n".join(joins) + "\n" if joins else "")
-        + f"WHERE h.{src_root_hk} <> {zero_00} AND h.{src_root_hk} <> {zero_ff}"
-    )
-    return [idempotent_insert_from_select(pb_full, cols, [root_hk], select_sql, profile)]
-
-
 __all__ = [
     "assert_clean_dml",
-    "build_pit_bridge_dml",
     "build_sat_ghost_dml",
     "ghost_col_default_sql",
     "idempotent_insert_from_select",

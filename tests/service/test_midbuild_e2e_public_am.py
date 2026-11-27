@@ -134,12 +134,12 @@ def _build_parquet_esg_split(
             "hub_mandate_rule",
             "mandate_rule_id",
             "MANDATE",
-            "sat_mandate_rule_core",
+            "mas_mandate_rule_core",
             ["mandate_policy_name", "breach_severity"],
-            False,
+            True,
         ),
     ]
-    for hub_name, bk_col, bkcc, sat_name, sat_cols, _ in specs:
+    for hub_name, bk_col, bkcc, sat_name, sat_cols, is_mas in specs:
         hubs.append(
             DraftHubSpec(
                 hub_name=hub_name,
@@ -173,8 +173,9 @@ def _build_parquet_esg_split(
         sats.append(
             DraftSatelliteSpec(
                 sat_name=sat_name,
-                sat_kind="STANDARD",
+                sat_kind="MAS" if is_mas else "STANDARD",
                 parent_name=hub_name,
+                child_dependent_keys=["breach_severity"] if is_mas else [],
                 source_bindings=[
                     DraftSourceBinding(
                         source_id=prof.source_id,

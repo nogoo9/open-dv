@@ -207,16 +207,14 @@ def test_uat_s6_15_dv_ap_001_to_010_and_012_and_advisory_and_v7_waivers() -> Non
                     BusinessKeyPart(table_id=tbl_id, col_name="seq_id", source_id="src", key_tier="TIER_1_GLOBAL_STANDARD", bkcc_value="GLOBAL")
                 ],
                 source_bindings=[DraftSourceBinding(source_id="src", table_id=tbl_id, col_mappings={"seq_id": "seq_id"})],
-                attributes=[DraftField(name="shared_a", logical_type="UTF8_STRING", nullable=True, is_pii=False)],
             ),
             DraftHubSpec(
-                hub_name="hub_account_clone",  # DV-AP-001 Jaccard >= 80% + DV-AP-004 lookup
+                hub_name="hub_account_clone",  # DV-AP-004 lookup
                 key_tier="TIER_1_GLOBAL_STANDARD",
                 business_keys=[
                     BusinessKeyPart(table_id=tbl_id, col_name="status_code", source_id="src", key_tier="TIER_1_GLOBAL_STANDARD", bkcc_value="GLOBAL")
                 ],
                 source_bindings=[DraftSourceBinding(source_id="src", table_id=tbl_id, col_mappings={"status_code": "status_code"})],
-                attributes=[DraftField(name="shared_a", logical_type="UTF8_STRING", nullable=True, is_pii=False)],
             ),
             *(
                 DraftHubSpec(
@@ -327,7 +325,7 @@ def test_uat_s6_15_dv_ap_001_to_010_and_012_and_advisory_and_v7_waivers() -> Non
     fail_bal, _, adv_bal = evaluate_v6b_accounting(diags_bal)
     assert adv_bal >= 1
 
-    # Under strict: DV-AP-012 escalates to WARN and counts in |V6b_fail|
+    # Under strict: DV-AP-012 escalates to blocking ERROR and counts in |V6b_fail|
     diags_strict = lint_vault_antipatterns(
         raw_cert,
         [prof],
@@ -335,18 +333,18 @@ def test_uat_s6_15_dv_ap_001_to_010_and_012_and_advisory_and_v7_waivers() -> Non
         fk_turnover_by_table={tbl_id: {"fk_a": 0.5}},
     )
     pit_diag_strict = next(d for d in diags_strict if d.rule_id == "DV-AP-012")
-    assert pit_diag_strict.severity == "WARN"
+    assert pit_diag_strict.severity == "ERROR"
     fail_strict, _, adv_strict = evaluate_v6b_accounting(diags_strict)
     assert adv_strict == 0
     assert fail_strict > fail_bal
 
     # Waiver accounting: unreviewed agent justification does NOT waive; V7-reviewed / human DOES waive
-    target = next(d for d in diags_bal if d.rule_id == "DV-AP-005")
+    target = next(d for d in diags_bal if d.rule_id == "DV-AP-009")
     unreviewed = AntiPatternJustification(
         waiver_id="W-UNREV",
-        rule_id="DV-AP-005",
+        rule_id="DV-AP-009",
         entity_name=target.entity_name,
-        rationale="Agent claims uniform volatility without V7 approval.",
+        rationale="Agent claims masked column is non-PII without V7 approval.",
         actor="agent",
         reviewed_by_v7=False,
     )

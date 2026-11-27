@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 import duckdb
 
-from opendv.models.diagnostics import VerifierDiagnostic
+from opendv.models.diagnostics import DiagnosticSeverity, VerifierDiagnostic
 from opendv.models.ir_kernel import execute_hash_recipe
+from opendv.models.pii_tokenizer import MASKED_PII_TOKEN
+from opendv.models.policy import CEGAR_POLICY_SPECS, CegarPolicy
 from opendv.models.vault_ir import DecimalType, PortableLogicalType
 from opendv.models.vault_ir_certified import CertifiedVaultIR, HashRecipeSpec
 from opendv.storage.sql_compiler._ddl_common import (
@@ -20,12 +23,11 @@ from opendv.storage.sql_compiler._ddl_common import (
     qualify_name,
     resolve_pit_bridge_columns,
 )
+from opendv.storage.sql_compiler._sat_dml import build_sat_load_dml
 from opendv.storage.sql_compiler._scalar_exprs import predicate_to_sqlglot
 from opendv.storage.sql_compiler._z3_z4_ddl import build_pit_bridge_ddl
 from opendv.storage.sql_compiler.compiler import CompiledSqlBundle
 from opendv.storage.sql_compiler.dialect_hashing import compile_hash_recipe_sql, zero_key_hex_sql
-
-MASKED_PII_TOKEN = "<MASKED_PII>"
 
 _TECH_CHURN_RE = re.compile(
     r"(?i)(?:^|_)(?:etl_snapshot_ts|snapshot_ts|ingest_ts|ingestion_ts|load_ts|"
@@ -48,6 +50,9 @@ def mask_counterexamples(
                 masked[k] = MASKED_PII_TOKEN
             elif v is None or isinstance(v, (str, int, float)):
                 masked[k] = v
+            elif isinstance(v, datetime):
+                dt = v.replace(tzinfo=UTC) if v.tzinfo is None else v.astimezone(UTC)
+                masked[k] = dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
             elif isinstance(v, (bytes, bytearray, memoryview)):
                 masked[k] = bytes(v).hex()
             else:
@@ -60,6 +65,11 @@ def exec_statements(conn: duckdb.DuckDBPyConnection, stmts: Sequence[str]) -> No
     """Execute a sequence of SQL statements against DuckDB."""
     for s in stmts:
         conn.execute(s)
+
+
+def _scalar_count(conn: duckdb.DuckDBPyConnection, sql: str) -> int:
+    row = conn.execute(sql).fetchone()
+    return int(row[0]) if row else 0
 
 
 def _bump_staging_clock(
@@ -94,11 +104,16 @@ def detect_batch3_churn(
     ir: CertifiedVaultIR,
     bundle: CompiledSqlBundle,
     pii_cols: set[str],
+    *,
+    policy: CegarPolicy = "balanced",
 ) -> list[VerifierDiagnostic]:
     """Batch 3 DV-AP-011 probe: advance technical columns with unchanged business attrs."""
     smells: list[VerifierDiagnostic] = []
     _, _, excluded_sats = planned_exclusion_sets(ir)
     bronze_by_tbl = {b.source_table_id: b for b in ir.bronze_tables}
+    stg_by_tbl = {s.source_table_id: s for s in ir.staging_views}
+    is_blocking = "DV-AP-011" in CEGAR_POLICY_SPECS[policy].blocking_v6b_rules
+    churn_sev: DiagnosticSeverity = "WARN" if is_blocking else "ADVISORY"
 
     for sat in ir.satellites:
         if sat.sat_name in excluded_sats or sat.sat_kind == "ESAT" or sat.hash_recipe is None:
@@ -107,31 +122,32 @@ def detect_batch3_churn(
         if not tech_cols:
             continue
         bronze = bronze_by_tbl.get(sat.source_table_id)
-        if bronze is None:
+        stg = stg_by_tbl.get(sat.source_table_id)
+        if bronze is None or stg is None:
             continue
         b_full = qualify_name("Z0", bronze.table_name, bundle.physical_aliases)
         s_full = qualify_name(sat.zone_id, sat.sat_name, bundle.physical_aliases)
 
-        before_row = conn.execute(f"SELECT COUNT(*) FROM {s_full}").fetchone()
-        before_cnt = int(before_row[0]) if before_row else 0
-        staged_row = conn.execute(f"SELECT COUNT(*) FROM {b_full}").fetchone()
-        staged_cnt = int(staged_row[0]) if staged_row else 0
+        before_cnt = _scalar_count(conn, f"SELECT COUNT(*) FROM {s_full}")
+        staged_cnt = _scalar_count(conn, f"SELECT COUNT(*) FROM {b_full}")
         if staged_cnt == 0:
             continue
 
         for tc in tech_cols:
             fspec = next((c for c in bronze.columns if c.name == tc), None)
-            if fspec is None:
-                continue
-            if fspec.logical_type == "TIMESTAMP_UTC_US":
-                conn.execute(
-                    f"UPDATE {b_full} SET {tc} = "
-                    f"COALESCE({tc}, TIMESTAMPTZ '2026-01-01 00:00:00Z') + INTERVAL '1 hour'"
+            if fspec is not None:
+                expr = (
+                    _bump_time_sql(
+                        tc,
+                        fspec.logical_type,
+                        interval_sql="INTERVAL '1 hour'",
+                        int_delta=1,
+                        fallback_suffix="_v2",
+                    )
+                    if fspec.logical_type in ("TIMESTAMP_UTC_US", "INT32", "INT64")
+                    else f"COALESCE({tc}, '') || '_v2'"
                 )
-            elif fspec.logical_type in ("INT32", "INT64"):
-                conn.execute(f"UPDATE {b_full} SET {tc} = COALESCE({tc}, 0) + 1")
-            else:
-                conn.execute(f"UPDATE {b_full} SET {tc} = COALESCE({tc}, '') || '_v2'")
+                conn.execute(f"UPDATE {b_full} SET {tc} = {expr}")
 
         has_z0_dts = (
             any(c.name == "load_dts" for c in bronze.columns) and "load_dts" not in tech_cols
@@ -148,15 +164,15 @@ def detect_batch3_churn(
             )
             conn.execute(f"UPDATE {b_full} SET load_dts = {ld_expr}")
         else:
-            orig_sql = _bump_staging_clock(
-                conn, ir, bundle.physical_aliases, sat.source_table_id
-            )
+            orig_sql = _bump_staging_clock(conn, ir, bundle.physical_aliases, sat.source_table_id)
 
-        exec_statements(conn, bundle.dml_statements)
+        sat_dml = build_sat_load_dml(
+            sat, stg, ir, bundle.dialect_profile, bundle.physical_aliases, bundle.stg_hd_col_map
+        )
+        exec_statements(conn, [sat_dml])
         _restore_staging_clock(conn, orig_sql)
 
-        after_row = conn.execute(f"SELECT COUNT(*) FROM {s_full}").fetchone()
-        after_cnt = int(after_row[0]) if after_row else 0
+        after_cnt = _scalar_count(conn, f"SELECT COUNT(*) FROM {s_full}")
         delta = max(0, after_cnt - before_cnt)
         ratio = delta / staged_cnt
         if ratio > 0.95:
@@ -165,7 +181,11 @@ def detect_batch3_churn(
                 (
                     f'STRFTIME("{c}" AT TIME ZONE \'UTC\', \'%Y-%m-%dT%H:%M:%S.%fZ\') AS "{c}"'
                     if (dt_u := str(dt).upper()) in ("TIMESTAMP WITH TIME ZONE", "TIMESTAMPTZ")
-                    else (f'CAST("{c}" AS VARCHAR) AS "{c}"' if "TIME ZONE" in dt_u else f'"{c}"')
+                    else (
+                        f'CAST("{c}" AS VARCHAR) AS "{c}"'
+                        if "TIME ZONE" in dt_u or "TIMESTAMP" in dt_u
+                        else f'"{c}"'
+                    )
                 )
                 for c, dt in zip(rel_s.columns, rel_s.dtypes, strict=True)
             ]
@@ -178,7 +198,7 @@ def detect_batch3_churn(
                 VerifierDiagnostic(
                     gate="V6",
                     rule_id="DV-AP-011",
-                    severity="WARN",
+                    severity=churn_sev,
                     entity_name=sat.sat_name,
                     waivable=True,
                     suggested_waiver_id=f"WAIV-AP011-{sat.sat_name}",
@@ -284,7 +304,12 @@ def probe_batch4_bitemporal(
     bitemp_sats = [
         s
         for s in ir.satellites
-        if s.sat_name not in excluded_sats and s.is_bitemporal and s.applied_dts_col
+        if (
+            s.sat_name not in excluded_sats
+            and s.sat_kind != "ESAT"
+            and s.is_bitemporal
+            and s.applied_dts_col
+        )
     ]
     if not bitemp_sats:
         return True
@@ -307,12 +332,10 @@ def probe_batch4_bitemporal(
         b_full = qualify_name("Z0", bronze.table_name, bundle.physical_aliases)
         s_full = qualify_name(sat.zone_id, sat.sat_name, bundle.physical_aliases)
         p_hk = sat.columns[0].name
-        z0_cnt_r = conn.execute(f"SELECT COUNT(*) FROM {b_full}").fetchone()
-        if not z0_cnt_r or int(z0_cnt_r[0]) == 0:
-            return False
+        if _scalar_count(conn, f"SELECT COUNT(*) FROM {b_full}") == 0:
+            continue
 
-        before_r = conn.execute(f"SELECT COUNT(*) FROM {s_full}").fetchone()
-        before_cnt = int(before_r[0]) if before_r else 0
+        before_cnt = _scalar_count(conn, f"SELECT COUNT(*) FROM {s_full}")
 
         cand_names = (
             list(sat.hash_recipe.source_columns)
@@ -382,9 +405,7 @@ def probe_batch4_bitemporal(
 
         orig_sql = ""
         if "load_dts" not in col_by_name:
-            orig_sql = _bump_staging_clock(
-                conn, ir, bundle.physical_aliases, sat.source_table_id
-            )
+            orig_sql = _bump_staging_clock(conn, ir, bundle.physical_aliases, sat.source_table_id)
 
         for pb in ir.pit_bridges:
             if (
@@ -400,16 +421,16 @@ def probe_batch4_bitemporal(
         exec_statements(conn, bundle.dml_statements)
         _restore_staging_clock(conn, orig_sql)
 
-        after_r = conn.execute(f"SELECT COUNT(*) FROM {s_full}").fetchone()
-        after_cnt = int(after_r[0]) if after_r else 0
+        after_cnt = _scalar_count(conn, f"SELECT COUNT(*) FROM {s_full}")
         if mut_col is not None and after_cnt <= before_cnt:
             return False
 
-        sat_hit = conn.execute(
+        sat_hit = _scalar_count(
+            conn,
             f"SELECT COUNT(*) FROM {s_full} WHERE {p_hk} <> {zero_00} "
-            f"AND {app_col} = (SELECT MAX({app_col}) FROM {b_full})"
-        ).fetchone()
-        if not sat_hit or int(sat_hit[0]) < 1:
+            f"AND {app_col} = (SELECT MAX({app_col}) FROM {b_full})",
+        )
+        if sat_hit < 1:
             return False
 
         for pb in ir.pit_bridges:
@@ -433,17 +454,16 @@ def probe_batch4_bitemporal(
                 if cast_ts
                 else f"(SELECT MAX({app_col}) FROM {b_full})"
             )
-            s_app_expr = (
-                f"TRY_CAST(s.{app_col} AS TIMESTAMPTZ)" if cast_ts else f"s.{app_col}"
-            )
+            s_app_expr = f"TRY_CAST(s.{app_col} AS TIMESTAMPTZ)" if cast_ts else f"s.{app_col}"
             pit_app_chk = f" AND p.{pit_app_col} = s.{app_col}" if pit_app_col else ""
-            pit_hit = conn.execute(
+            pit_hit = _scalar_count(
+                conn,
                 f"SELECT COUNT(*) FROM {pf} AS p INNER JOIN {s_full} AS s "
                 f"ON s.{p_hk} = p.{hk_col} AND s.load_dts = p.{ldts_col} "
                 f"WHERE p.snapshot_dts = {snap_max} AND p.{hk_col} <> {zero_00} "
-                f"AND {s_app_expr} = p.snapshot_dts{pit_app_chk}"
-            ).fetchone()
-            if not pit_hit or int(pit_hit[0]) < 1:
+                f"AND {s_app_expr} = p.snapshot_dts{pit_app_chk}",
+            )
+            if pit_hit < 1:
                 return False
 
     return True

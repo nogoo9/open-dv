@@ -1,0 +1,3 @@
+trade_id,account_id,trade_ts,notional_usd,side
+T-900,A-10,2026-02-05T10:00:00Z,125000.00,BUY
+T-901,A-20,2026-02-06T11:30:00Z,50000.00,SELL

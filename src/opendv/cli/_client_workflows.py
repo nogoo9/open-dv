@@ -14,18 +14,21 @@ from pydantic import BaseModel, TypeAdapter
 from opendv.cli._output import CliHandledError
 from opendv.models import (
     AntiPatternJustification,
+    CertifiedVaultIR,
     ErrorCode,
     FiboQueryReq,
     FiboQueryResp,
     HoldAnswersReq,
     HorizonActionReq,
     MigrationApplyResp,
+    NextActionEnum,
     OntologyCommitReq,
     OntologyConstructReq,
     OntologyRevisionResp,
     OntologyValidateReq,
     OntologyValidationResp,
     OpenDVError,
+    ProjectState,
     RunControlReq,
     RunEventLogPage,
     RunStateResp,
@@ -35,6 +38,7 @@ from opendv.models import (
     StorageTargetReq,
     TargetBundleResp,
     VaultBuildReq,
+    VaultStatusResp,
     VaultVerifyResp,
     WaiverSubmitReq,
 )
@@ -329,6 +333,59 @@ class CliWorkflowMixin:
             RunStateResp,
             "GET",
             proj_route(project_id, f"/runs/{esc(run_id)}"),
+        )
+
+    def get_vault_status(
+        self,
+        project_id: str,
+        *,
+        run_id: str | None = None,
+        holds_only: bool = False,
+    ) -> VaultStatusResp:
+        """Fetch Step 6 vault governance, active wave, open Holds, and waived rules."""
+        if not self.is_remote:
+            return self.service().get_vault_status(
+                project_id, run_id=run_id, holds_only=holds_only
+            )
+
+        proj = ProjectState.model_validate(self._http("GET", proj_route(project_id)).json())
+        runs = self.list_runs(project_id, step="step6")
+        selected: RunStateResp | None = None
+        if run_id is not None:
+            selected = next((r for r in runs if r.run_id == run_id), None)
+            if selected is None:
+                raise OpenDVError(
+                    f"Step 6 run '{run_id}' not found in project '{project_id}'.",
+                    error_code=ErrorCode.RESOURCE_NOT_FOUND,
+                )
+        elif runs:
+            selected = runs[0]
+
+        next_action: NextActionEnum | None = None
+        if selected is not None:
+            action_map: dict[str, NextActionEnum] = {
+                "HOLD_CHECKPOINTED": "ASK_HUMAN_HOLD",
+                "COMPLETED": "READY_FOR_DOWNSTREAM",
+                "FAILED": "FAILED",
+                "UNCERTIFIED_DRAFT": "REPAIR_DRAFT_IR",
+            }
+            next_action = action_map.get(selected.status)
+
+        waived_rules: list[AntiPatternJustification] = []
+        if not holds_only and proj.active_wave_id is not None:
+            ir = CertifiedVaultIR.model_validate(
+                self._http("GET", proj_route(project_id, "/vault/ir")).json()
+            )
+            waived_rules = list(ir.justifications)
+
+        return VaultStatusResp(
+            project_id=proj.project_id,
+            active_wave_id=proj.active_wave_id,
+            run_id=selected.run_id if selected is not None else None,
+            status=selected.status if selected is not None else None,
+            next_action=next_action,
+            open_holds=list(selected.pending_questions) if selected is not None else [],
+            waived_rules=waived_rules,
         )
 
     def list_runs(self, project_id: str, *, step: str | None = None) -> list[RunStateResp]:

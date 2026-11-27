@@ -160,9 +160,11 @@ def is_raw_vault_table(table_expr: exp.Table | None) -> bool:
     name = (table_expr.name or "").lower()
     if db in RAW_VAULT_SCHEMAS:
         return True
-    if db in ("business_vault", "staging", "information_mart", "bronze"):
+    if db == "business_vault":
+        return not name.startswith(("pit_", "brg_", "vw_"))
+    if db in ("staging", "information_mart", "bronze"):
         return False
-    return name.startswith(RAW_VAULT_PREFIXES)
+    return name.startswith((*RAW_VAULT_PREFIXES, "sal_"))
 
 
 def unwrap_target_table(node: exp.Expr | None) -> exp.Table | None:

@@ -355,8 +355,8 @@ def check_v1_dag_rules(ir: CertifiedVaultIR) -> list[VerifierDiagnostic]:
                         )
                     )
 
-        if sat.sat_kind == "MAS":
-            if not sat.child_dependent_keys:
+        if sat.sat_kind == "MAS" or bool(sat.child_dependent_keys):
+            if sat.sat_kind == "MAS" and not sat.child_dependent_keys:
                 diags.append(
                     v1_diag(
                         "DV-STR-008",
@@ -381,9 +381,8 @@ def check_v1_dag_rules(ir: CertifiedVaultIR) -> list[VerifierDiagnostic]:
 
         if sat.parent_name in links_by_name:
             parent_lnk = links_by_name[sat.parent_name]
-            if parent_lnk.link_kind == "TRANSACTIONAL" and sat.sat_kind not in (
-                "ESAT",
-                "AI_PROVENANCE_SATELLITE",
+            if parent_lnk.link_kind == "TRANSACTIONAL" and (
+                sat.sat_kind != "AI_PROVENANCE_SATELLITE"
             ):
                 diags.append(
                     v1_diag(
@@ -391,6 +390,23 @@ def check_v1_dag_rules(ir: CertifiedVaultIR) -> list[VerifierDiagnostic]:
                         "ERROR",
                         sat.sat_name,
                         f"TRANSACTIONAL Link {parent_lnk.link_name} forbids {sat.sat_kind} Sat.",
+                    )
+                )
+
+        if sat.sat_kind == "ESAT":
+            parent_lnk = links_by_name.get(sat.parent_name)
+            is_sal_esat = (
+                sat.sat_name.startswith("esat_sal_")
+                or sat.parent_name.startswith("sal_")
+                or (parent_lnk is not None and parent_lnk.link_kind == "SAME_AS")
+            )
+            if not is_sal_esat and sat.zone_id != "Z2":
+                diags.append(
+                    v1_diag(
+                        "DV-STR-014",
+                        "ERROR",
+                        sat.sat_name,
+                        f"Raw ESAT {sat.sat_name} must live in Z2, not {sat.zone_id}.",
                     )
                 )
 

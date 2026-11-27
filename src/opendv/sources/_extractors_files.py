@@ -65,8 +65,47 @@ def filter_selected(names: Sequence[str], selected_tables: Sequence[str] | None)
     return [n for n in names if n in allowed]
 
 
+_WITHOUT_ROWID_RE = re.compile(r"\bWITHOUT\s+ROWID\b", re.IGNORECASE)
+
+
 def _quote_ident(ident: str) -> str:
     return '"' + ident.replace('"', '""') + '"'
+
+
+def _sqlite_execute_bounded(
+    cur: sqlite3.Cursor,
+    select_prefix: str,
+    limit_clause: str,
+    params: tuple[int, ...],
+    *,
+    order_by_rowid: bool,
+) -> list[tuple[Any, ...]]:
+    if order_by_rowid:
+        try:
+            cur.execute(f"{select_prefix} ORDER BY rowid {limit_clause}", params)
+            return cur.fetchall()
+        except sqlite3.OperationalError:
+            pass
+    cur.execute(f"{select_prefix} {limit_clause}", params)
+    return cur.fetchall()
+
+
+def _duckdb_execute_bounded(
+    conn: duckdb.DuckDBPyConnection,
+    select_prefix: str,
+    limit_clause: str,
+    params: list[int],
+    *,
+    order_by_rowid: bool,
+) -> list[tuple[Any, ...]]:
+    if order_by_rowid:
+        try:
+            return conn.execute(
+                f"{select_prefix} ORDER BY rowid {limit_clause}", params
+            ).fetchall()
+        except duckdb.Error:
+            pass
+    return conn.execute(f"{select_prefix} {limit_clause}", params).fetchall()
 
 
 def extract_sqlite(
@@ -95,14 +134,23 @@ def extract_sqlite(
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT name FROM sqlite_master WHERE type IN ('table', 'view') ORDER BY name"
+            "SELECT name, type, sql FROM sqlite_master "
+            "WHERE type IN ('table', 'view') ORDER BY name"
         )
-        all_names = [
-            str(r[0]) for r in cur.fetchall() if not str(r[0]).lower().startswith("sqlite_")
-        ]
+        meta_by_name: dict[str, tuple[str, str]] = {}
+        all_names: list[str] = []
+        for row in cur.fetchall():
+            name = str(row[0])
+            if name.lower().startswith("sqlite_"):
+                continue
+            all_names.append(name)
+            meta_by_name[name] = (str(row[1] or "").lower(), str(row[2] or ""))
+
         tables: list[RawTableData] = []
         for tbl in filter_selected(all_names, selected_tables):
             q_tbl = _quote_ident(tbl)
+            tbl_type, tbl_sql = meta_by_name[tbl]
+            use_rowid = tbl_type == "table" and not bool(_WITHOUT_ROWID_RE.search(tbl_sql))
             cur.execute(f"SELECT count(*) FROM {q_tbl}")
             total_rows = int((cur.fetchone() or (0,))[0] or 0)
 
@@ -117,10 +165,14 @@ def extract_sqlite(
             cur.execute(f"PRAGMA table_info({q_tbl})")
             col_rows = cur.fetchall()
 
-            cur.execute(f"SELECT * FROM {q_tbl} LIMIT ? OFFSET ?", (preview_limit, preview_offset))
-            preview_rows = [
-                [None if v is None else str(v) for v in row] for row in cur.fetchall()
-            ]
+            fetched_preview = _sqlite_execute_bounded(
+                cur,
+                f"SELECT * FROM {q_tbl}",
+                "LIMIT ? OFFSET ?",
+                (preview_limit, preview_offset),
+                order_by_rowid=use_rowid,
+            )
+            preview_rows = [[None if v is None else str(v) for v in row] for row in fetched_preview]
 
             cols: list[RawColumnData] = []
             for c_row in col_rows:
@@ -139,14 +191,23 @@ def extract_sqlite(
                 null_cnt, dist_cnt = cur.fetchone() or (0, 0)
                 null_ratio = float(null_cnt or 0) / float(total_rows) if total_rows > 0 else 0.0
 
-                cur.execute(
-                    f"SELECT {q_col} FROM {q_tbl} WHERE {q_col} IS NOT NULL LIMIT ?",
+                sample_rows = _sqlite_execute_bounded(
+                    cur,
+                    f"SELECT {q_col} FROM {q_tbl} WHERE {q_col} IS NOT NULL",
+                    "LIMIT ?",
                     (sample_limit,),
+                    order_by_rowid=use_rowid,
                 )
-                samples: list[str | None] = [str(r[0]) for r in cur.fetchall()]
+                samples: list[str | None] = [str(r[0]) for r in sample_rows]
                 if not samples and total_rows > 0:
-                    cur.execute(f"SELECT {q_col} FROM {q_tbl} LIMIT ?", (sample_limit,))
-                    samples = [None if r[0] is None else str(r[0]) for r in cur.fetchall()]
+                    fallback_rows = _sqlite_execute_bounded(
+                        cur,
+                        f"SELECT {q_col} FROM {q_tbl}",
+                        "LIMIT ?",
+                        (sample_limit,),
+                        order_by_rowid=use_rowid,
+                    )
+                    samples = [None if r[0] is None else str(r[0]) for r in fallback_rows]
 
                 cols.append(
                     RawColumnData(
@@ -205,12 +266,14 @@ def extract_duckdb_or_tabular_file(
         conn = duckdb.connect(":memory:")
 
     try:
+        table_types: dict[str, str] = {}
         if kind == "duckdb":
             rows = conn.execute(
-                "SELECT table_name FROM information_schema.tables "
+                "SELECT table_name, table_type FROM information_schema.tables "
                 "WHERE table_schema = 'main' AND table_type IN ('BASE TABLE', 'VIEW') "
                 "ORDER BY table_name"
             ).fetchall()
+            table_types = {str(r[0]): str(r[1]).upper() for r in rows}
             table_names = filter_selected([str(r[0]) for r in rows], selected_tables)
         else:
             stem = re.sub(r"[^A-Za-z0-9_]", "_", path.stem) or "table"
@@ -220,11 +283,13 @@ def extract_duckdb_or_tabular_file(
                 conn.read_parquet(str(path)).create_view(stem)
             else:
                 conn.read_csv(str(path), sample_size=-1).create_view(stem)
+            table_types = {stem: "VIEW"}
             table_names = filter_selected([stem], selected_tables)
 
         tables: list[RawTableData] = []
         for tbl in table_names:
             q_tbl = _quote_ident(tbl)
+            use_rowid = kind == "duckdb" and table_types.get(tbl) == "BASE TABLE"
             total_rows = int((conn.execute(f"SELECT count(*) FROM {q_tbl}").fetchone() or (0,))[0])
             desc_rows = conn.execute(f"DESCRIBE {q_tbl}").fetchall()
 
@@ -246,10 +311,13 @@ def extract_duckdb_or_tabular_file(
             preview_rows = (
                 [
                     [None if v is None else str(v) for v in row]
-                    for row in conn.execute(
-                        f"SELECT {cast_select} FROM {q_tbl} LIMIT ? OFFSET ?",
+                    for row in _duckdb_execute_bounded(
+                        conn,
+                        f"SELECT {cast_select} FROM {q_tbl}",
+                        "LIMIT ? OFFSET ?",
                         [preview_limit, preview_offset],
-                    ).fetchall()
+                        order_by_rowid=use_rowid,
+                    )
                 ]
                 if cast_select
                 else []
@@ -276,11 +344,14 @@ def extract_duckdb_or_tabular_file(
 
                 samples: list[str | None] = [
                     str(r[0])
-                    for r in conn.execute(
+                    for r in _duckdb_execute_bounded(
+                        conn,
                         f"SELECT CAST({q_col} AS VARCHAR) FROM {q_tbl} "
-                        f"WHERE {q_col} IS NOT NULL LIMIT ?",
+                        f"WHERE {q_col} IS NOT NULL",
+                        "LIMIT ?",
                         [sample_limit],
-                    ).fetchall()
+                        order_by_rowid=use_rowid,
+                    )
                 ]
                 cols.append(
                     RawColumnData(

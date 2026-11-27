@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from opendv.models.vault_ir import DecimalType
+from opendv.models.vault_ir import DecimalType, hub_canonical_bk_cols
 from opendv.models.vault_ir_certified import (
     CertifiedHubSpec,
     CertifiedLinkSpec,
@@ -17,16 +17,24 @@ from opendv.models.vault_ir_certified import (
     StagingViewSpec,
 )
 from opendv.storage.dialects import SqlDialectProfile, lower_logical_type
-from opendv.storage.sql_compiler._ddl_common import planned_exclusion_sets, qualify_name
+from opendv.storage.sql_compiler._ddl_common import (
+    is_pit_bridge_excluded,
+    planned_exclusion_sets,
+    qualify_name,
+)
 from opendv.storage.sql_compiler._dml_common import (
-    build_pit_bridge_dml,
     build_sat_ghost_dml,
     ghost_col_default_sql,
     idempotent_insert_from_select,
     ts_literal_sql,
 )
 from opendv.storage.sql_compiler._sat_dml import build_sat_load_dml
-from opendv.storage.sql_compiler._scalar_exprs import predicate_to_sqlglot
+from opendv.storage.sql_compiler._scalar_exprs import (
+    TSQL_COLLATION,
+    format_scalar_sql,
+    predicate_to_sqlglot,
+)
+from opendv.storage.sql_compiler._z3_z4_dml import build_pit_bridge_dml
 from opendv.storage.sql_compiler.dialect_hashing import zero_key_hex_sql
 
 
@@ -148,7 +156,17 @@ def build_hub_load_dml(
     dialect = profile.sqlglot_dialect or "duckdb"
     hub_full = qualify_name(hub.zone_id, hub.hub_name, aliases)
     hk_col = hub.columns[0].name
-    cols = [c.name for c in hub.columns]
+    canon_bks = set(hub_canonical_bk_cols(hub))
+    sys_cols = {hk_col, "bkcc", "load_dts", "rec_src"}
+    cols = [
+        c.name
+        for c in hub.columns
+        if (not canon_bks) or c.name in sys_cols or c.name in canon_bks
+    ]
+    bk_by_tbl_canon = {
+        (bk.table_id, bk.canonical_col_name or bk.col_name): bk.col_name
+        for bk in hub.business_keys
+    }
     stg_by_tbl = {s.source_table_id: s for s in ir.staging_views}
     zero_00 = zero_key_hex_sql(dialect, is_error=False)
     zero_ff = zero_key_hex_sql(dialect, is_error=True)
@@ -159,14 +177,23 @@ def build_hub_load_dml(
         if stg is None:
             continue
         stg_full = qualify_name("Z1", stg.view_name, aliases)
-        recipe = sb.hash_recipe or hub.hash_recipe
-        bkcc_lit = recipe.bkcc_literal if recipe and recipe.bkcc_literal else "GLOBAL"
-        bkcc_col = recipe.bkcc_col if recipe else None
-        bkcc_expr = (
-            f"COALESCE(NULLIF(UPPER(TRIM(src.{bkcc_col})), ''), '{bkcc_lit}')"
-            if bkcc_col
-            else f"'{bkcc_lit}'"
+        stg_proj = (
+            {f.name for f in stg.projected_fields}
+            | set(stg.col_lineage_mappings.keys())
+            | {r.target_col for r in stg.hash_recipes}
         )
+        eff_tier = sb.key_tier or hub.key_tier
+        recipe = sb.hash_recipe or hub.hash_recipe
+        if eff_tier == "TIER_1_GLOBAL_STANDARD":
+            bkcc_expr = "'GLOBAL'"
+        else:
+            bkcc_lit = recipe.bkcc_literal if recipe and recipe.bkcc_literal else "GLOBAL"
+            bkcc_col = recipe.bkcc_col if recipe else None
+            bkcc_expr = (
+                f"COALESCE(NULLIF(UPPER(TRIM(src.{bkcc_col})), ''), '{bkcc_lit}')"
+                if bkcc_col
+                else f"'{bkcc_lit}'"
+            )
 
         grp_cols: list[str] = [f"src.{hk_col}", bkcc_expr]
         sel_cols: list[str] = []
@@ -180,7 +207,17 @@ def build_hub_load_dml(
             elif c == "rec_src":
                 sel_cols.append("MIN(src.rec_src) AS rec_src")
             else:
-                src_col = sb.col_mappings.get(c, c)
+                mapped = sb.col_mappings.get(c)
+                if mapped is not None:
+                    src_col = mapped
+                elif c in stg_proj:
+                    src_col = c
+                elif (raw_bk := bk_by_tbl_canon.get((sb.table_id, c))) is not None and (
+                    raw_bk in stg_proj
+                ):
+                    src_col = raw_bk
+                else:
+                    src_col = sb.col_mappings.get(c, c)
                 sel_cols.append(f"src.{src_col} AS {c}")
                 grp_cols.append(f"src.{src_col}")
 
@@ -212,9 +249,16 @@ def build_link_load_dml(
     lnk_full = qualify_name(lnk.zone_id, lnk.link_name, aliases)
     hk_col = lnk.columns[0].name
     cols = [c.name for c in lnk.columns]
+    col_types = {c.name: c.logical_type for c in lnk.columns}
     fk_set = {p.fk_col_name for p in lnk.participants}
     deg_set = set(lnk.degenerate_keys)
     stg_by_tbl = {s.source_table_id: s for s in ir.staging_views}
+    hub_tiers = {h.hub_name: h.key_tier for h in ir.hubs}
+    hub_bind_tiers = {
+        (h.hub_name, b.table_id): (b.key_tier or h.key_tier)
+        for h in ir.hubs
+        for b in h.source_bindings
+    }
     zero_00 = zero_key_hex_sql(dialect, is_error=False)
     zero_ff = zero_key_hex_sql(dialect, is_error=True)
 
@@ -232,7 +276,24 @@ def build_link_load_dml(
                 sel_cols.append("MIN(src.load_dts) AS load_dts")
             elif c == "rec_src":
                 sel_cols.append("MIN(src.rec_src) AS rec_src")
-            elif c == hk_col or c in fk_set or c in deg_set:
+            elif c in deg_set:
+                src_c = sb.col_mappings.get(c, c)
+                ltype = col_types.get(c, "UTF8_STRING")
+                if ltype == "UTF8_STRING":
+                    norm_d = format_scalar_sql(
+                        f"src.{src_c}", ltype, dialect, is_business_key=False
+                    )
+                    if dialect == "tsql":
+                        deg_expr = f"COALESCE({norm_d}, 'UNKNOWN' COLLATE {TSQL_COLLATION})"
+                    elif dialect == "clickhouse":
+                        deg_expr = f"if(isNull({norm_d}), 'UNKNOWN', assumeNotNull({norm_d}))"
+                    else:
+                        deg_expr = f"COALESCE({norm_d}, 'UNKNOWN')"
+                else:
+                    deg_expr = f"src.{src_c}"
+                sel_cols.append(f"{deg_expr} AS {c}")
+                grp_cols.append(deg_expr)
+            elif c == hk_col or c in fk_set:
                 src_c = sb.col_mappings.get(c, c)
                 sel_cols.append(f"src.{src_c} AS {c}")
                 grp_cols.append(f"src.{src_c}")
@@ -252,25 +313,55 @@ def build_link_load_dml(
             where_parts.append("src.steward_gate_status = 'APPROVED'")
 
         extra_anti = ""
+        is_symmetric_sal = False
         if lnk.link_kind == "SAME_AS" and len(lnk.participants) == 2:
-            fk0 = lnk.participants[0].fk_col_name
-            fk1 = lnk.participants[1].fk_col_name
-            src_fk0 = sb.col_mappings.get(fk0, fk0)
-            src_fk1 = sb.col_mappings.get(fk1, fk1)
-            where_parts.append(f"src.{src_fk0} <> src.{src_fk1}")
-            extra_anti = f"ex.{fk0} = src_q.{fk1} AND ex.{fk1} = src_q.{fk0}"
-            if dialect not in ("duckdb", "redshift", "clickhouse"):
-                where_parts.append(
-                    f"NOT EXISTS (SELECT 1 FROM {lnk_full} AS ex "
-                    f"WHERE ex.{fk0} = src.{src_fk1} AND ex.{fk1} = src.{src_fk0})"
-                )
+            p0, p1 = lnk.participants[0], lnk.participants[1]
+            t0 = (
+                p0.key_tier
+                or hub_bind_tiers.get((p0.hub_name, p0.target_hub_binding_table_id or sb.table_id))
+                or hub_tiers.get(p0.hub_name)
+            )
+            t1 = (
+                p1.key_tier
+                or hub_bind_tiers.get((p1.hub_name, p1.target_hub_binding_table_id or sb.table_id))
+                or hub_tiers.get(p1.hub_name)
+            )
+            is_symmetric_sal = (p0.hub_name == p1.hub_name) and (t0 == t1)
+            if is_symmetric_sal:
+                fk0, fk1 = p0.fk_col_name, p1.fk_col_name
+                src_fk0 = sb.col_mappings.get(fk0, fk0)
+                src_fk1 = sb.col_mappings.get(fk1, fk1)
+                where_parts.append(f"src.{src_fk0} <> src.{src_fk1}")
+                extra_anti = f"ex.{fk0} = src_q.{fk1} AND ex.{fk1} = src_q.{fk0}"
+                if dialect not in ("duckdb", "redshift", "clickhouse", "postgres"):
+                    where_parts.append(
+                        f"NOT EXISTS (SELECT 1 FROM {lnk_full} AS ex "
+                        f"WHERE ex.{fk0} = src.{src_fk1} AND ex.{fk1} = src.{src_fk0})"
+                    )
 
-        select_sql = (
+        base_select = (
             f"SELECT {', '.join(sel_cols)}\n"
             f"FROM {stg_full} AS src\n"
             f"WHERE {' AND '.join(where_parts)}\n"
             f"GROUP BY {', '.join(grp_cols)}"
         )
+        if is_symmetric_sal:
+            fk0, fk1 = lnk.participants[0].fk_col_name, lnk.participants[1].fk_col_name
+            c0 = f"CASE WHEN _sal_g.{fk0} <= _sal_g.{fk1} THEN _sal_g.{fk0} ELSE _sal_g.{fk1} END"
+            c1 = f"CASE WHEN _sal_g.{fk0} <= _sal_g.{fk1} THEN _sal_g.{fk1} ELSE _sal_g.{fk0} END"
+            select_sql = (
+                f"SELECT {', '.join(f'_sal_w.{c}' for c in cols)}\n"
+                f"FROM (\n"
+                f"    SELECT {', '.join(f'_sal_g.{c}' for c in cols)},\n"
+                f"           ROW_NUMBER() OVER (PARTITION BY {c0}, {c1} "
+                f"ORDER BY _sal_g.load_dts ASC, _sal_g.{hk_col} ASC) AS _sal_rn\n"
+                f"    FROM (\n{base_select}\n    ) AS _sal_g\n"
+                f") AS _sal_w\n"
+                f"WHERE _sal_w._sal_rn = 1"
+            )
+        else:
+            select_sql = base_select
+
         stmts.append(
             idempotent_insert_from_select(
                 lnk_full, cols, [hk_col], select_sql, profile, extra_not_exists=extra_anti
@@ -315,7 +406,7 @@ def compile_full_dml(
                 stmts.append(build_sat_load_dml(sat, stg, ir, profile, aliases, hd_col_map))
 
     for pb in ir.pit_bridges:
-        if pb.root_hub not in planned_hubs:
+        if not is_pit_bridge_excluded(pb, planned_hubs, excluded_links):
             stmts.extend(build_pit_bridge_dml(pb, ir, ir.seed_records, profile, aliases))
     return stmts
 

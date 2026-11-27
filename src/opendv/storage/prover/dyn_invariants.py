@@ -9,6 +9,7 @@ from collections.abc import Mapping
 
 import duckdb
 
+from opendv.models.vault_ir import hub_canonical_bk_cols
 from opendv.models.vault_ir_certified import CertifiedVaultIR
 from opendv.storage.prover._dyn_sat_checks import check_satellite_invariants, query_counterexamples
 from opendv.storage.prover.edge_batches import AdversarialBatchSummary
@@ -27,6 +28,8 @@ def run_all_dyn_invariants(
     aliases: Mapping[str, str],
     hd_col_map: Mapping[tuple[str, str], str],
     batch_summary: AdversarialBatchSummary,
+    *,
+    skip_rules: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, bool], list[dict[str, str | int | float | None]]]:
     """Evaluate all 15 docs/03 §2.1 DV-DYN-001..015 invariants against :memory: DuckDB."""
     planned_hubs, excluded_links, excluded_sats = planned_exclusion_sets(ir)
@@ -54,7 +57,7 @@ def run_all_dyn_invariants(
     for h in hubs_by_name.values():
         hf = qualify_name(h.zone_id, h.hub_name, aliases)
         hk = h.columns[0].name
-        bk_cols = [bk.col_name for bk in h.business_keys]
+        bk_cols = hub_canonical_bk_cols(h)
         dups = query_counterexamples(
             conn,
             f"SELECT {hk} AS hk_hex, COUNT(*) AS cnt FROM {hf} GROUP BY {hk} HAVING COUNT(*) > 1",
@@ -83,6 +86,8 @@ def run_all_dyn_invariants(
                 _fail("DV-DYN-002", col_q)
 
     # DV-DYN-003 & DV-DYN-007: Link grain uniqueness & Link-to-Hub FK RI
+    if not batch_summary.brk02b_ok:
+        _fail("DV-DYN-003", batch_summary.brk02b_counterexamples or [{"issue": "brk02b_failed"}])
     for lk in links_by_name.values():
         lf = qualify_name(lk.zone_id, lk.link_name, aliases)
         hk = lk.columns[0].name
@@ -114,24 +119,50 @@ def run_all_dyn_invariants(
             )
             if col_l:
                 _fail("DV-DYN-002", col_l)
-        for p in lk.participants:
-            hub = hubs_by_name.get(p.hub_name)
-            if hub is None:
-                continue
-            hf = qualify_name(hub.zone_id, hub.hub_name, aliases)
-            h_hk = hub.columns[0].name
-            orphans = query_counterexamples(
-                conn,
-                f"SELECT l.{hk} AS link_hk, l.{p.fk_col_name} AS missing_fk FROM {lf} AS l "
-                f"LEFT JOIN {hf} AS h ON l.{p.fk_col_name} = h.{h_hk} WHERE h.{h_hk} IS NULL",
-                pii_cols,
-            )
-            if orphans:
-                _fail("DV-DYN-007", orphans)
+        if "DV-DYN-007" not in skip_rules:
+            for p in lk.participants:
+                hub = hubs_by_name.get(p.hub_name)
+                if hub is None:
+                    continue
+                hf = qualify_name(hub.zone_id, hub.hub_name, aliases)
+                h_hk = hub.columns[0].name
+                orphans = query_counterexamples(
+                    conn,
+                    f"SELECT l.{hk} AS link_hk, l.{p.fk_col_name} AS missing_fk FROM {lf} AS l "
+                    f"LEFT JOIN {hf} AS h ON l.{p.fk_col_name} = h.{h_hk} WHERE h.{h_hk} IS NULL",
+                    pii_cols,
+                )
+                if orphans:
+                    hint = (
+                        f"Link '{lk.link_name}' -> Hub '{p.hub_name}' ({p.fk_col_name}) has "
+                        f"orphan FKs: bind every Link source table to Hub '{p.hub_name}' with "
+                        "matching BK/BKCC."
+                    )
+                    _fail(
+                        "DV-DYN-007",
+                        [
+                            {
+                                **r,
+                                "entity_name": lk.link_name,
+                                "hub_name": p.hub_name,
+                                "fk_col": p.fk_col_name,
+                                "remediation_hint": hint,
+                            }
+                            for r in orphans
+                        ],
+                    )
 
     # DV-DYN-004, 005, 006, 008, 011, 013: Satellite checks
     check_satellite_invariants(
-        conn, ir, aliases, hd_col_map, hubs_by_name, links_by_name, pii_cols, _fail
+        conn,
+        ir,
+        aliases,
+        hd_col_map,
+        hubs_by_name,
+        links_by_name,
+        pii_cols,
+        _fail,
+        skip_rules=skip_rules,
     )
 
     # DV-DYN-009: Zero Keys (-1, -2) and Ghost Record presence
@@ -233,11 +264,18 @@ def run_all_dyn_invariants(
         if leaks:
             _fail("DV-DYN-014", leaks)
 
+    excluded_roots = planned_hubs | excluded_links | excluded_sats
     for mart in ir.information_marts:
-        if mart.root_entity in planned_hubs:
+        if mart.root_entity in excluded_roots:
             continue
-        mf = qualify_name("Z4", mart.view_name, aliases)
-        root_hk = f"hk_{mart.root_entity.removeprefix('hub_')}"
+        mf = qualify_name(mart.zone_id, mart.view_name, aliases)
+        hub_obj = hubs_by_name.get(mart.root_entity)
+        src_root_hk = (
+            hub_obj.columns[0].name
+            if (hub_obj is not None and hub_obj.columns)
+            else f"hk_{mart.root_entity.removeprefix('hub_')}"
+        )
+        root_hk = mart.columns[0].name if mart.columns else src_root_hk
         leaks = query_counterexamples(
             conn,
             f"SELECT {root_hk} AS leaked_hk FROM {mf} "

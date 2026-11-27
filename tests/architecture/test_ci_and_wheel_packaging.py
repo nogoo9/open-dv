@@ -82,10 +82,12 @@ def test_ci_workflow_dual_os_and_zero_skip_gates() -> None:
     for required_asset in (
         "opendv/api/static/index.html",
         "opendv/sources/fibo/fibo-core-pack.json",
+        "opendv/agents/packs/dv2-modeling-guide.md",
         "opendv/agents/packs/",
         "opendv/schemas/v2/",
         "opendv --help",
         "agents list",
+        "model spec",
     ):
         assert required_asset in wheel_cmd, f"Wheel check missing '{required_asset}'"
 
@@ -124,6 +126,7 @@ def test_pyproject_wheel_packaging_configuration() -> None:
 
     # Confirm tracked non-generated package inputs exist on disk
     assert (SRC_OPENDV_DIR / "sources" / "fibo" / "fibo-core-pack.json").is_file()
+    assert (SRC_OPENDV_DIR / "agents" / "packs" / "dv2-modeling-guide.md").is_file()
     pack_skills = sorted((SRC_OPENDV_DIR / "agents" / "packs").glob("*/SKILL.md"))
     assert len(pack_skills) == 6
     assert (REPO_ROOT / "schemas" / "v2" / "openapi.json").is_file()

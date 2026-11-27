@@ -1,0 +1,34 @@
+{
+  "sources": [
+    {
+      "source_id": "erp",
+      "kind": "csv",
+      "uri": "tests/fixtures/business_vault_hints/erp_customers.csv"
+    },
+    {
+      "source_id": "crm",
+      "kind": "csv",
+      "uri": "tests/fixtures/business_vault_hints/crm_customers.csv"
+    },
+    {
+      "source_id": "crm_mgr",
+      "kind": "csv",
+      "uri": "tests/fixtures/business_vault_hints/crm_account_mgr.csv"
+    },
+    {
+      "source_id": "funds",
+      "kind": "csv",
+      "uri": "tests/fixtures/business_vault_hints/funds.csv"
+    },
+    {
+      "source_id": "accounts",
+      "kind": "csv",
+      "uri": "tests/fixtures/business_vault_hints/accounts.csv"
+    },
+    {
+      "source_id": "trades",
+      "kind": "csv",
+      "uri": "tests/fixtures/business_vault_hints/trades.csv"
+    }
+  ]
+}

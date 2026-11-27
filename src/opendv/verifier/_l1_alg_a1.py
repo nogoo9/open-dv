@@ -6,10 +6,11 @@ Zero duckdb, sqlglot, or opendv.sources imports.
 from __future__ import annotations
 
 import math
-import re
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
+from opendv.models.pii_tokenizer import MASKED_PII_TOKEN, PII_TOKEN_RE, RE_PII_COLUMN
 from opendv.models.project import EvolutionLockSpec
 from opendv.models.sources import ColumnProfile, SourceProfile, TableProfile
 from opendv.models.vault_ir import (
@@ -19,18 +20,9 @@ from opendv.models.vault_ir import (
     DraftVaultIR,
 )
 
-_PII_COL_RE = re.compile(
-    r"("
-    r"(?:(?<![A-Za-z0-9])|(?<=[a-z0-9])(?=[A-Z]))"
-    r"(?i:ssn|tin|ein|dob|zip|aba|"
-    r"tax_?id|acct_?num|account_?number|holder_?name|credit_?card|card_?number)"
-    r"(?:(?![A-Za-z0-9])|(?=[A-Z]))"
-    r"|(?i:passport|birth|email|phone|mobile|address|street|postal|"
-    r"salary|wage|iban|beneficiary|routing)"
-    r")"
-)
-_HIGH_FREQ_HINT_RE = re.compile(r"(?i)^(?:daily_|intraday_|realtime_|live_)")
-_STATIC_HINT_RE = re.compile(r"(?i)(?:_date$|_code$|_country|_tier|_cycle|_family)")
+_HIGH_FREQ_HINT_RE_PREFIXES: tuple[str, ...] = ("daily_", "intraday_", "realtime_", "live_")
+_STATIC_HINT_RE_SUFFIXES: tuple[str, ...] = ("_date", "_code")
+_STATIC_HINT_SUBSTRS: tuple[str, ...] = ("_country", "_tier", "_cycle", "_family")
 _BYTES_PER_MB = 1024 * 1024
 
 
@@ -46,6 +38,16 @@ class L1CodemodOptions:
     high_freq_lambda: float = 0.05
     static_lambda: float = 0.001
     lambda_epsilon: float = 1e-6
+    allow_transactional_links: bool = True
+    esat_mode: Literal["auto_when_turnover_known", "always_on_driving_hub", "off"] = (
+        "auto_when_turnover_known"
+    )
+    esat_turnover_threshold: float = 0.05
+    multi_source_hub_strategy: Literal[
+        "unified_canonical_when_same_arity", "companion_hub_with_sal"
+    ] = "unified_canonical_when_same_arity"
+    waived_ap007_entities: frozenset[str] = frozenset()
+    waived_ap008_entities: frozenset[str] = frozenset()
 
 
 def build_profile_indexes(
@@ -68,9 +70,13 @@ def _is_pii_field(field: DraftField, col_prof: ColumnProfile | None) -> bool:
     if col_prof is not None:
         if col_prof.pii_tags:
             return True
-        if any(val == "<MASKED_PII>" for val in col_prof.sample_values):
+        if any(
+            val == MASKED_PII_TOKEN
+            or (isinstance(val, str) and bool(PII_TOKEN_RE.fullmatch(val)))
+            for val in col_prof.sample_values
+        ):
             return True
-    return bool(_PII_COL_RE.search(field.name))
+    return bool(RE_PII_COLUMN.search(field.name))
 
 
 def _estimate_avg_width(field: DraftField, col_prof: ColumnProfile | None) -> float:
@@ -108,9 +114,12 @@ def _infer_lambda(
             return 0.5
         if tag == "STATIC":
             return 0.0005
-    if _HIGH_FREQ_HINT_RE.search(field.name):
+    low_name = field.name.lower()
+    if low_name.startswith(_HIGH_FREQ_HINT_RE_PREFIXES):
         return 0.5
-    if _STATIC_HINT_RE.search(field.name):
+    if low_name.endswith(_STATIC_HINT_RE_SUFFIXES) or any(
+        sub in low_name for sub in _STATIC_HINT_SUBSTRS
+    ):
         return 0.0005
     return 0.01
 
@@ -381,6 +390,32 @@ def apply_alg_a1_satellite_split(
             )
         out_sats = merged_sats
 
+    def _order_extensions_ahead(sats: list[DraftSatelliteSpec]) -> list[DraftSatelliteSpec]:
+        groups: dict[tuple[str, str, str], list[tuple[int, DraftSatelliteSpec]]] = {}
+        for idx, sat in enumerate(sats):
+            sb0 = sat.source_bindings[0] if sat.source_bindings else None
+            gkey = (sat.parent_name, sb0.source_id if sb0 else "", sb0.table_id if sb0 else "")
+            groups.setdefault(gkey, []).append((idx, sat))
+        ordered = list(sats)
+        for items in groups.values():
+            if len(items) > 1 and any(s.extends_sat_name is not None for _, s in items):
+                slots = [idx for idx, _ in items]
+                sorted_sats = [
+                    s
+                    for _, s in sorted(
+                        items,
+                        key=lambda pair: (
+                            -(pair[1].companion_epoch or 1),
+                            0 if pair[1].extends_sat_name is not None else 1,
+                            pair[0],
+                        ),
+                    )
+                ]
+                for slot, s in zip(slots, sorted_sats, strict=True):
+                    ordered[slot] = s
+        return ordered
+
+    out_sats = _order_extensions_ahead(out_sats)
     updated_triage = _remap_triage(draft.column_triage, remap)
     return draft.model_copy(update={"satellites": out_sats, "column_triage": updated_triage})
 

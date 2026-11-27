@@ -1013,7 +1013,7 @@ def test_load_verifier_inputs_mixed_absent_and_present_docs(tmp_path: Path) -> N
 
 def test_step6_persist_cegar_proposals_across_hold_and_preserves_statuses(tmp_path: Path) -> None:
     """Step 6 CEGAR proposals persist via persist_cegar_result, survive HOLD carry-over, and keep statuses."""
-    from opendv.agents import CegarRunResult
+    from opendv.modeling import DVModelingResult
     from opendv.models.project import OntologyProposalSpec
     from opendv.service.workflows._vault_helpers import persist_cegar_result
     from opendv.service.workflows.vault_svc import _carry_prior_proposals
@@ -1045,9 +1045,10 @@ def test_step6_persist_cegar_proposals_across_hold_and_preserves_statuses(tmp_pa
         status="PENDING_STEWARD",
         delta_ops=[],
     )
-    prior_res = CegarRunResult(
+    prior_res = DVModelingResult(
         run_id="run-prop-1",
         status="HOLD_CHECKPOINTED",
+        next_action="ASK_HUMAN_HOLD",
         policy="balanced",
         wave_number=2,
         attempts_used=1,
@@ -1071,9 +1072,10 @@ def test_step6_persist_cegar_proposals_across_hold_and_preserves_statuses(tmp_pa
             committed_proposal_ids=["prop-w2-keep"],
         ),
     )
-    resumed_raw = CegarRunResult(
+    resumed_raw = DVModelingResult(
         run_id="run-prop-1",
         status="UNCERTIFIED_DRAFT",
+        next_action="REPAIR_DRAFT_IR",
         policy="balanced",
         wave_number=2,
         attempts_used=2,

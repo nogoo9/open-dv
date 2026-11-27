@@ -83,6 +83,60 @@ Serve the 17-tool Open-DV lifecycle MCP server over stdio.
 | `--transport` | `string` | no | `stdio` | MCP transport (stdio). |
 | `--project` | `string` | no | `` | Project identifier. |
 
+### `opendv model profile`
+
+Statelessly profile sources, compute PK containment, and survey modeling hints.
+
+- **Execution:** Local / In-process
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--source` | `string` | no | — | Repeatable <kind>:<uri> source specification. |
+| `--sources-file` | `path` | no | — | Path to JSON or YAML source manifest. |
+| `--sample-rows` | `integer` | no | `200` | Max proving rows sampled per table (1..5000). |
+| `--no-real-row-proving` | `boolean` | no | `False` | Disable real-row proving capture. |
+| `--max-questions` | `integer` | no | `5` | Max clarification survey questions (0 returns all remaining). |
+| `--questions-offset` | `integer` | no | `0` | Zero-based pagination offset for questions. |
+| `--out` | `path` | no | — | Write ProfileBundle JSON to file. |
+
+### `opendv model run`
+
+Mode-2 stateless managed CEGAR modeling run (with optional --guide and --profile).
+
+- **Execution:** Local / In-process
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--input` | `path` | yes | — | Path to DVModelingRequest JSON. |
+| `--profile` | `path` | no | — | Optional ProfileBundle JSON from `opendv model profile`. |
+| `--guide` | `path` | no | — | Optional workspace dv2-modeling-guide.md path. |
+| `--dry-run` | `boolean` | no | `False` | Validate request, guide trust, and PII only. |
+| `--out` | `path` | no | — | Write modeling result JSON to file. |
+
+### `opendv model spec`
+
+Emit annotated DV2.0 schemas, constraints, modeling guide, and preferences.
+
+- **Execution:** Local / In-process
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--part` | `string` | no | `all` | all, schema, guide, or preferences. |
+
+### `opendv model verify`
+
+Mode-1 zero-LLM deterministic verification (L1 + V1-V6 + tiered V6b).
+
+- **Execution:** Local / In-process
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--input` | `path` | yes | — | Path to modeling request JSON. |
+| `--draft-ir` | `path` | yes | — | Path to DraftVaultIR JSON. |
+| `--profile` | `path` | no | — | Optional ProfileBundle JSON from `opendv model profile`. |
+| `--dry-run` | `boolean` | no | `False` | Validate schemas and PII tokenization without proving. |
+| `--out` | `path` | no | — | Write verification result JSON to file. |
+
 ### `opendv ontology answer`
 
 Submit clarification answers for a Step 4 HOLD_CHECKPOINTED run.
@@ -371,6 +425,21 @@ Inspect and validate a saved connection profile via `sources/inspect`.
 | --- | --- | --- | --- | --- |
 | `--name` | `string` | yes | — | Connection profile name to test. |
 
+### `opendv settings project-set`
+
+Partially update per-project modeling preferences, hints, and proving settings.
+
+- **HTTP Route:** `PATCH /api/v1/projects/{project_id}/settings`
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--project` | `string` | yes | — | Project identifier. |
+| `--pref` | `string` | no | — | Repeatable ModelingPreferences key=value update. |
+| `--hints-file` | `path` | no | — | Path to business context hints file. |
+| `--hints-text` | `string` | no | — | Inline business context hints text. |
+| `--proving-sample-rows` | `integer` | no | — | Proving sample row limit (1..5000). |
+| `--real-row-proving` | `boolean` | no | — | Toggle Step 2/3 real-row proving capture. |
+
 ### `opendv settings set`
 
 Update workspace-level defaults with strict schema validation.
@@ -567,7 +636,7 @@ Launch Step 6 Data Vault 2.0 synthesis (`VaultBuildReq` carries only `policy`).
 
 ### `opendv vault control`
 
-Send live pause, hint, accept-best, raise-budget, or horizon-review control.
+Send live pause, hint, accept-best, raise-budget, horizon-review, or revert control.
 
 - **HTTP Route:** `POST /api/v1/projects/{project_id}/runs/{rid}/controls`
 
@@ -596,7 +665,7 @@ Submit decision answers on a Step 6 HOLD_CHECKPOINTED run.
 
 ### `opendv vault horizon`
 
-Accept or steer provisional horizon assumptions for a Step 6 run.
+Accept, steer, or revert provisional horizon assumptions for a Step 6 run.
 
 - **HTTP Route:** `POST /api/v1/projects/{project_id}/runs/{rid}/horizon`
 
@@ -604,7 +673,7 @@ Accept or steer provisional horizon assumptions for a Step 6 run.
 | --- | --- | --- | --- | --- |
 | `--project` | `string` | yes | — | Project identifier. |
 | `--run` | `string` | yes | — | Run identifier. |
-| `--action` | `string` | yes | — | accept or steer. |
+| `--action` | `string` | yes | — | accept, steer, or revert. |
 | `--assumptions-json` | `string` | no | — | JSON object (or file) with horizon assumption answers or steering payload. |
 | `--notes` | `string` | no | `` |  |
 | `--added-fields` | `string` | no | — |  |
@@ -622,6 +691,18 @@ Fetch persisted JSONL run observability events.
 | `--run` | `string` | no | — | Run id (defaults to latest). |
 | `--since-seq` | `integer` | no | `0` |  |
 | `--limit` | `integer` | no | — |  |
+
+### `opendv vault status`
+
+Inspect Step 6 vault governance, active wave, open Holds, and waived rules.
+
+- **HTTP Route:** `GET /api/v1/projects/{project_id}/runs`
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--project` | `string` | yes | — | Project identifier. |
+| `--run` | `string` | no | — | Optional Step 6 run identifier. |
+| `--holds-only` | `boolean` | no | `False` | Show only open Hold questions. |
 
 ### `opendv vault verify`
 

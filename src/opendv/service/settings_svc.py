@@ -6,11 +6,15 @@ import os
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from pydantic import ValidationError
 
 from opendv.agents import compute_workspace_agents_sha256
+from opendv.modeling.prompts import MAX_BUSINESS_CONTEXT_HINTS_TOKENS
+from opendv.modeling.token_utils import count_tokens
 from opendv.models.errors import ErrorCode, OpenDVError
+from opendv.models.policy import VALID_V6B_RULE_IDS
 from opendv.models.project import (
     ProjectSettingsPatchReq,
     ProjectSettingsSnapshot,
@@ -23,7 +27,10 @@ from opendv.models.wire_dtos_discovery import SecretSummary
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.settings_store import SettingsStore
 from opendv.service.state_store import ProjectStateManager
-from opendv.service.workflows._run_adapters import validate_project_id_or_error
+from opendv.service.workflows._run_adapters import (
+    append_audit_log,
+    validate_project_id_or_error,
+)
 
 
 def _validate_workspace_path_input(path: Path | str) -> str:
@@ -196,18 +203,68 @@ class SettingsService:
         return saved
 
     def update_project_settings(
-        self, project_id: str, patch: ProjectSettingsPatchReq
+        self,
+        project_id: str,
+        patch: ProjectSettingsPatchReq | ProjectSettingsSnapshot,
     ) -> ProjectState:
-        """Atomically patch ProjectSettingsSnapshot under active-lease guard."""
-        if self.state_manager is None:
-            raise OpenDVError(
-                "ProjectStateManager is required for project settings updates.",
-                error_code=ErrorCode.INTERNAL_SERVER_ERROR,
-            )
-        clean_pid = validate_project_id_or_error(project_id)
+        """Atomically patch or replace ProjectSettingsSnapshot under active-lease guard."""
+        return apply_project_settings_update(
+            self.state_manager,
+            project_id,
+            patch,
+            require_no_active_lease=True,
+        )
 
-        def _mut(snap: ProjectSettingsSnapshot) -> ProjectSettingsSnapshot:
-            data = snap.model_dump(mode="python")
+
+def _validate_snapshot_governance(snap: ProjectSettingsSnapshot) -> None:
+    if snap.cegar_policy == "strict" and snap.v7_critic_tier != "FRONTIER_CRITIC":
+        raise OpenDVError(
+            "v7_critic_tier must be FRONTIER_CRITIC when cegar_policy is strict.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    if (
+        snap.business_context_hints
+        and count_tokens(snap.business_context_hints) > MAX_BUSINESS_CONTEXT_HINTS_TOKENS
+    ):
+        raise OpenDVError(
+            f"business_context_hints exceeds {MAX_BUSINESS_CONTEXT_HINTS_TOKENS} "
+            "cl100k_base tokens.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    dis = snap.modeling_preferences.disabled_v6b_blocks
+    invalid_rules = [r for r in dis if r not in VALID_V6B_RULE_IDS]
+    if invalid_rules:
+        raise OpenDVError(
+            f"Invalid disabled_v6b_blocks rule ID(s): {invalid_rules}",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    if snap.cegar_policy == "strict" and dis:
+        raise OpenDVError(
+            "disabled_v6b_blocks must be empty under strict CEGAR policy.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+
+
+def apply_project_settings_update(
+    state_manager: ProjectStateManager | None,
+    project_id: str,
+    patch: ProjectSettingsPatchReq | ProjectSettingsSnapshot,
+    *,
+    require_no_active_lease: bool = True,
+) -> ProjectState:
+    """Atomically patch or replace ProjectSettingsSnapshot with governance checks & audit log."""
+    if state_manager is None:
+        raise OpenDVError(
+            "ProjectStateManager is required for project settings updates.",
+            error_code=ErrorCode.INTERNAL_SERVER_ERROR,
+        )
+    clean_pid = validate_project_id_or_error(project_id)
+
+    def _mut(snap: ProjectSettingsSnapshot) -> ProjectSettingsSnapshot:
+        if isinstance(patch, ProjectSettingsSnapshot):
+            updated: ProjectSettingsSnapshot = patch
+        else:
+            data: dict[str, Any] = snap.model_dump(mode="python")
             patch_data = patch.model_dump(mode="python", exclude_unset=True)
             if "model_overrides" in patch.model_fields_set:
                 ovr_patch = patch_data.pop("model_overrides")
@@ -228,18 +285,36 @@ class SettingsService:
             ):
                 data["v7_critic_tier"] = "FRONTIER_CRITIC"
             try:
-                return ProjectSettingsSnapshot.model_validate(data)
+                updated = ProjectSettingsSnapshot.model_validate(data)
             except ValidationError as exc:
                 raise OpenDVError(
                     f"Invalid project settings patch: {exc}",
                     error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
                 ) from exc
+        _validate_snapshot_governance(updated)
+        return updated
 
-        return self.state_manager.update_project_pointers(
-            clean_pid,
-            require_no_active_lease=True,
-            snapshot_mutator=_mut,
-        )
+    state = state_manager.update_project_pointers(
+        clean_pid,
+        require_no_active_lease=require_no_active_lease,
+        snapshot_mutator=_mut,
+    )
+    snap = state.settings_snapshot
+    append_audit_log(
+        state_manager,
+        clean_pid,
+        event_type="PROJECT_SETTINGS_UPDATED",
+        actor="human",
+        step="step1",
+        summary=f"Updated settings for project '{clean_pid}'.",
+        details={
+            "cegar_policy": snap.cegar_policy,
+            "v7_critic_tier": snap.v7_critic_tier,
+            "real_row_proving": snap.real_row_proving,
+            "proving_sample_rows": snap.proving_sample_rows,
+        },
+    )
+    return state
 
 
-__all__ = ["SettingsService"]
+__all__ = ["SettingsService", "apply_project_settings_update"]

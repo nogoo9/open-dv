@@ -91,6 +91,8 @@ const mkProject = (over: Partial<ProjectState> = {}): ProjectState => ({
 		dbt_sql_dialect: "duckdb",
 		discovery_mode: "incremental_new",
 		secret_precedence: "store_first",
+		proving_sample_rows: 200,
+		real_row_proving: true,
 		max_turns: null,
 		max_tokens: null,
 		timeout_seconds: null,
@@ -315,6 +317,7 @@ const mkIr = (): CertifiedVaultIR => ({
 		{
 			zone_id: "Z4",
 			view_name: "vw_custody_position_current",
+			view_kind: "CURRENT",
 			root_entity: "pit_custody_acct_daily",
 			joined_entities: ["sal_acct_crosswalk"],
 			select_exprs: { acct: "acct" },
@@ -417,6 +420,8 @@ afterEach(() => {
 		activeProject: null,
 		activeStep4Run: null,
 		activeStep6Run: null,
+		activeStep6OntologyRevId: null,
+		supersededRunIds: [],
 		activeRunPolicy: "balanced",
 		guidedView: null,
 		vaultIr: null,
@@ -769,6 +774,8 @@ describe("Track C Guided UX, Observatory, Step 7, Explorers & Settings", () => {
 		useProjectStore.setState({
 			activeProject: mkProject(),
 			currentUrl: "/projects/am-ibor-2026/step/7",
+			activeStep6OntologyRevId: null,
+			supersededRunIds: [],
 			vaultIr: mkIr(),
 			sqlQuery: "SELECT * FROM hub_custody_account;",
 		});

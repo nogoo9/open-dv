@@ -13,6 +13,10 @@ from datetime import UTC, date, datetime
 from decimal import Decimal, localcontext
 from typing import Any
 
+from opendv.models._ir_kernel_links import (
+    compute_participant_link_prehash,
+    execute_participant_link_recipe,
+)
 from opendv.models.diagnostics import KeyTierEnum
 from opendv.models.vault_ir import (
     ArrayType,
@@ -26,6 +30,7 @@ from opendv.models.vault_ir import (
 from opendv.models.vault_ir_certified import HashRecipeSpec, SeedRecordsSpec
 
 NULL_TOKEN = "-1:^^"
+ERROR_NULL_TOKEN = "-2:^^"
 ZERO_KEY_UNKNOWN = "0" * 64
 ZERO_KEY_ERROR = "f" * 64
 DEFAULT_DELIMITER = "||"
@@ -386,6 +391,9 @@ def execute_hash_recipe(
     column_types: Mapping[str, PortableLogicalType] | None = None,
 ) -> str:
     """Execute a HashRecipeSpec deterministically against a row mapping."""
+    if recipe.recipe_kind == "LINK_HK" and recipe.participant_specs:
+        return execute_participant_link_recipe(recipe, row, column_types=column_types)
+
     is_bk = recipe.recipe_kind in ("HUB_HK", "LINK_HK")
     cols = recipe.key_columns if (is_bk and recipe.key_columns) else recipe.source_columns
     bkcc_val: str | None = recipe.bkcc_literal
@@ -441,15 +449,18 @@ def build_seed_records(spec: SeedRecordsSpec) -> dict[str, dict[str, Any]]:
 
 __all__ = [
     "DEFAULT_DELIMITER",
+    "ERROR_NULL_TOKEN",
     "NULL_TOKEN",
     "ZERO_KEY_ERROR",
     "ZERO_KEY_UNKNOWN",
     "build_seed_records",
     "compute_alg_a5_hash",
     "compute_alg_a5_prehash",
+    "compute_participant_link_prehash",
     "encode_alg_a5_token",
     "evaluate_predicate",
     "execute_hash_recipe",
+    "execute_participant_link_recipe",
     "format_scalar_alg_a5",
     "resolve_bkcc",
 ]

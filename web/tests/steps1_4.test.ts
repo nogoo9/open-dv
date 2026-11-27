@@ -88,6 +88,8 @@ const PROJ_SNAP = {
 	dbt_sql_dialect: "duckdb" as const,
 	discovery_mode: "incremental_new" as const,
 	harness_provider: "agy" as const,
+	proving_sample_rows: 200,
+	real_row_proving: true,
 	secret_precedence: "store_first" as const,
 	v7_critic_tier: "FRONTIER_CRITIC" as const,
 };

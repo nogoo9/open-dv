@@ -8,12 +8,18 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from opendv.models.diagnostics import AntiPatternJustification, VerifierDiagnostic
+from opendv.models.modeling_preferences import ModelingPreferences
 from opendv.models.ontology import GraphAOntology
 from opendv.models.policy import CegarPolicy
 from opendv.models.project import OntologyWaiverSpec
 from opendv.models.sources import SourceProfile
 from opendv.models.vault_ir_certified import CertifiedVaultIR
-from opendv.verifier._v6b_ontology_ap import lint_ontology_antipatterns
+from opendv.verifier._v6b_ontology_ap import (
+    apply_v6b_governance,
+    is_diagnostic_waived,
+    lint_ontology_antipatterns,
+    resolve_effective_v6b_blocking_rules,
+)
 from opendv.verifier._v6b_vault_ap import lint_vault_antipatterns
 
 
@@ -27,9 +33,12 @@ def lint_v6b_antipatterns(
     cdc_volatility_by_table: Mapping[str, Mapping[str, float]] | None = None,
     fk_turnover_by_table: Mapping[str, Mapping[str, float]] | None = None,
     entity_count_overrides: Mapping[str, int] | None = None,
+    modeling_preferences: ModelingPreferences | None = None,
+    justifications: Sequence[AntiPatternJustification] = (),
 ) -> list[VerifierDiagnostic]:
     """Run full V6b anti-pattern linter across ONT-AP-001..005 and DV-AP-001..010, 012."""
-    _ = ontology_waivers
+    resolve_effective_v6b_blocking_rules(policy, modeling_preferences)
+    merged_justs = [*ir.justifications, *justifications]
     diags: list[VerifierDiagnostic] = []
     if ontology is not None:
         diags.extend(
@@ -37,6 +46,10 @@ def lint_v6b_antipatterns(
                 ontology,
                 profiles,
                 cdc_volatility_by_table=cdc_volatility_by_table,
+                policy=policy,
+                modeling_preferences=modeling_preferences,
+                justifications=merged_justs,
+                ontology_waivers=ontology_waivers,
             )
         )
     diags.extend(
@@ -48,37 +61,11 @@ def lint_v6b_antipatterns(
             cdc_volatility_by_table=cdc_volatility_by_table,
             fk_turnover_by_table=fk_turnover_by_table,
             entity_count_overrides=entity_count_overrides,
+            modeling_preferences=modeling_preferences,
+            justifications=merged_justs,
         )
     )
     return diags
-
-
-def is_diagnostic_waived(
-    diag: VerifierDiagnostic,
-    *,
-    justifications: Sequence[AntiPatternJustification] = (),
-    ontology_waivers: Sequence[OntologyWaiverSpec] = (),
-) -> bool:
-    """Return True if a waivable V6b diagnostic has an accepted human/V7 or ontology waiver."""
-    if not diag.waivable:
-        return False
-    for just in justifications:
-        if (just.actor == "human" or just.reviewed_by_v7) and (
-            (just.rule_id == diag.rule_id and just.entity_name == diag.entity_name)
-            or (diag.suggested_waiver_id is not None and just.waiver_id == diag.suggested_waiver_id)
-        ):
-            return True
-    if diag.rule_id.startswith("ONT-AP-"):
-        for ow in ontology_waivers:
-            if ow.rule_id == diag.rule_id and (
-                (diag.concept_uri is not None and ow.concept_uri == diag.concept_uri)
-                or (
-                    diag.suggested_waiver_id is not None
-                    and ow.waiver_id == diag.suggested_waiver_id
-                )
-            ):
-                return True
-    return False
 
 
 def evaluate_v6b_accounting(
@@ -110,9 +97,11 @@ def evaluate_v6b_accounting(
 
 
 __all__ = [
+    "apply_v6b_governance",
     "evaluate_v6b_accounting",
     "is_diagnostic_waived",
     "lint_ontology_antipatterns",
     "lint_v6b_antipatterns",
     "lint_vault_antipatterns",
+    "resolve_effective_v6b_blocking_rules",
 ]

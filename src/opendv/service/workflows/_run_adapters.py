@@ -4,10 +4,28 @@ from __future__ import annotations
 
 import contextlib
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, cast
 
 from pydantic import BaseModel
 
+from opendv.agents import (
+    AgentHarnessPort,
+    AgentTurnRequest,
+    load_agent_pack_with_config,
+)
+from opendv.agents.pack_loader import load_modeling_guide
+from opendv.modeling.ports import (
+    LoadedModelingPack,
+    ModelingEventSink,
+    ModelingHarnessPort,
+    ModelingPackLoader,
+    ModelingScoutDispatcher,
+    ModelingTurnRequest,
+    ModelingTurnResult,
+)
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.events import (
     AuditLogRecord,
@@ -18,7 +36,12 @@ from opendv.models.events import (
     RunStreamEvent,
 )
 from opendv.models.policy import CEGAR_POLICY_SPECS, STEP4_DEFAULT_BUDGET
-from opendv.models.project import EvolutionLockSpec, validate_project_id
+from opendv.models.project import (
+    EvolutionLockSpec,
+    HarnessProvider,
+    TrustedWorkspaceSpec,
+    validate_project_id,
+)
 from opendv.models.vault_ir_certified import CertifiedVaultIR
 from opendv.models.wire_dtos_discovery import RunControlReq, RunStateResp
 from opendv.models.wire_dtos_vault import AttemptSnapshotSpec
@@ -411,8 +434,111 @@ def enqueue_control_signal(
     return sig
 
 
+class ServiceModelingHarnessAdapter(ModelingHarnessPort):
+    """Layer-4 adapter bridging AgentHarnessPort to Layer-3 ModelingHarnessPort."""
+
+    def __init__(self, inner: AgentHarnessPort) -> None:
+        self._inner = inner
+
+    @property
+    def provider_name(self) -> HarnessProvider:
+        return self._inner.provider_name
+
+    async def run_turn(
+        self,
+        request: ModelingTurnRequest | AgentTurnRequest | Any,
+        *,
+        event_sink: ModelingEventSink | None = None,
+        scout_dispatcher: ModelingScoutDispatcher | None = None,
+    ) -> ModelingTurnResult:
+        if isinstance(request, AgentTurnRequest):
+            agent_req = request
+        elif isinstance(request, ModelingTurnRequest):
+            agent_req = AgentTurnRequest(
+                run_id=request.run_id,
+                agent_id=request.agent_id,
+                step=request.step,
+                prompt=request.prompt,
+                system_instructions=request.system_instructions,
+                output_schema=request.output_schema,
+                model_tier=request.model_tier,
+                model_override=request.model_override,
+                cegar_policy=request.cegar_policy,
+                role_kind=request.role_kind,
+                role_token=request.role_token,
+                broker_url=request.broker_url,
+                allowed_tools=list(request.allowed_tools),
+                budget=request.budget,
+                checkpoint=request.checkpoint,
+                attempt=request.attempt,
+                cluster_id=request.cluster_id,
+                metadata=dict(request.metadata),
+            )
+        else:
+            agent_req = AgentTurnRequest.model_validate(request)
+
+        res = await self._inner.run_turn(
+            agent_req,
+            event_sink=event_sink,
+            scout_dispatcher=scout_dispatcher,
+        )
+        return ModelingTurnResult.model_validate(res)
+
+
+def wrap_modeling_harness(
+    harness: AgentHarnessPort | ModelingHarnessPort,
+) -> ServiceModelingHarnessAdapter:
+    """Wrap an AgentHarnessPort in ServiceModelingHarnessAdapter without double-wrapping."""
+    if isinstance(harness, ServiceModelingHarnessAdapter):
+        return harness
+    return ServiceModelingHarnessAdapter(cast(AgentHarnessPort, harness))
+
+
+class ServiceModelingPackLoader(ModelingPackLoader):
+    """Layer-4 ModelingPackLoader delegating SKILL.md and guide loading to opendv.agents."""
+
+    def __init__(
+        self,
+        *,
+        workspace_root: Path | None = None,
+        trusted_workspaces: Sequence[TrustedWorkspaceSpec] = (),
+    ) -> None:
+        self._workspace_root = workspace_root
+        self._trusted_workspaces = tuple(trusted_workspaces)
+
+    def load_pack(
+        self,
+        agent_id: str,
+        *,
+        workspace_root: Any = None,
+        trusted_workspaces: Sequence[Any] = (),
+    ) -> LoadedModelingPack:
+        ws_root = Path(workspace_root) if workspace_root is not None else self._workspace_root
+        trusted = tuple(trusted_workspaces) if trusted_workspaces else self._trusted_workspaces
+        detail, cfg = load_agent_pack_with_config(
+            agent_id,
+            workspace_root=ws_root,
+            trusted_workspaces=trusted,
+        )
+        return LoadedModelingPack(
+            agent_id=cfg.agent_id,
+            instructions_markdown=detail.markdown_body,
+            allowed_tools=list(cfg.allowed_tools),
+            model_tier=cfg.model_tier,
+        )
+
+    def load_modeling_guide(self) -> str:
+        guide_text, _ = load_modeling_guide(
+            workspace_root=self._workspace_root,
+            trusted_workspaces=self._trusted_workspaces,
+        )
+        return guide_text
+
+
 __all__ = [
     "ServiceControlSignalReader",
+    "ServiceModelingHarnessAdapter",
+    "ServiceModelingPackLoader",
     "ServiceRunCheckpointStore",
     "ServiceRunEventSink",
     "acquire_project_job_lease",
@@ -438,4 +564,5 @@ __all__ = [
     "resolve_harness",
     "tail_run_logs",
     "validate_project_id_or_error",
+    "wrap_modeling_harness",
 ]

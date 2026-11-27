@@ -200,7 +200,7 @@ export function ArchitectObservatory({
 											: `V7=${a.v7_score ?? "—"}`;
 										return (
 											<button
-												key={a.attempt}
+												key={`${a.attempt}-${idx}`}
 												type="button"
 												className={
 													idx === selectedAttemptIdx

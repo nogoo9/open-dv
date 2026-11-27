@@ -82,6 +82,7 @@ jobs:
               names = set(zf.namelist())
           assert "opendv/api/static/index.html" in names, "Missing web static index.html in wheel"
           assert "opendv/sources/fibo/fibo-core-pack.json" in names, "Missing fibo-core-pack.json in wheel"
+          assert "opendv/agents/packs/dv2-modeling-guide.md" in names, "Missing dv2-modeling-guide.md in wheel"
           packs = [n for n in names if n.startswith("opendv/agents/packs/") and n.endswith("/SKILL.md")]
           assert len(packs) == 6, f"Expected 6 SKILL.md packs, got {len(packs)}: {packs}"
           for rel in ("cli-spec.json", "error-codes.json", "openapi.json", "baseline-digests.json", "matchers/bm25_fibo_v1.json"):
@@ -104,6 +105,7 @@ jobs:
             export XDG_STATE_HOME="$WHEEL_DIR/state"
             opendv --help >/dev/null
             opendv --json agents list | python -c "import json, sys; d = json.load(sys.stdin); assert d['ok'] is True and len(d['data']) == 6"
+            opendv --json model spec --part preferences | python -c "import json, sys; d = json.load(sys.stdin); assert d['ok'] is True and 'preferences' in d['data']"
             python -c "from pathlib import Path; import opendv; from opendv.sources.fibo.loader import FiboReferenceOntologyLoader; p = Path(opendv.__file__).parent; assert (p / 'api/static/index.html').is_file(); assert (p / 'sources/fibo/fibo-core-pack.json').is_file(); assert (p / 'schemas/v2/openapi.json').is_file(); assert len(FiboReferenceOntologyLoader().search_candidates('Legal Entity', limit=1)) == 1; print('WHEEL_OK')"
           )
           rm -rf "$WHEEL_DIR"

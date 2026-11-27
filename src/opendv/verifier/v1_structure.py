@@ -11,7 +11,102 @@ from opendv.models.diagnostics import VerifierDiagnostic
 from opendv.models.ontology import GraphAOntology
 from opendv.models.sources import SourceProfile
 from opendv.models.vault_ir_certified import CertifiedVaultIR
+from opendv.verifier._v1_bridge_rules import (
+    are_hubs_sal_connected,
+    source_cols_by_table,
+    validate_link_participant_bindings,
+    validate_pit_bridges,
+    validate_survivorship_and_z4_types,
+)
 from opendv.verifier._v1_dag_rules import check_v1_dag_rules, v1_diag
+
+
+def _validate_hub_inv05_and_raw_bks(
+    ir: CertifiedVaultIR,
+    profiles: Sequence[SourceProfile],
+) -> list[VerifierDiagnostic]:
+    diags: list[VerifierDiagnostic] = []
+    src_cols_by_tbl = source_cols_by_table(ir, profiles)
+    stg_by_tbl = {stg.source_table_id: stg for stg in ir.staging_views}
+    canon_to_raws: dict[str, dict[str, set[str]]] = {}
+    raw_to_canons: dict[str, dict[str, set[str]]] = {}
+
+    for h in ir.hubs:
+        if h.attributes:
+            diags.append(
+                v1_diag(
+                    "INV-05",
+                    "BLOCKER",
+                    h.hub_name,
+                    f"Hub {h.hub_name} violates INV-05: Hub attributes must be empty.",
+                )
+            )
+        if h.is_planned_concept:
+            continue
+        for bk in h.business_keys:
+            tbl_cols = src_cols_by_tbl.get(bk.table_id)
+            if tbl_cols is not None and bk.col_name not in tbl_cols:
+                diags.append(
+                    v1_diag(
+                        "DV-COL-002",
+                        "BLOCKER",
+                        h.hub_name,
+                        f"Hub {h.hub_name} raw BK '{bk.col_name}' missing from '{bk.table_id}'.",
+                    )
+                )
+            canon = bk.canonical_col_name or bk.col_name
+            canon_to_raws.setdefault(bk.table_id, {}).setdefault(canon, set()).add(bk.col_name)
+            raw_to_canons.setdefault(bk.table_id, {}).setdefault(bk.col_name, set()).add(canon)
+            stg = stg_by_tbl.get(bk.table_id)
+            if stg is not None and bk.canonical_col_name and bk.canonical_col_name != bk.col_name:
+                mapped = stg.col_lineage_mappings.get(bk.canonical_col_name)
+                if mapped is not None and mapped != bk.col_name:
+                    diags.append(
+                        v1_diag(
+                            "DV-COL-002",
+                            "BLOCKER",
+                            stg.view_name,
+                            f"StagingViewSpec {stg.view_name} canonical BK "
+                            f"'{bk.canonical_col_name}' <- '{bk.col_name}' collides with "
+                            f"'{mapped}'.",
+                        )
+                    )
+                elif tbl_cols is not None and bk.canonical_col_name in tbl_cols:
+                    diags.append(
+                        v1_diag(
+                            "DV-COL-002",
+                            "BLOCKER",
+                            stg.view_name,
+                            f"StagingViewSpec {stg.view_name} canonical BK "
+                            f"'{bk.canonical_col_name}' collides with source column.",
+                        )
+                    )
+
+    for tbl_id, c_map in canon_to_raws.items():
+        entity = stg_by_tbl[tbl_id].view_name if tbl_id in stg_by_tbl else tbl_id
+        for canon, raws in c_map.items():
+            if len(raws) > 1:
+                diags.append(
+                    v1_diag(
+                        "DV-COL-002",
+                        "BLOCKER",
+                        entity,
+                        f"Staging {entity} ({tbl_id}) maps multiple raw BKs {sorted(raws)} "
+                        f"to '{canon}'.",
+                    )
+                )
+        for raw, canons in raw_to_canons.get(tbl_id, {}).items():
+            if len(canons) > 1:
+                diags.append(
+                    v1_diag(
+                        "DV-COL-002",
+                        "BLOCKER",
+                        entity,
+                        f"Staging {entity} ({tbl_id}) maps raw BK '{raw}' to conflicting "
+                        f"canonical columns {sorted(canons)}.",
+                    )
+                )
+    return diags
 
 
 def _norm_slug(name: str) -> str:
@@ -33,6 +128,10 @@ def verify_v1_structure(
 ) -> list[VerifierDiagnostic]:
     """Run Gate V1 symbolic DAG topology and column triage checks."""
     diags = check_v1_dag_rules(ir)
+    diags.extend(_validate_hub_inv05_and_raw_bks(ir, profiles))
+    diags.extend(validate_survivorship_and_z4_types(ir))
+    diags.extend(validate_pit_bridges(ir))
+    diags.extend(validate_link_participant_bindings(ir, profiles))
 
     # DV-STR-DUP: reject duplicate entity names in CertifiedVaultIR
     for kind, names in (
@@ -168,7 +267,7 @@ def verify_v1_structure(
 
         for uri, mapped_hubs in uri_to_hubs.items():
             non_canon = [hn for hn in mapped_hubs if not hn.endswith("_canonical")]
-            if len(non_canon) > 1:
+            if len(non_canon) > 1 and not are_hubs_sal_connected(ir, non_canon):
                 diags.append(
                     v1_diag(
                         "ANTI_SILO_VIOLATION",

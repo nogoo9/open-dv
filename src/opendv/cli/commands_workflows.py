@@ -301,7 +301,7 @@ def vault_control(
     extra_tokens: ExtraTokensOpt = None,
     extra_timeout: ExtraTimeoutOpt = None,
 ) -> None:
-    """Send live pause, hint, accept-best, raise-budget, or horizon-review control."""
+    """Send live pause, hint, accept-best, raise-budget, horizon-review, or revert control."""
     run_cli_action(
         ctx,
         lambda c: c.send_vault_control(
@@ -324,7 +324,7 @@ def vault_horizon(
     ctx: typer.Context,
     project: ProjectOpt,
     run: RunOpt,
-    action: Annotated[str, typer.Option("--action", help="accept or steer.")],
+    action: Annotated[str, typer.Option("--action", help="accept, steer, or revert.")],
     assumptions_json: Annotated[
         str | None,
         typer.Option(
@@ -336,7 +336,7 @@ def vault_horizon(
     added_fields: Annotated[str | None, typer.Option("--added-fields")] = None,
     wait: WaitOpt = False,
 ) -> None:
-    """Accept or steer provisional horizon assumptions for a Step 6 run."""
+    """Accept, steer, or revert provisional horizon assumptions for a Step 6 run."""
 
     def _run(client: CliClient) -> Any:
         payload_obj = parse_json_arg(assumptions_json, label="--assumptions-json", expect_type=dict)
@@ -368,6 +368,24 @@ def vault_horizon(
         return client.submit_horizon_steering(project, run, req, wait=wait)
 
     run_cli_action(ctx, _run, plain_formatter=format_run_summary)
+
+
+@vault_app.command("status")
+def vault_status(
+    ctx: typer.Context,
+    project: ProjectOpt,
+    run: Annotated[
+        str | None, typer.Option("--run", help="Optional Step 6 run identifier.")
+    ] = None,
+    holds_only: Annotated[
+        bool, typer.Option("--holds-only", help="Show only open Hold questions.")
+    ] = False,
+) -> None:
+    """Inspect Step 6 vault governance, active wave, open Holds, and waived rules."""
+    run_cli_action(
+        ctx,
+        lambda c: c.get_vault_status(project, run_id=run, holds_only=holds_only),
+    )
 
 
 @vault_app.command("logs")

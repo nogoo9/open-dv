@@ -9,25 +9,129 @@ import hashlib
 import re
 from collections.abc import Mapping, Sequence
 
-from opendv.models.diagnostics import VerifierDiagnostic
+from opendv.models.diagnostics import AntiPatternJustification, VerifierDiagnostic
+from opendv.models.errors import ErrorCode, OpenDVError
+from opendv.models.modeling_preferences import ModelingPreferences
 from opendv.models.ontology import CanonicalBusinessConcept, GraphAOntology
+from opendv.models.pii_tokenizer import RE_PII_COLUMN
+from opendv.models.policy import CEGAR_POLICY_SPECS, VALID_V6B_RULE_IDS, CegarPolicy
+from opendv.models.project import OntologyWaiverSpec
 from opendv.models.sources import ColumnProfile, SourceProfile, TableProfile
 
 SOURCE_PREFIX_RE = re.compile(r"(?i)^(?:hub_)?(?:sfdc|sap|erp|crm|csv|parquet|tbl)_")
-PII_COL_RE = re.compile(
-    r"("
-    r"(?:(?<![A-Za-z0-9])|(?<=[a-z0-9])(?=[A-Z]))"
-    r"(?i:ssn|tin|ein|dob|zip|aba|"
-    r"tax_?id|acct_?num|account_?number|holder_?name|credit_?card|card_?number)"
-    r"(?:(?![A-Za-z0-9])|(?=[A-Z]))"
-    r"|(?i:passport|birth|email|phone|mobile|address|street|postal|"
-    r"salary|wage|iban|beneficiary|routing)"
-    r")"
-)
 SEQ_COL_RE = re.compile(r"(?i)(?:^line_no$|^seq_no$|^item_idx$|_seq$|_line_no$)")
 METRIC_COL_RE = re.compile(r"(?i)(?:_amt$|_amount$|_pct$|_qty$|_rate$)")
 FLOAT_SQL_RE = re.compile(r"(?i)^(?:DOUBLE|FLOAT|REAL|FLOAT4|FLOAT8)$")
 ID_GROUP_RE = re.compile(r"(?i)(?:_id$|_cik$|_ticker$|_cusip$|_lei$|_code$)")
+
+
+def is_diagnostic_waived(
+    diag: VerifierDiagnostic,
+    *,
+    justifications: Sequence[AntiPatternJustification] = (),
+    ontology_waivers: Sequence[OntologyWaiverSpec] = (),
+) -> bool:
+    """Return True if a waivable V6b diagnostic has an accepted human/V7 or ontology waiver."""
+    if not diag.waivable:
+        return False
+    for just in justifications:
+        if (just.actor == "human" or just.reviewed_by_v7) and (
+            (just.rule_id == diag.rule_id and just.entity_name == diag.entity_name)
+            or (diag.suggested_waiver_id is not None and just.waiver_id == diag.suggested_waiver_id)
+        ):
+            return True
+    if diag.rule_id.startswith("ONT-AP-"):
+        for ow in ontology_waivers:
+            if ow.rule_id == diag.rule_id and (
+                (diag.concept_uri is not None and ow.concept_uri == diag.concept_uri)
+                or (
+                    diag.suggested_waiver_id is not None
+                    and ow.waiver_id == diag.suggested_waiver_id
+                )
+            ):
+                return True
+    return False
+
+
+def resolve_effective_v6b_blocking_rules(
+    policy: CegarPolicy,
+    modeling_preferences: ModelingPreferences | None = None,
+) -> frozenset[str]:
+    """Validate disabled_v6b_blocks and return effective blocking V6b rule IDs."""
+    prefs = modeling_preferences or ModelingPreferences()
+    disabled = list(prefs.disabled_v6b_blocks)
+    unknown = sorted(set(disabled) - VALID_V6B_RULE_IDS)
+    if unknown:
+        raise OpenDVError(
+            f"Unknown V6b rule IDs in disabled_v6b_blocks: {', '.join(unknown)}",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    spec = CEGAR_POLICY_SPECS[policy]
+    if policy == "strict" and disabled:
+        raise OpenDVError(
+            "disabled_v6b_blocks must be empty when policy='strict'.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    if spec.allow_preference_exemptions:
+        return spec.blocking_v6b_rules - set(disabled)
+    return spec.blocking_v6b_rules
+
+
+def _is_preference_exempt(diag: VerifierDiagnostic, prefs: ModelingPreferences) -> bool:
+    if (
+        prefs.surrogate_key_strategy == "allow_with_bkcc_note"
+        and diag.rule_id == "DV-AP-003"
+        and "surrogate" in diag.message.lower()
+        and "float" not in diag.message.lower()
+    ):
+        return True
+    if prefs.low_cardinality_strategy == "keep_in_satellite" and diag.rule_id in (
+        "DV-AP-004",
+        "ONT-AP-002",
+    ):
+        return True
+    if (
+        prefs.link_cardinality_strategy == "allow_transactional_links"
+        and diag.rule_id == "DV-AP-007"
+    ):
+        return True
+    return bool(prefs.esat_on_mutable_links == "off" and diag.rule_id == "DV-AP-008")
+
+
+def apply_v6b_governance(
+    diagnostics: Sequence[VerifierDiagnostic],
+    *,
+    policy: CegarPolicy = "balanced",
+    modeling_preferences: ModelingPreferences | None = None,
+    justifications: Sequence[AntiPatternJustification] = (),
+    ontology_waivers: Sequence[OntologyWaiverSpec] = (),
+) -> list[VerifierDiagnostic]:
+    """Apply policy blocking rules, preference auto-exemptions, and waiver status."""
+    prefs = modeling_preferences or ModelingPreferences()
+    effective_blocking = resolve_effective_v6b_blocking_rules(policy, prefs)
+    spec = CEGAR_POLICY_SPECS[policy]
+
+    governed: list[VerifierDiagnostic] = []
+    for diag in diagnostics:
+        if diag.severity == "ADVISORY" and not spec.require_zero_unwaived_v6b:
+            governed.append(diag)
+            continue
+        if spec.allow_preference_exemptions and _is_preference_exempt(diag, prefs):
+            governed.append(diag.model_copy(update={"severity": "ADVISORY"}))
+            continue
+        if is_diagnostic_waived(
+            diag,
+            justifications=justifications,
+            ontology_waivers=ontology_waivers,
+        ):
+            sev = "WARN" if diag.severity == "ADVISORY" else diag.severity
+            governed.append(diag.model_copy(update={"severity": sev}))
+            continue
+        if diag.rule_id in effective_blocking or spec.require_zero_unwaived_v6b:
+            governed.append(diag.model_copy(update={"severity": "ERROR"}))
+        else:
+            governed.append(diag.model_copy(update={"severity": "ADVISORY"}))
+    return governed
 
 
 def waiver_id(prefix: str, rule_id: str, entity_name: str) -> str:
@@ -76,7 +180,7 @@ def is_sensitive_col(
         return True
     if col_prof is not None and col_prof.pii_tags:
         return True
-    return bool(PII_COL_RE.search(name))
+    return bool(RE_PII_COLUMN.search(name))
 
 
 def lint_ontology_antipatterns(
@@ -84,6 +188,10 @@ def lint_ontology_antipatterns(
     profiles: Sequence[SourceProfile] = (),
     *,
     cdc_volatility_by_table: Mapping[str, Mapping[str, float]] | None = None,
+    policy: CegarPolicy | None = None,
+    modeling_preferences: ModelingPreferences | None = None,
+    justifications: Sequence[AntiPatternJustification] = (),
+    ontology_waivers: Sequence[OntologyWaiverSpec] = (),
 ) -> list[VerifierDiagnostic]:
     """Detect upstream ONT-AP-001..005 smells on (GraphAOntology, SourceProfile)."""
     diags: list[VerifierDiagnostic] = []
@@ -318,6 +426,22 @@ def lint_ontology_antipatterns(
                     )
                     break
 
+    if policy is not None:
+        return apply_v6b_governance(
+            diags,
+            policy=policy,
+            modeling_preferences=modeling_preferences,
+            justifications=justifications,
+            ontology_waivers=ontology_waivers,
+        )
+    if modeling_preferences is not None:
+        prefs = modeling_preferences
+        return [
+            d.model_copy(update={"severity": "ADVISORY"})
+            if _is_preference_exempt(d, prefs)
+            else d
+            for d in diags
+        ]
     return diags
 
 
@@ -325,8 +449,11 @@ __all__ = [
     "FLOAT_SQL_RE",
     "SEQ_COL_RE",
     "SOURCE_PREFIX_RE",
+    "apply_v6b_governance",
     "index_profiles",
+    "is_diagnostic_waived",
     "is_sensitive_col",
     "lint_ontology_antipatterns",
+    "resolve_effective_v6b_blocking_rules",
     "waiver_id",
 ]

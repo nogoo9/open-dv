@@ -10,14 +10,19 @@ from typing import Literal
 import yaml
 from pydantic import Field
 
+from opendv.agents.cli_subprocess_base import count_cl100k_tokens
 from opendv.models.diagnostics import StrictModel
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.events import RunStep
 from opendv.models.policy import AGENT_PACK_IDS, ModelTier
 from opendv.models.project import TrustedWorkspaceSpec
+from opendv.models.project import (
+    compute_workspace_agents_sha256 as _compute_workspace_agents_sha256,
+)
 from opendv.models.wire_dtos_discovery import AgentPackDetail, AgentPackSummary
 
 _BUILTIN_PACKS_DIR = Path(__file__).resolve().parent / "packs"
+_MAX_MODELING_GUIDE_TOKENS = 2_500
 
 
 class AgentPackConfig(StrictModel):
@@ -90,31 +95,9 @@ def _parse_skill_markdown(raw_text: str, *, expected_agent_id: str) -> tuple[Age
     return cfg, body
 
 
-def _override_files(workspace_root: Path) -> list[Path]:
-    override_root = workspace_root / ".opendv" / "agents"
-    if not override_root.is_dir():
-        return []
-    return sorted(
-        (p for p in override_root.glob("*/SKILL.md") if p.is_file()),
-        key=lambda p: p.parent.name,
-    )
-
-
 def compute_workspace_agents_sha256(workspace_root: Path) -> str | None:
-    """Compute a deterministic SHA-256 digest over all workspace .opendv/agents/*/SKILL.md files."""
-    files = _override_files(workspace_root)
-    if not files:
-        return None
-    override_root = workspace_root / ".opendv" / "agents"
-    hasher = hashlib.sha256()
-    for path in files:
-        rel = path.relative_to(override_root).as_posix()
-        text = _normalize_text(path.read_text(encoding="utf-8"))
-        hasher.update(rel.encode("utf-8"))
-        hasher.update(b"\x00")
-        hasher.update(text.encode("utf-8"))
-        hasher.update(b"\x00")
-    return hasher.hexdigest()
+    """Compute canonical SHA-256 over workspace .opendv/agents override SKILL.md and guide."""
+    return _compute_workspace_agents_sha256(workspace_root)
 
 
 def verify_workspace_override_trust(
@@ -235,6 +218,44 @@ def list_agent_packs(
     return summaries
 
 
+def load_modeling_guide(
+    *,
+    workspace_root: Path | None = None,
+    trusted_workspaces: Sequence[TrustedWorkspaceSpec] = (),
+) -> tuple[str, str]:
+    """Load builtin or trusted workspace-override dv2-modeling-guide.md and its SHA-256."""
+    raw: str | None = None
+    if workspace_root is not None:
+        verify_workspace_override_trust(workspace_root, trusted_workspaces)
+        override_file = workspace_root / ".opendv" / "agents" / "dv2-modeling-guide.md"
+        if override_file.is_file():
+            raw = override_file.read_text(encoding="utf-8")
+
+    if raw is None:
+        builtin_file = _BUILTIN_PACKS_DIR / "dv2-modeling-guide.md"
+        if not builtin_file.is_file():
+            raise OpenDVError(
+                "Builtin modeling guide 'dv2-modeling-guide.md' is missing.",
+                error_code=ErrorCode.RESOURCE_NOT_FOUND,
+            )
+        raw = builtin_file.read_text(encoding="utf-8")
+
+    guide_text = _normalize_text(raw)
+    if not guide_text.strip():
+        raise OpenDVError(
+            "Modeling guide 'dv2-modeling-guide.md' must not be empty.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    token_count = count_cl100k_tokens(guide_text)
+    if token_count > _MAX_MODELING_GUIDE_TOKENS:
+        raise OpenDVError(
+            f"Modeling guide exceeds {_MAX_MODELING_GUIDE_TOKENS} cl100k_base tokens "
+            f"(got {token_count}).",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    return guide_text, compute_pack_sha256(guide_text)
+
+
 __all__ = [
     "AGENT_PACK_IDS",
     "AgentPackConfig",
@@ -243,5 +264,6 @@ __all__ = [
     "list_agent_packs",
     "load_agent_pack",
     "load_agent_pack_with_config",
+    "load_modeling_guide",
     "verify_workspace_override_trust",
 ]

@@ -5,10 +5,26 @@ Zero duckdb, sqlglot, or opendv.sources imports.
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from opendv.models.diagnostics import VerifierDiagnostic
 from opendv.models.ir_kernel import resolve_bkcc
-from opendv.models.vault_ir import PredicateBranch, PredicateLeaf, PredicateNode
-from opendv.models.vault_ir_certified import CertifiedVaultIR, HashRecipeSpec
+from opendv.models.vault_ir import (
+    PredicateBranch,
+    PredicateLeaf,
+    PredicateNode,
+    hub_canonical_bk_cols,
+)
+from opendv.models.vault_ir_certified import (
+    CertifiedHubSpec,
+    CertifiedVaultIR,
+    HashRecipeSpec,
+    LinkParticipantHashSpec,
+)
+
+
+def _hub_canon_bks(hub: CertifiedHubSpec) -> list[str]:
+    return hub_canonical_bk_cols(cast(Any, hub))
 
 _FORBIDDEN_HASH_DIFF_COLS: frozenset[str] = frozenset({"load_dts", "rec_src", "hash_diff"})
 _FORBIDDEN_RAW_SAT_TEMPORAL_COLS: frozenset[str] = frozenset(
@@ -63,6 +79,16 @@ def _check_recipe_bkcc(
                     f"TIER_1 on {entity_name} requires bkcc_literal='GLOBAL'.",
                 )
             )
+        if recipe.bkcc_col and recipe.bkcc_col.strip():
+            diags.append(
+                _diag(
+                    "V2",
+                    "DV-COL-013",
+                    "BLOCKER",
+                    entity_name,
+                    f"TIER_1 on {entity_name} must suppress bkcc_col.",
+                )
+            )
     elif key_tier == "TIER_3_LOCAL_SCOPED":
         has_lit = bool(recipe.bkcc_literal and recipe.bkcc_literal.strip())
         has_col = bool(recipe.bkcc_col and recipe.bkcc_col.strip())
@@ -76,6 +102,65 @@ def _check_recipe_bkcc(
                     f"TIER_3 on {entity_name} requires bkcc_literal or bkcc_col.",
                 )
             )
+
+
+def _check_participant_spec_bkcc(
+    ps: LinkParticipantHashSpec,
+    entity_name: str,
+    diags: list[VerifierDiagnostic],
+) -> None:
+    if not ps.source_columns:
+        diags.append(
+            _diag(
+                "V2",
+                "DV-COL-003",
+                "BLOCKER",
+                entity_name,
+                f"Link {entity_name} participant '{ps.role_name}' lacks source_columns.",
+            )
+        )
+    if ps.key_tier == "TIER_1_GLOBAL_STANDARD":
+        if ps.bkcc_literal != "GLOBAL":
+            diags.append(
+                _diag(
+                    "V2",
+                    "DV-COL-013",
+                    "BLOCKER",
+                    entity_name,
+                    f"Link {entity_name} TIER_1 participant '{ps.role_name}' requires "
+                    "bkcc_literal='GLOBAL'.",
+                )
+            )
+        if ps.bkcc_col and ps.bkcc_col.strip():
+            diags.append(
+                _diag(
+                    "V2",
+                    "DV-COL-013",
+                    "BLOCKER",
+                    entity_name,
+                    f"Link {entity_name} TIER_1 participant '{ps.role_name}' must suppress "
+                    "bkcc_col.",
+                )
+            )
+    elif ps.key_tier == "TIER_3_LOCAL_SCOPED":
+        has_lit = bool(ps.bkcc_literal and ps.bkcc_literal.strip())
+        has_col = bool(ps.bkcc_col and ps.bkcc_col.strip())
+        if not (has_lit or has_col):
+            diags.append(
+                _diag(
+                    "V2",
+                    "DV-COL-012",
+                    "BLOCKER",
+                    entity_name,
+                    f"Link {entity_name} TIER_3 participant '{ps.role_name}' requires "
+                    "bkcc_literal or bkcc_col.",
+                )
+            )
+        elif has_lit:
+            try:
+                resolve_bkcc("TIER_3_LOCAL_SCOPED", ps.bkcc_literal)
+            except ValueError as exc:
+                diags.append(_diag("V2", "DV-COL-012", "BLOCKER", entity_name, str(exc)))
 
 
 def verify_v2_hash_and_bkcc(ir: CertifiedVaultIR) -> list[VerifierDiagnostic]:
@@ -108,8 +193,9 @@ def verify_v2_hash_and_bkcc(ir: CertifiedVaultIR) -> list[VerifierDiagnostic]:
             )
         else:
             bk_cols = {bk.col_name for bk in h.business_keys}
+            canon_bk_set = set(_hub_canon_bks(h))
             recipe_cols = set(h.hash_recipe.key_columns or h.hash_recipe.source_columns)
-            if not bk_cols.issubset(recipe_cols):
+            if not (bk_cols.issubset(recipe_cols) or canon_bk_set.issubset(recipe_cols)):
                 diags.append(
                     _diag(
                         "V2",
@@ -165,14 +251,25 @@ def verify_v2_hash_and_bkcc(ir: CertifiedVaultIR) -> list[VerifierDiagnostic]:
                     seen_tier3_scopes.setdefault(h.hub_name, set()).add(scope_key)
 
         for sb in h.source_bindings:
+            tbl_bks = [bk for bk in h.business_keys if bk.table_id == sb.table_id]
+            eff_tier = sb.key_tier or (tbl_bks[0].key_tier if tbl_bks else h.key_tier)
             if sb.hash_recipe is not None:
-                tbl_bks = [bk for bk in h.business_keys if bk.table_id == sb.table_id]
-                eff_tier = tbl_bks[0].key_tier if tbl_bks else h.key_tier
                 _check_recipe_bkcc(
                     sb.hash_recipe, eff_tier, f"{h.hub_name}:{sb.table_id}", diags
                 )
 
         col_map = {c.name: c for c in h.columns}
+        missing_phys_bks = [c for c in _hub_canon_bks(h) if c not in col_map]
+        if missing_phys_bks:
+            diags.append(
+                _diag(
+                    "V2",
+                    "DV-COL-002",
+                    "BLOCKER",
+                    h.hub_name,
+                    f"Hub {h.hub_name} physical columns missing canonical BKs {missing_phys_bks}.",
+                )
+            )
         for audit_col, audit_type in (("load_dts", "TIMESTAMP_UTC_US"), ("rec_src", "UTF8_STRING")):
             fld = col_map.get(audit_col)
             if fld is None or fld.nullable or fld.logical_type != audit_type:
@@ -197,6 +294,26 @@ def verify_v2_hash_and_bkcc(ir: CertifiedVaultIR) -> list[VerifierDiagnostic]:
                     f"Link {lnk.link_name} missing LINK_HK HashRecipeSpec.",
                 )
             )
+        else:
+            for ps in lnk.hash_recipe.participant_specs:
+                _check_participant_spec_bkcc(ps, lnk.link_name, diags)
+        for sb in lnk.source_bindings:
+            if sb.hash_recipe is not None:
+                b_entity = f"{lnk.link_name}:{sb.table_id}"
+                if sb.hash_recipe.recipe_kind != "LINK_HK":
+                    diags.append(
+                        _diag(
+                            "V2",
+                            "DV-COL-003",
+                            "BLOCKER",
+                            b_entity,
+                            f"Link binding {b_entity} recipe must be LINK_HK.",
+                        )
+                    )
+                if sb.key_tier is not None:
+                    _check_recipe_bkcc(sb.hash_recipe, sb.key_tier, b_entity, diags)
+                for ps in sb.hash_recipe.participant_specs:
+                    _check_participant_spec_bkcc(ps, b_entity, diags)
         col_map = {c.name: c for c in lnk.columns}
         for part in lnk.participants:
             fk_f = col_map.get(part.fk_col_name)
@@ -226,13 +343,23 @@ def verify_v2_hash_and_bkcc(ir: CertifiedVaultIR) -> list[VerifierDiagnostic]:
                 )
             else:
                 r = sat.hash_recipe
+                sat_cmaps = sat.source_bindings[0].col_mappings if sat.source_bindings else {}
                 expected_cols = (
                     {a.name for a in sat.attributes}
-                    | (set(sat.child_dependent_keys) if sat.sat_kind == "MAS" else set())
+                    | (
+                        set(sat.child_dependent_keys)
+                        if (sat.sat_kind == "MAS" or bool(sat.child_dependent_keys))
+                        else set()
+                    )
                 ) - _FORBIDDEN_HASH_DIFF_COLS - (
                     {sat.applied_dts_col} if sat.applied_dts_col else set()
                 )
-                missing_cols = expected_cols - set(r.source_columns)
+                recipe_set = set(r.source_columns)
+                missing_cols = {
+                    c
+                    for c in expected_cols
+                    if c not in recipe_set and sat_cmaps.get(c, c) not in recipe_set
+                }
                 if missing_cols:
                     diags.append(
                         _diag(
@@ -253,12 +380,17 @@ def verify_v2_hash_and_bkcc(ir: CertifiedVaultIR) -> list[VerifierDiagnostic]:
                             f"{sat.sat_name} SAT_HASH_DIFF source_columns must be sorted.",
                         )
                     )
+                mapped_applied = (
+                    sat_cmaps.get(sat.applied_dts_col, sat.applied_dts_col)
+                    if sat.applied_dts_col
+                    else None
+                )
                 bad_sys = [
                     c
                     for c in r.source_columns
                     if c in _FORBIDDEN_HASH_DIFF_COLS
                     or c.startswith("hk_")
-                    or (sat.applied_dts_col and c == sat.applied_dts_col)
+                    or (sat.applied_dts_col and c in (sat.applied_dts_col, mapped_applied))
                 ]
                 if bad_sys:
                     diags.append(
@@ -331,6 +463,10 @@ def verify_v3_sentinels_and_temporal(ir: CertifiedVaultIR) -> list[VerifierDiagn
             pred_cols = _predicate_cols(recipe.unknown_predicate) | _predicate_cols(
                 recipe.error_predicate
             )
+            for ps in recipe.participant_specs:
+                pred_cols |= _predicate_cols(ps.unknown_predicate) | _predicate_cols(
+                    ps.error_predicate
+                )
             missing = pred_cols - known_cols
             if missing:
                 diags.append(
@@ -340,6 +476,31 @@ def verify_v3_sentinels_and_temporal(ir: CertifiedVaultIR) -> list[VerifierDiagn
                         "ERROR",
                         stg.view_name,
                         f"Sentinel predicate references unknown columns {sorted(missing)}.",
+                    )
+                )
+
+    for lnk in ir.links:
+        for sb in lnk.source_bindings:
+            if sb.hash_recipe is None or sb.table_id not in stg_by_table:
+                continue
+            known_cols = stg_by_table[sb.table_id]
+            pred_cols = _predicate_cols(sb.hash_recipe.unknown_predicate) | _predicate_cols(
+                sb.hash_recipe.error_predicate
+            )
+            for ps in sb.hash_recipe.participant_specs:
+                pred_cols |= _predicate_cols(ps.unknown_predicate) | _predicate_cols(
+                    ps.error_predicate
+                )
+            missing = pred_cols - known_cols
+            if missing:
+                diags.append(
+                    _diag(
+                        "V3",
+                        "DV-COL-010",
+                        "ERROR",
+                        lnk.link_name,
+                        f"Link {lnk.link_name} predicate on '{sb.table_id}' references "
+                        f"unknown columns {sorted(missing)}.",
                     )
                 )
 

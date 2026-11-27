@@ -359,9 +359,15 @@ def test_databricks_attach_reattach_sync_and_preview_access_token(
             total_rows=1,
         )
 
+    def fake_profile_with_samples(
+        source_id: str, _kind: Any, uri: str, **kwargs: Any
+    ) -> tuple[SourceProfile, dict[str, list[dict[str, Any]]], dict[str, bool]]:
+        prof = fake_profile(source_id, _kind, uri, **kwargs)
+        return prof, {f"{source_id}:holdings": [{"id": "1"}]}, {f"{source_id}:holdings": False}
+
     monkeypatch.setattr(
-        "opendv.service.workflows._discovery_sources.profile_source",
-        fake_profile,
+        "opendv.service.workflows._vault_proving.profile_source_with_samples",
+        fake_profile_with_samples,
     )
     monkeypatch.setattr(
         "opendv.service.workflows._source_docs.run_table_preview",
