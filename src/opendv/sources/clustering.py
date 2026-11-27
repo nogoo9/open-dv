@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Final, Literal
 
 from opendv.models.modeling_preferences import TableClusterResult
@@ -312,9 +312,14 @@ def build_table_index_entries(
     *,
     badge_map: dict[str, Literal["NEW", "UPDATED", "UNCHANGED"]] | None = None,
     modeled_version: str | None = None,
+    precomputed_clusters: Mapping[str, str] | None = None,
 ) -> list[TableIndexEntry]:
     """Produce deterministic MinHash-clustered TableIndexEntry DTOs for Step 3a."""
-    clustering = cluster_tables(tables)
+    cluster_map = (
+        precomputed_clusters
+        if precomputed_clusters is not None
+        else cluster_tables(tables).table_to_cluster
+    )
     entries: list[TableIndexEntry] = []
     for tbl in sorted(tables, key=lambda t: t.table_name):
         pk_cols = [
@@ -334,7 +339,7 @@ def build_table_index_entries(
                 table_id=tbl.table_id,
                 source_id=source_id,
                 table_name=tbl.table_name,
-                cluster_id=clustering.table_to_cluster[tbl.table_id],
+                cluster_id=cluster_map.get(tbl.table_id, "cluster-0"),
                 col_count=len(tbl.columns),
                 pii_col_count=pii_cnt,
                 pk_cols=pk_cols,

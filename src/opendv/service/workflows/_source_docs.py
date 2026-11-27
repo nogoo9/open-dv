@@ -165,12 +165,19 @@ def list_tables_index(
     all_tables: list[tuple[str, TableProfile]] = []
     for s in sources:
         rec = state_manager.get_source_record(project_id, s.source_id)
-        prof = SourceProfile.model_validate(rec["profile"])
+        prof = (
+            rec["profile"]
+            if isinstance(rec["profile"], SourceProfile)
+            else SourceProfile.model_validate(rec["profile"])
+        )
         for tbl in prof.tables:
             all_tables.append((s.source_id, tbl))
     if not all_tables:
         return []
-    clustered = cluster_tables([t for _sid, t in all_tables])
+    if len(sources) == 1 and all(tbl.cluster_id for _sid, tbl in all_tables):
+        cluster_map = {tbl.table_id: tbl.cluster_id or "cluster-0" for _sid, tbl in all_tables}
+    else:
+        cluster_map = cluster_tables([t for _sid, t in all_tables]).table_to_cluster
     locks = active_evolution_locks(state_manager, project_id)
     locked_cols: dict[str, set[str]] = {}
     locked_wave_by_tbl: dict[str, int] = {}
@@ -190,14 +197,17 @@ def list_tables_index(
             badge_map[tbl.table_id] = "NEW"
     out: list[TableIndexEntry] = []
     for sid, tbl in all_tables:
-        cluster_id = clustered.table_to_cluster.get(tbl.table_id, "cluster-0")
         tbl_wave = locked_wave_by_tbl.get(tbl.table_id)
         modeled_ver = f"v{tbl_wave}" if tbl_wave is not None else None
-        entries = build_table_index_entries(
-            [tbl], sid, badge_map=badge_map, modeled_version=modeled_ver
+        out.extend(
+            build_table_index_entries(
+                [tbl],
+                sid,
+                badge_map=badge_map,
+                modeled_version=modeled_ver,
+                precomputed_clusters=cluster_map,
+            )
         )
-        for item in entries:
-            out.append(item.model_copy(update={"cluster_id": cluster_id}))
     return out
 
 
