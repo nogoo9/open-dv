@@ -1,6 +1,6 @@
 # Open-DV Modeling Engine User Guide (`opendv.modeling`)
 
-> **Architecture & Stage Walkthrough:** [`docs/designs/dv2-modeling-engine-and-governance.md`](../../designs/dv2-modeling-engine-and-governance.md) · **External Agent Skill:** [`.agents/skills/opendv-modeling/SKILL.md`](../../../.agents/skills/opendv-modeling/SKILL.md) · **Full CLI Reference:** [`docs/16-cli-reference.md`](../../16-cli-reference.md)
+> **Contributor Guide:** [`contributor-guide.md`](contributor-guide.md) · **Architecture & Stage Walkthrough:** [`docs/designs/dv2-modeling-engine-and-governance.md`](../../designs/dv2-modeling-engine-and-governance.md) · **External Agent Skill:** [`.agents/skills/opendv-modeling/SKILL.md`](../../../.agents/skills/opendv-modeling/SKILL.md) · **Full CLI Reference:** [`docs/16-cli-reference.md`](../../16-cli-reference.md)
 
 The Open-DV Modeling Engine (`src/opendv/modeling/`) turns **profiled tabular sources** (CSV, Parquet, SQLite, DuckDB, Excel, or Databricks Unity Catalog) plus an optional **business ontology** and **governance rules** into a **mathematically verified Data Vault 2.0 schema (`CertifiedVaultIR`)** and **additive wave lock (`EvolutionLockSpec`)**—without ever letting an LLM write raw SQL DDL or DML.
 

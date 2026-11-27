@@ -206,6 +206,7 @@ open-dv/
 
 - **DV 2.0 Modeling Component & Architecture:**
   - **Component User Guide:** [`docs/components/modeling/user-guide.md`](docs/components/modeling/user-guide.md) — Mode 1 (`opendv model spec|profile|verify`), Mode 2 (`opendv model run` / `opendv vault build`), `ModelingPreferences`, real-row proving, & troubleshooting
+  - **Component Contributor Guide:** [`docs/components/modeling/contributor-guide.md`](docs/components/modeling/contributor-guide.md) — `src/opendv/modeling/` module map, Layer-3 import contracts, `D16` token budget, & extension recipes
   - **Architecture & Governance Design:** [`docs/designs/dv2-modeling-engine-and-governance.md`](docs/designs/dv2-modeling-engine-and-governance.md) — `src/opendv/modeling/` CEGAR loop, Horizon Critics (`V7`/`V8`), domain sharding, & IR-level governance
   - **External-Agent Modeling Skill:** [`.agents/skills/opendv-modeling/SKILL.md`](.agents/skills/opendv-modeling/SKILL.md) — normative Mode 1 protocol for external coding agents
 - **Authoritative Sitemap:** [`docs/designs/SITEMAP.md`](docs/designs/SITEMAP.md)

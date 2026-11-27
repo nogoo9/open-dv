@@ -3,7 +3,7 @@
 *   **Author:** Eterna2
 *   **Status:** Implemented (Phases 1–6 & Live No-Mock UAT Verified)
 *   **Date:** 2026-11-26
-*   **User Guide:** [`docs/components/modeling/user-guide.md`](../components/modeling/user-guide.md) · **External Agent Skill:** [`.agents/skills/opendv-modeling/SKILL.md`](../../.agents/skills/opendv-modeling/SKILL.md)
+*   **User Guide:** [`docs/components/modeling/user-guide.md`](../components/modeling/user-guide.md) · **Contributor Guide:** [`docs/components/modeling/contributor-guide.md`](../components/modeling/contributor-guide.md) · **External Agent Skill:** [`.agents/skills/opendv-modeling/SKILL.md`](../../.agents/skills/opendv-modeling/SKILL.md)
 
 --------------------------------------------------------------------------------
 
