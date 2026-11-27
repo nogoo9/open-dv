@@ -20,6 +20,7 @@ from opendv.service.bundles.zip_guard import (
 from opendv.service.os_platform import atomic_write_text, set_owner_only_permissions
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.state_store import ProjectStateManager
+from opendv.service.workflows._source_docs import attach_driver_remediation
 from opendv.sources import (
     build_proving_cache_file,
     compute_salt_digest,
@@ -216,21 +217,26 @@ def profile_structured_with_proving(
     secret_refs: Sequence[str] = (),
     selected_tables: Sequence[str] | None = None,
     profile_timeout_seconds: int = 30,
+    access_token: str | None = None,
 ) -> tuple[SourceProfile, ProvingSampleBatch]:
     """Profile structured source with project proving salt and return profile + batch."""
     salt_key, salt_hex, salt_digest = get_or_create_proving_salt(secret_store, project_id)
-    profile, rows_by_table, sample_flags = profile_source_with_samples(
-        source_id,
-        kind,
-        uri_str,
-        options=options,
-        secret_refs=secret_refs,
-        selected_tables=selected_tables,
-        profile_timeout_seconds=profile_timeout_seconds,
-        proving_sample_rows=proving_sample_rows,
-        real_row_proving=real_row_proving,
-        pii_salt=salt_hex,
-    )
+    try:
+        profile, rows_by_table, sample_flags = profile_source_with_samples(
+            source_id,
+            kind,
+            uri_str,
+            options=options,
+            secret_refs=secret_refs,
+            selected_tables=selected_tables,
+            profile_timeout_seconds=profile_timeout_seconds,
+            proving_sample_rows=proving_sample_rows,
+            real_row_proving=real_row_proving,
+            pii_salt=salt_hex,
+            access_token=access_token,
+        )
+    except OpenDVError as exc:
+        raise attach_driver_remediation(exc) from exc
     return profile, ProvingSampleBatch(
         project_id=project_id,
         source_id=source_id,

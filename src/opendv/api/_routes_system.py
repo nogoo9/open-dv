@@ -15,6 +15,13 @@ from opendv.models.wire_dtos_discovery import (
     SecretSummary,
     SecretWriteReq,
 )
+from opendv.models.wire_dtos_readiness import (
+    DoctorResponse,
+    ProviderReadinessRecord,
+    ReadinessResponse,
+    ReadinessTestReq,
+    RevokeTrustedWorkspaceReq,
+)
 
 from ._route_helpers import get_service
 
@@ -26,6 +33,18 @@ def get_health(request: Request) -> HealthResp:
     return get_service(request).get_health()
 
 
+@router.get("/system/doctor", response_model=DoctorResponse)
+def get_system_doctor(
+    request: Request,
+    check_agents: bool = Query(default=False),
+    check_mcp: bool = Query(default=False),
+) -> DoctorResponse:
+    return get_service(request).run_doctor(
+        check_agents=check_agents,
+        check_mcp=check_mcp,
+    )
+
+
 @router.get("/settings", response_model=WorkspaceSettings)
 def get_settings(request: Request) -> WorkspaceSettings:
     return get_service(request).get_settings()
@@ -34,6 +53,13 @@ def get_settings(request: Request) -> WorkspaceSettings:
 @router.put("/settings", response_model=WorkspaceSettings)
 def put_settings(request: Request, body: WorkspaceSettings) -> WorkspaceSettings:
     return get_service(request).update_settings(body)
+
+
+@router.post("/settings/trusted-workspaces/revoke", response_model=WorkspaceSettings)
+def revoke_trusted_workspace(
+    request: Request, body: RevokeTrustedWorkspaceReq
+) -> WorkspaceSettings:
+    return get_service(request).revoke_trusted_workspace(body.workspace_root)
 
 
 @router.post("/secrets", response_model=SecretSummary)
@@ -77,6 +103,18 @@ def delete_mcp_server(request: Request, server_id: str) -> Response:
 @router.get("/agents", response_model=list[AgentPackSummary])
 def list_agents(request: Request) -> list[AgentPackSummary]:
     return get_service(request).list_agent_packs()
+
+
+@router.get("/agents/readiness", response_model=ReadinessResponse)
+def get_agent_readiness(request: Request) -> ReadinessResponse:
+    return get_service(request).get_agent_readiness()
+
+
+@router.post("/agents/readiness/test", response_model=ProviderReadinessRecord)
+async def test_agent_readiness(
+    request: Request, body: ReadinessTestReq
+) -> ProviderReadinessRecord:
+    return await get_service(request).test_agent_readiness(body.provider)
 
 
 @router.get("/agents/{agent_id}", response_model=AgentPackDetail)

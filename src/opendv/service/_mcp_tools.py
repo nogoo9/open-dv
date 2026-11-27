@@ -22,6 +22,7 @@ from opendv.models.ontology_deltas import (
 )
 from opendv.models.project import (
     ConceptMemorySpec,
+    DiscoveryMode,
     EvolutionLockSpec,
     RevisionMetadata,
     StagedCandidateSpec,
@@ -72,6 +73,7 @@ class BrokerToolContext:
     ocr_provider: OcrProviderFn | None = None
     ontology_rev_id: str | None = None
     sources_fingerprint: str = "fp-step4"
+    discovery_mode: DiscoveryMode = "incremental_new"
 
     def coord(self) -> BrokerHoldCoordinator:
         if self.hold_coord is None:
@@ -412,7 +414,10 @@ async def coord_ask_domain_clarification(
         budget_turns_used=ctx.budget_tracker.calls_used,
         budget_tokens_used=0,
         token_count_source="estimated",
-        resume_payload={"pending_question_ids": [q.question_id for q in questions]},
+        resume_payload={
+            "pending_question_ids": [q.question_id for q in questions],
+            "discovery_mode": ctx.discovery_mode,
+        },
     )
     ctx.state_store.append_event_or_receipt(
         ctx.project_id,

@@ -296,6 +296,7 @@ def profile_source(
     secret_refs: Sequence[str] = (),
     selected_tables: Sequence[str] | None = None,
     profile_timeout_seconds: int = 30,
+    access_token: str | None = None,
 ) -> SourceProfile:
     """Profile a structured source in a bounded threadpool (zero LLM calls)."""
     raw_tables: list[RawTableData] = _run_with_timeout(
@@ -306,6 +307,7 @@ def profile_source(
         options=options,
         secret_refs=secret_refs,
         selected_tables=selected_tables,
+        access_token=access_token,
         sample_limit=MAX_SAMPLE_VALUES,
         preview_offset=0,
         preview_limit=MAX_SAMPLE_VALUES,
@@ -332,6 +334,7 @@ def profile_source_with_samples(
     proving_sample_rows: int = 200,
     real_row_proving: bool = True,
     pii_salt: bytes | str | None = None,
+    access_token: str | None = None,
 ) -> tuple[SourceProfile, dict[str, list[dict[str, Any]]], dict[str, bool]]:
     """Profile a structured source and return bounded PII-tokenized proving sample rows."""
     if (
@@ -354,6 +357,7 @@ def profile_source_with_samples(
             secret_refs=secret_refs,
             selected_tables=selected_tables,
             profile_timeout_seconds=profile_timeout_seconds,
+            access_token=access_token,
         )
         return profile, {}, {}
 
@@ -365,6 +369,7 @@ def profile_source_with_samples(
         options=options,
         secret_refs=secret_refs,
         selected_tables=selected_tables,
+        access_token=access_token,
         sample_limit=MAX_SAMPLE_VALUES,
         preview_offset=0,
         preview_limit=proving_sample_rows + 1,
@@ -426,6 +431,7 @@ def preview_table(
     offset: int = 0,
     limit: int = 50,
     profile_timeout_seconds: int = 30,
+    access_token: str | None = None,
 ) -> TablePreviewPage:
     """Fetch a paged, PII-masked row preview for a single profiled table."""
     if offset < 0 or limit < 1:
@@ -441,6 +447,7 @@ def preview_table(
         options=options,
         secret_refs=secret_refs,
         selected_tables=[table_name],
+        access_token=access_token,
         sample_limit=MAX_SAMPLE_VALUES,
         preview_offset=offset,
         preview_limit=limit,

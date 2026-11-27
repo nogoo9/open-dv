@@ -537,7 +537,7 @@ async def test_wave1_pre_cert_waiver_and_vault_build_hydration(tmp_path: Path) -
 
     # Bootstrap service first to attach source, commit ontology, and record Wave-1 pre-cert waiver
     boot_svc = OpenDVService(ws, state_dir=state_dir)
-    boot_svc.projects.trust_workspace_path(ws)
+    boot_svc.trust_workspace_path(ws)
     expected_guide_text, expected_guide_sha = load_modeling_guide(
         workspace_root=ws,
         trusted_workspaces=boot_svc.get_settings().trusted_workspaces,

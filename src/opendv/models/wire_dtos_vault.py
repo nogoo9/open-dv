@@ -37,7 +37,7 @@ BucketAOperator = Literal[
 class VaultBuildReq(StrictModel):
     """Request payload for POST /api/v1/projects/{id}/runs."""
 
-    policy: CegarPolicy = "balanced"
+    policy: CegarPolicy | None = None
     cdc_volatility_by_table: dict[str, dict[str, float]] | None = None
     fk_turnover_by_table: dict[str, dict[str, float]] | None = None
     real_row_proving: bool | None = None

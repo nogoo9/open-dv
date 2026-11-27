@@ -14,6 +14,7 @@ import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
+from opendv.agents import Tier2ProbeOutcome
 from opendv.api import create_app, export_openapi_schema
 from opendv.models.diagnostics import ClarificationQuestion, EmitterDefectReport
 from opendv.models.errors import ERROR_MAPPINGS, ErrorCode, OpenDVError
@@ -24,6 +25,10 @@ from opendv.models.wire_dtos_discovery import ProjectInitReq, SourceAttachReq
 from opendv.models.wire_dtos_vault import HorizonCriticVerdict, SemanticCriticVerdict
 from opendv.service.app_service import OpenDVService
 from opendv.service.external_mcp import ExternalMcpGateway
+from opendv.service.readiness import HarnessReadinessService
+from opendv.service.secrets import KeyringSecretStore
+from opendv.service.settings_store import SettingsStore
+from opendv.service.state_store import ProjectStateManager
 from tests.api._api_test_helpers import (
     build_wave1_am_draft,
     build_wave1_commit_ops,
@@ -838,14 +843,24 @@ async def test_uat_v26_api_05_step4_step6_202_runs_logs_pause_and_sse_replay(
 
 
 @pytest.mark.asyncio
-async def test_uat_v26_api_06_all_65_routes_scale_200_and_public_am_w001_w002(
+async def test_uat_v26_api_06_all_70_routes_scale_200_and_public_am_w001_w002(
     tmp_path: Path,
 ) -> None:
-    # Verify OpenAPI schema exposes exactly 67 operations and expected schemas
+    # Verify OpenAPI schema exposes exactly 71 operations and expected schemas
     schema = export_openapi_schema()
     op_count = sum(len(methods) for methods in schema["paths"].values())
-    assert op_count == 67
-    for comp in ("ProjectImportPathReq", "SourceReattachReq", "ProblemDetails"):
+    assert op_count == 71
+    for comp in (
+        "ProjectImportPathReq",
+        "SourceReattachReq",
+        "ProblemDetails",
+        "ErrorRemediation",
+        "ReadinessResponse",
+        "ProviderReadinessRecord",
+        "DoctorResponse",
+        "ProjectSettingsPatchReq",
+        "RevokeTrustedWorkspaceReq",
+    ):
         assert comp in schema["components"]["schemas"]
 
     ws = tmp_path / "ws"
@@ -981,10 +996,34 @@ async def test_uat_v26_api_06_all_65_routes_scale_200_and_public_am_w001_w002(
             )
         return MockTurnScript(text_output="{}")
 
-    svc = OpenDVService(ws, state_dir=tmp_path / "state", harness=_McpMockHarness(selector=_sel))
+    state_dir = tmp_path / "state"
+    settings_store = SettingsStore(user_state_dir=state_dir)
+    secret_store = KeyringSecretStore(ws, state_dir=state_dir, settings_store=settings_store)
+    state_mgr = ProjectStateManager(ws)
+    state_mgr.initialize()
+
+    async def _hermetic_probe(
+        _provider: Any, _bin: str | None, _key: str | None, _env: Any
+    ) -> Tier2ProbeOutcome:
+        return Tier2ProbeOutcome(kind="verified")
+
+    readiness_svc = HarnessReadinessService(
+        settings_store=settings_store,
+        secret_store=secret_store,
+        db_path=state_mgr.db_path,
+        which_fn=lambda _: None,
+        find_spec_fn=lambda _: None,
+        probe_fn=_hermetic_probe,
+    )
+    svc = OpenDVService(
+        ws,
+        state_dir=state_dir,
+        harness=_McpMockHarness(selector=_sel),
+        readiness_service=readiness_svc,
+    )
     app = create_app(svc)
 
-    # Collect all 65 route signatures (method, path) recursively from FastAPI router
+    # Collect all 70 route signatures (method, path) recursively from FastAPI router
     expected_ops: set[tuple[str, str]] = set()
 
     def _walk_routes(routes: list[Any], prefix: str = "") -> None:
@@ -1004,7 +1043,7 @@ async def test_uat_v26_api_06_all_65_routes_scale_200_and_public_am_w001_w002(
                 _walk_routes(list(route.routes), f"{prefix}{sub_prefix}")
 
     _walk_routes(list(app.routes))
-    assert len(expected_ops) == 67
+    assert len(expected_ops) == 71
     called_ops: set[tuple[str, str]] = set()
 
     def _mark(method: str, path_tmpl: str) -> None:
@@ -1049,7 +1088,30 @@ async def test_uat_v26_api_06_all_65_routes_scale_200_and_public_am_w001_w002(
             assert (await client.get(f"/api/v1/agents/{agents[0]['agent_id']}")).status_code == 200
             _mark("GET", "/api/v1/agents/{agent_id}")
 
-            # --- Group 2: Seeds, Starter Packs, Projects, Bundle (9 routes) ---
+            r_ready = await client.get("/api/v1/agents/readiness")
+            assert r_ready.status_code == 200
+            assert len(r_ready.json()["providers"]) == 4
+            _mark("GET", "/api/v1/agents/readiness")
+
+            r_probe = await client.post("/api/v1/agents/readiness/test", json={"provider": "agy"})
+            assert r_probe.status_code == 200
+            assert r_probe.json()["status"] == "MISSING_PREREQ"
+            _mark("POST", "/api/v1/agents/readiness/test")
+
+            r_doc = await client.get("/api/v1/system/doctor")
+            assert r_doc.status_code == 200
+            _mark("GET", "/api/v1/system/doctor")
+
+            svc.trust_workspace_path(ws)
+            r_rev = await client.post(
+                "/api/v1/settings/trusted-workspaces/revoke",
+                json={"workspace_root": str(ws)},
+            )
+            assert r_rev.status_code == 200
+            assert r_rev.json()["trusted_workspaces"] == []
+            _mark("POST", "/api/v1/settings/trusted-workspaces/revoke")
+
+            # --- Group 2: Seeds, Starter Packs, Projects, Bundle (10 routes) ---
             assert (await client.get("/api/v1/workspace-seeds")).status_code == 200
             _mark("GET", "/api/v1/workspace-seeds")
             packs = (await client.get("/api/v1/starter-packs")).json()
@@ -1080,6 +1142,14 @@ async def test_uat_v26_api_06_all_65_routes_scale_200_and_public_am_w001_w002(
                 await client.put("/api/v1/projects/am-e2e/settings", json=proj_settings)
             ).status_code == 200
             _mark("PUT", "/api/v1/projects/{project_id}/settings")
+
+            r_ps = await client.patch(
+                "/api/v1/projects/am-e2e/settings",
+                json={"discovery_mode": "incremental_new"},
+            )
+            assert r_ps.status_code == 200
+            assert r_ps.json()["settings_snapshot"]["discovery_mode"] == "incremental_new"
+            _mark("PATCH", "/api/v1/projects/{project_id}/settings")
 
             # --- Group 3: Sources & Evidence Navigator (14 routes) ---
             assert len((await client.get("/api/v1/sources/adapters")).json()) >= 5

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ExportImportModal } from "./components/ExportImportModal";
+import { RemediationList } from "./components/RemediationList";
 import { DVSchemaExplorerPage } from "./pages/DVSchemaExplorerPage";
 import { RunExplorerPage } from "./pages/RunExplorerPage";
 import { SettingsHub } from "./pages/SettingsHub";
@@ -89,6 +90,7 @@ export function App() {
 	useProjectStore(
 		useShallow((s) => [
 			s.settings,
+			s.readiness,
 			s.sources,
 			s.missingSecretRefs,
 			s.documentMaps,
@@ -371,18 +373,21 @@ export function App() {
 
 			<main className="wb-main">
 				{lastProblem && (
-					<div className="banner banner-danger row-between" role="alert">
-						<div>
-							<strong>{lastProblem.title}</strong> ({lastProblem.error_code} ·{" "}
-							{lastProblem.status ?? "N/A"}): {lastProblem.detail}
+					<div className="banner banner-danger stack-sm" role="alert">
+						<div className="row-between">
+							<div>
+								<strong>{lastProblem.title}</strong> ({lastProblem.error_code} ·{" "}
+								{lastProblem.status ?? "N/A"}): {lastProblem.detail}
+							</div>
+							<button
+								type="button"
+								className="btn btn-sm"
+								onClick={clearLastProblem}
+							>
+								Dismiss
+							</button>
 						</div>
-						<button
-							type="button"
-							className="btn btn-sm"
-							onClick={clearLastProblem}
-						>
-							Dismiss
-						</button>
+						<RemediationList remediation={lastProblem.remediation} />
 					</div>
 				)}
 				{renderActivePage(route)}

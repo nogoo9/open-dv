@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
+import inspect
 import json
 import os
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+import httpx
+
 from opendv.agents.cli_subprocess_base import (
     build_stateless_turn_prompt,
     count_cl100k_tokens,
+    is_auth_error,
     redact_telemetry_text,
     validate_cli_structured_output,
 )
@@ -33,6 +38,74 @@ from opendv.models.wire_dtos_discovery import ScoutDigest
 SdkProvider = Literal["claude", "gemini"]
 ModuleLoaderFn = Callable[[str], Any]
 SdkClientFactory = Callable[[SdkProvider, Any, str], Any]
+
+OPTIONAL_HTTP_ERROR_SPECS: tuple[tuple[str, str], ...] = (
+    ("aiohttp", "ClientError"),
+    ("httpx2", "HTTPError"),
+)
+_OPTIONAL_CLOSE_ERROR_SPECS: tuple[tuple[str, str], ...] = (
+    *OPTIONAL_HTTP_ERROR_SPECS,
+    ("anyio", "ClosedResourceError"),
+)
+
+
+def resolve_optional_exception_types(
+    specs: Sequence[tuple[str, str]],
+) -> tuple[type[BaseException], ...]:
+    """Resolve optional exception classes from third-party modules when installed."""
+    resolved: list[type[BaseException]] = []
+    for mod_name, attr_name in specs:
+        with contextlib.suppress(ImportError, AttributeError):
+            mod = importlib.import_module(mod_name)
+            cls_obj = getattr(mod, attr_name, None)
+            if isinstance(cls_obj, type) and issubclass(cls_obj, BaseException):
+                resolved.append(cls_obj)
+    return tuple(dict.fromkeys(resolved))
+
+
+def collect_sdk_error_types(sdk_mod: Any) -> tuple[type[BaseException], ...]:
+    """Collect typed SDK error classes from an imported anthropic or google.genai module."""
+    if sdk_mod is None:
+        return ()
+    found: list[type[BaseException]] = []
+    for cls_name in ("APIError", "AuthenticationError", "RateLimitError", "GenAIError"):
+        cls_obj = getattr(sdk_mod, cls_name, None)
+        if isinstance(cls_obj, type) and issubclass(cls_obj, BaseException):
+            found.append(cls_obj)
+    errors_sub = getattr(sdk_mod, "errors", None)
+    if errors_sub is not None:
+        for cls_name in ("APIError", "ClientError", "ServerError"):
+            cls_obj = getattr(errors_sub, cls_name, None)
+            if isinstance(cls_obj, type) and issubclass(cls_obj, BaseException):
+                found.append(cls_obj)
+    return tuple(dict.fromkeys(found))
+
+
+async def close_sdk_client(client: Any, *, used_aio: bool = False) -> None:
+    """Best-effort close of sync/async SDK clients suppressing transport teardown errors."""
+    suppress_types: tuple[type[BaseException], ...] = (
+        OSError,
+        RuntimeError,
+        ValueError,
+        TypeError,
+        httpx.HTTPError,
+        httpx.InvalidURL,
+        *resolve_optional_exception_types(_OPTIONAL_CLOSE_ERROR_SPECS),
+    )
+    if used_aio:
+        aio_obj = getattr(client, "aio", None)
+        aclose_fn = getattr(aio_obj, "aclose", None)
+        if callable(aclose_fn):
+            with contextlib.suppress(*suppress_types):
+                res = aclose_fn()
+                if inspect.isawaitable(res):
+                    await res
+    close_fn = getattr(client, "close", None)
+    if callable(close_fn):
+        with contextlib.suppress(*suppress_types):
+            res = close_fn()
+            if inspect.isawaitable(res):
+                await res
 
 _COORD_TOOL_NAMES: tuple[str, ...] = (
     "search_concepts",
@@ -126,7 +199,15 @@ async def dispatch_scouts_concurrently(
     return merged
 
 
-def _build_sdk_client(provider: SdkProvider, sdk_mod: Any, api_key: str) -> Any:
+def build_sdk_client(
+    provider: SdkProvider,
+    sdk_mod: Any,
+    api_key: str,
+    *,
+    base_url: str | None = None,
+    timeout_seconds: float | None = None,
+) -> Any:
+    """Construct an Anthropic or Google GenAI client with bounded timeout and endpoint."""
     if provider == "claude":
         async_cls = getattr(sdk_mod, "AsyncAnthropic", None) or getattr(sdk_mod, "Anthropic", None)
         if async_cls is None:
@@ -134,14 +215,26 @@ def _build_sdk_client(provider: SdkProvider, sdk_mod: Any, api_key: str) -> Any:
                 "Installed anthropic SDK is missing Anthropic client class.",
                 error_code=ErrorCode.DRIVER_MISSING,
             )
-        return async_cls(api_key=api_key)
+        kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            "base_url": (base_url or "").strip() or "https://api.anthropic.com",
+        }
+        if timeout_seconds is not None:
+            kwargs["timeout"] = timeout_seconds
+        return async_cls(**kwargs)
     client_cls = getattr(sdk_mod, "Client", None)
     if client_cls is None:
         raise OpenDVError(
             "Installed google.genai SDK is missing Client class.",
             error_code=ErrorCode.DRIVER_MISSING,
         )
-    return client_cls(api_key=api_key)
+    http_options: dict[str, Any] = {"base_url": "https://generativelanguage.googleapis.com"}
+    if timeout_seconds is not None:
+        http_options["timeout"] = int(max(1, timeout_seconds) * 1000)
+    return client_cls(api_key=api_key, vertexai=False, http_options=http_options)
+
+
+_build_sdk_client = build_sdk_client
 
 
 def _extract_sdk_text_and_usage(response: Any) -> tuple[str, int, int, int, list[dict[str, Any]]]:
@@ -258,6 +351,15 @@ class SdkHarnessRunner(AgentHarnessPort):
         if tools:
             config["tools"] = tools
 
+        aio_obj = getattr(client, "aio", None)
+        aio_models = getattr(aio_obj, "models", None)
+        aio_gen = getattr(aio_models, "generate_content", None)
+        if callable(aio_gen):
+            res = aio_gen(model=model_id, contents=user_prompt, config=config)
+            if inspect.isawaitable(res):
+                return await res
+            return res
+
         models_api = getattr(client, "models", None)
         if models_api is None:
             raise OpenDVError(
@@ -266,8 +368,10 @@ class SdkHarnessRunner(AgentHarnessPort):
                 run_id=request.run_id,
             )
         gen_fn = models_api.generate_content
-        res = gen_fn(model=model_id, contents=user_prompt, config=config)
-        if asyncio.iscoroutine(res):
+        if inspect.iscoroutinefunction(gen_fn):
+            return await gen_fn(model=model_id, contents=user_prompt, config=config)
+        res = await asyncio.to_thread(gen_fn, model=model_id, contents=user_prompt, config=config)
+        if inspect.isawaitable(res):
             return await res
         return res
 
@@ -293,167 +397,196 @@ class SdkHarnessRunner(AgentHarnessPort):
             env=self._env,
         )
         tools = select_sdk_tools(request)
-        client = (
-            self._client_factory(self._provider, sdk_mod, resolved_key)
-            if self._client_factory is not None
-            else _build_sdk_client(self._provider, sdk_mod, resolved_key)
-        )
-        user_prompt = build_stateless_turn_prompt(request, include_system=False)
-
-        seq = int(request.checkpoint.last_seq) if request.checkpoint else 0
-        current_seq_fn = getattr(event_sink, "current_seq", None)
-        if event_sink is not None:
-            if callable(current_seq_fn):
-                seq = max(seq, int(current_seq_fn(request.run_id)))
-            seq += 1
-            event_sink.emit(
-                RunStreamEvent(
-                    seq=seq,
-                    run_id=request.run_id,
-                    ts=datetime.now(tz=UTC).isoformat(),
-                    event_type="SESSION_START",
-                    step=request.step,
-                    payload={"provider": self._provider, "model_id": resolved_model.model_id},
-                )
+        base_url = self._env.get("ANTHROPIC_BASE_URL") if self._provider == "claude" else None
+        catch_types: tuple[type[BaseException], ...] = tuple(
+            dict.fromkeys(
+                [
+                    TimeoutError,
+                    OSError,
+                    RuntimeError,
+                    ValueError,
+                    httpx.HTTPError,
+                    httpx.InvalidURL,
+                    *resolve_optional_exception_types(OPTIONAL_HTTP_ERROR_SPECS),
+                    *collect_sdk_error_types(sdk_mod),
+                ]
             )
-
-        catch_types: list[type[BaseException]] = [TimeoutError, OSError, RuntimeError, ValueError]
-        for cls_name in ("APIError", "AuthenticationError", "RateLimitError", "GenAIError"):
-            cls_obj = getattr(sdk_mod, cls_name, None)
-            if isinstance(cls_obj, type) and issubclass(cls_obj, BaseException):
-                catch_types.append(cls_obj)
-        errors_sub = getattr(sdk_mod, "errors", None)
-        if errors_sub is not None:
-            for cls_name in ("APIError", "ClientError", "ServerError"):
-                cls_obj = getattr(errors_sub, cls_name, None)
-                if isinstance(cls_obj, type) and issubclass(cls_obj, BaseException):
-                    catch_types.append(cls_obj)
-
+        )
+        client: Any = None
+        used_aio = False
         try:
-            async with asyncio.timeout(float(request.budget.timeout_seconds)):
-                if self._provider == "claude":
-                    raw_resp = await self._invoke_claude(
-                        client,
-                        model_id=resolved_model.model_id,
-                        request=request,
-                        user_prompt=user_prompt,
-                        tools=tools,
+            try:
+                client = (
+                    self._client_factory(self._provider, sdk_mod, resolved_key)
+                    if self._client_factory is not None
+                    else build_sdk_client(
+                        self._provider,
+                        sdk_mod,
+                        resolved_key,
+                        base_url=base_url,
+                        timeout_seconds=float(request.budget.timeout_seconds),
                     )
-                else:
-                    raw_resp = await self._invoke_gemini(
-                        client,
-                        model_id=resolved_model.model_id,
-                        request=request,
-                        user_prompt=user_prompt,
-                        tools=tools,
-                    )
-        except tuple(catch_types) as exc:
-            auth_cls = getattr(sdk_mod, "AuthenticationError", None)
-            is_auth_exc = isinstance(auth_cls, type) and isinstance(exc, auth_cls)
-            status_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
-            err_text = redact_telemetry_text(str(exc))
-            lowered = err_text.lower()
-            is_auth_msg = status_code in (401, 403) or any(
-                tok in lowered
-                for tok in ("authentication", "unauthorized", "invalid api key", "api_key")
-            )
-            err_code = (
-                ErrorCode.AGENT_NOT_CONFIGURED
-                if (is_auth_exc or is_auth_msg)
-                else ErrorCode.AGENT_EXECUTION_FAILED
-            )
-            raise OpenDVError(
-                f"SDK turn failed for provider '{self._provider}': {err_text[:300]}",
-                error_code=err_code,
-                run_id=request.run_id,
-            ) from exc
-
-        text_out, in_tok, out_tok, tot_tok, scout_calls = _extract_sdk_text_and_usage(raw_resp)
-        tool_events: list[dict[str, Any]] = []
-        if scout_calls and request.step == "step4" and scout_dispatcher is not None:
-            batch_reqs: list[tuple[Literal["table_cluster", "page_range"], Sequence[str]]] = [
-                (
-                    "table_cluster" if sc.get("scout_kind") == "table_cluster" else "page_range",
-                    list(sc.get("target_ids") or ()),
                 )
-                for sc in scout_calls
-            ]
-            digests = await dispatch_scouts_concurrently(
-                scout_dispatcher,
-                batch_reqs,
-                run_id=request.run_id,
+            except catch_types as exc:
+                raise self._sdk_turn_error(exc, request.run_id) from exc
+            used_aio = self._provider == "gemini" and callable(
+                getattr(
+                    getattr(getattr(client, "aio", None), "models", None),
+                    "generate_content",
+                    None,
+                )
             )
-            tool_events.append(
-                {
-                    "tool_name": "dispatch_scout",
-                    "tool_count": len(digests),
-                    "digests": [d.model_dump(mode="json") for d in digests],
-                }
-            )
+            user_prompt = build_stateless_turn_prompt(request, include_system=False)
 
-        if tot_tok > 0:
-            tok_source: Literal["reported", "estimated"] = "reported"
-        else:
-            in_tok = count_cl100k_tokens(user_prompt)
-            out_tok = count_cl100k_tokens(text_out)
-            tot_tok = in_tok + out_tok
-            tok_source = "estimated"
+            seq = int(request.checkpoint.last_seq) if request.checkpoint else 0
+            current_seq_fn = getattr(event_sink, "current_seq", None)
+            if event_sink is not None:
+                if callable(current_seq_fn):
+                    seq = max(seq, int(current_seq_fn(request.run_id)))
+                seq += 1
+                event_sink.emit(
+                    RunStreamEvent(
+                        seq=seq,
+                        run_id=request.run_id,
+                        ts=datetime.now(tz=UTC).isoformat(),
+                        event_type="SESSION_START",
+                        step=request.step,
+                        payload={"provider": self._provider, "model_id": resolved_model.model_id},
+                    )
+                )
 
-        raw_structured: Any = None
-        if isinstance(raw_resp, dict) and "structured_output" in raw_resp:
-            raw_structured = raw_resp["structured_output"]
+            try:
+                async with asyncio.timeout(float(request.budget.timeout_seconds)):
+                    if self._provider == "claude":
+                        raw_resp = await self._invoke_claude(
+                            client,
+                            model_id=resolved_model.model_id,
+                            request=request,
+                            user_prompt=user_prompt,
+                            tools=tools,
+                        )
+                    else:
+                        raw_resp = await self._invoke_gemini(
+                            client,
+                            model_id=resolved_model.model_id,
+                            request=request,
+                            user_prompt=user_prompt,
+                            tools=tools,
+                        )
+            except catch_types as exc:
+                raise self._sdk_turn_error(exc, request.run_id) from exc
 
-        validated = validate_cli_structured_output(
-            request.output_schema,
-            raw_structured=raw_structured,
-            raw_response_text=text_out,
-            cli_label=f"{self._provider} SDK",
-        )
-        if not text_out and validated is not None:
-            text_out = (
-                validated.model_dump_json()
-                if hasattr(validated, "model_dump_json")
-                else json.dumps(validated)
-            )
-
-        if event_sink is not None and text_out:
-            if callable(current_seq_fn):
-                seq = max(seq, int(current_seq_fn(request.run_id)))
-            seq += 1
-            event_sink.emit(
-                RunStreamEvent(
-                    seq=seq,
+            text_out, in_tok, out_tok, tot_tok, scout_calls = _extract_sdk_text_and_usage(raw_resp)
+            tool_events: list[dict[str, Any]] = []
+            if scout_calls and request.step == "step4" and scout_dispatcher is not None:
+                batch_reqs: list[tuple[Literal["table_cluster", "page_range"], Sequence[str]]] = [
+                    (
+                        (
+                            "table_cluster"
+                            if sc.get("scout_kind") == "table_cluster"
+                            else "page_range"
+                        ),
+                        list(sc.get("target_ids") or ()),
+                    )
+                    for sc in scout_calls
+                ]
+                digests = await dispatch_scouts_concurrently(
+                    scout_dispatcher,
+                    batch_reqs,
                     run_id=request.run_id,
-                    ts=datetime.now(tz=UTC).isoformat(),
-                    event_type="TEXT_DELTA",
-                    step=request.step,
-                    payload={"delta_text": redact_telemetry_text(text_out)},
                 )
-            )
+                tool_events.append(
+                    {
+                        "tool_name": "dispatch_scout",
+                        "tool_count": len(digests),
+                        "digests": [d.model_dump(mode="json") for d in digests],
+                    }
+                )
 
-        return AgentTurnResult(
-            agent_id=request.agent_id,
-            provider=self._provider,
-            model_id=resolved_model.model_id,
-            text_output=text_out,
-            structured_output=validated,
-            turns_used=1,
-            input_tokens=in_tok,
-            output_tokens=out_tok,
-            total_tokens=tot_tok,
-            token_count_source=tok_source,
-            text_deltas=[text_out] if text_out else [],
-            tool_events=tool_events,
+            if tot_tok > 0:
+                tok_source: Literal["reported", "estimated"] = "reported"
+            else:
+                in_tok = count_cl100k_tokens(user_prompt)
+                out_tok = count_cl100k_tokens(text_out)
+                tot_tok = in_tok + out_tok
+                tok_source = "estimated"
+
+            raw_structured: Any = None
+            if isinstance(raw_resp, dict) and "structured_output" in raw_resp:
+                raw_structured = raw_resp["structured_output"]
+
+            validated = validate_cli_structured_output(
+                request.output_schema,
+                raw_structured=raw_structured,
+                raw_response_text=text_out,
+                cli_label=f"{self._provider} SDK",
+            )
+            if not text_out and validated is not None:
+                text_out = (
+                    validated.model_dump_json()
+                    if hasattr(validated, "model_dump_json")
+                    else json.dumps(validated)
+                )
+
+            if event_sink is not None and text_out:
+                if callable(current_seq_fn):
+                    seq = max(seq, int(current_seq_fn(request.run_id)))
+                seq += 1
+                event_sink.emit(
+                    RunStreamEvent(
+                        seq=seq,
+                        run_id=request.run_id,
+                        ts=datetime.now(tz=UTC).isoformat(),
+                        event_type="TEXT_DELTA",
+                        step=request.step,
+                        payload={"delta_text": redact_telemetry_text(text_out)},
+                    )
+                )
+
+            return AgentTurnResult(
+                agent_id=request.agent_id,
+                provider=self._provider,
+                model_id=resolved_model.model_id,
+                text_output=text_out,
+                structured_output=validated,
+                turns_used=1,
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+                total_tokens=tot_tok,
+                token_count_source=tok_source,
+                text_deltas=[text_out] if text_out else [],
+                tool_events=tool_events,
+            )
+        finally:
+            if self._client_factory is None and client is not None:
+                await close_sdk_client(client, used_aio=used_aio)
+
+    def _sdk_turn_error(self, exc: BaseException, run_id: str) -> OpenDVError:
+        err_code = (
+            ErrorCode.AGENT_NOT_CONFIGURED
+            if is_auth_error(exc, provider=self._provider)
+            else ErrorCode.AGENT_EXECUTION_FAILED
+        )
+        err_text = redact_telemetry_text(str(exc))
+        return OpenDVError(
+            f"SDK turn failed for provider '{self._provider}': {err_text[:300]}",
+            error_code=err_code,
+            run_id=run_id,
         )
 
 
 __all__ = [
+    "OPTIONAL_HTTP_ERROR_SPECS",
     "ModuleLoaderFn",
     "SdkClientFactory",
     "SdkHarnessRunner",
     "SdkProvider",
+    "build_sdk_client",
+    "close_sdk_client",
+    "collect_sdk_error_types",
     "dispatch_scouts_concurrently",
     "load_optional_sdk_module",
+    "resolve_optional_exception_types",
     "resolve_sdk_api_key",
     "select_sdk_tools",
 ]

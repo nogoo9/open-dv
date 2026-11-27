@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -26,6 +27,9 @@ from opendv.service.secrets import scoped_env_first
 
 MAX_REQUEST_BODY_BYTES: int = 262_144_000
 _LOOPBACK_HOSTS: frozenset[str] = frozenset({"127.0.0.1", "localhost", "::1"})
+_PROXY_FORWARDING_HEADERS: frozenset[str] = frozenset(
+    {"x-forwarded-for", "forwarded", "x-real-ip", "x-forwarded-host"}
+)
 _IMPORT_PATH = "/api/v1/projects/import"
 _UPLOAD_RE = re.compile(r"^/api/v1/projects/[^/]+/sources/upload$")
 _PATCH_SOURCE_RE = re.compile(r"^/api/v1/projects/[^/]+/sources/[^/]+$")
@@ -117,9 +121,16 @@ def is_peer_loopback(client: Any) -> bool:
         return False
 
 
+def has_proxy_forwarding_headers(headers: Mapping[str, Any]) -> bool:
+    """Return True if any reverse-proxy forwarding header is present (case-insensitive)."""
+    return any(str(k).lower() in _PROXY_FORWARDING_HEADERS for k in headers)
+
+
 def is_remote_request(request: Request) -> bool:
-    """Return True if peer IP or Host header is non-loopback (excluding testserver)."""
+    """Return True if peer IP, proxy headers, or Host header is non-loopback."""
     if not is_peer_loopback(request.scope.get("client")):
+        return True
+    if has_proxy_forwarding_headers(request.headers):
         return True
     raw_host = request.headers.get("host", "")
     parsed = _normalize_host_port(raw_host, request.url.scheme)
@@ -259,6 +270,11 @@ class LoopbackAndContentTypeMiddleware:
             if not allow_remote and not is_peer_loopback(scope.get("client")):
                 raise OpenDVError(
                     "Non-loopback client connection rejected.",
+                    error_code=ErrorCode.LOOPBACK_ORIGIN_FORBIDDEN,
+                )
+            if not allow_remote and has_proxy_forwarding_headers(headers_multi):
+                raise OpenDVError(
+                    "Proxy forwarding headers are forbidden on loopback API.",
                     error_code=ErrorCode.LOOPBACK_ORIGIN_FORBIDDEN,
                 )
 
@@ -480,6 +496,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 __all__ = [
     "MAX_REQUEST_BODY_BYTES",
     "LoopbackAndContentTypeMiddleware",
+    "has_proxy_forwarding_headers",
     "is_peer_loopback",
     "is_remote_request",
     "parse_env_workspace_roots",

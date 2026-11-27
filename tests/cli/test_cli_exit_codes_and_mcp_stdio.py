@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import io
 import json
 import os
 import subprocess
 import sys
+import unittest.mock
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +25,7 @@ from opendv.cli.export_contracts import (
     find_repo_root,
     generate_cli_reference_markdown,
 )
-from opendv.cli.main import app
+from opendv.cli.main import app, main
 from opendv.cli.mcp_stdio import MCP_TOOL_NAMES
 from opendv.models import (
     CliEnvelope,
@@ -31,6 +34,7 @@ from opendv.models import (
     ErrorCode,
     ProblemDetails,
     ProjectInitReq,
+    ProjectSettingsPatchReq,
     RevisionMetadata,
     SourceAttachReq,
     VaultBuildReq,
@@ -50,12 +54,33 @@ _RUNNER = CliRunner()
 def _invoke_cli(
     args: list[str], *, env: dict[str, str] | None = None, input_text: str | None = None
 ) -> tuple[int, str, dict[str, Any] | None]:
+    if "--json" in args:
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        old_stdin = sys.stdin
+        env_ctx = (
+            unittest.mock.patch.dict(os.environ, env, clear=False)
+            if env is not None
+            else contextlib.nullcontext()
+        )
+        try:
+            sys.stdin = io.StringIO(input_text or "")
+            with (
+                env_ctx,
+                contextlib.redirect_stdout(stdout_buf),
+                contextlib.redirect_stderr(stderr_buf),
+            ):
+                exit_code = main(args)
+        finally:
+            sys.stdin = old_stdin
+        stdout_text = stdout_buf.getvalue()
+        parsed: dict[str, Any] | None = None
+        if stdout_text.strip():
+            parsed = json.loads(stdout_text)
+            CliEnvelope.model_validate(parsed)
+        return exit_code, stdout_text, parsed
     result = _RUNNER.invoke(app, args, env=env, input=input_text)
-    parsed: dict[str, Any] | None = None
-    if "--json" in args and result.stdout.strip():
-        parsed = json.loads(result.stdout)
-        CliEnvelope.model_validate(parsed)
-    return result.exit_code, result.stdout, parsed
+    return result.exit_code, result.stdout, None
 
 
 def _setup_workspace(
@@ -91,6 +116,7 @@ def _isolated_subprocess_env(ws: Path, state_root: Path, repo_root: Path) -> dic
     env["LOCALAPPDATA"] = str(state_root)
     env["XDG_STATE_HOME"] = str(state_root)
     env["HOME"] = str(state_root)
+    env["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"
     src_path = str(repo_root / "src")
     env["PYTHONPATH"] = f"{src_path}{os.pathsep}{env['PYTHONPATH']}" if env.get("PYTHONPATH") else src_path
     return env
@@ -430,6 +456,7 @@ def test_cli_02_all_8_exit_codes_and_serve_guard(
         # Exit 2: SYNTAX_INVALID_ARGUMENT + VERIFICATION_GATE_FAILED
         rc, _, env = _invoke_cli([*prefix, "settings", "set", "--secret-precedence", "invalid_mode"])
         assert rc == int(CliExitCode.VALIDATION_ERROR)
+        assert env is not None and env["error_code"] == ErrorCode.SYNTAX_INVALID_ARGUMENT.value
 
         # Exit 3: RESOURCE_NOT_FOUND
         rc, _, env = _invoke_cli([*prefix, "project", "show", "--project", "no_such_project"])
@@ -769,9 +796,9 @@ def test_cli_04_stdio_mcp_17_tools_end_to_end_and_error_survival(
             hits = _decode_result(await session.call_tool("ontology_search", {"query": "Account"}))
             assert any(h["concept_name"] == "Account" for h in hits)
 
-            # Step 4 tools over stdio subprocess
+            # Step 4 tools over stdio subprocess (omitting discovery_mode inherits snapshot)
             c_run = _decode_result(
-                await session.call_tool("ontology_construct", {"discovery_mode": "incremental_new"})
+                await session.call_tool("ontology_construct", {})
             )
             assert c_run["status"] == "COMPLETED"
             st4 = _decode_result(
@@ -789,9 +816,10 @@ def test_cli_04_stdio_mcp_17_tools_end_to_end_and_error_survival(
             assert val_res["valid"] is True
 
             b_run = _decode_result(
-                await session.call_tool("vault_build", {"policy": "balanced"})
+                await session.call_tool("vault_build", {})
             )
             assert b_run["status"] == "COMPLETED"
+            assert b_run["policy"] == "balanced"
             st6 = _decode_result(
                 await session.call_tool("vault_status", {"run_id": b_run["run_id"]})
             )
@@ -870,6 +898,91 @@ def test_cli_04_stdio_mcp_17_tools_end_to_end_and_error_survival(
     asyncio.run(_run_stdio_e2e())
 
 
+def test_cli_mcp_snapshot_inheritance_and_remediation_survival(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify stdio MCP omitted defaults inherit project snapshot and ToolError carries remediation."""
+    harness = ScriptedCliHarness(project_id="mcp_snap")
+    ws, state_root, csv_path, svc = _setup_workspace(tmp_path, monkeypatch, harness=harness)
+    svc.init_project(
+        ProjectInitReq(
+            project_id="mcp_snap",
+            domain_namespace="ibor",
+            baseline_content=build_account_ontology_yaml(),
+            baseline_format="yaml",
+        )
+    )
+    src = svc.attach_source("mcp_snap", SourceAttachReq(kind="csv", uri_or_filename=str(csv_path)))
+    table_id = svc.list_tables_index("mcp_snap")[0].table_id
+    harness.bind_source(src.source_id, table_id)
+    svc.update_project_settings(
+        "mcp_snap",
+        ProjectSettingsPatchReq(cegar_policy="fast", discovery_mode="full_rebuild"),
+    )
+
+    svc.init_project(
+        ProjectInitReq(
+            project_id="mcp_rem",
+            domain_namespace="ibor",
+            baseline_content=build_account_ontology_yaml(),
+            baseline_format="yaml",
+        )
+    )
+    svc.attach_source("mcp_rem", SourceAttachReq(kind="csv", uri_or_filename=str(csv_path)))
+    svc.update_project_settings("mcp_rem", ProjectSettingsPatchReq(harness_provider="claude"))
+
+    fake_bin = create_fake_agy_binary(ws, source_id=src.source_id, table_id=table_id, project_id="mcp_snap")
+    repo_root = find_repo_root()
+    child_env = _isolated_subprocess_env(ws, state_root, repo_root)
+    child_env["OPENDV_AGY_CLI_BIN"] = str(fake_bin)
+    child_env.pop("ANTHROPIC_API_KEY", None)
+
+    async def _run() -> None:
+        snap_params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "opendv.cli", "mcp", "serve", "--transport", "stdio", "--project", "mcp_snap"],
+            env=child_env,
+            cwd=str(repo_root),
+        )
+        async with (
+            stdio_client(snap_params) as (r_s, w_s),
+            ClientSession(r_s, w_s) as sess,
+        ):
+            await sess.initialize()
+            c_res = await sess.call_tool("ontology_construct", {})
+            assert not c_res.is_error, c_res.content
+            b_res = await sess.call_tool("vault_build", {})
+            assert not b_res.is_error, b_res.content
+            b_data = (
+                b_res.structured_content.get("result", b_res.structured_content)
+                if b_res.structured_content is not None
+                else json.loads(b_res.content[0].text)
+            )
+            assert b_data["policy"] == "fast"
+
+        rem_params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "opendv.cli", "mcp", "serve", "--transport", "stdio", "--project", "mcp_rem"],
+            env=child_env,
+            cwd=str(repo_root),
+        )
+        async with (
+            stdio_client(rem_params) as (r_s, w_s),
+            ClientSession(r_s, w_s) as sess,
+        ):
+            await sess.initialize()
+            err_res = await sess.call_tool("ontology_construct", {})
+            assert err_res.is_error is True
+            err_txt = err_res.content[0].text
+            problem = ProblemDetails.model_validate_json(err_txt[err_txt.find("{") :])
+            assert problem.error_code in (ErrorCode.DRIVER_MISSING, ErrorCode.AGENT_NOT_CONFIGURED)
+            assert problem.remediation is not None
+            assert problem.remediation.summary
+            assert len(problem.remediation.actions) >= 1
+
+    asyncio.run(_run())
+
+
 def test_cli_05_contract_exports_and_markdown_reference() -> None:
     """UAT-V26-CLI-05: Contract exports match disk with zero drift and pass schemas/v2/cli-spec.schema.json."""
     repo_root = find_repo_root()
@@ -884,6 +997,8 @@ def test_cli_05_contract_exports_and_markdown_reference() -> None:
     jsonschema.validate(instance=cli_spec, schema=cli_schema)
 
     top_groups = {cmd["path"][0] for cmd in cli_spec["subcommands"]}
+    assert len(top_groups) == 12
+    assert len(cli_spec["subcommands"]) == 59
     assert top_groups == {
         "serve",
         "doctor",
@@ -898,6 +1013,20 @@ def test_cli_05_contract_exports_and_markdown_reference() -> None:
         "storage",
         "model",
     }
+    cmd_paths = {" ".join(cmd["path"]) for cmd in cli_spec["subcommands"]}
+    assert {
+        "settings models",
+        "settings profile list",
+        "settings profile set",
+        "settings profile delete",
+        "settings profile test",
+        "project settings show",
+        "project settings set",
+    }.issubset(cmd_paths)
+    settings_set_spec = next(c for c in cli_spec["subcommands"] if c["path"] == ["settings", "set"])
+    hp_opt = next(o for o in settings_set_spec["options"] if o["flag"] == "--harness-provider")
+    assert hp_opt["type"] == "choice"
+    assert set(hp_opt["choices"]) == {"agy", "claude-cli", "claude", "gemini"}
 
     openapi = json.loads((schemas_v2 / "openapi.json").read_text(encoding="utf-8"))
     assert "/api/v1/health" in openapi["paths"]

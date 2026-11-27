@@ -3013,6 +3013,101 @@
         "title": "DeleteRelationship",
         "type": "object"
       },
+      "DoctorResponse": {
+        "additionalProperties": false,
+        "description": "Unified diagnostic payload returned by GET /api/v1/system/doctor and `opendv doctor`.",
+        "properties": {
+          "agents": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agents"
+          },
+          "cegar_policy": {
+            "enum": [
+              "symbolic_only",
+              "fast",
+              "balanced",
+              "strict"
+            ],
+            "title": "Cegar Policy",
+            "type": "string"
+          },
+          "harness_provider": {
+            "enum": [
+              "agy",
+              "claude-cli",
+              "claude",
+              "gemini"
+            ],
+            "title": "Harness Provider",
+            "type": "string"
+          },
+          "mcp_servers": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mcp Servers"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/ReadinessResponse"
+          },
+          "remediation": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorRemediation"
+            },
+            "title": "Remediation",
+            "type": "array"
+          },
+          "secret_precedence": {
+            "enum": [
+              "store_first",
+              "env_first"
+            ],
+            "title": "Secret Precedence",
+            "type": "string"
+          },
+          "status": {
+            "const": "ok",
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          },
+          "workspace_root": {
+            "title": "Workspace Root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "workspace_root",
+          "harness_provider",
+          "cegar_policy",
+          "secret_precedence",
+          "readiness"
+        ],
+        "title": "DoctorResponse",
+        "type": "object"
+      },
       "DocumentCitationRef": {
         "additionalProperties": false,
         "description": "Exact page and character-span citation into an unstructured source.",
@@ -3722,6 +3817,28 @@
         ],
         "title": "ErrorCode",
         "type": "string"
+      },
+      "ErrorRemediation": {
+        "additionalProperties": false,
+        "description": "Structured agent-vs-human remediation guidance for failures and readiness gaps.",
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/RemediationAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary"
+        ],
+        "title": "ErrorRemediation",
+        "type": "object"
       },
       "EvidenceGroundingApproval": {
         "additionalProperties": false,
@@ -5794,6 +5911,32 @@
         "title": "MigrationApplyResp",
         "type": "object"
       },
+      "ModelOption": {
+        "additionalProperties": false,
+        "description": "Offline default model suggestion exposed to Web UI and CLI.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "source": {
+            "const": "default",
+            "default": "default",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "ModelOption",
+        "type": "object"
+      },
       "ModelingPreferences": {
         "additionalProperties": false,
         "description": "Tier-1 deterministic DV2.0 modeling preferences governing L1 codemods and V6b.",
@@ -6195,14 +6338,20 @@
         "description": "Request payload for POST /api/v1/projects/{id}/ontology/construct.",
         "properties": {
           "discovery_mode": {
-            "default": "incremental_new",
-            "enum": [
-              "incremental_new",
-              "incremental_reverify",
-              "full_rebuild"
+            "anyOf": [
+              {
+                "enum": [
+                  "incremental_new",
+                  "incremental_reverify",
+                  "full_rebuild"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Discovery Mode",
-            "type": "string"
+            "title": "Discovery Mode"
           },
           "hint": {
             "anyOf": [
@@ -7216,6 +7365,17 @@
             "title": "Rationale Required",
             "type": "boolean"
           },
+          "remediation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorRemediation"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "run_id": {
             "anyOf": [
               {
@@ -7358,145 +7518,9 @@
         "title": "ProjectInitReq",
         "type": "object"
       },
-      "ProjectSettingsSnapshot": {
+      "ProjectSettingsPatchReq": {
         "additionalProperties": false,
-        "description": "Per-project settings snapshot persisted in projects.settings_snapshot_json.",
-        "properties": {
-          "business_context_hints": {
-            "anyOf": [
-              {
-                "maxLength": 12000,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Business Context Hints"
-          },
-          "cegar_policy": {
-            "default": "balanced",
-            "enum": [
-              "symbolic_only",
-              "fast",
-              "balanced",
-              "strict"
-            ],
-            "title": "Cegar Policy",
-            "type": "string"
-          },
-          "dbt_sql_dialect": {
-            "default": "duckdb",
-            "enum": [
-              "duckdb",
-              "databricks",
-              "snowflake",
-              "postgres",
-              "bigquery",
-              "tsql",
-              "redshift",
-              "clickhouse"
-            ],
-            "title": "Dbt Sql Dialect",
-            "type": "string"
-          },
-          "discovery_mode": {
-            "default": "incremental_new",
-            "enum": [
-              "incremental_new",
-              "incremental_reverify",
-              "full_rebuild"
-            ],
-            "title": "Discovery Mode",
-            "type": "string"
-          },
-          "harness_provider": {
-            "default": "agy",
-            "enum": [
-              "agy",
-              "claude-cli",
-              "claude",
-              "gemini"
-            ],
-            "title": "Harness Provider",
-            "type": "string"
-          },
-          "max_tokens": {
-            "anyOf": [
-              {
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Tokens"
-          },
-          "max_turns": {
-            "anyOf": [
-              {
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Turns"
-          },
-          "modeling_preferences": {
-            "$ref": "#/components/schemas/ModelingPreferences"
-          },
-          "proving_sample_rows": {
-            "default": 200,
-            "maximum": 5000.0,
-            "minimum": 1.0,
-            "title": "Proving Sample Rows",
-            "type": "integer"
-          },
-          "real_row_proving": {
-            "default": true,
-            "title": "Real Row Proving",
-            "type": "boolean"
-          },
-          "secret_precedence": {
-            "default": "store_first",
-            "enum": [
-              "store_first",
-              "env_first"
-            ],
-            "title": "Secret Precedence",
-            "type": "string"
-          },
-          "timeout_seconds": {
-            "anyOf": [
-              {
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Timeout Seconds"
-          },
-          "v7_critic_tier": {
-            "default": "FRONTIER_CRITIC",
-            "enum": [
-              "FRONTIER_CRITIC",
-              "STANDARD_WORKER"
-            ],
-            "title": "V7 Critic Tier",
-            "type": "string"
-          }
-        },
-        "title": "ProjectSettingsSnapshot",
-        "type": "object"
-      },
-      "ProjectSettingsUpdateReq": {
-        "additionalProperties": false,
-        "description": "Partial PATCH update payload for per-project settings (via model_fields_set).",
+        "description": "RFC 7396 patch payload for PATCH /api/v1/projects/{project_id}/settings.",
         "properties": {
           "business_context_hints": {
             "anyOf": [
@@ -7596,6 +7620,7 @@
           "max_turns": {
             "anyOf": [
               {
+                "maximum": 500.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -7604,6 +7629,27 @@
               }
             ],
             "title": "Max Turns"
+          },
+          "model_overrides": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Overrides"
           },
           "modeling_preferences": {
             "anyOf": [
@@ -7657,6 +7703,7 @@
           "timeout_seconds": {
             "anyOf": [
               {
+                "maximum": 7200.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -7682,7 +7729,152 @@
             "title": "V7 Critic Tier"
           }
         },
-        "title": "ProjectSettingsUpdateReq",
+        "title": "ProjectSettingsPatchReq",
+        "type": "object"
+      },
+      "ProjectSettingsSnapshot": {
+        "additionalProperties": false,
+        "description": "Per-project settings snapshot persisted in projects.settings_snapshot_json.",
+        "properties": {
+          "business_context_hints": {
+            "anyOf": [
+              {
+                "maxLength": 12000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Context Hints"
+          },
+          "cegar_policy": {
+            "default": "balanced",
+            "enum": [
+              "symbolic_only",
+              "fast",
+              "balanced",
+              "strict"
+            ],
+            "title": "Cegar Policy",
+            "type": "string"
+          },
+          "dbt_sql_dialect": {
+            "default": "duckdb",
+            "enum": [
+              "duckdb",
+              "databricks",
+              "snowflake",
+              "postgres",
+              "bigquery",
+              "tsql",
+              "redshift",
+              "clickhouse"
+            ],
+            "title": "Dbt Sql Dialect",
+            "type": "string"
+          },
+          "discovery_mode": {
+            "default": "incremental_new",
+            "enum": [
+              "incremental_new",
+              "incremental_reverify",
+              "full_rebuild"
+            ],
+            "title": "Discovery Mode",
+            "type": "string"
+          },
+          "harness_provider": {
+            "default": "agy",
+            "enum": [
+              "agy",
+              "claude-cli",
+              "claude",
+              "gemini"
+            ],
+            "title": "Harness Provider",
+            "type": "string"
+          },
+          "max_tokens": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tokens"
+          },
+          "max_turns": {
+            "anyOf": [
+              {
+                "maximum": 500.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Turns"
+          },
+          "model_overrides": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Model Overrides",
+            "type": "object"
+          },
+          "modeling_preferences": {
+            "$ref": "#/components/schemas/ModelingPreferences"
+          },
+          "proving_sample_rows": {
+            "default": 200,
+            "maximum": 5000.0,
+            "minimum": 1.0,
+            "title": "Proving Sample Rows",
+            "type": "integer"
+          },
+          "real_row_proving": {
+            "default": true,
+            "title": "Real Row Proving",
+            "type": "boolean"
+          },
+          "secret_precedence": {
+            "default": "store_first",
+            "enum": [
+              "store_first",
+              "env_first"
+            ],
+            "title": "Secret Precedence",
+            "type": "string"
+          },
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "maximum": 7200.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout Seconds"
+          },
+          "v7_critic_tier": {
+            "default": "FRONTIER_CRITIC",
+            "enum": [
+              "FRONTIER_CRITIC",
+              "STANDARD_WORKER"
+            ],
+            "title": "V7 Critic Tier",
+            "type": "string"
+          }
+        },
+        "title": "ProjectSettingsSnapshot",
         "type": "object"
       },
       "ProjectState": {
@@ -7805,6 +7997,183 @@
         "title": "ProjectSummary",
         "type": "object"
       },
+      "ProviderReadinessRecord": {
+        "additionalProperties": false,
+        "description": "Per-provider readiness snapshot merging Tier-1 prerequisites, cache, and active-run state.",
+        "properties": {
+          "active_run": {
+            "default": false,
+            "title": "Active Run",
+            "type": "boolean"
+          },
+          "active_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Run Id"
+          },
+          "available_models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelOption"
+            },
+            "title": "Available Models",
+            "type": "array"
+          },
+          "binary_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Binary Path"
+          },
+          "credential_source": {
+            "enum": [
+              "cli_login",
+              "store",
+              "os_env",
+              "none"
+            ],
+            "title": "Credential Source",
+            "type": "string"
+          },
+          "last_auth_error_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Auth Error At"
+          },
+          "last_auth_error_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Auth Error Summary"
+          },
+          "last_verified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Verified At"
+          },
+          "missing_prereqs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Prereqs",
+            "type": "array"
+          },
+          "provider": {
+            "enum": [
+              "agy",
+              "claude-cli",
+              "claude",
+              "gemini"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "remediation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorRemediation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sdk_installed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sdk Installed"
+          },
+          "status": {
+            "enum": [
+              "MISSING_PREREQ",
+              "CONFIGURED_UNVERIFIED",
+              "VERIFIED",
+              "AUTH_FAILED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "status",
+          "credential_source"
+        ],
+        "title": "ProviderReadinessRecord",
+        "type": "object"
+      },
+      "ReadinessResponse": {
+        "additionalProperties": false,
+        "description": "Response payload for GET /api/v1/agents/readiness.",
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderReadinessRecord"
+            },
+            "title": "Providers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "providers"
+        ],
+        "title": "ReadinessResponse",
+        "type": "object"
+      },
+      "ReadinessTestReq": {
+        "additionalProperties": false,
+        "description": "Request payload for POST /api/v1/agents/readiness/test.",
+        "properties": {
+          "provider": {
+            "enum": [
+              "agy",
+              "claude-cli",
+              "claude",
+              "gemini"
+            ],
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider"
+        ],
+        "title": "ReadinessTestReq",
+        "type": "object"
+      },
       "RefTableSpec": {
         "additionalProperties": false,
         "description": "Zone Z0 reference enumeration table specification.",
@@ -7848,6 +8217,46 @@
           "codes"
         ],
         "title": "RefTableSpec",
+        "type": "object"
+      },
+      "RemediationAction": {
+        "additionalProperties": false,
+        "description": "Executable or manual operator action attached to an ErrorRemediation.",
+        "properties": {
+          "actor": {
+            "enum": [
+              "agent",
+              "human"
+            ],
+            "title": "Actor",
+            "type": "string"
+          },
+          "command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "requires_tty": {
+            "default": false,
+            "title": "Requires Tty",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "actor",
+          "label"
+        ],
+        "title": "RemediationAction",
         "type": "object"
       },
       "RemoveAttribute": {
@@ -8579,6 +8988,21 @@
         "title": "ReviseDescription",
         "type": "object"
       },
+      "RevokeTrustedWorkspaceReq": {
+        "additionalProperties": false,
+        "description": "Request payload for POST /api/v1/settings/trusted-workspaces/revoke.",
+        "properties": {
+          "workspace_root": {
+            "title": "Workspace Root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_root"
+        ],
+        "title": "RevokeTrustedWorkspaceReq",
+        "type": "object"
+      },
       "RunControlReq": {
         "additionalProperties": false,
         "description": "Run control signal payload for Step 4 and Step 6.",
@@ -8597,6 +9021,7 @@
           "extra_timeout_seconds": {
             "anyOf": [
               {
+                "maximum": 7200.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -8621,6 +9046,7 @@
           "extra_turns": {
             "anyOf": [
               {
+                "maximum": 500.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -10736,15 +11162,21 @@
             "title": "Fk Turnover By Table"
           },
           "policy": {
-            "default": "balanced",
-            "enum": [
-              "symbolic_only",
-              "fast",
-              "balanced",
-              "strict"
+            "anyOf": [
+              {
+                "enum": [
+                  "symbolic_only",
+                  "fast",
+                  "balanced",
+                  "strict"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Policy",
-            "type": "string"
+            "title": "Policy"
           },
           "real_row_proving": {
             "anyOf": [
@@ -11011,6 +11443,7 @@
           "max_turns": {
             "anyOf": [
               {
+                "maximum": 500.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -11057,6 +11490,7 @@
           "timeout_seconds": {
             "anyOf": [
               {
+                "maximum": 7200.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -11120,6 +11554,62 @@
           }
         },
         "summary": "List Agents"
+      }
+    },
+    "/api/v1/agents/readiness": {
+      "get": {
+        "operationId": "get_agent_readiness_api_v1_agents_readiness_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Agent Readiness"
+      }
+    },
+    "/api/v1/agents/readiness/test": {
+      "post": {
+        "operationId": "test_agent_readiness_api_v1_agents_readiness_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadinessTestReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderReadinessRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Agent Readiness"
       }
     },
     "/api/v1/agents/{agent_id}": {
@@ -13194,7 +13684,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ProjectSettingsUpdateReq"
+                "$ref": "#/components/schemas/ProjectSettingsPatchReq"
               }
             }
           },
@@ -14077,6 +14567,44 @@
         "summary": "Put Settings"
       }
     },
+    "/api/v1/settings/trusted-workspaces/revoke": {
+      "post": {
+        "operationId": "revoke_trusted_workspace_api_v1_settings_trusted_workspaces_revoke_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeTrustedWorkspaceReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Trusted Workspace"
+      }
+    },
     "/api/v1/sources/adapters": {
       "get": {
         "operationId": "list_source_adapters_api_v1_sources_adapters_get",
@@ -14196,6 +14724,56 @@
           }
         },
         "summary": "Preview Starter Pack"
+      }
+    },
+    "/api/v1/system/doctor": {
+      "get": {
+        "operationId": "get_system_doctor_api_v1_system_doctor_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "check_agents",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Check Agents",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "check_mcp",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Check Mcp",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DoctorResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get System Doctor"
       }
     },
     "/api/v1/workspace-seeds": {

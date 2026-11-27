@@ -421,6 +421,7 @@ export default defineConfig({
 		timeout: 60_000,
 		env: {
 			...process.env,
+			PYTHON_KEYRING_BACKEND: "keyring.backends.null.Keyring",
 			OPENDV_E2E_TMP: e2eTmp,
 			OPENDV_HOME: homeDir,
 			XDG_STATE_HOME: stateDir,

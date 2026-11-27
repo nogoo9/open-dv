@@ -1,11 +1,18 @@
 import { useState } from "react";
-import { api, buildSourceInspectReq, parseProblemDetails } from "../api/client";
+import {
+	api,
+	buildSourceInspectReq,
+	createProblemDetails,
+	parseProblemDetails,
+} from "../api/client";
 import type {
 	ConnectorConfigPayload,
+	ProblemDetails,
 	SecretSummary,
 	WorkspaceSettings,
 } from "../api/openapi";
 import { useProjectStore } from "../store/projectStore";
+import { RemediationList } from "./RemediationList";
 
 export interface SettingsSecretsTabProps {
 	draft: WorkspaceSettings;
@@ -28,7 +35,8 @@ export function SettingsSecretsTab({
 	const [profAdapter, setProfAdapter] = useState("databricks_uc");
 	const [profUri, setProfUri] = useState("");
 	const [profSecretRef, setProfSecretRef] = useState("");
-	const [testResult, setTestResult] = useState<string | null>(null);
+	const [testOk, setTestOk] = useState<string | null>(null);
+	const [testProblem, setTestProblem] = useState<ProblemDetails | null>(null);
 	const [busy, setBusy] = useState(false);
 
 	const saveSecret = async (e: React.FormEvent) => {
@@ -88,13 +96,26 @@ export function SettingsSecretsTab({
 
 	const testProfile = async (name: string, p: ConnectorConfigPayload) => {
 		setBusy(true);
-		setTestResult(null);
+		setTestOk(null);
+		setTestProblem(null);
 		try {
-			if ((p.secret_refs ?? []).length > 0) {
-				const checked = await api.listSecrets(p.secret_refs);
-				const missing = checked.filter((s) => !s.present).map((s) => s.key);
+			if (
+				p.adapter_id !== "databricks_uc" &&
+				(p.secret_refs ?? []).length > 0
+			) {
+				const refs = p.secret_refs ?? [];
+				const refSet = new Set(refs);
+				const checked = await api.listSecrets(refs);
+				const missing = checked
+					.filter((s) => refSet.has(s.key) && !s.present)
+					.map((s) => s.key);
 				if (missing.length > 0) {
-					setTestResult(`Missing secret(s) for ${name}: ${missing.join(", ")}`);
+					setTestProblem(
+						createProblemDetails(
+							"NEEDS_LOCAL_SECRET_BINDING",
+							`Missing secret(s) for ${name}: ${missing.join(", ")}`,
+						),
+					);
 					return;
 				}
 			}
@@ -105,12 +126,11 @@ export function SettingsSecretsTab({
 				secret_refs: p.secret_refs,
 			});
 			const prof = await api.inspectSource(req);
-			setTestResult(
+			setTestOk(
 				`Connected ${name}: ${prof.table_count} table(s) discovered (fingerprint ${prof.schema_fingerprint.slice(0, 10)}).`,
 			);
 		} catch (err) {
-			const pd = parseProblemDetails(err);
-			setTestResult(`Connection failed (${pd.error_code}): ${pd.detail}`);
+			setTestProblem(parseProblemDetails(err));
 		} finally {
 			setBusy(false);
 		}
@@ -125,8 +145,9 @@ export function SettingsSecretsTab({
 					<strong>Secret Backend:</strong>{" "}
 					<span className="pill mono">{draft.secret_backend}</span> ·{" "}
 					<span>
-						Keyring entries are scoped by SHA-256 digest of{" "}
-						<code>OPENDV_HOME</code> to prevent cross-workspace bleed.
+						User-Global credential store under{" "}
+						<code>&lt;OS_USER_STATE&gt;/opendv/</code> (shared across
+						workspaces).
 					</span>
 				</div>
 				<label className="row text-sm">
@@ -143,15 +164,22 @@ export function SettingsSecretsTab({
 							})
 						}
 					>
-						<option value="store_first">
-							store_first (Project &gt; User &gt; Env)
-						</option>
+						<option value="store_first">store_first (Store &gt; Env)</option>
 						<option value="env_first">env_first</option>
 					</select>
 				</label>
 			</div>
 
-			{testResult && <output className="banner banner-ok">{testResult}</output>}
+			{testOk && <output className="banner banner-ok">{testOk}</output>}
+			{testProblem && (
+				<div className="banner banner-danger stack-sm" role="alert">
+					<div>
+						<strong>{testProblem.title}</strong> ({testProblem.error_code}):{" "}
+						{testProblem.detail}
+					</div>
+					<RemediationList remediation={testProblem.remediation} />
+				</div>
+			)}
 
 			<div className="split-grid">
 				<section className="card-subtle stack-sm">
@@ -263,7 +291,7 @@ export function SettingsSecretsTab({
 									<span className="mono text-sm">({prof.adapter_id})</span>
 								</div>
 								<div className="mono text-sm text-muted">
-									{prof.uri_or_path}
+									{prof.uri_or_path || String(prof.options?.host ?? "")}
 								</div>
 							</div>
 							<div className="row">

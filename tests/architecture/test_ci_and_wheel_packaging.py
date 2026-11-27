@@ -113,7 +113,7 @@ def test_pyproject_wheel_packaging_configuration() -> None:
     assert PYPROJECT_PATH.is_file(), f"Missing {PYPROJECT_PATH}"
     data = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))
 
-    assert data["project"]["scripts"]["opendv"] == "opendv.cli.main:app"
+    assert data["project"]["scripts"]["opendv"] == "opendv.cli.main:main"
     assert "dev" in data["dependency-groups"]
     assert "dev" not in data["project"].get("optional-dependencies", {})
 

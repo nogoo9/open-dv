@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Literal, cast
+from typing import cast
 
 from opendv.agents import AgentHarnessPort
 from opendv.agents.pack_loader import load_modeling_guide
@@ -20,25 +20,23 @@ from opendv.modeling import (
 )
 from opendv.models.diagnostics import (
     AntiPatternJustification,
-    ClarificationQuestion,
-    VerifierDiagnostic,
 )
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.events import OcrPageReceipt, RunCheckpointRecord
 from opendv.models.ontology import GraphAOntology
-from opendv.models.policy import CEGAR_POLICY_SPECS, CegarPolicy
+from opendv.models.policy import CEGAR_POLICY_SPECS, CegarPolicy, HarnessBudget, ModelTier
 from opendv.models.project import (
     EvolutionLockSpec,
     HorizonAssumptionSpec,
     OntologyWaiverSpec,
+    ProjectSettingsSnapshot,
     ProjectState,
     TrustedWorkspaceSpec,
 )
 from opendv.models.sources import DocumentMap, SourceProfile
 from opendv.models.vault_ir_certified import CertifiedVaultIR
 from opendv.models.wire_dtos_discovery import HoldAnswersReq, RunStateResp
-from opendv.models.wire_dtos_vault import GuidedRunView, VaultBuildReq
-from opendv.service.guided_translator import GuidedUxTranslator
+from opendv.models.wire_dtos_vault import VaultBuildReq
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.state_store import (
     ProjectStateManager,
@@ -48,11 +46,10 @@ from opendv.service.state_store import (
 )
 from opendv.service.workflows._run_adapters import (
     ServiceModelingPackLoader,
-    list_project_runs,
+    coalesce_prior_state_budget,
+    coalesce_snapshot_budget,
     list_revision_models,
-    load_active_certified_ir,
     load_latest_evolution_lock,
-    load_latest_run_state,
     wrap_modeling_harness,
 )
 from opendv.service.workflows._source_docs import load_doc_pages_for_record
@@ -204,6 +201,11 @@ def load_verifier_inputs(
     return ontology, profiles, clusters, locks, prior_ir, assumptions, ctx
 
 
+def resolve_step6_v7_tier(policy: CegarPolicy, snap: ProjectSettingsSnapshot) -> ModelTier:
+    """Enforce FRONTIER_CRITIC under strict CEGAR policy regardless of snapshot setting."""
+    return "FRONTIER_CRITIC" if policy == "strict" else snap.v7_critic_tier
+
+
 def _assemble_modeling_request(
     state_manager: ProjectStateManager,
     workspace_root: Path,
@@ -227,7 +229,8 @@ def _assemble_modeling_request(
     business_context_hints: str | None = None,
     ckpt_store: ServiceRunCheckpointStore | None = None,
     resume: ModelingResumeInput | None = None,
-    include_policy_budget: bool = False,
+    explicit_budget: HarnessBudget | None = None,
+    v7_critic_tier: ModelTier | None = None,
 ) -> DVModelingRequest:
     return DVModelingRequest(
         run_id=run_id,
@@ -236,7 +239,7 @@ def _assemble_modeling_request(
         profiles=profiles,
         clusters=clusters,
         policy=policy,
-        budget=CEGAR_POLICY_SPECS[policy].budget if include_policy_budget else None,
+        budget=explicit_budget,
         harness=wrap_modeling_harness(harness),
         pack_loader=ServiceModelingPackLoader(
             workspace_root=workspace_root,
@@ -269,7 +272,9 @@ def _assemble_modeling_request(
             wave_number_override=wave_override,
         ),
         resume=resume or ModelingResumeInput(),
-        v7_critic_tier=proj.settings_snapshot.v7_critic_tier,
+        v7_critic_tier=v7_critic_tier
+        if v7_critic_tier is not None
+        else resolve_step6_v7_tier(policy, proj.settings_snapshot),
         model_overrides=model_overrides,
     )
 
@@ -287,6 +292,15 @@ def build_initial_modeling_request(
     model_overrides: Mapping[str, str] | None = None,
 ) -> DVModelingRequest:
     """Hydrate initial Step 6 DVModelingRequest from project state, proving cache, and req."""
+    snap = proj.settings_snapshot
+    effective_policy: CegarPolicy = req.policy or snap.cegar_policy
+    eff_budget = coalesce_snapshot_budget(CEGAR_POLICY_SPECS[effective_policy].budget, snap)
+    v7_tier = resolve_step6_v7_tier(effective_policy, snap)
+    eff_overrides = (
+        dict(model_overrides)
+        if model_overrides is not None
+        else (dict(snap.model_overrides) or None)
+    )
     ontology, profiles, clusters, locks, prior_ir, assumptions, ctx = load_verifier_inputs(
         state_manager,
         workspace_root,
@@ -303,14 +317,14 @@ def build_initial_modeling_request(
     eff_hints = (
         req.business_context_hints
         if req.business_context_hints is not None
-        else proj.settings_snapshot.business_context_hints
+        else snap.business_context_hints
     )
     return _assemble_modeling_request(
         state_manager,
         workspace_root,
         proj=proj,
         run_id=run_id,
-        policy=req.policy,
+        policy=effective_policy,
         harness=harness,
         ontology=ontology,
         profiles=profiles,
@@ -318,13 +332,14 @@ def build_initial_modeling_request(
         locks=locks,
         prior_ir=prior_ir,
         assumptions=assumptions,
-        ctx=ctx.model_copy(update={"policy": req.policy}),
+        ctx=ctx.model_copy(update={"policy": effective_policy}),
         guide_text=guide_text,
         trusted_workspaces=trusted_workspaces,
-        model_overrides=model_overrides,
+        model_overrides=eff_overrides,
         prior_wave_rev_id=proj.active_wave_id,
         business_context_hints=eff_hints,
-        include_policy_budget=True,
+        explicit_budget=eff_budget,
+        v7_critic_tier=v7_tier,
     )
 
 
@@ -344,6 +359,7 @@ def prepare_resume_cegar_request(
     trusted_workspaces: Sequence[TrustedWorkspaceSpec] = (),
     model_overrides: Mapping[str, str] | None = None,
     revert_to_pre_steer: bool = False,
+    prior_state: RunStateResp | None = None,
 ) -> tuple[str | None, str | None, DVModelingRequest]:
     """Hydrate DVModelingRequest for Hold resume, Revert, or in-place V8 Horizon upgrade."""
     proj = state_manager.get_project(project_id)
@@ -387,6 +403,33 @@ def prepare_resume_cegar_request(
         if checkpoint is None
         else 0
     )
+    snap = proj.settings_snapshot
+    v7_tier = resolve_step6_v7_tier(policy, snap)
+    base_budget = CEGAR_POLICY_SPECS[policy].budget
+    budget: HarnessBudget | None
+    if checkpoint is not None:
+        if "budget_max_turns" in checkpoint.resume_payload:
+            budget = None
+        else:
+            run_rows = state_manager.list_events_or_receipts(
+                project_id, record_kind="run_state", run_id=run_id
+            )
+            init_state = (
+                RunStateResp.model_validate(run_rows[0]["payload"])
+                if run_rows
+                else prior_state
+            )
+            budget = coalesce_prior_state_budget(base_budget, init_state)
+    elif prior_state is not None:
+        budget = coalesce_prior_state_budget(base_budget, prior_state)
+    else:
+        budget = coalesce_snapshot_budget(base_budget, snap)
+
+    eff_overrides = (
+        dict(model_overrides)
+        if model_overrides is not None
+        else (dict(snap.model_overrides) or None)
+    )
     fb_draft, fb_cert = resolve_pre_steer_fallback(
         state_manager,
         project_id,
@@ -417,10 +460,10 @@ def prepare_resume_cegar_request(
         ),
         guide_text=guide_text,
         trusted_workspaces=trusted_workspaces,
-        model_overrides=model_overrides,
+        model_overrides=eff_overrides,
         prior_wave_rev_id=prior_wave_rev_id,
         wave_override=wave_override,
-        business_context_hints=proj.settings_snapshot.business_context_hints,
+        business_context_hints=snap.business_context_hints,
         ckpt_store=ckpt_store,
         resume=ModelingResumeInput(
             checkpoint=checkpoint,
@@ -432,94 +475,13 @@ def prepare_resume_cegar_request(
             pre_steer_fallback_certified_ir=fb_cert,
             last_sig_seq=sig_watermark,
         ),
+        explicit_budget=budget,
+        v7_critic_tier=v7_tier,
     )
     return proj.active_ontology_rev_id, prior_wave_rev_id, req
 
 
-def build_vault_guided_view(
-    state_manager: ProjectStateManager,
-    translator: GuidedUxTranslator,
-    project_id: str,
-    run_id: str | None = None,
-) -> GuidedRunView:
-    """Project latest Step 4/6 state into plain-English GuidedRunView."""
-    proj = state_manager.get_project(project_id)
-    all_runs = list_project_runs(state_manager, project_id)
-    if run_id is not None:
-        run_state = load_latest_run_state(state_manager, project_id, run_id)
-    elif all_runs:
-        run_state = all_runs[0]
-    else:
-        run_state = RunStateResp(
-            run_id="idle",
-            project_id=project_id,
-            step="step6",
-            status="QUEUED",
-            policy="balanced",
-            phase="awaiting_build",
-            attempt=0,
-            budget_turns_used=0,
-            budget_tokens_used=0,
-        )
-
-    step4_held = next(
-        (r for r in all_runs if r.step == "step4" and r.status == "HOLD_CHECKPOINTED"),
-        None,
-    )
-    cegar_res = (
-        load_cegar_result(state_manager, project_id, run_state.run_id)
-        if run_state.run_id != "idle"
-        else None
-    )
-    ckpt = (
-        ServiceRunCheckpointStore(state_manager, project_id).load_checkpoint(run_state.run_id)
-        if run_state.run_id != "idle"
-        else None
-    )
-    cert_ir = cegar_res.certified_ir if cegar_res is not None else None
-    if cert_ir is None and proj.active_wave_id is not None:
-        cert_ir = load_active_certified_ir(state_manager, project_id)
-    diags: list[VerifierDiagnostic] = []
-    if cegar_res is not None and cegar_res.verifier_report is not None:
-        diags = list(cegar_res.verifier_report.all_diagnostics)
-    cert_status: Literal["UNCERTIFIED", "CERTIFIED_FAST", "CERTIFIED"] | None = None
-    if cegar_res is not None and cegar_res.status in ("CERTIFIED", "CERTIFIED_FAST"):
-        cert_status = cegar_res.status
-    elif cert_ir is not None and run_state.status == "COMPLETED":
-        cert_status = "CERTIFIED_FAST" if run_state.policy == "fast" else "CERTIFIED"
-
-    persisted_waiver_ids = [
-        w.waiver_id
-        for _, w in list_revision_models(
-            state_manager, project_id, "vault_waiver", AntiPatternJustification
-        )
-    ]
-    ir_waiver_ids = [j.waiver_id for j in cert_ir.justifications] if cert_ir is not None else []
-    merged_waiver_ids = list(dict.fromkeys([*ir_waiver_ids, *persisted_waiver_ids]))
-
-    return translator.translate_run_view(
-        run_state,
-        certified_ir=cert_ir,
-        draft_ir=cegar_res.draft_ir if cegar_res is not None else None,
-        diagnostics=diags,
-        v7_verdict=cegar_res.v7_verdict if cegar_res is not None else None,
-        v8_verdict=cegar_res.v8_verdict if cegar_res is not None else None,
-        checkpoint=ckpt,
-        step4_run_id=step4_held.run_id if step4_held is not None else None,
-        step4_pending_questions=(
-            [q for q in step4_held.pending_questions if isinstance(q, ClarificationQuestion)]
-            if step4_held is not None
-            else ()
-        ),
-        ontology_rev_id=proj.active_ontology_rev_id,
-        policy=run_state.policy or "balanced",
-        certification_status=cert_status,
-        wave_number=cert_ir.wave_number if cert_ir is not None else 1,
-        attempt=run_state.attempt,
-        energy_e=cegar_res.final_energy_e if cegar_res is not None else None,
-        waiver_ids=merged_waiver_ids,
-    )
-
+from opendv.service.workflows._vault_views import build_vault_guided_view  # noqa: E402
 
 __all__ = [
     "build_initial_modeling_request",
@@ -532,6 +494,7 @@ __all__ = [
     "persist_cegar_result",
     "prepare_resume_cegar_request",
     "resolve_evolution_lock_for_wave",
+    "resolve_step6_v7_tier",
     "save_cegar_result",
     "save_horizon_assumption_revision",
 ]

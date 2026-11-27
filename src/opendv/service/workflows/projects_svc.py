@@ -4,29 +4,19 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
-from pydantic import ValidationError
-
-from opendv.agents import compute_workspace_agents_sha256
-from opendv.modeling.prompts import MAX_BUSINESS_CONTEXT_HINTS_TOKENS
-from opendv.modeling.token_utils import count_tokens
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.json_hasher import sha256_jcs
-from opendv.models.policy import VALID_V6B_RULE_IDS
 from opendv.models.project import (
     BundleManifest,
     ConceptMemorySpec,
     ImportReadinessReport,
+    ProjectSettingsPatchReq,
     ProjectSettingsSnapshot,
-    ProjectSettingsUpdateReq,
     ProjectState,
     ProjectSummary,
     RevisionMetadata,
-    TrustedWorkspaceSpec,
-    WorkspaceSettings,
 )
 from opendv.models.wire_dtos_discovery import (
     ConceptMemoryUpdate,
@@ -44,6 +34,7 @@ from opendv.service.bundles import (
 from opendv.service.os_platform import validate_workspace_containment
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.settings_store import SettingsStore
+from opendv.service.settings_svc import apply_project_settings_update
 from opendv.service.state_store import ProjectStateManager
 from opendv.service.workflows._project_seeds import (
     discover_workspace_seeds,
@@ -86,72 +77,15 @@ class ProjectsService:
     def update_project_settings(
         self,
         project_id: str,
-        req: ProjectSettingsUpdateReq | ProjectSettingsSnapshot,
+        req: ProjectSettingsPatchReq | ProjectSettingsSnapshot,
     ) -> ProjectState:
         """Partially or fully update per-project settings snapshot with governance checks."""
-        clean_pid = validate_project_id_or_error(project_id)
-        proj = self.state_manager.get_project(clean_pid)
-        if isinstance(req, ProjectSettingsUpdateReq):
-            merged: dict[str, Any] = proj.settings_snapshot.model_dump()
-            for field_name in req.model_fields_set:
-                val = getattr(req, field_name)
-                merged[field_name] = val.model_dump() if hasattr(val, "model_dump") else val
-            try:
-                updated = ProjectSettingsSnapshot.model_validate(merged)
-            except ValidationError as exc:
-                raise OpenDVError(
-                    f"Invalid project settings update: {exc}",
-                    error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
-                ) from exc
-        else:
-            updated = req
-
-        if updated.cegar_policy == "strict" and updated.v7_critic_tier != "FRONTIER_CRITIC":
-            raise OpenDVError(
-                "v7_critic_tier must be FRONTIER_CRITIC when cegar_policy is strict.",
-                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
-            )
-        if (
-            updated.business_context_hints
-            and count_tokens(updated.business_context_hints) > MAX_BUSINESS_CONTEXT_HINTS_TOKENS
-        ):
-            raise OpenDVError(
-                f"business_context_hints exceeds {MAX_BUSINESS_CONTEXT_HINTS_TOKENS} "
-                "cl100k_base tokens.",
-                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
-            )
-        dis = updated.modeling_preferences.disabled_v6b_blocks
-        invalid_rules = [r for r in dis if r not in VALID_V6B_RULE_IDS]
-        if invalid_rules:
-            raise OpenDVError(
-                f"Invalid disabled_v6b_blocks rule ID(s): {invalid_rules}",
-                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
-            )
-        if updated.cegar_policy == "strict" and dis:
-            raise OpenDVError(
-                "disabled_v6b_blocks must be empty under strict CEGAR policy.",
-                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
-            )
-
-        state = self.state_manager.update_project_pointers(
-            clean_pid,
-            settings_snapshot=updated,
-        )
-        append_audit_log(
+        return apply_project_settings_update(
             self.state_manager,
-            clean_pid,
-            event_type="PROJECT_SETTINGS_UPDATED",
-            actor="human",
-            step="step1",
-            summary=f"Updated settings for project '{clean_pid}'.",
-            details={
-                "cegar_policy": updated.cegar_policy,
-                "v7_critic_tier": updated.v7_critic_tier,
-                "real_row_proving": updated.real_row_proving,
-                "proving_sample_rows": updated.proving_sample_rows,
-            },
+            project_id,
+            req,
+            require_no_active_lease=True,
         )
-        return state
 
     def init_project(self, req: ProjectInitReq) -> ProjectState:
         """Create a project from Blank, StarterPack, WorkspaceSeed, or YAML/JSON baseline."""
@@ -167,6 +101,7 @@ class ProjectsService:
         ws_settings = self.settings_store.load_settings()
         snapshot = ProjectSettingsSnapshot(
             harness_provider=ws_settings.harness_provider,
+            model_overrides=dict(ws_settings.model_overrides),
             v7_critic_tier=ws_settings.v7_critic_tier,
             cegar_policy=ws_settings.cegar_policy,
             dbt_sql_dialect=ws_settings.dbt_sql_dialect,
@@ -329,32 +264,6 @@ class ProjectsService:
             metadata=RevisionMetadata(actor="human", reason=f"concept_memory:{spec.state}"),
         )
         return spec
-
-    def trust_workspace_path(self, path: Path | str | None = None) -> WorkspaceSettings:
-        """Record the SHA-256 digest of workspace .opendv/agents/*/SKILL.md overrides."""
-        ws = Path(path if path is not None else self.workspace_root).expanduser().resolve()
-        if not ws.is_dir():
-            raise OpenDVError(
-                f"Workspace directory '{ws}' does not exist.",
-                error_code=ErrorCode.RESOURCE_NOT_FOUND,
-            )
-        digest = compute_workspace_agents_sha256(ws) or ""
-        settings = self.settings_store.load_settings()
-        kept = [
-            spec
-            for spec in settings.trusted_workspaces
-            if Path(spec.workspace_root).resolve() != ws
-        ]
-        kept.append(
-            TrustedWorkspaceSpec(
-                workspace_root=str(ws),
-                agent_pack_sha256=digest,
-                trusted_at=datetime.now(tz=UTC).isoformat(),
-            )
-        )
-        return self.settings_store.save_settings(
-            settings.model_copy(update={"trusted_workspaces": kept})
-        )
 
 
 __all__ = ["ProjectsService"]

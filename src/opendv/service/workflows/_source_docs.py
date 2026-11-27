@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 from opendv.models.errors import ErrorCode, OpenDVError
-from opendv.models.project import EvolutionLockSpec
+from opendv.models.project import EvolutionLockSpec, SecretPrecedence
 from opendv.models.sources import (
     ConnectorConfigPayload,
     DocumentMap,
@@ -19,6 +19,7 @@ from opendv.models.sources import (
     TableProfile,
 )
 from opendv.models.wire_dtos_discovery import ScanApprovalReq
+from opendv.service._remediation import build_remediation
 from opendv.service._state_ddl import VALID_SOURCE_KINDS
 from opendv.service.os_platform import validate_workspace_containment
 from opendv.service.secrets import KeyringSecretStore
@@ -27,6 +28,9 @@ from opendv.sources import (
     DocumentMapBuilder,
     build_table_index_entries,
     cluster_tables,
+    profile_source,
+    validate_databricks_host,
+    validate_databricks_options,
 )
 from opendv.sources import (
     preview_table as run_table_preview,
@@ -197,6 +201,20 @@ def list_tables_index(
     return out
 
 
+def attach_driver_remediation(exc: OpenDVError) -> OpenDVError:
+    """Attach DRIVER_MISSING remediation when absent without mutating other errors."""
+    if exc.error_code == ErrorCode.DRIVER_MISSING and exc.remediation is None:
+        return OpenDVError(
+            exc.detail,
+            error_code=exc.error_code,
+            diagnostics=exc.diagnostics,
+            defect_report=exc.defect_report,
+            run_id=exc.run_id,
+            remediation=build_remediation(ErrorCode.DRIVER_MISSING),
+        )
+    return exc
+
+
 def preview_source_table(
     state_manager: ProjectStateManager,
     secret_store: KeyringSecretStore,
@@ -214,6 +232,7 @@ def preview_source_table(
             f"Invalid pagination parameters offset={offset}, limit={limit}",
             error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
         )
+    proj = state_manager.get_project(project_id)
     rec = state_manager.get_source_record(project_id, source_id)
     profile = SourceProfile.model_validate(rec["profile"])
     target_tbl = next(
@@ -228,25 +247,44 @@ def preview_source_table(
     kind = as_source_kind(str(rec["kind"]))
     status = str(rec["status"])
     cfg = ConnectorConfigPayload.model_validate(rec["connector_config"])
-    if status == "NEEDS_LOCAL_SECRET_BINDING":
-        missing = [ref for ref in cfg.secret_refs if secret_store.get_secret(ref) is None]
+    access_token: str | None = None
+    if status == "NEEDS_LOCAL_SECRET_BINDING" or (kind == "databricks_uc" and cfg.secret_refs):
+        proj_prec = proj.settings_snapshot.secret_precedence
+        missing: list[str] = []
+        resolved_tokens: list[str] = []
+        for ref in cfg.secret_refs:
+            val = secret_store.get_secret(ref, project_precedence=proj_prec)
+            if val is None:
+                missing.append(ref)
+            else:
+                resolved_tokens.append(val)
         if missing:
             raise OpenDVError(
                 f"Missing secret binding(s) for source '{source_id}': {', '.join(missing)}",
                 error_code=ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+                remediation=build_remediation(
+                    ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+                    missing_secrets=missing,
+                ),
             )
+        if resolved_tokens:
+            access_token = resolved_tokens[0]
     if kind == "databricks_uc":
-        return run_table_preview(
-            source_id,
-            kind,
-            cfg.uri_or_path,
-            target_tbl.table_name,
-            options=cfg.options,
-            secret_refs=cfg.secret_refs,
-            offset=offset,
-            limit=limit,
-            profile_timeout_seconds=cfg.profile_timeout_seconds,
-        )
+        try:
+            return run_table_preview(
+                source_id,
+                kind,
+                cfg.uri_or_path,
+                target_tbl.table_name,
+                options=cfg.options,
+                secret_refs=cfg.secret_refs,
+                offset=offset,
+                limit=limit,
+                profile_timeout_seconds=cfg.profile_timeout_seconds,
+                access_token=access_token,
+            )
+        except OpenDVError as exc:
+            raise attach_driver_remediation(exc) from exc
     disk_path = (
         None
         if status == "METADATA_ONLY_BINARY_ABSENT"
@@ -454,3 +492,84 @@ def approve_scan_pages(
         approved_scan_pages=merged,
     )
     return updated_map
+
+
+def check_databricks_binding(
+    uri_or_path: str,
+    options: dict[str, str | int | bool],
+    secret_refs: list[str],
+    secret_store: KeyringSecretStore,
+    *,
+    project_precedence: SecretPrecedence | None = None,
+) -> tuple[str, str]:
+    """Validate Databricks connector options, host, and resolve required token secret."""
+    if "host" in options and not isinstance(options["host"], str):
+        raise OpenDVError(
+            "Databricks connector option 'host' must be a string.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    try:
+        validate_databricks_options(options, secret_refs, require_secret_ref=True)
+    except OpenDVError as exc:
+        if exc.error_code == ErrorCode.NEEDS_LOCAL_SECRET_BINDING and exc.remediation is None:
+            raise OpenDVError(
+                exc.detail,
+                error_code=exc.error_code,
+                remediation=build_remediation(
+                    ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+                    missing_secrets=secret_refs,
+                ),
+            ) from exc
+        raise
+    raw_opt_host = options.get("host")
+    opt_host = raw_opt_host.strip() if isinstance(raw_opt_host, str) else ""
+    uri_stripped = uri_or_path.strip()
+    eff_host = opt_host or uri_stripped
+    validate_databricks_host(eff_host, resolve_dns=True)
+    if opt_host and uri_stripped and uri_stripped != opt_host:
+        validate_databricks_host(uri_stripped, resolve_dns=True)
+    missing: list[str] = []
+    tokens: list[str] = []
+    for ref in secret_refs:
+        val = secret_store.get_secret(ref, project_precedence=project_precedence)
+        if val is None:
+            missing.append(ref)
+        else:
+            tokens.append(val)
+    if missing:
+        raise OpenDVError(
+            f"Missing required local secret binding(s): {', '.join(missing)}",
+            error_code=ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+            remediation=build_remediation(
+                ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+                missing_secrets=missing,
+            ),
+        )
+    return eff_host, tokens[0]
+
+
+def profile_with_remediation(
+    source_id: str,
+    kind: SourceKind,
+    uri: str,
+    *,
+    options: dict[str, str | int | bool],
+    secret_refs: list[str],
+    selected_tables: list[str] | None = None,
+    profile_timeout_seconds: int = 30,
+    access_token: str | None = None,
+) -> SourceProfile:
+    """Profile structured source and enrich missing-driver errors with remediation."""
+    try:
+        return profile_source(
+            source_id,
+            kind,
+            uri,
+            options=options,
+            secret_refs=secret_refs,
+            selected_tables=selected_tables,
+            profile_timeout_seconds=profile_timeout_seconds,
+            access_token=access_token,
+        )
+    except OpenDVError as exc:
+        raise attach_driver_remediation(exc) from exc

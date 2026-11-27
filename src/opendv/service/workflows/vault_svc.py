@@ -25,12 +25,15 @@ from opendv.models.wire_dtos_vault import (
     WaiverSubmitReq,
 )
 from opendv.service.guided_translator import GuidedUxTranslator
+from opendv.service.readiness import HarnessReadinessService
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.settings_store import SettingsStore
 from opendv.service.state_store import ProjectStateManager
 from opendv.service.workflows._run_adapters import (
     ServiceRunCheckpointStore,
     acquire_project_job_lease,
+    coalesce_snapshot_budget,
+    compute_job_lease_ttl,
     enqueue_control_signal,
     list_run_attempts,
     load_active_certified_ir,
@@ -95,12 +98,14 @@ class VaultService:
         workspace_root: Path,
         injected_harness: AgentHarnessPort | None = None,
         settings_store: SettingsStore | None = None,
+        readiness_service: HarnessReadinessService | None = None,
     ) -> None:
         self._state = state_manager
         self._secrets = secret_store
         self._workspace_root = workspace_root
         self._injected_harness = injected_harness
         self._settings = settings_store
+        self._readiness_service = readiness_service
         self._translator = GuidedUxTranslator()
 
     def _load_ws_settings(self) -> WorkspaceSettings:
@@ -116,13 +121,16 @@ class VaultService:
         """Start and execute a Step 6 CEGAR synthesis run wired with DuckDbProverAdapter."""
         proj = self._state.get_project(project_id)
         ws = self._load_ws_settings()
+        snap = proj.settings_snapshot
+        effective_policy: CegarPolicy = req.policy or snap.cegar_policy
         raw_harness = resolve_harness(
-            proj.settings_snapshot,
+            snap,
             self._secrets,
             injected_harness=self._injected_harness,
-            model_overrides=ws.model_overrides or None,
+            readiness_service=self._readiness_service,
         )
         eff_run_id = run_id or f"run6-{uuid.uuid4().hex[:10]}"
+        budget = coalesce_snapshot_budget(CEGAR_POLICY_SPECS[effective_policy].budget, snap)
         modeling_req = build_initial_modeling_request(
             self._state,
             self._workspace_root,
@@ -132,17 +140,21 @@ class VaultService:
             harness=raw_harness,
             secret_store=self._secrets,
             trusted_workspaces=ws.trusted_workspaces,
-            model_overrides=ws.model_overrides or None,
+            model_overrides=dict(snap.model_overrides) or None,
         )
-        acquire_project_job_lease(self._state, project_id, eff_run_id)
+        acquire_project_job_lease(
+            self._state,
+            project_id,
+            eff_run_id,
+            ttl_seconds=compute_job_lease_ttl(budget.max_turns, budget.timeout_seconds),
+        )
 
-        budget = CEGAR_POLICY_SPECS[req.policy].budget
         running = RunStateResp(
             run_id=eff_run_id,
             project_id=project_id,
             step="step6",
             status="RUNNING",
-            policy=req.policy,
+            policy=effective_policy,
             phase="cegar_synthesis",
             attempt=0,
             budget_turns_used=0,
@@ -159,7 +171,7 @@ class VaultService:
                 self._state,
                 project_id=project_id,
                 run_id=eff_run_id,
-                policy=req.policy,
+                policy=effective_policy,
                 ontology_rev_id=proj.active_ontology_rev_id,
                 prior_wave_rev_id=proj.active_wave_id,
                 result=result,
@@ -226,11 +238,12 @@ class VaultService:
     ) -> RunStateResp:
         proj = self._state.get_project(project_id)
         ws = self._load_ws_settings()
+        prior_state = load_latest_run_state(self._state, project_id, run_id)
         harness = resolve_harness(
             proj.settings_snapshot,
             self._secrets,
             injected_harness=self._injected_harness,
-            model_overrides=ws.model_overrides or None,
+            readiness_service=self._readiness_service,
         )
         ont_rev_id, prior_wave_rev_id, modeling_req = prepare_resume_cegar_request(
             self._state,
@@ -242,12 +255,21 @@ class VaultService:
             prior_res=prior_res,
             secret_store=self._secrets,
             trusted_workspaces=ws.trusted_workspaces,
-            model_overrides=ws.model_overrides or None,
+            model_overrides=dict(proj.settings_snapshot.model_overrides) or None,
+            prior_state=prior_state,
         )
-        running_state = load_latest_run_state(self._state, project_id, run_id).model_copy(
+        running_state = prior_state.model_copy(
             update={"status": "RUNNING", "phase": "horizon_review"}
         )
-        acquire_project_job_lease(self._state, project_id, run_id)
+        acquire_project_job_lease(
+            self._state,
+            project_id,
+            run_id,
+            ttl_seconds=compute_job_lease_ttl(
+                prior_state.effective_max_turns,
+                prior_state.effective_timeout_seconds,
+            ),
+        )
         try:
             record_run_state(self._state, project_id, running_state)
             if horizon_req is not None:
@@ -295,12 +317,12 @@ class VaultService:
         prior_res = load_cegar_result(self._state, project_id, run_id)
         proj = self._state.get_project(project_id)
         ws = self._load_ws_settings()
-        eff_policy: CegarPolicy = prior_state.policy or "balanced"
+        eff_policy: CegarPolicy = prior_state.policy or proj.settings_snapshot.cegar_policy
         harness = resolve_harness(
             proj.settings_snapshot,
             self._secrets,
             injected_harness=self._injected_harness,
-            model_overrides=ws.model_overrides or None,
+            readiness_service=self._readiness_service,
         )
         ont_rev_id, prior_wave_rev_id, modeling_req = prepare_resume_cegar_request(
             self._state,
@@ -315,11 +337,20 @@ class VaultService:
             hold_answers=req,
             secret_store=self._secrets,
             trusted_workspaces=ws.trusted_workspaces,
-            model_overrides=ws.model_overrides or None,
+            model_overrides=dict(proj.settings_snapshot.model_overrides) or None,
             revert_to_pre_steer=revert,
+            prior_state=prior_state,
         )
         running_state = prior_state.model_copy(update={"status": "RUNNING", "phase": "resuming"})
-        acquire_project_job_lease(self._state, project_id, run_id)
+        acquire_project_job_lease(
+            self._state,
+            project_id,
+            run_id,
+            ttl_seconds=compute_job_lease_ttl(
+                prior_state.effective_max_turns,
+                prior_state.effective_timeout_seconds,
+            ),
+        )
         try:
             record_run_state(self._state, project_id, running_state)
             if horizon_req is not None and not revert:

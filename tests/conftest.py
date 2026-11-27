@@ -8,7 +8,10 @@ from collections.abc import Generator
 from pathlib import Path
 
 import duckdb
+import keyring
 import pytest
+
+from tests.helpers.secret_backends import InMemoryKeyringBackend
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
@@ -57,3 +60,12 @@ def duckdb_conn() -> Generator[duckdb.DuckDBPyConnection, None, None]:
         yield con
     finally:
         con.close()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_host_keyring(monkeypatch: pytest.MonkeyPatch) -> InMemoryKeyringBackend:
+    """Isolate every test from real OS keychains and prevent child subprocess keyring writes."""
+    mem_kr = InMemoryKeyringBackend()
+    monkeypatch.setattr(keyring, "get_keyring", lambda: mem_kr)
+    monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring")
+    return mem_kr

@@ -8,8 +8,8 @@ from fastapi import APIRouter, Query, Request, Response
 
 from opendv.models.project import (
     ImportReadinessReport,
+    ProjectSettingsPatchReq,
     ProjectSettingsSnapshot,
-    ProjectSettingsUpdateReq,
     ProjectState,
     ProjectSummary,
 )
@@ -87,9 +87,7 @@ def get_project(request: Request, project_id: str) -> ProjectState:
 
 @router.patch("/projects/{project_id}/settings", response_model=ProjectState)
 def patch_project_settings(
-    request: Request,
-    project_id: str,
-    body: ProjectSettingsUpdateReq,
+    request: Request, project_id: str, body: ProjectSettingsPatchReq
 ) -> ProjectState:
     return get_service(request).update_project_settings(project_id, body)
 

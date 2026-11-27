@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import time
 from datetime import UTC, date, datetime
@@ -540,27 +541,35 @@ def test_all_8_sql_targets_compile_verify_ast_under_50ms_and_exclude_planned(tmp
     from opendv.storage.sql_ast_verifier import _verify_chunk_cached
 
     verifier = SqlAstVerifier()
-    for tid in SQL_TARGET_IDS:
-        b = SqlGlotVaultCompiler(tid).compile(ir)
-        hub_create = next(
-            s for s in b.ddl_statements if "hub_issuer" in s and "CREATE TABLE" in s
-        )
-        stg_create = next(
-            s for s in b.ddl_statements if "stg_issuer_feed" in s and "CREATE" in s
-        )
-        _verify_chunk_cached.cache_clear()
-        t_cold_hub = time.perf_counter()
-        assert verifier.verify_sql(hub_create, tid, ir=ir) == []
-        assert (time.perf_counter() - t_cold_hub) * 1000.0 < 50.0
-        _verify_chunk_cached.cache_clear()
-        t_cold_stmt = time.perf_counter()
-        assert verifier.verify_sql(stg_create, tid, ir=ir) == []
-        assert (time.perf_counter() - t_cold_stmt) * 1000.0 < 150.0
-        assert verifier.verify_sql(b.full_sql, tid, ir=ir) == []
-        t_start = time.perf_counter()
-        assert verifier.verify_sql(b.full_sql, tid, ir=ir) == []
-        elapsed_ms = (time.perf_counter() - t_start) * 1000.0
-        assert elapsed_ms < 50.0, f"{tid} verify_sql(full_sql) took {elapsed_ms:.2f} ms"
+    # Isolate microbenchmark from gen-2 GC sweeps over earlier pytest tests' heap.
+    gc.collect()
+    gc_was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        for tid in SQL_TARGET_IDS:
+            b = SqlGlotVaultCompiler(tid).compile(ir)
+            hub_create = next(
+                s for s in b.ddl_statements if "hub_issuer" in s and "CREATE TABLE" in s
+            )
+            stg_create = next(
+                s for s in b.ddl_statements if "stg_issuer_feed" in s and "CREATE" in s
+            )
+            _verify_chunk_cached.cache_clear()
+            t_cold_hub = time.perf_counter()
+            assert verifier.verify_sql(hub_create, tid, ir=ir) == []
+            assert (time.perf_counter() - t_cold_hub) * 1000.0 < 50.0
+            _verify_chunk_cached.cache_clear()
+            t_cold_stmt = time.perf_counter()
+            assert verifier.verify_sql(stg_create, tid, ir=ir) == []
+            assert (time.perf_counter() - t_cold_stmt) * 1000.0 < 150.0
+            assert verifier.verify_sql(b.full_sql, tid, ir=ir) == []
+            t_start = time.perf_counter()
+            assert verifier.verify_sql(b.full_sql, tid, ir=ir) == []
+            elapsed_ms = (time.perf_counter() - t_start) * 1000.0
+            assert elapsed_ms < 50.0, f"{tid} verify_sql(full_sql) took {elapsed_ms:.2f} ms"
+    finally:
+        if gc_was_enabled:
+            gc.enable()
 
 
 def test_cross_dialect_alg_a5_vectors_and_boolean_null_branch_all_8_dialects() -> None:

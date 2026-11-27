@@ -14,21 +14,12 @@ from opendv.agents.cli_subprocess_base import count_cl100k_tokens
 from opendv.models.diagnostics import StrictModel
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.events import RunStep
-from opendv.models.policy import ModelTier
+from opendv.models.policy import AGENT_PACK_IDS, ModelTier
 from opendv.models.project import TrustedWorkspaceSpec
 from opendv.models.project import (
     compute_workspace_agents_sha256 as _compute_workspace_agents_sha256,
 )
 from opendv.models.wire_dtos_discovery import AgentPackDetail, AgentPackSummary
-
-AGENT_PACK_IDS: tuple[str, ...] = (
-    "ontology-first-mate",
-    "table-cluster-scout",
-    "page-range-scout",
-    "ship-vault",
-    "dv-semantic-critic",
-    "dv-horizon-critic",
-)
 
 _BUILTIN_PACKS_DIR = Path(__file__).resolve().parent / "packs"
 _MAX_MODELING_GUIDE_TOKENS = 2_500

@@ -43,6 +43,12 @@ from opendv.service.workflows._source_docs import (
     preview_table_by_id,
     resolve_local_source_path,
 )
+from opendv.service.workflows._source_docs import (
+    check_databricks_binding as _check_databricks_binding,
+)
+from opendv.service.workflows._source_docs import (
+    profile_with_remediation as _profile_with_remediation,
+)
 from opendv.service.workflows._vault_proving import (
     ProvingSampleBatch,
     delete_proving_sample_cache,
@@ -55,9 +61,6 @@ from opendv.sources import (
     get_source_adapter,
     infer_kind_from_filename,
     list_source_adapters,
-    profile_source,
-    validate_databricks_host,
-    validate_databricks_options,
 )
 
 MAX_UPLOAD_BYTES: int = 250 * 1024 * 1024
@@ -66,17 +69,6 @@ MAX_UPLOAD_BYTES: int = 250 * 1024 * 1024
 def list_adapters() -> list[ConnectorAdapterSpec]:
     """Return the catalog of supported structured source connector adapters."""
     return list_source_adapters()
-
-
-def _check_databricks_binding(
-    uri_or_path: str,
-    options: dict[str, str | int | bool],
-    secret_refs: list[str],
-    secret_store: KeyringSecretStore,
-) -> list[str]:
-    validate_databricks_options(options, secret_refs, require_secret_ref=True)
-    validate_databricks_host(uri_or_path, resolve_dns=True)
-    return [ref for ref in secret_refs if secret_store.get_secret(ref) is None]
 
 
 class DiscoverySourcesHelper:
@@ -101,25 +93,21 @@ class DiscoverySourcesHelper:
                 error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
             )
         get_source_adapter(kind)
+        access_token: str | None = None
         if kind == "databricks_uc":
-            missing = _check_databricks_binding(
+            uri, access_token = _check_databricks_binding(
                 req.uri_or_path, req.options, req.secret_refs, self._secrets
             )
-            if missing:
-                raise OpenDVError(
-                    f"Missing required local secret binding(s): {', '.join(missing)}",
-                    error_code=ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
-                )
-            uri = req.uri_or_path.strip()
         else:
             resolved = resolve_local_source_path(req.uri_or_path, self._workspace_root)
             uri = str(resolved)
-        return profile_source(
+        return _profile_with_remediation(
             f"inspect-{uuid.uuid4().hex[:8]}",
             kind,
             uri,
             options=req.options,
             secret_refs=req.secret_refs,
+            access_token=access_token,
         )
 
     def attach_source(self, project_id: str, req: SourceAttachReq) -> SourceSummary:
@@ -137,15 +125,13 @@ class DiscoverySourcesHelper:
 
         if kind == "databricks_uc":
             adapter_spec = get_source_adapter(kind)
-            missing = _check_databricks_binding(
-                req.uri_or_filename, req.options, req.secret_refs, self._secrets
+            uri_str, access_token = _check_databricks_binding(
+                req.uri_or_filename,
+                req.options,
+                req.secret_refs,
+                self._secrets,
+                project_precedence=proj.settings_snapshot.secret_precedence,
             )
-            if missing:
-                raise OpenDVError(
-                    f"Missing required local secret binding(s): {', '.join(missing)}",
-                    error_code=ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
-                )
-            uri_str = req.uri_or_filename.strip()
             profile, proving_batch = profile_structured_with_proving(
                 self._secrets,
                 project_id,
@@ -158,6 +144,7 @@ class DiscoverySourcesHelper:
                 secret_refs=req.secret_refs,
                 selected_tables=req.selected_tables,
                 profile_timeout_seconds=req.profile_timeout_seconds,
+                access_token=access_token,
             )
             tables_index = build_table_index_entries(profile.tables, source_id)
         elif kind in DOC_SOURCE_KINDS:
@@ -346,7 +333,7 @@ class DiscoverySourcesHelper:
 
         new_uri = req.uri_or_filename if req.uri_or_filename is not None else cfg.uri_or_path
         new_uploaded_relpath: str | None = cfg.uploaded_relpath
-        new_opts = req.options if req.options is not None else dict(cfg.options)
+        new_opts = dict(req.options) if req.options is not None else dict(cfg.options)
         new_refs = req.secret_refs if req.secret_refs is not None else list(cfg.secret_refs)
         new_tables = (
             req.selected_tables if req.selected_tables is not None else cfg.selected_tables
@@ -363,12 +350,20 @@ class DiscoverySourcesHelper:
         if kind == "databricks_uc":
             if req.uri_or_filename is not None:
                 new_uploaded_relpath = None
-            missing = _check_databricks_binding(new_uri, new_opts, new_refs, self._secrets)
-            if missing:
-                raise OpenDVError(
-                    f"Missing required local secret binding(s): {', '.join(missing)}",
-                    error_code=ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
-                )
+                if req.options is None and "host" in new_opts:
+                    stripped_uri = new_uri.strip()
+                    if stripped_uri:
+                        new_opts["host"] = stripped_uri
+                    else:
+                        new_opts.pop("host", None)
+            eff_host, access_token = _check_databricks_binding(
+                new_uri,
+                new_opts,
+                new_refs,
+                self._secrets,
+                project_precedence=proj.settings_snapshot.secret_precedence,
+            )
+            new_uri = eff_host
             new_profile, proving_batch = profile_structured_with_proving(
                 self._secrets,
                 project_id,
@@ -381,6 +376,7 @@ class DiscoverySourcesHelper:
                 secret_refs=new_refs,
                 selected_tables=new_tables,
                 profile_timeout_seconds=cfg.profile_timeout_seconds,
+                access_token=access_token,
             )
             tables_index = build_table_index_entries(new_profile.tables, source_id)
         elif kind in DOC_SOURCE_KINDS:

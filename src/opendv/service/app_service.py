@@ -7,17 +7,17 @@ from pathlib import Path
 from typing import Any, Literal
 
 from opendv import __version__
-from opendv.agents import AgentHarnessPort, list_agent_packs, load_agent_pack
+from opendv.agents import AgentHarnessPort
 from opendv.models.diagnostics import AntiPatternJustification
-from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.events import ExternalMcpReceipt, RunEventLogPage, RunStep
 from opendv.models.project import (
     BundleManifest,
     ConceptMemorySpec,
     DbtSqlDialect,
+    HarnessProvider,
     ImportReadinessReport,
+    ProjectSettingsPatchReq,
     ProjectSettingsSnapshot,
-    ProjectSettingsUpdateReq,
     ProjectState,
     ProjectSummary,
     TargetManifest,
@@ -62,6 +62,11 @@ from opendv.models.wire_dtos_discovery import (
     StarterPackSummary,
     WorkspaceSeedSummary,
 )
+from opendv.models.wire_dtos_readiness import (
+    DoctorResponse,
+    ProviderReadinessRecord,
+    ReadinessResponse,
+)
 from opendv.models.wire_dtos_vault import (
     AttemptSnapshotSpec,
     GuidedRunView,
@@ -79,9 +84,12 @@ from opendv.models.wire_dtos_vault import (
 )
 from opendv.service.bm25_matcher import Bm25ConceptMatcher
 from opendv.service.bundles import BundleMode, ConflictPolicy
+from opendv.service.harness_svc import HarnessService
 from opendv.service.os_platform import resolve_user_state_dir
+from opendv.service.readiness import HarnessReadinessService
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.settings_store import SettingsStore
+from opendv.service.settings_svc import SettingsService
 from opendv.service.state_store import ProjectStateManager
 from opendv.service.workflows._run_adapters import (
     list_external_mcp_receipts,
@@ -106,6 +114,7 @@ class OpenDVService:
         *,
         keyring_backend: Any | None = None,
         allow_headless_fallback: bool = True,
+        readiness_service: HarnessReadinessService | None = None,
     ) -> None:
         self.workspace_root: Path = Path(workspace_root).resolve()
         self.state_dir: Path = resolve_user_state_dir(state_dir)
@@ -122,6 +131,22 @@ class OpenDVService:
         self.state_manager = ProjectStateManager(self.workspace_root)
         self.state_manager.initialize()
         self.matcher = Bm25ConceptMatcher()
+        self.harnesses = HarnessService(
+            self.workspace_root,
+            self.settings_store,
+            self.secret_store,
+            readiness_service=readiness_service,
+            db_path=self.state_manager.db_path,
+        )
+        self._readiness = self.harnesses.readiness
+        self.settings = SettingsService(
+            self.workspace_root,
+            self.settings_store,
+            self.secret_store,
+            self.state_manager,
+            on_secret_changed=self.harnesses.clear_for_secret,
+            on_secret_policy_changed=self.harnesses.clear_all,
+        )
 
         self.projects = ProjectsService(
             self.workspace_root,
@@ -136,6 +161,7 @@ class OpenDVService:
             workspace_root=self.workspace_root,
             matcher=self.matcher,
             injected_harness=self.injected_harness,
+            readiness_service=self._readiness,
         )
         self.vault = VaultService(
             state_manager=self.state_manager,
@@ -143,6 +169,7 @@ class OpenDVService:
             workspace_root=self.workspace_root,
             injected_harness=self.injected_harness,
             settings_store=self.settings_store,
+            readiness_service=self._readiness,
         )
         self.storage = StorageService(
             state_manager=self.state_manager,
@@ -159,71 +186,80 @@ class OpenDVService:
 
     def get_settings(self) -> WorkspaceSettings:
         """Load non-secret WorkspaceSettings."""
-        return self.settings_store.load_settings()
+        return self.settings.get_settings()
 
     def update_settings(self, settings: WorkspaceSettings) -> WorkspaceSettings:
         """Persist validated WorkspaceSettings without secret literals."""
-        return self.settings_store.save_settings(settings)
+        return self.settings.update_settings(settings)
 
-    def list_secrets(self, keys: Sequence[str] = ()) -> list[SecretSummary]:
+    def list_secrets(
+        self, keys: Sequence[str] = (), *, include_stored: bool = True
+    ) -> list[SecretSummary]:
         """List masked presence summaries for stored/known secret keys."""
-        return self.secret_store.list_secret_summaries(keys)
+        return self.settings.list_secrets(keys, include_stored=include_stored)
 
     def set_secret(self, key: str, value: str) -> SecretSummary:
-        """Write a workspace-scoped secret to OS keyring or user_state_file."""
-        return self.secret_store.set_secret(key, value)
+        """Write a user-global secret to OS keyring or user_state_file."""
+        return self.settings.set_secret(key, value)
 
     def delete_secret(self, key: str) -> None:
-        """Remove a secret from workspace storage."""
-        self.secret_store.delete_secret(key)
+        """Remove a secret from user-global storage."""
+        self.settings.delete_secret(key)
 
     def list_mcp_servers(self) -> list[ExternalMcpServerSpec]:
         """List registered external MCP servers."""
-        return self.settings_store.load_mcp_servers()
+        return self.settings.list_mcp_servers()
 
     def save_mcp_servers(
         self, servers: Sequence[ExternalMcpServerSpec]
     ) -> list[ExternalMcpServerSpec]:
         """Replace registered external MCP server catalog atomically."""
-        self.settings_store.save_mcp_servers(servers)
-        return self.settings_store.load_mcp_servers()
+        return self.settings.save_mcp_servers(servers)
 
     def upsert_mcp_server(self, spec: ExternalMcpServerSpec) -> ExternalMcpServerSpec:
         """Insert or update a single ExternalMcpServerSpec by server_id."""
-        existing = [
-            s for s in self.settings_store.load_mcp_servers() if s.server_id != spec.server_id
-        ]
-        existing.append(spec)
-        self.settings_store.save_mcp_servers(existing)
-        return spec
+        return self.settings.upsert_mcp_server(spec)
 
     def delete_mcp_server(self, server_id: str) -> None:
         """Delete a registered external MCP server by server_id."""
-        servers = self.settings_store.load_mcp_servers()
-        remaining = [s for s in servers if s.server_id != server_id]
-        if len(remaining) == len(servers):
-            raise OpenDVError(
-                f"External MCP server '{server_id}' not found.",
-                error_code=ErrorCode.RESOURCE_NOT_FOUND,
-            )
-        self.settings_store.save_mcp_servers(remaining)
+        self.settings.delete_mcp_server(server_id)
 
     def list_agent_packs(self) -> list[AgentPackSummary]:
         """List builtin and trusted workspace SKILL.md agent packs."""
-        ws = self.settings_store.load_settings()
-        return list_agent_packs(
-            workspace_root=self.workspace_root,
-            trusted_workspaces=ws.trusted_workspaces,
-        )
+        return self.harnesses.list_packs()
 
     def get_agent_pack(self, agent_id: str) -> AgentPackDetail:
         """Inspect a single SKILL.md agent pack."""
-        ws = self.settings_store.load_settings()
-        return load_agent_pack(
-            agent_id,
-            workspace_root=self.workspace_root,
-            trusted_workspaces=ws.trusted_workspaces,
-        )
+        return self.harnesses.get_pack(agent_id)
+
+    def get_agent_readiness(self) -> ReadinessResponse:
+        """Evaluate fast Tier-1 prerequisites merged with persisted readiness cache."""
+        return self.harnesses.get_readiness()
+
+    async def test_agent_readiness(self, provider: HarnessProvider) -> ProviderReadinessRecord:
+        """Execute bounded Tier-2 authentication verification probe for provider."""
+        return await self.harnesses.test_readiness(provider)
+
+    def run_doctor(
+        self,
+        *,
+        check_agents: bool = False,
+        check_mcp: bool = False,
+    ) -> DoctorResponse:
+        """Run synchronous read-only Tier-1 diagnostics across settings, agents, and MCP."""
+        return self.harnesses.run_doctor(check_agents=check_agents, check_mcp=check_mcp)
+
+    def update_project_settings(
+        self,
+        project_id: str,
+        req: ProjectSettingsPatchReq | ProjectSettingsSnapshot,
+    ) -> ProjectState:
+        """Atomically patch or replace ProjectSettingsSnapshot for future runs in project_id."""
+        return self.settings.update_project_settings(project_id, req)
+
+    def revoke_trusted_workspace(self, workspace_root: Path | str) -> WorkspaceSettings:
+        """Remove workspace_root from global trusted_workspaces."""
+        return self.settings.revoke_trusted_workspace(workspace_root)
 
     def list_runs(
         self, project_id: str, *, step: RunStep | None = None
@@ -256,13 +292,6 @@ class OpenDVService:
     def get_project(self, project_id: str) -> ProjectState:
         return self.projects.get_project(project_id)
 
-    def update_project_settings(
-        self,
-        project_id: str,
-        req: ProjectSettingsUpdateReq | ProjectSettingsSnapshot,
-    ) -> ProjectState:
-        return self.projects.update_project_settings(project_id, req)
-
     def init_project(self, req: ProjectInitReq) -> ProjectState:
         return self.projects.init_project(req)
 
@@ -275,7 +304,7 @@ class OpenDVService:
         return self.projects.list_workspace_seeds(domain_namespace=domain_namespace)
 
     def trust_workspace_path(self, path: Path | str | None = None) -> WorkspaceSettings:
-        return self.projects.trust_workspace_path(path)
+        return self.settings.trust_workspace_path(path)
 
     def list_starter_packs(self) -> list[StarterPackSummary]:
         return self.projects.list_starter_packs()

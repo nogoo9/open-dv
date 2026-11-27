@@ -5,6 +5,9 @@
 *   **Date:** 2026-11-22
 *   **Companion Specifications:** [`v2-clean-sheet-architecture.md`](v2-clean-sheet-architecture.md) · [`DESIGN.md`](../../DESIGN.md) · [`SITEMAP.md`](SITEMAP.md)
 
+> [!NOTE]
+> **2026-11-26 Amendment ([`harness-readiness-and-cli-parity-design.md`](harness-readiness-and-cli-parity-design.md)):** Settings Hub readiness cards (`<HarnessReadinessCard />`), 4-tier header `Readiness` pill (`Action Needed`, `Steward Review`, `Unverified`, `Ready`), `<RemediationList />`, user-global `"opendv"` keyring scoping, `65 -> 70` `/api/v1` endpoints, and Step 4/6 launch snapshot initialization are governed by the approved amendment specification.
+
 ---
 
 ## Overview

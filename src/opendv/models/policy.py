@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,6 +18,17 @@ VALID_V6B_RULE_IDS: frozenset[str] = frozenset(
 )
 BALANCED_BLOCKING_V6B_RULES: frozenset[str] = frozenset(
     {"DV-AP-001", "DV-AP-003", "DV-AP-009", "DV-AP-010", "DV-AP-011"}
+)
+AGENT_PACK_IDS: tuple[str, ...] = (
+    "ontology-first-mate",
+    "table-cluster-scout",
+    "page-range-scout",
+    "ship-vault",
+    "dv-semantic-critic",
+    "dv-horizon-critic",
+)
+VALID_MODEL_OVERRIDE_TARGETS: frozenset[str] = frozenset(
+    {*(str(t) for t in get_args(ModelTier)), *AGENT_PACK_IDS}
 )
 
 
@@ -143,9 +154,11 @@ def compute_deterministic_energy(v1_v6_fail: int, blocking_v6b_fail: int) -> int
 
 
 __all__ = [
+    "AGENT_PACK_IDS",
     "BALANCED_BLOCKING_V6B_RULES",
     "CEGAR_POLICY_SPECS",
     "STEP4_DEFAULT_BUDGET",
+    "VALID_MODEL_OVERRIDE_TARGETS",
     "VALID_V6B_RULE_IDS",
     "CegarPolicy",
     "CegarPolicySpec",

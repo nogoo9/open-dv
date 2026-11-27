@@ -498,12 +498,14 @@ def extract_structured_source(
     sample_limit: int = 5,
     preview_offset: int = 0,
     preview_limit: int = 50,
+    access_token: str | None = None,
 ) -> list[RawTableData]:
     """Dispatch extraction across the 6 static V2 structured source kinds."""
     return dispatch_structured_extract(
         kind,
         uri_or_path,
         options=options,
+        access_token=access_token,
         secret_refs=secret_refs,
         selected_tables=selected_tables,
         sample_limit=sample_limit,

@@ -32,6 +32,7 @@ from opendv.service.guided_translator import (
     GuidedUxTranslator,
     build_guided_run_view,
 )
+from opendv.service.harness_svc import HarnessService
 from opendv.service.os_platform import (
     atomic_write_bytes,
     atomic_write_text,
@@ -49,11 +50,12 @@ from opendv.service.os_platform import (
 )
 from opendv.service.secrets import (
     KeyringSecretStore,
+    SecretSource,
     probe_keyring_available,
-    resolve_workspace_namespace,
     scoped_env_first,
 )
 from opendv.service.settings_store import SettingsStore
+from opendv.service.settings_svc import SettingsService
 from opendv.service.state_store import (
     ProjectStateManager,
     ServiceControlSignalReader,
@@ -103,15 +105,18 @@ __all__ = [
     "DiscoveryService",
     "ExternalMcpGateway",
     "GuidedUxTranslator",
+    "HarnessService",
     "JobMcpBroker",
     "KeyringSecretStore",
     "OpenDVService",
     "ProjectStateManager",
     "ProjectsService",
+    "SecretSource",
     "ServiceControlSignalReader",
     "ServiceRunCheckpointStore",
     "ServiceRunEventSink",
     "ServiceScoutToolDispatcher",
+    "SettingsService",
     "SettingsStore",
     "StorageService",
     "VaultService",
@@ -135,7 +140,6 @@ __all__ = [
     "resolve_citation",
     "resolve_opendv_home",
     "resolve_user_state_dir",
-    "resolve_workspace_namespace",
     "safe_extract_binary_entries",
     "safe_open_no_follow",
     "scoped_env_first",

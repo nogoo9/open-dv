@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Sequence
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -23,11 +24,16 @@ CLI_SPEC_VERSION = "2.0.0"
 
 _CLI_HTTP_ROUTES: dict[str, tuple[str | None, str | None]] = {
     "serve": (None, None),
-    "doctor": ("GET", "/api/v1/health"),
+    "doctor": ("GET", "/api/v1/system/doctor"),
     "settings show": ("GET", "/api/v1/settings"),
     "settings set": ("PUT", "/api/v1/settings"),
+    "settings models": ("GET", "/api/v1/agents/readiness"),
     "settings trust-workspace": ("PUT", "/api/v1/settings"),
     "settings project-set": ("PATCH", "/api/v1/projects/{project_id}/settings"),
+    "settings profile list": ("GET", "/api/v1/settings"),
+    "settings profile set": ("PUT", "/api/v1/settings"),
+    "settings profile delete": ("PUT", "/api/v1/settings"),
+    "settings profile test": ("POST", "/api/v1/sources/inspect"),
     "agents list": ("GET", "/api/v1/agents"),
     "agents inspect": ("GET", "/api/v1/agents/{agent_id}"),
     "mcp list": ("GET", "/api/v1/mcp/servers"),
@@ -40,6 +46,8 @@ _CLI_HTTP_ROUTES: dict[str, tuple[str | None, str | None]] = {
     "project init": ("POST", "/api/v1/projects"),
     "project list": ("GET", "/api/v1/projects"),
     "project show": ("GET", "/api/v1/projects/{project_id}"),
+    "project settings show": ("GET", "/api/v1/projects/{project_id}"),
+    "project settings set": ("PATCH", "/api/v1/projects/{project_id}/settings"),
     "project delete": ("DELETE", "/api/v1/projects/{project_id}"),
     "project export": ("GET", "/api/v1/projects/{project_id}/bundle"),
     "project import": ("POST", "/api/v1/projects/import"),
@@ -89,9 +97,25 @@ def find_repo_root(start: Path | None = None) -> Path:
     raise FileNotFoundError("Could not locate Open-DV repository root containing schemas/v2/.")
 
 
+def _extract_param_choices(param: Any) -> list[str] | None:
+    param_type = getattr(param, "type", None)
+    if isinstance(param_type, click.Choice):
+        return [c.value if isinstance(c, Enum) else str(c) for c in param_type.choices]
+    descriptor = getattr(param, "type_descriptor", None)
+    if descriptor is not None and getattr(descriptor, "is_choice", False):
+        raw_choices = getattr(descriptor, "choices", ()) or ()
+        return [c.value if isinstance(c, Enum) else str(c) for c in raw_choices]
+    return None
+
+
 def _click_param_type(param: Any) -> str:
+    param_type = getattr(param, "type", None)
+    if isinstance(param_type, click.Choice):
+        return "choice"
     descriptor = getattr(param, "type_descriptor", None)
     if descriptor is not None:
+        if getattr(descriptor, "is_choice", False):
+            return "choice"
         ann = descriptor.annotation
         if ann is bool:
             return "boolean"
@@ -102,9 +126,6 @@ def _click_param_type(param: Any) -> str:
         if ann is Path:
             return "path"
         return "string"
-    param_type = getattr(param, "type", None)
-    if isinstance(param_type, click.Choice):
-        return "choice"
     name = getattr(param_type, "name", "string")
     return name.lower() if isinstance(name, str) and name else "string"
 
@@ -148,10 +169,7 @@ def _extract_param_spec(param: Any, *, include_choices: bool) -> dict[str, Any]:
         "help": help_text,
     }
     if include_choices:
-        param_type = getattr(param, "type", None)
-        entry["choices"] = (
-            list(param_type.choices) if isinstance(param_type, click.Choice) else None
-        )
+        entry["choices"] = _extract_param_choices(param)
     return entry
 
 
@@ -220,6 +238,7 @@ def export_openapi_via_subprocess(repo_root: Path | None = None) -> dict[str, An
     root = find_repo_root(repo_root)
     src_dir = str(root / "src")
     env = dict(os.environ)
+    env["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"
     existing_pp = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = f"{src_dir}{os.pathsep}{existing_pp}" if existing_pp else src_dir
 

@@ -8,11 +8,12 @@ import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI, Request, Response
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import HTMLResponse
+from keyring.backends import null
 
 from opendv import __version__
 from opendv.models.errors import ErrorCode, OpenDVError, ProblemDetails
@@ -208,7 +209,11 @@ def export_openapi_schema() -> dict[str, Any]:
     """Generate the deterministic OpenAPI 3.1 schema without touching user state."""
     with tempfile.TemporaryDirectory(prefix="opendv_openapi_") as tmp:
         tmp_path = Path(tmp)
-        svc = OpenDVService(tmp_path / "ws", state_dir=tmp_path / "state")
+        svc = OpenDVService(
+            tmp_path / "ws",
+            state_dir=tmp_path / "state",
+            keyring_backend=cast(Any, null.Keyring)(),
+        )
         app = create_app(svc, static_dir=tmp_path / "empty_static")
         return app.openapi()
 

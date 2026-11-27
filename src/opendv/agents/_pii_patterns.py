@@ -43,6 +43,49 @@ _RE_END_EIN = re.compile(rf"{_RE_EIN.pattern}$")
 _RE_END_PHONE = re.compile(rf"{_RE_PHONE.pattern}$")
 _RE_END_IBAN = re.compile(rf"{_T_START}[A-Z]{{2}}\d{{2}}(?: ?[A-Z0-9]){{11,30}}$")
 
+_CREDENTIAL_SUB_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"sk-(?:ant-[A-Za-z0-9_-]{12,}|[A-Za-z0-9_-]{16,})"), "[REDACTED]"),
+    (re.compile(r"(?i)\bdapi[a-f0-9]{16,}\b"), "[REDACTED]"),
+    (re.compile(r"AIza[0-9A-Za-z_-]{20,}"), "[REDACTED]"),
+    (re.compile(r"ya29\.[0-9A-Za-z._-]+"), "[REDACTED]"),
+    (
+        re.compile(
+            r"""(?i)((?:\\?["'])?\bAuthorization(?:\\?["'])?\s*:\s*(?:\\?["'])?Bearer\s+)"""
+            r"""[^\s\\"',;}{<>)]+"""
+        ),
+        r"\1[REDACTED]",
+    ),
+    (
+        re.compile(
+            r"""(?i)((?:\\?["'])?\bAuthorization(?:\\?["'])?\s*:\s*(?:\\?["'])?Basic\s+)"""
+            r"""[A-Za-z0-9+/=_-]{8,}"""
+        ),
+        r"\1[REDACTED]",
+    ),
+    (
+        re.compile(
+            r"(?i)\bBearer\s+(?=[A-Za-z0-9._~+/=-]*(?:\d|[A-Za-z0-9_-]\.[A-Za-z0-9_-]|[_~+/=])|"
+            r"[A-Za-z0-9_-]{20,})(?:[A-Za-z0-9_~+/=-]|\.(?=[A-Za-z0-9_~+/=-])){8,}"
+        ),
+        "Bearer [REDACTED]",
+    ),
+    (
+        re.compile(
+            r"""(?i)((?:\\?["'])?\bx-(?:goog-)?api-key(?:\\?["'])?\s*[:=]\s*(?:\\?["'])?)"""
+            r"""[^\s\\"',;}{]{8,}"""
+        ),
+        r"\1[REDACTED]",
+    ),
+    (re.compile(r"""(?i)([?&]key=)[^\s\\&"'#<>]{8,}"""), r"\1[REDACTED]"),
+    (
+        re.compile(
+            r"""(?i)((?:\\?["'])?(?<![A-Za-z0-9_])api_key(?:\\?["'])?\s*[:=]\s*(?:\\?["'])?)"""
+            r"""[^\s\\"',;}{&]{8,}"""
+        ),
+        r"\1[REDACTED]",
+    ),
+)
+
 
 def _is_valid_aba(digits: str) -> bool:
     if len(digits) != 9 or not digits.isdigit() or digits.startswith(("1900", "2026", "0000")):
@@ -58,6 +101,10 @@ def _is_valid_iban(candidate: str) -> bool:
     rearranged = compact[4:] + compact[:4]
     digits = "".join(str(ord(ch) - 55) if ch.isalpha() else ch for ch in rearranged)
     return int(digits) % 97 == 1
+
+
+_LUHN_VAL: dict[str, int] = {str(i): i for i in range(10)}
+_LUHN_DBL: dict[str, int] = {str(i): (i * 2 - 9 if i >= 5 else i * 2) for i in range(10)}
 
 
 def _is_valid_luhn(pan: str) -> bool:
@@ -114,67 +161,99 @@ def _is_standard_pan_shape(lens: tuple[int, ...], compact: str) -> bool:
 def _cc_pan_spans(raw: str) -> list[tuple[int, int]]:
     if len(raw) < 13:
         return []
-    parts = re.split(r"[ -]", raw)
+    parts = raw.replace("-", " ").split(" ")
     m = len(parts)
-    starts: list[int] = []
-    ends: list[int] = []
+    part_lens = [0] * m
+    starts = [0] * m
+    ends = [0] * m
+    p_even = [0] * m
+    p_odd = [0] * m
     pos = 0
-    for part in parts:
-        starts.append(pos)
-        ends.append(pos + len(part))
-        pos += len(part) + 1
+    lv_get = _LUHN_VAL.__getitem__
+    ld_get = _LUHN_DBL.__getitem__
+    for idx, part in enumerate(parts):
+        plen = len(part)
+        part_lens[idx] = plen
+        starts[idx] = pos
+        end = pos + plen
+        ends[idx] = end
+        pos = end + 1
+        e = o = 0
+        flip = False
+        for ch in reversed(part):
+            if flip:
+                e += ld_get(ch)
+                o += lv_get(ch)
+            else:
+                e += lv_get(ch)
+                o += ld_get(ch)
+            flip = not flip
+        p_even[idx] = e
+        p_odd[idx] = o
 
     cands: list[list[tuple[int, int]]] = [[] for _ in range(m)]
     max_plausible_j = [-1] * m
+    has_cand = False
     for i in range(m):
         digits = 0
+        le = 0
+        lo = 0
         for j in range(i, m):
-            digits += len(parts[j])
+            plen = part_lens[j]
+            digits += plen
             if digits > 19:
                 break
-            if digits >= 13:
-                sub = parts[i : j + 1]
-                compact = "".join(sub)
-                if _is_valid_luhn(compact):
-                    lens = tuple(len(x) for x in sub)
-                    is_net = _is_card_network_pan(compact)
-                    is_std = _is_standard_pan_shape(lens, compact)
-                    if (is_net or (is_std and compact[0] != "0")) and j > max_plausible_j[i]:
-                        max_plausible_j[i] = j
-                    weight = (
-                        (100 if is_net else 0)
-                        + (30 if is_std else 0)
-                        + (10 if len(sub) >= 3 else 0)
-                        + digits
-                    )
-                    cands[i].append((j, weight))
+            if plen & 1:
+                le, lo = lo + p_even[j], le + p_odd[j]
+            else:
+                le, lo = le + p_even[j], lo + p_odd[j]
+            if digits >= 13 and le % 10 == 0:
+                has_cand = True
+                compact = "".join(parts[i : j + 1])
+                lens = tuple(part_lens[i : j + 1])
+                is_net = _is_card_network_pan(compact)
+                is_std = _is_standard_pan_shape(lens, compact)
+                if (is_net or (is_std and compact[0] != "0")) and j > max_plausible_j[i]:
+                    max_plausible_j[i] = j
+                weight = (
+                    (100 if is_net else 0)
+                    + (30 if is_std else 0)
+                    + (10 if j - i >= 2 else 0)
+                    + digits
+                )
+                cands[i].append((j, weight))
 
-    if not any(cands):
+    if not has_cand:
         return []
 
     bwd = [0] * (m + 1)
     for i in range(m - 1, -1, -1):
         best = bwd[i + 1]
         for j, weight in cands[i]:
-            if weight + bwd[j + 1] > best:
-                best = weight + bwd[j + 1]
+            val = weight + bwd[j + 1]
+            if val > best:
+                best = val
         bwd[i] = best
 
     fwd = [0] * (m + 1)
     for i in range(m):
-        if fwd[i] > fwd[i + 1]:
-            fwd[i + 1] = fwd[i]
+        fi = fwd[i]
+        if fi > fwd[i + 1]:
+            fwd[i + 1] = fi
         for j, weight in cands[i]:
-            if fwd[i] + weight > fwd[j + 1]:
-                fwd[j + 1] = fwd[i] + weight
+            val = fi + weight
+            if val > fwd[j + 1]:
+                fwd[j + 1] = val
 
     best_total = bwd[0]
     merged: list[tuple[int, int]] = []
     for i in range(m):
+        fi = fwd[i]
         for j, weight in cands[i]:
-            if fwd[i] + weight + bwd[j + 1] == best_total:
+            if fi + weight + bwd[j + 1] == best_total:
                 if merged and i <= merged[-1][1]:
-                    merged[-1] = (merged[-1][0], max(merged[-1][1], j))
+                    if j > merged[-1][1]:
+                        merged[-1] = (merged[-1][0], j)
                 else:
                     merged.append((i, j))
 

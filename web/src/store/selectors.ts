@@ -7,6 +7,7 @@ import {
 	type OntologyDelta,
 	type OntologyValidationResp,
 	type ProjectState,
+	type ReadinessResponse,
 	type RunStateResp,
 	STEP4_DEFAULT_BUDGET,
 	type SourceSummary,
@@ -59,7 +60,7 @@ export interface EffectiveBudgetView {
 }
 
 export interface ReadinessPillView {
-	label: "Action Needed" | "Steward Review" | "Ready";
+	label: "Action Needed" | "Steward Review" | "Unverified" | "Ready";
 	tone: "danger" | "warn" | "ok";
 	detailLabel: string;
 	reasons: string[];
@@ -249,7 +250,7 @@ function projectRun(
 	stepHint: "step4" | "step6",
 ): EffectiveBudgetView {
 	const snap = s.activeProject?.settings_snapshot;
-	const ws = s.settings;
+	const ws = s.activeProject ? null : s.settings;
 	const max_turns =
 		run?.effective_max_turns ??
 		snap?.max_turns ??
@@ -414,6 +415,7 @@ export interface ReadinessInput extends BudgetSelectorInput {
 	ontologyBundle: OntologyBundleResp | null;
 	ontologyState: OntologyEditorState;
 	hiddenProposalIds: string[];
+	readiness?: ReadinessResponse | null;
 }
 
 export function deriveReadinessPill(s: ReadinessInput): ReadinessPillView {
@@ -440,16 +442,25 @@ export function deriveReadinessPill(s: ReadinessInput): ReadinessPillView {
 		s.activeProject?.settings_snapshot.harness_provider ??
 		s.settings?.harness_provider ??
 		null;
-	const fmt = (
-		label: "Action Needed" | "Steward Review" | "Ready",
-	): ReadinessPillView => ({
+	const provRec = prov
+		? s.readiness?.providers.find((p) => p.provider === prov)
+		: undefined;
+	if (
+		provRec &&
+		(provRec.status === "MISSING_PREREQ" || provRec.status === "AUTH_FAILED")
+	) {
+		reasons.push(
+			provRec.remediation?.summary ||
+				provRec.last_auth_error_summary ||
+				(provRec.missing_prereqs?.length
+					? `Harness ${prov} missing: ${provRec.missing_prereqs.join(", ")}`
+					: `Harness ${prov} (${provRec.status})`),
+		);
+	}
+	const fmt = (label: ReadinessPillView["label"]): ReadinessPillView => ({
 		label,
 		tone:
-			label === "Action Needed"
-				? "danger"
-				: label === "Steward Review"
-					? "warn"
-					: "ok",
+			label === "Action Needed" ? "danger" : label === "Ready" ? "ok" : "warn",
 		detailLabel: prov ? `${label} · ${prov}` : label,
 		reasons,
 	});
@@ -492,7 +503,12 @@ export function deriveReadinessPill(s: ReadinessInput): ReadinessPillView {
 	) {
 		reasons.push("Pending alignment proposals in Step 5");
 	}
-	return fmt(reasons.length > 0 ? "Steward Review" : "Ready");
+	if (reasons.length > 0) return fmt("Steward Review");
+	if (provRec?.status === "CONFIGURED_UNVERIFIED") {
+		reasons.push(`Harness provider ${prov} is configured but unverified`);
+		return fmt("Unverified");
+	}
+	return fmt("Ready");
 }
 
 export function deriveStep7Gate(s: {

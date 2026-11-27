@@ -17,6 +17,7 @@ from opendv.models import (
     ConceptMemoryUpdate,
     ConceptSummary,
     DbtSqlDialect,
+    DiscoveryMode,
     ErrorCode,
     HoldAnswersReq,
     HorizonActionReq,
@@ -221,9 +222,7 @@ def create_mcp_stdio_server(
 
     @mcp.tool(name="ontology_construct", description="Run Step 4 ontology construction.")
     async def ontology_construct(
-        discovery_mode: Literal[
-            "incremental_new", "incremental_reverify", "full_rebuild"
-        ] = "incremental_new",
+        discovery_mode: DiscoveryMode | None = None,
         hint: str | None = None,
     ) -> RunStateResp:
         req = OntologyConstructReq(discovery_mode=discovery_mode, hint=hint)
@@ -294,7 +293,7 @@ def create_mcp_stdio_server(
         return _run_sync("ontology_commit", _call)
 
     @mcp.tool(name="vault_build", description="Run Step 6 CEGAR Data Vault 2.0 synthesis.")
-    async def vault_build(policy: CegarPolicy = "balanced") -> RunStateResp:
+    async def vault_build(policy: CegarPolicy | None = None) -> RunStateResp:
         return await _run_async(
             "vault_build",
             svc.build_vault(project_id, VaultBuildReq(policy=policy)),

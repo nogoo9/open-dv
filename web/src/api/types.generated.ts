@@ -21,6 +21,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agents/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Agent Readiness */
+        get: operations["get_agent_readiness_api_v1_agents_readiness_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/readiness/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Agent Readiness */
+        post: operations["test_agent_readiness_api_v1_agents_readiness_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents/{agent_id}": {
         parameters: {
             query?: never;
@@ -898,6 +932,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/trusted-workspaces/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Trusted Workspace */
+        post: operations["revoke_trusted_workspace_api_v1_settings_trusted_workspaces_revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sources/adapters": {
         parameters: {
             query?: never;
@@ -958,6 +1009,23 @@ export interface paths {
         };
         /** Preview Starter Pack */
         get: operations["preview_starter_pack_api_v1_starter_packs__pack_id__preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/doctor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get System Doctor */
+        get: operations["get_system_doctor_api_v1_system_doctor_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2322,6 +2390,48 @@ export interface components {
             relationship_uri: string;
         };
         /**
+         * DoctorResponse
+         * @description Unified diagnostic payload returned by GET /api/v1/system/doctor and `opendv doctor`.
+         */
+        DoctorResponse: {
+            /** Agents */
+            agents?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Cegar Policy
+             * @enum {string}
+             */
+            cegar_policy: "symbolic_only" | "fast" | "balanced" | "strict";
+            /**
+             * Harness Provider
+             * @enum {string}
+             */
+            harness_provider: "agy" | "claude-cli" | "claude" | "gemini";
+            /** Mcp Servers */
+            mcp_servers?: {
+                [key: string]: unknown;
+            }[] | null;
+            readiness: components["schemas"]["ReadinessResponse"];
+            /** Remediation */
+            remediation?: components["schemas"]["ErrorRemediation"][];
+            /**
+             * Secret Precedence
+             * @enum {string}
+             */
+            secret_precedence: "store_first" | "env_first";
+            /**
+             * Status
+             * @default ok
+             * @constant
+             */
+            status: "ok";
+            /** Version */
+            version: string;
+            /** Workspace Root */
+            workspace_root: string;
+        };
+        /**
          * DocumentCitationRef
          * @description Exact page and character-span citation into an unstructured source.
          */
@@ -2682,6 +2792,16 @@ export interface components {
          * @enum {string}
          */
         ErrorCode: "OK" | "AGENT_EXECUTION_FAILED" | "EXTERNAL_MCP_GATEWAY_ERROR" | "REFERENCE_PACK_INTEGRITY_FAILURE" | "INTERNAL_SERVER_ERROR" | "SYNTAX_INVALID_ARGUMENT" | "UNSUPPORTED_MEDIA_TYPE" | "UNSAFE_WAL_FILESYSTEM" | "DATABRICKS_SSRF_BLOCKED" | "UNTRUSTED_WORKSPACE_OVERRIDE" | "LOOPBACK_ORIGIN_FORBIDDEN" | "EXTERNAL_MCP_DOC_OPT_IN_REQUIRED" | "DRIVER_MISSING" | "NEEDS_LOCAL_SECRET_BINDING" | "AGENT_NOT_CONFIGURED" | "UNREDACTED_SCAN_BLOCKED" | "REDACTED_PLACEHOLDER_LEAK" | "UNGROUNDED_CANDIDATE_QUARANTINED" | "ONT_EVO_CONTRACT_VIOLATION" | "VERIFICATION_GATE_FAILED" | "CITATION_SPAN_UNRESOLVED" | "ARCHIVE_SECURITY_VIOLATION" | "BUNDLE_HASH_MISMATCH" | "ARCHIVE_SIZE_LIMIT_EXCEEDED" | "RESOURCE_NOT_FOUND" | "PROJECT_JOB_ACTIVE" | "SOURCE_COMMITTED_IN_VAULT" | "PROJECT_ID_CONFLICT" | "REVISION_CONFLICT" | "SOURCE_BINARY_ABSENT" | "HOLD_CHECKPOINTED" | "UNCERTIFIED_DRAFT" | "REMOTE_BIND_UNAUTHENTICATED" | "EMITTER_VERIFICATION_FAILED";
+        /**
+         * ErrorRemediation
+         * @description Structured agent-vs-human remediation guidance for failures and readiness gaps.
+         */
+        ErrorRemediation: {
+            /** Actions */
+            actions?: components["schemas"]["RemediationAction"][];
+            /** Summary */
+            summary: string;
+        };
         /**
          * EvidenceGroundingApproval
          * @description Explicit evidence grounding approval tying a concept to formatted source_refs.
@@ -3501,6 +3621,22 @@ export interface components {
             wave_number: number;
         };
         /**
+         * ModelOption
+         * @description Offline default model suggestion exposed to Web UI and CLI.
+         */
+        ModelOption: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Source
+             * @default default
+             * @constant
+             */
+            source: "default";
+        };
+        /**
          * ModelingPreferences
          * @description Tier-1 deterministic DV2.0 modeling preferences governing L1 codemods and V6b.
          */
@@ -3613,12 +3749,8 @@ export interface components {
          * @description Request payload for POST /api/v1/projects/{id}/ontology/construct.
          */
         OntologyConstructReq: {
-            /**
-             * Discovery Mode
-             * @default incremental_new
-             * @enum {string}
-             */
-            discovery_mode: "incremental_new" | "incremental_reverify" | "full_rebuild";
+            /** Discovery Mode */
+            discovery_mode?: ("incremental_new" | "incremental_reverify" | "full_rebuild") | null;
             /** Hint */
             hint?: string | null;
         };
@@ -3974,6 +4106,8 @@ export interface components {
             instance: string | null;
             /** Rationale Required */
             rationale_required: boolean;
+            /** @default null */
+            remediation: components["schemas"]["ErrorRemediation"] | null;
             /**
              * Run Id
              * @default null
@@ -4033,6 +4167,41 @@ export interface components {
             workspace_seed_id?: string | null;
         };
         /**
+         * ProjectSettingsPatchReq
+         * @description RFC 7396 patch payload for PATCH /api/v1/projects/{project_id}/settings.
+         */
+        ProjectSettingsPatchReq: {
+            /** Business Context Hints */
+            business_context_hints?: string | null;
+            /** Cegar Policy */
+            cegar_policy?: ("symbolic_only" | "fast" | "balanced" | "strict") | null;
+            /** Dbt Sql Dialect */
+            dbt_sql_dialect?: ("duckdb" | "databricks" | "snowflake" | "postgres" | "bigquery" | "tsql" | "redshift" | "clickhouse") | null;
+            /** Discovery Mode */
+            discovery_mode?: ("incremental_new" | "incremental_reverify" | "full_rebuild") | null;
+            /** Harness Provider */
+            harness_provider?: ("agy" | "claude-cli" | "claude" | "gemini") | null;
+            /** Max Tokens */
+            max_tokens?: number | null;
+            /** Max Turns */
+            max_turns?: number | null;
+            /** Model Overrides */
+            model_overrides?: {
+                [key: string]: string | null;
+            } | null;
+            modeling_preferences?: components["schemas"]["ModelingPreferences"] | null;
+            /** Proving Sample Rows */
+            proving_sample_rows?: number | null;
+            /** Real Row Proving */
+            real_row_proving?: boolean | null;
+            /** Secret Precedence */
+            secret_precedence?: ("store_first" | "env_first") | null;
+            /** Timeout Seconds */
+            timeout_seconds?: number | null;
+            /** V7 Critic Tier */
+            v7_critic_tier?: ("FRONTIER_CRITIC" | "STANDARD_WORKER") | null;
+        };
+        /**
          * ProjectSettingsSnapshot
          * @description Per-project settings snapshot persisted in projects.settings_snapshot_json.
          */
@@ -4067,6 +4236,10 @@ export interface components {
             max_tokens?: number | null;
             /** Max Turns */
             max_turns?: number | null;
+            /** Model Overrides */
+            model_overrides?: {
+                [key: string]: string;
+            };
             modeling_preferences?: components["schemas"]["ModelingPreferences"];
             /**
              * Proving Sample Rows
@@ -4092,37 +4265,6 @@ export interface components {
              * @enum {string}
              */
             v7_critic_tier: "FRONTIER_CRITIC" | "STANDARD_WORKER";
-        };
-        /**
-         * ProjectSettingsUpdateReq
-         * @description Partial PATCH update payload for per-project settings (via model_fields_set).
-         */
-        ProjectSettingsUpdateReq: {
-            /** Business Context Hints */
-            business_context_hints?: string | null;
-            /** Cegar Policy */
-            cegar_policy?: ("symbolic_only" | "fast" | "balanced" | "strict") | null;
-            /** Dbt Sql Dialect */
-            dbt_sql_dialect?: ("duckdb" | "databricks" | "snowflake" | "postgres" | "bigquery" | "tsql" | "redshift" | "clickhouse") | null;
-            /** Discovery Mode */
-            discovery_mode?: ("incremental_new" | "incremental_reverify" | "full_rebuild") | null;
-            /** Harness Provider */
-            harness_provider?: ("agy" | "claude-cli" | "claude" | "gemini") | null;
-            /** Max Tokens */
-            max_tokens?: number | null;
-            /** Max Turns */
-            max_turns?: number | null;
-            modeling_preferences?: components["schemas"]["ModelingPreferences"] | null;
-            /** Proving Sample Rows */
-            proving_sample_rows?: number | null;
-            /** Real Row Proving */
-            real_row_proving?: boolean | null;
-            /** Secret Precedence */
-            secret_precedence?: ("store_first" | "env_first") | null;
-            /** Timeout Seconds */
-            timeout_seconds?: number | null;
-            /** V7 Critic Tier */
-            v7_critic_tier?: ("FRONTIER_CRITIC" | "STANDARD_WORKER") | null;
         };
         /**
          * ProjectState
@@ -4175,6 +4317,68 @@ export interface components {
             updated_at: string;
         };
         /**
+         * ProviderReadinessRecord
+         * @description Per-provider readiness snapshot merging Tier-1 prerequisites, cache, and active-run state.
+         */
+        ProviderReadinessRecord: {
+            /**
+             * Active Run
+             * @default false
+             */
+            active_run: boolean;
+            /** Active Run Id */
+            active_run_id?: string | null;
+            /** Available Models */
+            available_models?: components["schemas"]["ModelOption"][];
+            /** Binary Path */
+            binary_path?: string | null;
+            /**
+             * Credential Source
+             * @enum {string}
+             */
+            credential_source: "cli_login" | "store" | "os_env" | "none";
+            /** Last Auth Error At */
+            last_auth_error_at?: string | null;
+            /** Last Auth Error Summary */
+            last_auth_error_summary?: string | null;
+            /** Last Verified At */
+            last_verified_at?: string | null;
+            /** Missing Prereqs */
+            missing_prereqs?: string[];
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "agy" | "claude-cli" | "claude" | "gemini";
+            remediation?: components["schemas"]["ErrorRemediation"] | null;
+            /** Sdk Installed */
+            sdk_installed?: boolean | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "MISSING_PREREQ" | "CONFIGURED_UNVERIFIED" | "VERIFIED" | "AUTH_FAILED";
+        };
+        /**
+         * ReadinessResponse
+         * @description Response payload for GET /api/v1/agents/readiness.
+         */
+        ReadinessResponse: {
+            /** Providers */
+            providers: components["schemas"]["ProviderReadinessRecord"][];
+        };
+        /**
+         * ReadinessTestReq
+         * @description Request payload for POST /api/v1/agents/readiness/test.
+         */
+        ReadinessTestReq: {
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "agy" | "claude-cli" | "claude" | "gemini";
+        };
+        /**
          * RefTableSpec
          * @description Zone Z0 reference enumeration table specification.
          */
@@ -4197,6 +4401,26 @@ export interface components {
              * @constant
              */
             zone_id: "Z0";
+        };
+        /**
+         * RemediationAction
+         * @description Executable or manual operator action attached to an ErrorRemediation.
+         */
+        RemediationAction: {
+            /**
+             * Actor
+             * @enum {string}
+             */
+            actor: "agent" | "human";
+            /** Command */
+            command?: string | null;
+            /** Label */
+            label: string;
+            /**
+             * Requires Tty
+             * @default false
+             */
+            requires_tty: boolean;
         };
         /**
          * RemoveAttribute
@@ -4544,6 +4768,14 @@ export interface components {
              * @default
              */
             rationale: string;
+        };
+        /**
+         * RevokeTrustedWorkspaceReq
+         * @description Request payload for POST /api/v1/settings/trusted-workspaces/revoke.
+         */
+        RevokeTrustedWorkspaceReq: {
+            /** Workspace Root */
+            workspace_root: string;
         };
         /**
          * RunControlReq
@@ -5407,12 +5639,8 @@ export interface components {
                     [key: string]: number;
                 };
             } | null;
-            /**
-             * Policy
-             * @default balanced
-             * @enum {string}
-             */
-            policy: "symbolic_only" | "fast" | "balanced" | "strict";
+            /** Policy */
+            policy?: ("symbolic_only" | "fast" | "balanced" | "strict") | null;
             /** Real Row Proving */
             real_row_proving?: boolean | null;
         };
@@ -5584,6 +5812,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentPackSummary"][];
+                };
+            };
+        };
+    };
+    get_agent_readiness_api_v1_agents_readiness_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadinessResponse"];
+                };
+            };
+        };
+    };
+    test_agent_readiness_api_v1_agents_readiness_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadinessTestReq"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderReadinessRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -6975,7 +7256,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ProjectSettingsUpdateReq"];
+                "application/json": components["schemas"]["ProjectSettingsPatchReq"];
             };
         };
         responses: {
@@ -7585,6 +7866,39 @@ export interface operations {
             };
         };
     };
+    revoke_trusted_workspace_api_v1_settings_trusted_workspaces_revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeTrustedWorkspaceReq"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_source_adapters_api_v1_sources_adapters_get: {
         parameters: {
             query?: never;
@@ -7676,6 +7990,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StarterPackPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_system_doctor_api_v1_system_doctor_get: {
+        parameters: {
+            query?: {
+                check_agents?: boolean;
+                check_mcp?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DoctorResponse"];
                 };
             };
             /** @description Validation Error */

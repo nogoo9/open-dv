@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -13,11 +14,7 @@ from pydantic import BaseModel
 from opendv.agents import (
     AgentHarnessPort,
     AgentTurnRequest,
-    SdkHarnessRunner,
-    SubprocessHarnessRunner,
-    SubprocessStreamFn,
     load_agent_pack_with_config,
-    resolve_cli_binary,
 )
 from opendv.agents.pack_loader import load_modeling_guide
 from opendv.modeling.ports import (
@@ -42,20 +39,23 @@ from opendv.models.policy import CEGAR_POLICY_SPECS, STEP4_DEFAULT_BUDGET
 from opendv.models.project import (
     EvolutionLockSpec,
     HarnessProvider,
-    ProjectSettingsSnapshot,
     TrustedWorkspaceSpec,
-    WorkspaceSettings,
     validate_project_id,
 )
 from opendv.models.vault_ir_certified import CertifiedVaultIR
 from opendv.models.wire_dtos_discovery import RunControlReq, RunStateResp
 from opendv.models.wire_dtos_vault import AttemptSnapshotSpec
-from opendv.service.secrets import KeyringSecretStore
 from opendv.service.state_store import (
     ProjectStateManager,
     ServiceControlSignalReader,
     ServiceRunCheckpointStore,
     ServiceRunEventSink,
+)
+from opendv.service.workflows._harness_factory import (
+    coalesce_prior_state_budget,
+    coalesce_snapshot_budget,
+    compute_job_lease_ttl,
+    resolve_harness,
 )
 
 
@@ -103,73 +103,6 @@ def release_project_job_lease(
         project_id,
         lease_key=active_job_lease_key(project_id),
         holder_run_id=run_id,
-    )
-
-
-def resolve_harness(
-    settings: WorkspaceSettings | ProjectSettingsSnapshot,
-    secret_store: KeyringSecretStore,
-    *,
-    injected_harness: AgentHarnessPort | None = None,
-    model_overrides: Mapping[str, str] | None = None,
-    stream_fn: SubprocessStreamFn | None = None,
-) -> AgentHarnessPort:
-    """Resolve AgentHarnessPort from settings/secrets unless an explicit harness is injected."""
-    if injected_harness is not None:
-        return injected_harness
-
-    base_ovr = getattr(settings, "model_overrides", None)
-    merged_ovr: dict[str, str] = dict(base_ovr) if isinstance(base_ovr, Mapping) else {}
-    if model_overrides:
-        merged_ovr.update(model_overrides)
-
-    provider = settings.harness_provider
-    if provider in ("agy", "claude-cli"):
-        resolve_cli_binary(provider)
-        return SubprocessHarnessRunner(
-            provider=provider,
-            model_overrides=merged_ovr,
-            stream_fn=stream_fn,
-        )
-
-    if provider == "claude":
-        api_key = secret_store.get_secret(
-            "ANTHROPIC_API_KEY",
-            project_precedence=settings.secret_precedence,
-        )
-        if not api_key:
-            raise OpenDVError(
-                "Provider 'claude' requires ANTHROPIC_API_KEY in secret store or environment.",
-                error_code=ErrorCode.AGENT_NOT_CONFIGURED,
-            )
-        return SdkHarnessRunner(
-            provider="claude",
-            api_key=api_key,
-            model_overrides=merged_ovr,
-        )
-
-    if provider == "gemini":
-        api_key = secret_store.get_secret(
-            "GEMINI_API_KEY",
-            project_precedence=settings.secret_precedence,
-        ) or secret_store.get_secret(
-            "GOOGLE_API_KEY",
-            project_precedence=settings.secret_precedence,
-        )
-        if not api_key:
-            raise OpenDVError(
-                "Provider 'gemini' requires GEMINI_API_KEY or GOOGLE_API_KEY.",
-                error_code=ErrorCode.AGENT_NOT_CONFIGURED,
-            )
-        return SdkHarnessRunner(
-            provider="gemini",
-            api_key=api_key,
-            model_overrides=merged_ovr,
-        )
-
-    raise OpenDVError(
-        f"Unsupported harness provider '{provider}'.",
-        error_code=ErrorCode.AGENT_NOT_CONFIGURED,
     )
 
 
@@ -339,9 +272,10 @@ def _compute_run_state_with_overlays(
         if base.step == "step6" and base.policy is not None
         else STEP4_DEFAULT_BUDGET
     )
-    eff_turns = base.effective_max_turns or base_budget.max_turns
-    eff_tokens = base.effective_max_tokens or base_budget.max_tokens
-    eff_timeout = base.effective_timeout_seconds or base_budget.timeout_seconds
+    initial = RunStateResp.model_validate(rows[0]["payload"])
+    eff_turns = initial.effective_max_turns or base_budget.max_turns
+    eff_tokens = initial.effective_max_tokens or base_budget.max_tokens
+    eff_timeout = initial.effective_timeout_seconds or base_budget.timeout_seconds
 
     sig_rows = state_store.list_events_or_receipts(
         project_id, record_kind="control_signal", run_id=run_id
@@ -485,6 +419,18 @@ def enqueue_control_signal(
         run_id=run_id,
         payload=sig,
     )
+    if req.action == "raise-budget" and state.status in ("QUEUED", "RUNNING", "HOLD_REQUESTED"):
+        updated = load_latest_run_state(state_store, project_id, run_id)
+        with contextlib.suppress(OpenDVError):
+            state_store.renew_lease(
+                project_id,
+                lease_key=active_job_lease_key(project_id),
+                holder_run_id=run_id,
+                ttl_seconds=compute_job_lease_ttl(
+                    updated.effective_max_turns,
+                    updated.effective_timeout_seconds,
+                ),
+            )
     return sig
 
 
@@ -598,6 +544,9 @@ __all__ = [
     "acquire_project_job_lease",
     "active_job_lease_key",
     "append_audit_log",
+    "coalesce_prior_state_budget",
+    "coalesce_snapshot_budget",
+    "compute_job_lease_ttl",
     "duckdb_write_lease_key",
     "enqueue_control_signal",
     "list_external_mcp_receipts",

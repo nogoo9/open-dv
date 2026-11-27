@@ -58,12 +58,12 @@ def ontology_construct(
     ctx: typer.Context,
     project: ProjectOpt,
     discovery_mode: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--discovery-mode",
             help="incremental_new, incremental_reverify, or full_rebuild.",
         ),
-    ] = "incremental_new",
+    ] = None,
     hint: HintOpt = None,
     wait: WaitOpt = False,
 ) -> None:
@@ -223,8 +223,8 @@ def vault_build(
     ctx: typer.Context,
     project: ProjectOpt,
     policy: Annotated[
-        str, typer.Option("--policy", help="balanced, strict, fast, or symbolic_only.")
-    ] = "balanced",
+        str | None, typer.Option("--policy", help="balanced, strict, fast, or symbolic_only.")
+    ] = None,
     wait: WaitOpt = False,
 ) -> None:
     """Launch Step 6 Data Vault 2.0 synthesis (`VaultBuildReq` carries only `policy`)."""

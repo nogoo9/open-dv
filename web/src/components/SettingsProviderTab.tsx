@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api, parseProblemDetails } from "../api/client";
 import {
 	type AgentPackSummary,
@@ -6,9 +6,11 @@ import {
 	type CegarPolicy,
 	type DbtSqlDialect,
 	type HarnessProvider,
+	type ReadinessResponse,
 	type WorkspaceSettings,
 } from "../api/openapi";
 import { useProjectStore } from "../store/projectStore";
+import { HarnessReadinessCard } from "./HarnessReadinessCard";
 
 const PROVIDERS: readonly HarnessProvider[] = [
 	"agy",
@@ -36,18 +38,23 @@ const DIALECTS: readonly DbtSqlDialect[] = [
 export interface SettingsProviderTabProps {
 	draft: WorkspaceSettings;
 	agents: AgentPackSummary[];
+	readiness: ReadinessResponse | null;
+	onRefreshSecrets: () => Promise<void>;
 	onChangeDraft: (next: WorkspaceSettings) => void;
 }
 
 export function SettingsProviderTab({
 	draft,
 	agents,
+	readiness,
+	onRefreshSecrets,
 	onChangeDraft,
 }: SettingsProviderTabProps) {
 	const settings = useProjectStore((s) => s.settings);
 	const setSettings = useProjectStore((s) => s.setSettings);
 	const setLastProblem = useProjectStore((s) => s.setLastProblem);
 	const announce = useProjectStore((s) => s.announce);
+	const modelListId = useId();
 
 	const [providerSwitchPrompt, setProviderSwitchPrompt] =
 		useState<HarnessProvider | null>(null);
@@ -75,12 +82,8 @@ export function SettingsProviderTab({
 		if (!settings) return;
 		setRevokingRoot(workspaceRoot);
 		try {
-			const nextTrusted = (settings.trusted_workspaces ?? []).filter(
-				(tw) => tw.workspace_root !== workspaceRoot,
-			);
-			const saved = await api.putSettings({
-				...settings,
-				trusted_workspaces: nextTrusted,
+			const saved = await api.revokeTrustedWorkspace({
+				workspace_root: workspaceRoot,
 			});
 			setSettings(saved);
 			announce("polite", `Revoked trusted workspace ${workspaceRoot}`);
@@ -99,6 +102,10 @@ export function SettingsProviderTab({
 	};
 
 	const trusted = settings?.trusted_workspaces ?? [];
+	const selectedRecord =
+		readiness?.providers.find((p) => p.provider === draft.harness_provider) ??
+		null;
+	const modelOptions = selectedRecord?.available_models ?? [];
 
 	return (
 		<div className="stack-md">
@@ -139,6 +146,14 @@ export function SettingsProviderTab({
 					</div>
 				</div>
 			)}
+
+			<HarnessReadinessCard
+				draft={draft}
+				settings={settings}
+				readiness={readiness}
+				onRefreshSecrets={onRefreshSecrets}
+				onSelectProvider={selectProvider}
+			/>
 
 			<div className="split-grid">
 				<section className="card-subtle stack-sm">
@@ -232,6 +247,7 @@ export function SettingsProviderTab({
 						<input
 							type="number"
 							min={1}
+							max={500}
 							className="input"
 							placeholder="Inherit Policy Default (null)"
 							value={draft.max_turns ?? ""}
@@ -265,6 +281,7 @@ export function SettingsProviderTab({
 						<input
 							type="number"
 							min={10}
+							max={7200}
 							step={30}
 							className="input"
 							placeholder="Inherit Policy Default (null)"
@@ -282,6 +299,13 @@ export function SettingsProviderTab({
 
 			<section className="card-subtle stack-sm">
 				<h2 className="h2-serif">Agent Model Matrix</h2>
+				<datalist id={modelListId}>
+					{modelOptions.map((m) => (
+						<option key={m.id} value={m.id}>
+							{m.label}
+						</option>
+					))}
+				</datalist>
 				<div className="table-scroll-region">
 					<table className="responsive-table">
 						<thead>
@@ -296,11 +320,22 @@ export function SettingsProviderTab({
 							{agents.map((ag) => {
 								const isHorizon = ag.agent_id === "dv-horizon-critic";
 								const isCritic = ag.agent_id === "dv-semantic-critic";
+								const effectiveTier = isHorizon
+									? "FRONTIER_CRITIC"
+									: isCritic
+										? draft.cegar_policy === "strict"
+											? "FRONTIER_CRITIC"
+											: draft.v7_critic_tier
+										: "STANDARD_WORKER";
 								const tierLabel = isHorizon
 									? "FRONTIER_CRITIC (locked)"
 									: isCritic
-										? `${draft.cegar_policy === "strict" ? "FRONTIER_CRITIC" : draft.v7_critic_tier}`
+										? effectiveTier
 										: "STANDARD_WORKER (fixed)";
+								const inherited = draft.model_overrides?.[effectiveTier];
+								const placeholder = inherited
+									? `Inherited (${effectiveTier}): ${inherited}`
+									: `Default (${effectiveTier})`;
 								return (
 									<tr key={ag.agent_id}>
 										<th scope="row">
@@ -316,9 +351,10 @@ export function SettingsProviderTab({
 										<td data-label="Model Override">
 											<input
 												type="text"
+												list={modelListId}
 												className="input mono"
 												aria-label={`Model override for ${ag.agent_id}`}
-												placeholder="Default provider model"
+												placeholder={placeholder}
 												value={draft.model_overrides?.[ag.agent_id] ?? ""}
 												onChange={(e) => {
 													const next = { ...(draft.model_overrides ?? {}) };

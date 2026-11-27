@@ -34,7 +34,7 @@ dependencies = [
 ]
 
 [project.scripts]
-opendv = "opendv.cli.main:app"
+opendv = "opendv.cli.main:main"
 
 [project.optional-dependencies]
 databricks = ["databricks-sql-connector>=3.0.0"]

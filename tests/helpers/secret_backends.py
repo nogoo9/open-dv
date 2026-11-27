@@ -107,6 +107,8 @@ class OwnerAclStateHelper:
     def __init__(self, state_dir: Path | str) -> None:
         self.state_dir = Path(state_dir)
         self.secrets_path = self.state_dir / "secrets.json"
+        self.secret_keys_path = self.state_dir / "secret_keys.json"
+        self.readiness_path = self.state_dir / "readiness.json"
         self.settings_path = self.state_dir / "settings.json"
         self.mcp_servers_path = self.state_dir / "mcp_servers.json"
 

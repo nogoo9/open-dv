@@ -33,6 +33,7 @@ from opendv.service._mcp_ports import (
     SecretStorePort,
     SettingsStorePort,
 )
+from opendv.service._remediation import build_remediation
 
 
 def _extract_call_result_text(result: Any) -> str:
@@ -113,6 +114,10 @@ class ExternalMcpGateway(ExternalMcpGatewayPort):
                 raise OpenDVError(
                     f"External MCP server '{server.server_id}' requires secret '{ref}'.",
                     error_code=ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+                    remediation=build_remediation(
+                        ErrorCode.NEEDS_LOCAL_SECRET_BINDING,
+                        missing_secrets=[ref],
+                    ),
                 )
             resolved[ref] = val
         return resolved
