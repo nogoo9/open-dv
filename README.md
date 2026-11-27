@@ -2,6 +2,7 @@
 
 [![Architecture: Zero Unverified LLM SQL](https://img.shields.io/badge/Architecture-Zero%20Unverified%20LLM%20SQL-cc785c.svg)](docs/designs/v2-clean-sheet-architecture.md)
 [![Data Vault: 2.0 Verified](https://img.shields.io/badge/Data%20Vault-2.0%205--Zone%20(Z0--Z4)-181715.svg)](docs/DV2_AGENT_REFERENCE_GUIDE.md)
+[![Ontology Grounding: FIBO Pack v2 + Glossary](https://img.shields.io/badge/Ontology%20Grounding-FIBO%20Pack%20v2%20%2B%20Glossary-2d7a4f.svg)](docs/components/grounding/user-guide.md)
 [![Modeling Engine: Two-Mode DV 2.0](https://img.shields.io/badge/Modeling%20Engine-Two--Mode%20DV%202.0-2d7a4f.svg)](docs/components/modeling/user-guide.md)
 [![Design System: WCAG 2.1 AA](https://img.shields.io/badge/Design%20System-Claude%20WCAG%20AA-8f442d.svg)](DESIGN.md)
 [![Storage Targets: 11 Emitters](https://img.shields.io/badge/Emitters-11%20Targets-2d7a4f.svg)](src/opendv/storage/)
@@ -30,20 +31,23 @@ Open-DV V2 separates **probabilistic business modeling** (handled by LLM agents 
 
 ```mermaid
 flowchart LR
-    S["Step 1: Scope & Seeds<br/>Project Init, Starter Packs & .opendv.zip"] --> B["Step 2-3: Sources & Preview<br/>ConnectorAdapter + PII Guard + DocumentMap"]
-    B --> GA["Step 4-5: Discovery & Ontology Explorer<br/>FIBO Core Pack (2,206) + 34-op OntologyDelta"]
+    S["Step 1: Scope & Seeds<br/>Project Init, Starter Packs & .opendv.zip"] --> B["Step 2-3: Sources & Preview<br/>ConnectorAdapter + ColumnShapeStats + DocumentMap"]
+    B --> GA["Step 4-5: Discovery & Ontology Explorer<br/>FIBO Pack v2 (2,240 classes) + 36-op OntologyDelta"]
     GA --> CEGAR["Step 6: Vault Synthesis (3-Loop CEGAR)<br/>Zero-SQL VaultSchemaIR v2.0 + DuckDB Prover + Budget Meter"]
     CEGAR --> EMIT["Step 7: Storage & Targets (v7)<br/>11 Targets across 5-Zone (Z0-Z4) + Live Query"]
 ```
 
 ### Core V2 Capabilities
-- **Zero Unverified LLM SQL (`OBJ-01`):** Agents never generate SQL DDL or DML; they emit `OntologyDelta` (`34` operations) and declarative `VaultSchemaIR v2.0` (`UniversalVaultSchemaIR`) specifications compiled deterministically in Python.
+- **Zero Unverified LLM SQL (`OBJ-01`):** Agents never generate SQL DDL or DML; they emit `OntologyDelta` (`36` operations) and declarative `VaultSchemaIR v2.0` (`UniversalVaultSchemaIR`) specifications compiled deterministically in Python.
+- **Two-Module Ontology Grounding Engine ([User Guide](docs/components/grounding/user-guide.md) | [Architecture Design](docs/designs/ontology-grounding-engine-and-fibo-pack.md)):**
+  - **Modality-Aware Neuro-Symbolic Grounding (`src/opendv/grounding/`):** Combines synchronous lexical (`LexicalIndex`), structural checksum/shape (`ColumnShapeStats`), axiom range, and table-anchor signals with Logit-Normal confidence intervals (`min(3, k90)`), `Path B1` vs. technical-surrogate/audit `NO_MATCH` triage, tamper-evident `GroundingReceipt`s, and optional Layer-4 batched LLM disambiguation (`opendv ontology ground` / `POST /api/v1/ontology/ground` / Step-4 MCP `ground_columns`).
+  - **Pluggable Providers & Zero-`rdflib` FIBO Sync (`opendv ontology fibo-sync`):** Grounds against upgraded **FIBO Pack v2** (`master_2026Q3`: `2,240` classes, `767` properties, `942` individuals), custom **YAML glossaries** (`GlossaryKnowledgeSource`), and multi-wave project overlays (`OverlayKnowledgeSource`), with build-time EDM Council compilation (`scripts/vendor_fibo.py`) and pure-JSON runtime 3-tier drift auditing/repinning (`--check-project --apply-repin`).
 - **Two-Mode DV 2.0 Modeling Engine ([User Guide](docs/components/modeling/user-guide.md) | [Architecture Design](docs/designs/dv2-modeling-engine-and-governance.md)):**
   - **Mode 1 (Stateless External-Agent CLI + Skill):** `opendv model spec | profile | verify` together with [`.agents/skills/opendv-modeling/SKILL.md`](.agents/skills/opendv-modeling/SKILL.md) lets external coding agents (Antigravity, Claude Code, Codex, Gemini CLI) profile sources, author `VaultSchemaIR v2.0`, and verify against deterministic `V1`–`V6b` gates plus real-row DuckDB proving with zero project DB setup.
   - **Mode 2 (Managed Autonomous CEGAR Engine):** `src/opendv/modeling/` (`opendv model run` and `opendv vault build`) orchestrates multi-turn synthesis, static/evolution/runtime `V1`–`V6b` gates, Horizon Critic (`V7`/`V8`) review, real-row DuckDB proving (`real_row_proving`, `proving_sample_rows`), large-catalog domain sharding, and `ModelingPreferences` (`business_context_hints`) governance.
 - **5-Zone Standard (`Z0–Z4`):** `bronze` (`Z0`), `staging` (`Z1`), `raw_vault` (`Z2`), `business_vault` (`Z3`), and `information_mart` (`Z4`).
 - **5-Layer Python Core (`src/opendv/`):** Consolidated clean-sheet package backed by SQLite WAL `project.sqlite` persistence (`5` tables), Win32/POSIX ACL-hardened `KeyringSecretStore`, and `34` closed `ErrorCode`s.
-- **Unified `opendv` CLI + `:8420` Web Workbench:** One Python CLI (`59` subcommands across `12` groups defined in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json)) running either in-process or remotely via `--api-url`, plus a React 19 WCAG 2.1 AA Web Workbench ([`web/`](web/)) and read-only MCP bridge (`opendv mcp serve`).
+- **Unified `opendv` CLI + `:8420` Web Workbench:** One Python CLI (`61` subcommands across `12` groups defined in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json)) running either in-process or remotely via `--api-url`, plus a React 19 WCAG 2.1 AA Web Workbench ([`web/`](web/)) and read-only MCP bridge (`opendv mcp serve`).
 
 ---
 
@@ -87,13 +91,26 @@ uv run opendv project init --project am_demo --namespace asset_management --star
 uv run opendv source attach --project am_demo --kind csv --uri data/public_am/sec_13f_holdings.csv
 uv run opendv source attach --project am_demo --kind pdf --uri data/public_am/am_custody_and_voting_guide.pdf
 
-# 3. Ground ontology against FIBO Core Pack (2,206 concepts) + build VaultSchemaIR v2.0
+# 3. Ground ontology against FIBO Pack v2 (2,240 classes) + build VaultSchemaIR v2.0
 uv run opendv ontology construct --project am_demo --discovery-mode incremental_new --wait
 uv run opendv vault build --project am_demo --policy balanced --wait
 
 # 4. Verify VaultSchemaIR and emit SQL / dbt deliverables for Step 7
 uv run opendv --json vault verify --project am_demo
 uv run opendv --json storage compile --project am_demo --target duckdb_local --verify-runtime
+```
+
+Run **standalone column grounding & FIBO sync** against FIBO Pack v2 or custom YAML glossaries (see [`docs/components/grounding/user-guide.md`](docs/components/grounding/user-guide.md)):
+
+```bash
+# Search bundled FIBO Pack v2 concepts deterministically
+uv run opendv --json ontology fibo-qa --query "CUSIP"
+
+# Ground a project's attached sources or an inline GroundingRequest JSON file
+uv run opendv --json ontology ground --input grounding_req.json --mode deterministic_only --skip-reason "local_check"
+
+# Audit committed FIBO mappings in a project against an installed Pack v2 release
+uv run opendv --json ontology fibo-sync --check-project am_demo
 ```
 
 Or run the **stateless Mode 1 / standalone Mode 2 Modeling CLI** (`opendv model`) directly over any local file or profile without creating a project database (see [`docs/components/modeling/user-guide.md`](docs/components/modeling/user-guide.md)):
@@ -138,14 +155,14 @@ The React 19 Web Workbench ([`web/`](web/), governed by [`DESIGN.md`](DESIGN.md)
 
 ## 4. CLI Command Reference (`opendv`) & MCP Server
 
-All `59` subcommands across `12` groups are defined canonically in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json) and auto-documented in [`docs/16-cli-reference.md`](docs/16-cli-reference.md):
+All `61` subcommands across `12` groups are defined canonically in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json) and auto-documented in [`docs/16-cli-reference.md`](docs/16-cli-reference.md):
 
 | Command Group | Key Subcommands | Purpose |
 | :--- | :--- | :--- |
 | `opendv project` | `init`, `list`, `show`, `delete`, `export`, `import`, `settings show\|set` | Create, inspect, configure per-project settings snapshots, and export/import portable `.opendv.zip` archives (`core_project_state` default; `--full-demo` optional). |
 | `opendv source` | `adapters`, `inspect`, `attach`, `list`, `reattach`, `detach`, `note`, `approve-scan` | Inspect/attach CSV, Parquet, SQLite, DuckDB, Postgres, PDF, Markdown, or unstructured notes with SSRF/PII checks. |
 | `opendv model` | `spec`, `profile`, `verify`, `run` | Mode 1 stateless external-agent spec/profile/real-row IR verification (`V1`–`V6b`) and Mode 2 autonomous CEGAR modeling runs ([Component Guide](docs/components/modeling/user-guide.md)). |
-| `opendv ontology` | `construct`, `answer`, `control`, `validate`, `commit`, `export`, `fibo-qa` | Construct & evolve `GraphAOntology` via CAS `OntologyDelta`s and FIBO BM25 citation resolution. |
+| `opendv ontology` | `construct`, `answer`, `control`, `validate`, `commit`, `export`, `ground`, `fibo-qa`, `fibo-sync` | Construct & evolve `GraphAOntology` via CAS `OntologyDelta`s, ground columns against FIBO Pack v2 or YAML glossaries, & audit/repin FIBO drift ([Component Guide](docs/components/grounding/user-guide.md)). |
 | `opendv vault` | `build`, `status`, `control`, `hold`, `horizon`, `logs`, `verify`, `waive` | Run the 3-Loop CEGAR `VaultSchemaIR v2.0` builder, inspect SSE logs, resolve steward holds, manage waivers & Horizon Critic checks. |
 | `opendv storage` | `compile`, `migrate`, `query`, `regenerate` | Lower verified `VaultSchemaIR v2.0` to any of the `11` Step-7 targets (`v7`), run sandbox/migrations, and issue guarded read-only SQL queries. |
 | `opendv agents` / `mcp` | `agents list\|inspect`, `mcp list\|register\|remove\|serve` | Manage built-in agent harnesses and launch the read-only local MCP server (`opendv mcp serve`). |
@@ -160,15 +177,16 @@ Use global `--api-url http://127.0.0.1:8420` to proxy any CLI command through a 
 ```text
 open-dv/
 ├── src/opendv/                    # Consolidated Python core (strict downward 5-layer DAG)
-│   ├── models/                    # Layer 1: StrictModel DTOs, VaultSchemaIR v2.0, 34 ErrorCodes, RFC 8785 JCS
-│   ├── sources/                   # Layer 2: ConnectorAdapter SPI, profiler, PII/NER taint, FIBO Core Pack (2,206)
+│   ├── models/                    # Layer 1: StrictModel DTOs, VaultSchemaIR v2.0, Grounding & SPI DTOs, 34 ErrorCodes, RFC 8785 JCS
+│   ├── grounding/                 # Layer 2a: Synchronous grounding kernel, Logit-Normal calibration, FIBO Pack v2, Glossary & Overlay SPI
+│   ├── sources/                   # Layer 2b: ConnectorAdapter SPI, pre-masking profiler, PII re-exports, grounding_adapter
 │   ├── verifier/                  # Layer 2: 3-loop CEGAR prover, static/evolution rules, ProblemDetails patches
 │   ├── storage/                   # Layer 2: DuckDB prover sandbox, readonly SQL guard, 11 Step-7 dialect emitters
 │   ├── agents/                    # Layer 3: Harness adapters (agy, claude-cli, claude, gemini), Tier-2 probes, budget meter
 │   ├── modeling/                  # Layer 3: DV 2.0 Modeling Engine (Mode 1/2, CEGAR loop, V7/V8 critics, sharding, steering)
-│   ├── service/                   # Layer 4: OpenDVService, project.sqlite WAL store, zip_guard, KeyringSecretStore
+│   ├── service/                   # Layer 4: OpenDVService, project.sqlite WAL store, zip_guard, KeyringSecretStore, grounding orchestrator & pack ops
 │   ├── api/                       # Layer 5: FastAPI REST + SSE (:8420), loopback security guard, static UI host
-│   └── cli/                       # Layer 5: Unified Typer CLI (59 subcommands) + stdio MCP + schemas/v2 contract exporter
+│   └── cli/                       # Layer 5: Unified Typer CLI (61 subcommands) + stdio MCP + schemas/v2 contract exporter
 ├── .agents/skills/opendv-modeling/# External-agent SKILL.md for Mode 1 stateless DV 2.0 modeling
 ├── web/                           # React 19 + Vite + Bun 4-tab WCAG 2.1 AA Web Workbench
 ├── apps/opendv-website/           # Astro documentation & V2 showcase site
@@ -204,6 +222,11 @@ open-dv/
 
 ## 8. Documentation & Specification Map
 
+- **Ontology Grounding Component & Architecture:**
+  - **Component README:** [`docs/components/grounding/README.md`](docs/components/grounding/README.md) — entry index for the `src/opendv/grounding/` 4-doc suite (`REQ-DOC-01`)
+  - **Component User Guide:** [`docs/components/grounding/user-guide.md`](docs/components/grounding/user-guide.md) — `opendv ontology ground|fibo-sync|fibo-qa`, YAML glossaries, `GroundingReceipt`s, calibration metrics, & worked examples
+  - **Component Contributor Guide:** [`docs/components/grounding/contributor-guide.md`](docs/components/grounding/contributor-guide.md) — `src/opendv/grounding/` module map, Layer-2a import contracts, `D16` token budget, & extension recipes
+  - **Architecture Design:** [`docs/designs/ontology-grounding-engine-and-fibo-pack.md`](docs/designs/ontology-grounding-engine-and-fibo-pack.md) — two-module grounding engine, Logit-Normal calibration, FIBO Pack v2 compilation/sync, & 4-step `GraphAOntology` projection
 - **DV 2.0 Modeling Component & Architecture:**
   - **Component README:** [`docs/components/modeling/README.md`](docs/components/modeling/README.md) — entry index for the `src/opendv/modeling/` 4-doc suite (`REQ-DOC-01`)
   - **Component User Guide:** [`docs/components/modeling/user-guide.md`](docs/components/modeling/user-guide.md) — Mode 1 (`opendv model spec|profile|verify`), Mode 2 (`opendv model run` / `opendv vault build`), `ModelingPreferences`, real-row proving, & troubleshooting
