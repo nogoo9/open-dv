@@ -36,14 +36,8 @@ from opendv.models.pii_tokenizer import (
 )
 
 REDACTED_LEAK_RE: Final[re.Pattern[str]] = re.compile(r"(?:<MASKED_PII>|\[REDACTED_)")
-_REDACTION_PLACEHOLDER_TOKEN_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?:<MASKED_PII>|\[REDACTED_[^\]]*\])",
-    re.IGNORECASE,
-)
-_UNCLOSED_REDACTED_RE: Final[re.Pattern[str]] = re.compile(
-    r"\[REDACTED_[^\s\]]*",
-    re.IGNORECASE,
-)
+_MASKED_PII_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"<MASKED_PII>", re.IGNORECASE)
+_REDACTED_PREFIX: Final[str] = "[redacted_"
 
 
 def _replace_pii_spans(text: str, token: str, *, col_name: str | None = None) -> str:
@@ -71,12 +65,45 @@ def _replace_pii_spans(text: str, token: str, *, col_name: str | None = None) ->
     return result
 
 
+def _strip_redacted_brackets_once(text: str) -> str:
+    """Linear O(n) pass stripping closed [REDACTED_...] or unclosed [REDACTED_ tokens."""
+    low = text.lower()
+    if _REDACTED_PREFIX not in low:
+        return text
+    has_close = "]" in text
+    out: list[str] = []
+    pos = 0
+    prefix_len = len(_REDACTED_PREFIX)
+    n = len(text)
+    while pos < n:
+        start = low.find(_REDACTED_PREFIX, pos)
+        if start == -1:
+            out.append(text[pos:])
+            break
+        if has_close:
+            close_idx = text.find("]", start + prefix_len)
+            if close_idx != -1:
+                next_open = low.find(_REDACTED_PREFIX, start + prefix_len, close_idx)
+                if next_open != -1:
+                    out.append(text[pos:next_open])
+                    pos = next_open
+                    continue
+                out.append(text[pos:start])
+                pos = close_idx + 1
+                continue
+        out.append(text[pos:start])
+        end = start + prefix_len
+        while end < n and not text[end].isspace() and text[end] != "]":
+            end += 1
+        pos = end
+    return "".join(out)
+
+
 def _strip_redaction_placeholders(text: str) -> str:
     cleaned = text
     for _ in range(len(text) + 1):
-        next_val = _REDACTION_PLACEHOLDER_TOKEN_RE.sub("", cleaned)
-        if next_val == cleaned:
-            next_val = _UNCLOSED_REDACTED_RE.sub("", cleaned)
+        next_val = _MASKED_PII_TOKEN_RE.sub("", cleaned)
+        next_val = _strip_redacted_brackets_once(next_val)
         if next_val == cleaned:
             break
         cleaned = next_val

@@ -158,13 +158,21 @@ async def ground_ontology(request: Request, body: OntologyGroundReq) -> Groundin
         glossary_bytes = read_grounding_asset_bytes(
             r_path, r_root, max_bytes=_MAX_GLOSSARY_BYTES, label="glossary"
         )
+    sanitized_body = OntologyGroundReq.model_construct(
+        request=body.request,
+        project_id=body.project_id,
+        knowledge_source=body.knowledge_source,
+        fibo_pack=None,
+        glossary_path="<preloaded>" if glossary_bytes is not None else None,
+        policy=body.policy,
+    )
     sem = getattr(request.app.state, "ground_semaphore", None)
     if sem is None:
         sem = asyncio.Semaphore(4)
         request.app.state.ground_semaphore = sem
     async with sem:
         return await svc.ground_ontology(
-            body, fibo_pack_bytes=fibo_pack_bytes, glossary_bytes=glossary_bytes
+            sanitized_body, fibo_pack_bytes=fibo_pack_bytes, glossary_bytes=glossary_bytes
         )
 
 

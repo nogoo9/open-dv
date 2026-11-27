@@ -168,8 +168,31 @@ def enforce_grounding_asset_path(
         )
     raw_matched_root, resolved_matched_root = matched
 
-    cand_abs = Path(os.path.abspath(str(cand)))
-    raw_root_abs = Path(os.path.abspath(str(raw_matched_root)))
+    cand_abs_str = os.path.normpath(os.path.abspath(str(cand)))
+    raw_root_str = os.path.normpath(os.path.abspath(str(raw_matched_root)))
+    resolved_root_str = os.path.normpath(os.path.realpath(str(resolved_matched_root)))
+    if os.name == "nt":
+        if len(cand_abs_str) >= 2 and cand_abs_str[1] == ":":
+            cand_abs_str = cand_abs_str[0].upper() + cand_abs_str[1:]
+        if len(raw_root_str) >= 2 and raw_root_str[1] == ":":
+            raw_root_str = raw_root_str[0].upper() + raw_root_str[1:]
+        if len(resolved_root_str) >= 2 and resolved_root_str[1] == ":":
+            resolved_root_str = resolved_root_str[0].upper() + resolved_root_str[1:]
+    raw_prefix = raw_root_str if raw_root_str.endswith(os.sep) else raw_root_str + os.sep
+    res_prefix = (
+        resolved_root_str if resolved_root_str.endswith(os.sep) else resolved_root_str + os.sep
+    )
+    if not (
+        cand_abs_str in (raw_root_str, resolved_root_str)
+        or cand_abs_str.startswith(raw_prefix)
+        or cand_abs_str.startswith(res_prefix)
+    ):
+        raise OpenDVError(
+            f"Grounding asset path '{raw_path}' escapes allowed containment roots.",
+            error_code=ErrorCode.LOOPBACK_ORIGIN_FORBIDDEN,
+        )
+    cand_abs = Path(cand_abs_str)
+    raw_root_abs = Path(raw_root_str)
     try:
         reject_symlinks_on_path_and_ancestors(
             cand_abs, stop_roots=[raw_matched_root, resolved_matched_root]
@@ -179,15 +202,20 @@ def enforce_grounding_asset_path(
             raise OpenDVError(exc.message, error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT) from exc
         raise
 
-    cand_abs_norm = os.path.normcase(str(cand_abs))
-    raw_abs_norm = os.path.normcase(str(raw_root_abs))
-    raw_prefix = raw_abs_norm if raw_abs_norm.endswith(os.sep) else raw_abs_norm + os.sep
-    if cand_abs_norm == raw_abs_norm or cand_abs_norm.startswith(raw_prefix):
+    if cand_abs_str == raw_root_str or cand_abs_str.startswith(raw_prefix):
         suffix_parts = cand_abs.parts[len(raw_root_abs.parts) :]
-        resolved_path = resolved_matched_root.joinpath(*suffix_parts)
+        resolved_path = Path(resolved_root_str).joinpath(*suffix_parts)
     else:
         resolved_path = Path(cand_real)
-    return resolved_path, resolved_matched_root
+    resolved_str = os.path.normpath(os.path.abspath(str(resolved_path)))
+    if os.name == "nt" and len(resolved_str) >= 2 and resolved_str[1] == ":":
+        resolved_str = resolved_str[0].upper() + resolved_str[1:]
+    if resolved_str != resolved_root_str and not resolved_str.startswith(res_prefix):
+        raise OpenDVError(
+            f"Grounding asset path '{raw_path}' escapes allowed containment roots.",
+            error_code=ErrorCode.LOOPBACK_ORIGIN_FORBIDDEN,
+        )
+    return Path(resolved_str), Path(resolved_root_str)
 
 
 def read_grounding_asset_bytes(
@@ -198,8 +226,23 @@ def read_grounding_asset_bytes(
     label: str,
 ) -> bytes:
     """Open verified grounding asset via O_NOFOLLOW and read bounded bytes."""
+    safe_root = os.path.normpath(os.path.realpath(str(resolved_matched_root)))
+    safe_target = os.path.normpath(os.path.abspath(str(resolved_path)))
+    if os.name == "nt":
+        if len(safe_root) >= 2 and safe_root[1] == ":":
+            safe_root = safe_root[0].upper() + safe_root[1:]
+        if len(safe_target) >= 2 and safe_target[1] == ":":
+            safe_target = safe_target[0].upper() + safe_target[1:]
+    safe_root_prefix = safe_root if safe_root.endswith(os.sep) else safe_root + os.sep
+    if safe_target != safe_root and not safe_target.startswith(safe_root_prefix):
+        raise OpenDVError(
+            f"{label} path escapes allowed containment root.",
+            error_code=ErrorCode.LOOPBACK_ORIGIN_FORBIDDEN,
+        )
     try:
-        fd = safe_open_no_follow(resolved_path, os.O_RDONLY, stop_roots=[resolved_matched_root])
+        fd = safe_open_no_follow(
+            Path(safe_target), os.O_RDONLY, stop_roots=[Path(safe_root)]
+        )
     except FileNotFoundError as exc:
         raise OpenDVError(
             f"{label} file not found: '{resolved_path.name}'.",

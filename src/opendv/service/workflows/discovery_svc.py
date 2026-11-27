@@ -422,6 +422,11 @@ class DiscoveryService:
                 ) from exc
 
         if req.knowledge_source == "glossary":
+            if glossary_bytes is None and req.glossary_path == "<preloaded>":
+                raise OpenDVError(
+                    "Missing preloaded glossary bytes.",
+                    error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+                )
             base_source: KnowledgeSource = (
                 GlossaryKnowledgeSource(glossary_bytes=glossary_bytes)
                 if glossary_bytes is not None

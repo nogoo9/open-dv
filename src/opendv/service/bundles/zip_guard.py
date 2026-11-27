@@ -106,11 +106,27 @@ def safe_open_no_follow(
     """Open a file with O_NOFOLLOW/O_BINARY after checking parent has no symlinks."""
     if ".." in path.parts:
         raise _sec_error(f"Path traversal '..' rejected in {path}")
-    reject_symlinks_on_path_and_ancestors(path.parent, stop_roots=stop_roots)
-    if _is_reparse_or_symlink(path):
+    path_str = os.path.normpath(os.path.abspath(str(path)))
+    if os.name == "nt" and len(path_str) >= 2 and path_str[1] == ":":
+        path_str = path_str[0].upper() + path_str[1:]
+    if stop_roots:
+        allowed = False
+        for root in stop_roots:
+            root_str = os.path.normpath(os.path.abspath(str(root)))
+            if os.name == "nt" and len(root_str) >= 2 and root_str[1] == ":":
+                root_str = root_str[0].upper() + root_str[1:]
+            prefix = root_str if root_str.endswith(os.sep) else root_str + os.sep
+            if path_str == root_str or path_str.startswith(prefix):
+                allowed = True
+                break
+        if not allowed:
+            raise _sec_error(f"Path '{path}' escapes allowed containment roots")
+    safe_path = Path(path_str)
+    reject_symlinks_on_path_and_ancestors(safe_path.parent, stop_roots=stop_roots)
+    if _is_reparse_or_symlink(safe_path):
         raise _sec_error(f"Refusing to open symlink or reparse target: {path}")
     open_flags = flags | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
-    fd = os.open(str(path), open_flags, mode)
+    fd = os.open(path_str, open_flags, mode)
     try:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode):

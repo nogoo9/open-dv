@@ -82,6 +82,9 @@ def test_strip_pii_spans_zero_redacted_placeholders() -> None:
     ensure_no_redacted_placeholder(mixed_nested, context="Mixed nested placeholder test")
     assert detect_pii_in_value(mixed_nested) == []
 
+    # Linear-time guarantee on pathological repeated unclosed [REDACTED_ prefixes
+    assert strip_pii_spans("[REDACTED_" * 5000 + " ok") == "ok"
+
 
 def test_ensure_no_redacted_placeholder_raises() -> None:
     """ensure_no_redacted_placeholder fails closed with REDACTED_PLACEHOLDER_LEAK."""
