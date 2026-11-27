@@ -33,6 +33,12 @@ from ._tasks import RunTaskManager
 _DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:")
 
 
+def _upper_win_drive(path_str: str) -> str:
+    if os.name == "nt" and len(path_str) >= 2 and path_str[1] == ":":
+        return path_str[0].upper() + path_str[1:]
+    return path_str
+
+
 def get_service(request: Request) -> OpenDVService:
     """Retrieve the OpenDVService instance bound to app.state."""
     return cast(OpenDVService, request.app.state.service)
@@ -168,25 +174,17 @@ def enforce_grounding_asset_path(
         )
     raw_matched_root, resolved_matched_root = matched
 
-    cand_abs_str = os.path.normpath(os.path.abspath(str(cand)))
-    raw_root_str = os.path.normpath(os.path.abspath(str(raw_matched_root)))
-    resolved_root_str = os.path.normpath(os.path.realpath(str(resolved_matched_root)))
-    if os.name == "nt":
-        if len(cand_abs_str) >= 2 and cand_abs_str[1] == ":":
-            cand_abs_str = cand_abs_str[0].upper() + cand_abs_str[1:]
-        if len(raw_root_str) >= 2 and raw_root_str[1] == ":":
-            raw_root_str = raw_root_str[0].upper() + raw_root_str[1:]
-        if len(resolved_root_str) >= 2 and resolved_root_str[1] == ":":
-            resolved_root_str = resolved_root_str[0].upper() + resolved_root_str[1:]
+    raw_root_str = os.path.normpath(_upper_win_drive(os.path.abspath(str(raw_matched_root))))
+    resolved_root_str = os.path.normpath(
+        _upper_win_drive(os.path.realpath(str(resolved_matched_root)))
+    )
     raw_prefix = raw_root_str if raw_root_str.endswith(os.sep) else raw_root_str + os.sep
     res_prefix = (
         resolved_root_str if resolved_root_str.endswith(os.sep) else resolved_root_str + os.sep
     )
-    if not (
-        cand_abs_str in (raw_root_str, resolved_root_str)
-        or cand_abs_str.startswith(raw_prefix)
-        or cand_abs_str.startswith(res_prefix)
-    ):
+    cand_abs_str = os.path.normpath(_upper_win_drive(os.path.abspath(str(cand))))
+    active_prefix = raw_prefix if cand_abs_str.startswith(raw_prefix) else res_prefix
+    if not cand_abs_str.startswith(active_prefix):
         raise OpenDVError(
             f"Grounding asset path '{raw_path}' escapes allowed containment roots.",
             error_code=ErrorCode.LOOPBACK_ORIGIN_FORBIDDEN,
@@ -202,15 +200,13 @@ def enforce_grounding_asset_path(
             raise OpenDVError(exc.message, error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT) from exc
         raise
 
-    if cand_abs_str == raw_root_str or cand_abs_str.startswith(raw_prefix):
+    if cand_abs_str.startswith(raw_prefix):
         suffix_parts = cand_abs.parts[len(raw_root_abs.parts) :]
         resolved_path = Path(resolved_root_str).joinpath(*suffix_parts)
     else:
         resolved_path = Path(cand_real)
-    resolved_str = os.path.normpath(os.path.abspath(str(resolved_path)))
-    if os.name == "nt" and len(resolved_str) >= 2 and resolved_str[1] == ":":
-        resolved_str = resolved_str[0].upper() + resolved_str[1:]
-    if resolved_str != resolved_root_str and not resolved_str.startswith(res_prefix):
+    resolved_str = os.path.normpath(_upper_win_drive(os.path.abspath(str(resolved_path))))
+    if not resolved_str.startswith(res_prefix):
         raise OpenDVError(
             f"Grounding asset path '{raw_path}' escapes allowed containment roots.",
             error_code=ErrorCode.LOOPBACK_ORIGIN_FORBIDDEN,
@@ -226,15 +222,10 @@ def read_grounding_asset_bytes(
     label: str,
 ) -> bytes:
     """Open verified grounding asset via O_NOFOLLOW and read bounded bytes."""
-    safe_root = os.path.normpath(os.path.realpath(str(resolved_matched_root)))
-    safe_target = os.path.normpath(os.path.abspath(str(resolved_path)))
-    if os.name == "nt":
-        if len(safe_root) >= 2 and safe_root[1] == ":":
-            safe_root = safe_root[0].upper() + safe_root[1:]
-        if len(safe_target) >= 2 and safe_target[1] == ":":
-            safe_target = safe_target[0].upper() + safe_target[1:]
+    safe_root = os.path.normpath(_upper_win_drive(os.path.realpath(str(resolved_matched_root))))
     safe_root_prefix = safe_root if safe_root.endswith(os.sep) else safe_root + os.sep
-    if safe_target != safe_root and not safe_target.startswith(safe_root_prefix):
+    safe_target = os.path.normpath(_upper_win_drive(os.path.abspath(str(resolved_path))))
+    if not safe_target.startswith(safe_root_prefix):
         raise OpenDVError(
             f"{label} path escapes allowed containment root.",
             error_code=ErrorCode.LOOPBACK_ORIGIN_FORBIDDEN,
