@@ -218,8 +218,10 @@ def _normalize_salt(salt: bytes | str) -> bytes:
 
 
 def compute_salt_digest(salt: bytes | str) -> str:
-    """Return 16-hex SHA-256 prefix identifying a PII tokenization salt."""
-    return hashlib.sha256(_normalize_salt(salt)).hexdigest()[:16]
+    """Return 16-hex HMAC-SHA256 prefix identifying a PII tokenization salt."""
+    return hmac.new(
+        _normalize_salt(salt), b"opendv-proving-salt-id-v1", hashlib.sha256
+    ).hexdigest()[:16]
 
 
 def tokenize_pii_scalar(value: Any, *, salt: bytes | str) -> str | None:

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+import os
+import re
 import uuid
 from pathlib import Path
 from typing import Literal
@@ -53,10 +55,27 @@ def map_cegar_status_to_run_status(status: ModelingStatus) -> RunStatus:
     return "FAILED"
 
 
+_SAFE_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+
+
 def cegar_result_path(
     state_manager: ProjectStateManager, project_id: str, run_id: str
 ) -> Path:
-    return state_manager.runs_dir(project_id) / f"{run_id}.cegar_result.json"
+    """Return contained .cegar_result.json path inside project's runs directory."""
+    clean_pid = validate_project_id_or_error(project_id)
+    if not _SAFE_RUN_ID_RE.fullmatch(run_id) or ".." in run_id:
+        raise OpenDVError(
+            f"Invalid run_id '{run_id}' for CEGAR result path.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    runs_base = os.path.realpath(os.fspath(state_manager.runs_dir(clean_pid)))
+    target_real = os.path.realpath(os.path.join(runs_base, f"{run_id}.cegar_result.json"))
+    if not target_real.startswith(runs_base + os.sep):
+        raise OpenDVError(
+            f"CEGAR result path '{target_real}' escapes runs directory '{runs_base}'.",
+            error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+        )
+    return Path(target_real)
 
 
 def save_cegar_result(
@@ -75,10 +94,15 @@ def load_cegar_result(
     project_id: str,
     run_id: str,
 ) -> DVModelingResult | None:
+    runs_base = os.path.realpath(
+        os.fspath(state_manager.runs_dir(validate_project_id_or_error(project_id)))
+    )
     path = cegar_result_path(state_manager, project_id, run_id)
-    if not path.is_file():
+    path_real = os.path.realpath(os.fspath(path))
+    if not path_real.startswith(runs_base + os.sep) or not os.path.isfile(path_real):
         return None
-    return DVModelingResult.model_validate_json(path.read_text(encoding="utf-8"))
+    with open(path_real, encoding="utf-8") as fh:
+        return DVModelingResult.model_validate_json(fh.read())
 
 
 def resolve_evolution_lock_for_wave(

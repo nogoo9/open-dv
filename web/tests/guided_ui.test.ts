@@ -420,6 +420,8 @@ afterEach(() => {
 		activeProject: null,
 		activeStep4Run: null,
 		activeStep6Run: null,
+		activeStep6OntologyRevId: null,
+		supersededRunIds: [],
 		activeRunPolicy: "balanced",
 		guidedView: null,
 		vaultIr: null,
@@ -772,6 +774,8 @@ describe("Track C Guided UX, Observatory, Step 7, Explorers & Settings", () => {
 		useProjectStore.setState({
 			activeProject: mkProject(),
 			currentUrl: "/projects/am-ibor-2026/step/7",
+			activeStep6OntologyRevId: null,
+			supersededRunIds: [],
 			vaultIr: mkIr(),
 			sqlQuery: "SELECT * FROM hub_custody_account;",
 		});

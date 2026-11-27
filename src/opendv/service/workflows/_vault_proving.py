@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -10,13 +11,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from opendv.models.errors import OpenDVError
+from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.modeling_preferences import ProvingSampleCacheFile
+from opendv.models.project import validate_project_id
 from opendv.models.sources import SourceKind, SourceProfile
-from opendv.service.bundles.zip_guard import (
-    reject_symlinks_on_path_and_ancestors,
-    validate_containment,
-)
+from opendv.service.bundles.zip_guard import reject_symlinks_on_path_and_ancestors
 from opendv.service.os_platform import atomic_write_text, set_owner_only_permissions
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.state_store import ProjectStateManager
@@ -31,9 +30,25 @@ from opendv.sources import (
 )
 
 
+def _clean_project_id(project_id: str) -> str:
+    try:
+        validate_project_id(project_id)
+    except ValueError as exc:
+        raise OpenDVError(str(exc), error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT) from exc
+    return project_id
+
+
 def proving_samples_dir(state_manager: ProjectStateManager, project_id: str) -> Path:
-    """Return .opendv/projects/<project_id>/proving_samples/ directory path."""
-    return state_manager.project_dir(project_id) / "proving_samples"
+    """Return validated .opendv/projects/<project_id>/proving_samples/ directory path."""
+    clean_pid = _clean_project_id(project_id)
+    projects_root = os.path.realpath(os.fspath(state_manager.opendv_home / "projects"))
+    target_real = os.path.realpath(os.path.join(projects_root, clean_pid, "proving_samples"))
+    if not target_real.startswith(projects_root + os.sep):
+        raise OpenDVError(
+            f"Proving samples directory escapes projects root '{projects_root}'.",
+            error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+        )
+    return Path(target_real)
 
 
 def proving_sample_path(
@@ -44,10 +59,14 @@ def proving_sample_path(
     """Return validated owner-contained JSON cache path for a source's proving samples."""
     safe_id = validate_source_id_slug(source_id)
     base_dir = proving_samples_dir(state_manager, project_id)
-    target = base_dir / f"{safe_id}.json"
-    if base_dir.exists():
-        validate_containment(base_dir, target)
-    return target
+    base_real = os.path.realpath(os.fspath(base_dir))
+    target_real = os.path.realpath(os.path.join(base_real, f"{safe_id}.json"))
+    if not target_real.startswith(base_real + os.sep):
+        raise OpenDVError(
+            f"Proving sample path '{target_real}' escapes directory '{base_real}'.",
+            error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+        )
+    return Path(target_real)
 
 
 def get_or_create_proving_salt(
@@ -103,12 +122,20 @@ def save_proving_sample_cache(
         salt_digest=salt_digest,
         cached_sample_rows_limit=proving_sample_rows,
     )
+    pdir_real = os.path.realpath(os.fspath(proving_samples_dir(state_manager, project_id)))
     cache_path = proving_sample_path(state_manager, project_id, source_id)
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    set_owner_only_permissions(cache_path.parent)
-    atomic_write_text(cache_path, cache_file.model_dump_json(), owner_only=True)
-    set_owner_only_permissions(cache_path)
-    return cache_path
+    cache_real = os.path.realpath(os.fspath(cache_path))
+    if not cache_real.startswith(pdir_real + os.sep):
+        raise OpenDVError(
+            f"Proving sample path '{cache_real}' escapes directory '{pdir_real}'.",
+            error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+        )
+    resolved_cache = Path(cache_real)
+    resolved_cache.parent.mkdir(parents=True, exist_ok=True)
+    set_owner_only_permissions(resolved_cache.parent)
+    atomic_write_text(resolved_cache, cache_file.model_dump_json(), owner_only=True)
+    set_owner_only_permissions(resolved_cache)
+    return resolved_cache
 
 
 def delete_proving_sample_cache(
@@ -118,11 +145,13 @@ def delete_proving_sample_cache(
 ) -> None:
     """Remove cached proving samples for source_id if present."""
     try:
+        pdir_real = os.path.realpath(os.fspath(proving_samples_dir(state_manager, project_id)))
         cache_path = proving_sample_path(state_manager, project_id, source_id)
     except OpenDVError:
         return
-    if cache_path.is_file():
-        cache_path.unlink(missing_ok=True)
+    cache_real = os.path.realpath(os.fspath(cache_path))
+    if cache_real.startswith(pdir_real + os.sep) and os.path.isfile(cache_real):
+        Path(cache_real).unlink(missing_ok=True)
 
 
 def load_cached_proving_samples(
@@ -138,7 +167,8 @@ def load_cached_proving_samples(
     if not real_row_proving or not profiles:
         return {}, {}
     pdir = proving_samples_dir(state_manager, project_id)
-    if not pdir.is_dir():
+    pdir_real = os.path.realpath(os.fspath(pdir))
+    if not os.path.isdir(pdir_real):
         return {}, {}
     effective_secrets = (
         secret_store
@@ -157,13 +187,15 @@ def load_cached_proving_samples(
             cache_path = proving_sample_path(state_manager, project_id, prof.source_id)
         except OpenDVError:
             continue
-        if not cache_path.is_file():
+        cache_real = os.path.realpath(os.fspath(cache_path))
+        if not cache_real.startswith(pdir_real + os.sep):
+            continue
+        if not os.path.isfile(cache_real):
             continue
         try:
-            reject_symlinks_on_path_and_ancestors(cache_path, stop_roots=(pdir,))
-            cache_obj = ProvingSampleCacheFile.model_validate_json(
-                cache_path.read_text(encoding="utf-8")
-            )
+            reject_symlinks_on_path_and_ancestors(Path(cache_real), stop_roots=(pdir,))
+            with open(cache_real, encoding="utf-8") as fh:
+                cache_obj = ProvingSampleCacheFile.model_validate_json(fh.read())
         except (OSError, ValidationError, ValueError, OpenDVError):
             continue
         if (
