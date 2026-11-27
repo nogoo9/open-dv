@@ -1,8 +1,9 @@
 # Data Vault 2.0 Modeling Engine, Flat Governance, Stateless Agent CLI & Real-Data Verification
 
 *   **Author:** Eterna2
-*   **Status:** Proposed
+*   **Status:** Implemented (Phases 1–6 & Live No-Mock UAT Verified)
 *   **Date:** 2026-11-26
+*   **User Guide:** [`docs/components/modeling/user-guide.md`](../components/modeling/user-guide.md) · **External Agent Skill:** [`.agents/skills/opendv-modeling/SKILL.md`](../../.agents/skills/opendv-modeling/SKILL.md)
 
 --------------------------------------------------------------------------------
 
@@ -156,6 +157,156 @@ flowchart TD
 *   **`src/opendv/modeling` banned imports:** `opendv.sources`, `opendv.storage`, `opendv.agents`, `opendv.service`, `opendv.api`, `opendv.cli`, `duckdb`, `sqlglot`, `fastapi`, `starlette`, `typer`, `rdflib`, `mcp`, and `opendv_*`.
 *   **Reverse ban:** Add `"opendv.modeling"` to `V2_LAYER_BANS` for Layer 1 (`models`), Layer 2 (`sources`, `verifier`, `storage`), sibling Layer 3 (`agents`), and Layer 5 (`api`, `cli`, keeping `commands_model.py` routed through Layer-4 `opendv.service` via Layer-1 DTOs/dicts). Only Layer-4 (`service`) and direct Python callers/tests invoke `src/opendv/modeling/` with injected `prover: IRRuntimeProver`.
 
+---
+
+### 1.5 End-to-End Stage-by-Stage Execution Walkthrough (Stages 0–8)
+
+Both stateless CLI runs (`opendv model`) and managed Step-6 runs (`opendv vault build`) share the same deterministic pipeline inside Layer 2 (`opendv.sources`, `opendv.verifier`) and Layer 3 (`opendv.modeling`), differing only in whether **Stage 3 (Synthesis)** is executed by an external agent upstream (**Mode 1**) or by `@ship-vault` inside the CEGAR loop (**Mode 2**):
+
+```mermaid
+flowchart TD
+    S0["Stage 0: Spec & Source Ingestion<br/>model spec + Step 2/3 Profiler + pii_tokenizer + containment"] --> S1["Stage 1: Zero-LLM Hint Survey (P1-P4)<br/>hint_survey.py + Clarify Hold check (S6-02)"]
+    S1 --> S2["Stage 2: Request Validation & Resume Resolution<br/>init_run_ctx + validate_source_rows_pii_tokenized + S6-06 Mode"]
+    S2 -->|"Mode 1: DraftVaultIR provided"| S4["Stage 4: L1 Deterministic Codemods<br/>Alg A.1-A.9b + Waiver Hydration"]
+    S2 -->|"Mode 2: Synthesize candidate"| S3["Stage 3: @ship-vault Synthesis (S6-02)<br/>Single-Pass or Parallel Sharding -> merge_draft_shards"]
+    S3 -->|"pending_clarifications != []"| H5["HOLD_CHECKPOINTED (S6-05)<br/>ASK_HUMAN_HOLD"]
+    S3 -->|"DraftVaultIR complete"| S4
+    S4 --> S5["Stage 5: V1-V6b Deterministic Verification (S6-04)<br/>Static V1-V5 + DuckDB V6 (schema_proof & real_data_proof) + V6b"]
+    S5 -->|"Mode 1 complete"| DONE1["VerifyDraftResult<br/>CERTIFIED_FAST or REPAIR / WAIVE Hints"]
+    S5 -->|"Mode 2: det_energy > 0 & retry < K_max"| S3
+    S5 -->|"Mode 2: det_energy == 0"| S6["Stage 6: V7 Semantic Critic + Energy Scoring<br/>score_v7_step + audit_v6b_justifications"]
+    S6 -->|"score < v7_floor & retry < K_max"| S3
+    S6 -->|"score >= v7_floor"| S7["Stage 7: V8 Horizon Outer Loop (S6-06)<br/>Fragility Surface + Bucket A/B/C + STEER / REVERT"]
+    S7 -->|"HOLD_CHECKPOINTED"| H6["S6-06 Horizon Hold<br/>pre_steer_fallback preserved"]
+    S7 -->|"PROCEED"| S8["Stage 8: Seal & Step 7 Export<br/>attach_wave_delta + EvolutionLockSpec -> CertifiedVaultIR"]
+```
+
+#### Stage 0 — Spec Inspection, Source Profiling, PII Tokenization & PK Containment
+*   **Modules:** `src/opendv/service/workflows/modeling_stateless.py` (`get_model_spec`, `profile_sources_stateless`), `src/opendv/sources/` (`profile_source_with_samples`, `containment.py`), `src/opendv/models/pii_tokenizer.py`.
+*   **Inputs Expected:**
+    *   Structured source descriptors (`--source <kind>:<uri>` or `--sources-file` manifest across `csv`, `parquet`, `sqlite`, `duckdb`, `xlsx`, `databricks_uc`) plus `proving_sample_rows` (`1..5000`, default `200`) and `real_row_proving: bool`.
+    *   Optional `GraphAOntology` and `fk_turnover_by_table` overrides.
+*   **Inside This Stage:**
+    1.  Extracts physical table schemas, null ratios, distinct counts, `format_shape`, `surrogate_score`, and `best_non_surrogate_bk_candidate_col` / `uniqueness_ratio` (excluding single-column surrogate penalties on composite natural keys).
+    2.  When `real_row_proving=True`, pulls `LIMIT (proving_sample_rows + 1)` rows per table within `profile_timeout_seconds=30s` (no `ORDER BY` on flat files; base-table-guarded `ORDER BY rowid` on SQLite/DuckDB; 100-column batched `APPROX_COUNT_DISTINCT` excluding complex nested types on `databricks_uc`), setting `is_complete_table = len(rows) <= proving_sample_rows`.
+    3.  Immediately HMAC-SHA256 tokenizes every non-null scalar in PII-tagged columns into `<PII:16hex>` using an out-of-export project salt (managed) or shared per-invocation salt (stateless CLI). Persisted caches write owner-only JSON sidecars under `.opendv/projects/<id>/proving_samples/`.
+    4.  `compute_pk_containment_overlaps` hashes bounded candidate FK -> PK values under an ephemeral salt to emit directed `PkContainmentOverlap` edges (`overlap_ratio`, `compared_hashes`).
+*   **Outputs Produced:** `ProfileBundle` (`profiles`, `pk_containment_overlaps`, `source_rows_by_table`, `table_sample_flags`, and initial `P1–P4` `questions`).
+
+#### Stage 1 — Zero-LLM Hint Survey (`P1`–`P4`) & Initial Ambiguity Hold (`S6-02`)
+*   **Modules:** `src/opendv/verifier/hint_survey.py` (`survey_modeling_hints`), `src/opendv/modeling/engine.py`.
+*   **Inputs Expected:** `SourceProfile[]`, `PkContainmentOverlap[]`, tokenized `source_rows_by_table`, optional `GraphAOntology` / `DraftVaultIR`, `answered_question_ids`, `fk_turnover_by_table`, `max_questions`, `offset`.
+*   **Inside This Stage:**
+    1.  Pure-Python + `networkx` graph analysis ranks unresolved ambiguities deterministically without any LLM call:
+        *   **P1 (`survivorship_priority`):** Cross-source overlapping business columns (using `GraphAOntology` bindings or table-stem + shared-column fallback) compared row-by-row on shared BKs while masking PII (`<NON_NULL>` vs `<NULL>`).
+        *   **P2 (`brg_*` multi-hop grains):** Acyclic `child_fk -> parent_pk` chains of 2–4 hops (excluding generic audit columns like `created_by`/`updated_by` unless modeled in `GraphAOntology`).
+        *   **P3 (`esat_*` vs `t_lnk_*` mutability):** Mutable `M:1`/`1:N` Link signals (`updated_at`, `effective_from`, `status`, `fk_turnover_by_table > 0`, or observed key reassignment in sample rows).
+        *   **P4 (Structural choices):** Low-cardinality columns (`<= 20` distinct values) and surrogate `id` tables alongside viable natural BK candidates.
+    2.  In **Mode 1**, `ProfileBundle` returns paginated slices (`total_candidates`, `returned_count`, `offset`, `remaining_count`, `by_priority`) for the external agent to interview the user. In **Mode 2**, if `clarify_mode == "ask_on_ambiguity"` and unpaused `survey_qs` remain, `model_vault` emits `HOLD_CHECKPOINTED` at `phase="S6-02"` with `pending_questions=survey_qs` before burning any `@ship-vault` turns; under `"auto"`, items are attached cleanly to `DVModelingResult.suggested_questions`.
+*   **Outputs Produced:** Prioritized `ClarificationQuestion[]` and telemetry `survey_counts`.
+
+#### Stage 2 — Validation, Governance Loading & Resume Branching (`S6-01`)
+*   **Modules:** `src/opendv/modeling/_engine_helpers.py` (`init_run_ctx`), `src/opendv/modeling/verify_mode.py` (`validate_source_rows_pii_tokenized`), `src/opendv/modeling/horizon.py` (`resolve_s606_resume_action`).
+*   **Inputs Expected:** `VerifyDraftRequest` (Mode 1) or `DVModelingRequest` (Mode 2), `ModelingPreferences`, `WaveEvolutionInput`, `ModelingResumeInput`, optional `guide_markdown` & `business_context_hints`.
+*   **Inside This Stage:**
+    1.  Validates token bounds (`business_context_hints <= 1,500`, `guide_markdown <= 2,500`), workspace guide trust (`verify_workspace_override_trust`), `V7` critic tier locks (`strict` locks `FRONTIER_CRITIC` and rejects non-empty `disabled_v6b_blocks`), and fails closed (`REDACTED_PLACEHOLDER_LEAK` / `SYNTAX_INVALID_ARGUMENT`) if any PII-tagged scalar in `source_rows_by_table` lacks `<PII:16hex>`.
+    2.  Mode 1 explicitly rejects non-empty `business_context_hints` / `guide_markdown`.
+    3.  In Mode 2, computes `wave_number`, initializes `HarnessBudget`, and inspects `resume.checkpoint` if `phase == "S6-06"`: branching deterministically into `"REVERT"` (restoring `pre_steer_fallback_certified_ir` / `draft_ir` immediately via `_execute_revert`), `"STEER"` (setting `post_steer=True`, saving `pre_steer_fallback_ref`, keeping `best=None` so re-synthesis runs), or `"PROCEED"` (seeding `best` from resumed IR and skipping synthesis if gates pass).
+*   **Outputs Produced:** Validated `RunCtx` / `VerifierContext` (or early revert termination).
+
+#### Stage 3 — Draft IR Authoring & Wide-Catalog Sharded Synthesis (`S6-02`)
+*   **Modules:** Mode 1 external agent (`.agents/skills/opendv-modeling/SKILL.md`); Mode 2 `src/opendv/modeling/_sharding.py` (`run_ship_vault_synthesis`, `resolve_cluster_assignments`, `merge_draft_shards`, `preserve_post_merge_draft`), `src/opendv/modeling/prompts.py` (`build_ship_vault_prompt`).
+*   **Inputs Expected:** `GraphAOntology` (with `preallocate_canonical_hubs`), `SourceProfile[]`, `EvolutionLockSpec`, `ModelingPreferences`, `dv2-modeling-guide.md`, fenced `<untrusted_business_context>`, `HoldAnswersReq`, `HorizonAssumptionSpec[]`, `frozen_shared_hubs`, plus retry context (`prior_report`, `remediation_hints`, `prior_v7_verdict`, `prior_v8_verdict`, `prior_draft_ir`).
+*   **Inside This Stage:**
+    1.  **Mode 1:** Caller/external agent authors `DraftVaultIR` JSON offline using `model spec` and `ProfileBundle` and jumps straight to Stage 4.
+    2.  **Mode 2 Sharding Trigger:** Evaluates `len(batches) > 1 or total_tables > 40 or total_cols > 150 or count_tokens(full_prompt) > 40_000`.
+    3.  When sharding is active, `resolve_cluster_assignments` partitions tables by `(clusters -> cluster_id -> connected FK/table-stem components)`, splits any table exceeding `150` columns while **pinning PKs, FKs, `best_non_surrogate_bk_candidate_col`, and preallocated Hub key names** on every slice, and launches concurrent `@ship-vault` workers (`DraftShardIR` schema, `scale_shard_budget <= 6,500` projected output tokens) with structured-JSON retry recovery (`_run_turn_retry`), charging **1 logical turn** against `HarnessBudget`.
+    4.  `merge_draft_shards` -> `inject_unresolved_triage` -> `preserve_post_merge_draft` stitches shards back into one `DraftVaultIR` while preserving multi-shard `DraftBridgeSpec` (`brg_*`), Hub `survivorship_priority`, and `frozen_shared_hubs` key column order.
+    5.  Strips any agent-forged `actor != "agent"` or `reviewed_by_v7=True` waiver claims; pauses at `phase="S6-05"` `HOLD_CHECKPOINTED` if `draft.pending_clarifications` contains unanswered IDs.
+*   **Outputs Produced:** Synthesized/repaired `DraftVaultIR`, harvested `OntologyProposalSpec[]`, and `turns_used` / `tokens_used`.
+
+#### Stage 4 — `L1` Deterministic Codemods & Waiver Hydration (`S6-03`)
+*   **Modules:** `src/opendv/verifier/l1_codemods.py` (`run_l1_codemods`), `src/opendv/modeling/verify_mode.py` (`_merge_persisted_waivers`).
+*   **Inputs Expected:** `DraftVaultIR`, `SourceProfile[]`, `GraphAOntology`, `ModelingPreferences`, `WaveEvolutionInput`, `cdc_volatility_by_table`, `fk_turnover_by_table`, `persisted_waivers`, optional `bucket_a_ops` (when steered by `V8`).
+*   **Inside This Stage:**
+    1.  Enforces `INV-05` before lowering (failing closed with `BLOCKER` diagnostic if Hub `attributes` are non-empty).
+    2.  Executes pure-Python `L1` codemods honoring Tier-1 `ModelingPreferences`:
+        *   **`Alg A.1`:** Split Satellites along source boundary, volatility (`cdc_volatility_by_table`), and sensitivity (`sat_kind="PII"` for `is_pii=True`).
+        *   **`Alg A.2`:** Promote/align canonical multi-source Hubs (`hub_canonical_bk_cols`) or companion Hubs + directional/symmetric `sal_*` crosswalks.
+        *   **`Alg A.3`:** Attach single-source `Z2` `esat_*` tables (`driving_keys`, `is_bitemporal`, `applied_dts_col`) and derive `Z3` `vw_<esat>_intervals` `MartViewSpec` views—never injecting fake `effective_from`/`effective_to` columns into `Z2`.
+        *   **`Alg A.4`:** Propagate tri-state `LinkParticipantSpec.is_nullable` onto `HUB_HK` FK recipes while retaining nullable `STANDARD` Link participants (`BRK-02b`).
+        *   **`Alg A.9a` / `A.9b`:** Route additive Wave-2+ columns to `sat_*_ext_vN` / `mas_*_ext_vN` (copying `child_dependent_keys`) and preserve document citations.
+    3.  Lower `DraftBridgeSpec` (`brg_*` in `Z3`) and Zone 4 `vw_<hub>_current` views (filtering out `PII`/`MAS`, honoring `survivorship_priority` `COALESCE`).
+    4.  Hydrates `persisted_waivers` onto `CertifiedVaultIR.justifications` and freezes multi-source Hub key orders in `frozen_hubs`.
+*   **Outputs Produced:** Updated `DraftVaultIR` and lowered candidate `CertifiedVaultIR`.
+
+#### Stage 5 — Deterministic Verification Gates `V1`–`V6` & Tiered `V6b` (`S6-04`)
+*   **Modules:** `src/opendv/verifier/v2_5_gates.py` (`run_v1_to_v6_gates`), `src/opendv/verifier/v6b_antipatterns.py`, `src/opendv/storage/prover/duckdb_prover.py` (`DuckDbProverAdapter.prove`).
+*   **Inputs Expected:** Candidate `CertifiedVaultIR`, `VerifierContext` (with `profiles`, `source_rows_by_table`, `table_sample_flags`, `real_row_proving`, `modeling_preferences`, `persisted_waivers`, `prior_certified_ir`, `evolution_locks`), `IRRuntimeProver`.
+*   **Inside This Stage:**
+    1.  **`V1`–`V5` Static & Structural Gates:** Validates Hub `INV-05`, connected graph (`ANTI_SILO_VIOLATION`), `DV-COL-001..008` (100% triage, >= 15-char omission rationale, alphabetical `hash_diff`), `DV-STR-009..017` (no Satellites on `t_lnk_*`, single-source Satellites, acyclic `brg_*`, compatible `COALESCE` types), `V4` provenance (`Alg A.9b`), and `V5` additive wave immutability (`EVO-01..08`).
+    2.  **`V6` Two-Track `:memory:` DuckDB Runtime Proving:**
+        *   **Track 1 (`schema_proof`):** Synthesizes deterministic edge fixtures + `BRK-02b` partial-NULL Link edges, compiles real SQL DDL/DML across `Z0`–`Z4`, and executes all 15 `DV-DYN-001..015` invariants inside DuckDB.
+        *   **Track 2 (`real_data_proof`):** Unless `real_row_proving=False` (`DISABLED_BY_USER`), projects `<PII:16hex>` tokens deterministically into type-preserving scalars matching `logical_type`, loads `source_rows_by_table`, and executes `DV-DYN-004` (uniqueness), `DV-DYN-006` (Sat FK), and `DV-DYN-007` (Link FK when all parent tables satisfy `is_complete_table=True`, otherwise `SKIPPED_PARTIAL_SAMPLE`), regex-redacting DuckDB error literals.
+    3.  **`V6b` Tiered Anti-Patterns:** Evaluates `ONT-AP-001..005` and `DV-AP-001..012` against `CegarPolicySpec.blocking_v6b_rules` and `ModelingPreferences.disabled_v6b_blocks` (auto-downgrading `DV-AP-003` only on `TIER_3_LOCAL_SCOPED` tables without a `>= 0.99` natural BK candidate).
+    4.  Computes `deterministic_energy` and `RemediationHint[]`.
+*   **Outputs Produced:** `VerifierReport` (`passed`, `schema_proof_results`, `real_data_proof_results`, `all_diagnostics`, `remediation_hints`, `deterministic_energy`, `energy_e`).
+    *   *Mode 1 terminates here:* calls `scan_fragility_surface`, attaches `EvolutionLockSpec` if `CERTIFIED_FAST`, and returns `VerifyDraftResult`.
+
+#### Stage 6 — Mode-2 `V7` Semantic Critic & CEGAR Loop Convergence (`S6-04`)
+*   **Modules:** `src/opendv/modeling/critics.py` (`evaluate_v7_and_v6b`, `run_v7_semantic_critic`, `audit_v6b_justifications`), `src/opendv/modeling/engine.py`.
+*   **Inputs Expected:** `CertifiedVaultIR`, `VerifierReport` (must have `v1_v6_fail_count == 0`), `SourceProfile[]`, `GraphAOntology`, `ModelingPreferences`, `dv2-modeling-guide.md`, fenced `business_context_hints`, `horizon_assumptions`, `prior_v8_verdict`.
+*   **Inside This Stage:**
+    1.  Skips `V7` if `policy in ("symbolic_only", "fast")` or if `v1_v6_fail_count > 0`.
+    2.  Builds `build_v7_prompt`—if prompt size exceeds `40,000` `cl100k_base` tokens, switches cleanly into `wide_catalog_summary` compaction (preserving full column detail for flagged/cross-source/`>= 8`-col entities and histograms for small unflagged Satellites).
+    3.  Invokes `@dv-semantic-critic` (`FRONTIER_CRITIC` under `strict` or default `balanced`) in a single zero-tool turn producing `SemanticCriticVerdict` (`score`, `findings`, `accepted_waiver_ids`).
+    4.  `audit_v6b_justifications` flips `reviewed_by_v7=True` **only** on waivers in `accepted_waiver_ids`, recomputes `blocking_v6b_fail`, `deterministic_energy`, and combined `energy_e`, updates `best` (`is_better_candidate`), and persists an `AttemptSnapshotSpec`.
+    5.  Checks loop exit conditions: stops on cycle detection (`ir_sha in seen_digests` -> `cycle_halted=True`), budget exhaustion, `"symbolic_only"`/`"fast"` deterministic pass, or full convergence (`det_ok` and `v7.score >= v7_floor`), otherwise looping back to **Stage 3** with `prior_report`, `remediation_hints`, and `prior_v7` up to `K_max`.
+*   **Outputs Produced:** Converged `best: CandidateState` (`DraftVaultIR`, `CertifiedVaultIR`, `VerifierReport`, `SemanticCriticVerdict`) or `UNCERTIFIED_DRAFT` checkpoint on exhaustion.
+
+#### Stage 7 — `V8` Frontier Horizon Critic & `S6-06` `STEER` / `REVERT` Outer Loop (`S6-06`)
+*   **Modules:** `src/opendv/modeling/horizon.py` (`run_v8_outer_loop`), `src/opendv/modeling/critics.py` (`run_v8_horizon_critic`), `src/opendv/modeling/prompts.py` (`scan_fragility_surface`, `build_v8_prompt`).
+*   **Inputs Expected:** Converged `best` candidate (`det_energy == 0`), `FragilitySurfaceSummary`, `EvolutionLockSpec`, `HorizonAssumptionSpec[]`, `answered_horizon_keys`, `post_steer` flag, and optional `pre_steer_fallback_*` snapshot.
+*   **Inside This Stage:**
+    1.  Runs when `pspec.v8_mode == "auto"` (`balanced`/`strict`) or `--horizon-review` control signal is set (`on_demand` under `fast`). Skipped under `fast` without explicit review (`CERTIFIED_FAST`).
+    2.  `scan_fragility_surface` computes zero-token future lock-in metrics (`hub_bks`, `link_arities`, `single_active_sats`, `narrow_numeric_cols`, `bitemporal_gaps`, `candidate_alt_bks`), then `run_v8_horizon_critic` (`FRONTIER_CRITIC`, zero tools, same `40,000`-token wide-catalog compaction) executes the **4-Guard Protocol**:
+        *   Filters natively absorbed structures (`sat_*_ext_vN`, `sal_*`, `sat_*_pii`, `EVO-02`/`03`) out of `bucket_c_watchlist`.
+        *   Suppresses `BRK-*` items already addressed by `horizon_assumptions` or explicit `business_context_hints`; deduplicates remaining `bucket_b_questions` by `(brk_code, entity_name, column_name)`.
+    3.  Decision tree (`_hold_if_needed`):
+        *   **`bucket_b_questions` present, OR `score < 85` without `bucket_a_ops`:** Saves `RunCheckpointRecord` (`phase="S6-06"`) with `with_revert_option` (whenever `pre_steer_fallback` exists) and pauses as `HOLD_CHECKPOINTED`.
+        *   **`bucket_a_ops` present & first pass (`not post_steer`):** Snapshots `pre_steer_fallback_ref` / `pre_steer_fallback_*`, applies deterministic `Bucket A` operators through `run_l1_codemods`, preserves `V7`-approved waivers, re-runs `V1–V6b` DuckDB gates (holding on regression ratchet), and executes **at most 1 post-`STEER` `V8` re-score pass**.
+        *   **`score >= 85` and no `Bucket A`/`B` items:** Proceeds to Stage 8.
+*   **Outputs Produced:** `HorizonOutcome` (`PROCEED` vs `HOLD_CHECKPOINTED` with checkpoint & fallback refs).
+
+#### Stage 8 — Final Seal & Step 7 Handoff (`S6-07`)
+*   **Modules:** `src/opendv/modeling/_engine_helpers.py` (`seal_result`), `src/opendv/modeling/models.py` (`attach_wave_delta`), `src/opendv/verifier/v2_5_gates.py` (`build_evolution_lock_from_certified`).
+*   **Inputs Expected:** Final verified `CandidateState`, `HorizonOutcome` (Mode 2), `WaveEvolutionInput`, `run` telemetry.
+*   **Inside This Stage:**
+    1.  Calls `attach_wave_delta` (recording `added_entities`, `added_sat_extensions`, and `locked_entities` on `Wave >= 2`).
+    2.  Builds immutable `EvolutionLockSpec` via `build_evolution_lock_from_certified(certified_ir)`.
+    3.  Stamps `preferences_sha256`, `modeling_guide_sha256`, `remediation_hints`, `fragility_summary`, and `telemetry` (`table_count`, `column_count`, `sharded`, `post_steer`, `reverted`, `survey_counts`).
+*   **Outputs Produced:** `DVModelingResult` (`status="CERTIFIED"` or `"CERTIFIED_FAST"`, `next_action="READY_FOR_DOWNSTREAM"`) or `VerifyDraftResult` ready for Step 7 (`opendv storage compile`) across all 11 emitters.
+
+---
+
+### 1.6 Agents & Automated Actors Involved (Roles, Tiers, Context Budgets & Boundaries)
+
+Every stage separates **probabilistic modeling judgment** (scoped to strict typed JSON outputs) from **deterministic symbolic verification and SQL generation**:
+
+| Actor / Module | Where It Runs | LLM Model Tier | Tools Allowed | Inputs Consumed | Output Contract & Authority |
+| :--- | :--- | :--- | :---: | :--- | :--- |
+| **External Coding Agent** (Antigravity, Claude Code, Codex, Gemini CLI) | Stage 0, Stage 1, Stage 3 (**Mode 1 only**) | User's own external model (0 internal keys) | Caller's own IDE/shell tools | `model spec`, `ProfileBundle` (`P1–P4` `questions`), human answers, local workspace files | `GraphAOntology` + `VerifyDraftRequest` + `DraftVaultIR` JSON passed into `opendv model verify`. |
+| **`ship-vault`** (`@ship-vault`, `packs/ship-vault/SKILL.md`) | Stage 3 (**Mode 2 only**, `S6-02`) | `STANDARD_WORKER` *(overridable)* | `[]` *(zero tools; inline JSON prompt)* | `GraphAOntology`, `SourceProfile[]`, `pk_containment_overlaps`, `EvolutionLockSpec`, `ModelingPreferences`, `dv2-modeling-guide.md`, fenced `<untrusted_business_context>`, `HoldAnswersReq`, retry diagnostics & prior verdicts/drafts | `DraftVaultIR` (single-turn) or `DraftShardIR` (parallel shards when `> 40` tbls / `> 150` cols / `> 40k` tok; `<= 6,500` projected output tok/shard). Cannot approve own waivers. |
+| **`dv-semantic-critic`** (`Gate V7`, `packs/dv-semantic-critic/SKILL.md`) | Stage 6 (**Mode 2** under `balanced` & `strict`) | `FRONTIER_CRITIC` *(locked under `strict`; configurable under `balanced`)* | `[]` *(zero tools)* | `CertifiedVaultIR` (`ir_summary`), `GraphAOntology`, 7-tuple `Graph B` (compact `wide_catalog_summary` if `> 40k` tok), `v6b_diagnostics`, `ModelingPreferences`, guide, fenced hints, `horizon_assumptions` | `SemanticCriticVerdict` (`score 0..100`, `findings`, `accepted_waiver_ids`). Sole LLM authority allowed to flip `reviewed_by_v7=True` on waivers. |
+| **`dv-horizon-critic`** (`Gate V8`, `packs/dv-horizon-critic/SKILL.md`) | Stage 7 (**Mode 2** `auto` under `balanced`/`strict`; `on_demand` under `fast`) | **`FRONTIER_CRITIC`** *(always frontier tier)* | `[]` *(zero tools)* | `CertifiedVaultIR`, `FragilitySurfaceSummary` (`BRK-01..08`), `EvolutionLockSpec`, 7-tuple `Graph B` (compact if `> 40k` tok), `ModelingPreferences`, guide, fenced hints, `horizon_assumptions` | `HorizonCriticVerdict` (`score`, `classification`, `absorbed_natively`, `bucket_a_ops`, `bucket_b_questions`, `bucket_c_watchlist`). Triggers `S6-06` `STEER` or human `HOLD`. |
+| **Zero-LLM Deterministic Engines** (`sources`, `hint_survey`, `L1`, `V1–V6b`, `DuckDbProverAdapter`, `storage`) | Stages 0, 1, 4, 5, 8 (**Modes 1 & 2**) | **None (`0` LLM calls)** | In-process Python + DuckDB `:memory:` | `ProfileBundle`, `DraftVaultIR`, PII-tokenized `source_rows_by_table`, `table_sample_flags`, `ModelingPreferences`, `persisted_waivers` | `ProfileBundle`, `ClarificationQuestion[]`, `CertifiedVaultIR`, `VerifierReport` (`schema_proof` + `real_data_proof`), `FragilitySurfaceSummary`, `EvolutionLockSpec`, and 11-target SQL/DDL/dbt. |
+
+#### Strict Guardrails Enforced Across All Agents
+1. **Zero Raw SQL (`OBJ-01`):** Neither external Mode-1 agents nor internal Mode-2 `@ship-vault`/`V7`/`V8` ever emit SQL DDL/DML or hash formulas; SQL compilation is deterministic in Layer 2 (`src/opendv/storage/`).
+2. **Zero Mid-Turn Tool Loops in Mode 2:** `@ship-vault`, `dv-semantic-critic`, and `dv-horizon-critic` execute with `allowed_tools: []` and `disallowed_tools: ["Agent", "invoke_subagent", "dispatch_scout"]`. All profiling stats, FK/PK overlaps, ambiguity flags, and retry diagnostics are pre-assembled inline.
+3. **Anti-Injection & Governance Precedence:** Mode-2 `business_context_hints` (`<= 1,500` tokens) are delimited inside `<untrusted_business_context>` beneath Tier-1 `ModelingPreferences` and immutable `V1–V6` / `v7_floor` rules; `@ship-vault` waiver forgery (`actor != "agent"` or `reviewed_by_v7=True`) is stripped unconditionally after synthesis.
+4. **100% Column Triage & Raw Source Fidelity:** Every profiled `(table_id, col_name)` must be explicitly triaged (`DV-COL-001`), Hubs must keep `attributes: []` (`INV-05`), active sources must form one connected graph (`ANTI_SILO_VIOLATION`), and every `col_mappings` target must match an exact raw column in `Graph B`.
+
 --------------------------------------------------------------------------------
 
 ### 2. Core DV 2.0 Schema, Hashing & SQL Compiler Fixes
@@ -295,7 +446,7 @@ flowchart TD
 5.  **Worked End-to-End Example (Planned Business Vault Hints & Survey Fixture):**
     A 6-table fixture (`tests/fixtures/business_vault_hints/`: `erp_customers.csv`, `crm_customers.csv`, `crm_account_mgr.csv`, `funds.csv`, `accounts.csv`, `trades.csv`, `manifest.json`, with `>= 2` rows per table) exercises zero-hints discovery and DuckDB-verified compilation:
     *   **Planned Input Sample (`cust_id=C-100`, `C-200`):** `erp_customers` holds authoritative `(legal_name='Acme Capital', credit_tier='AAA', billing_region=NULL, email=NULL)` on `C-100` and `email='ops@beacon.io'` on `C-200`; `crm_customers` holds `(legal_name='Acme Cap', credit_tier='A', billing_region='US-EAST', email='billing@acme.io')` and stale `'old@beacon.io'`. Meanwhile `crm_account_mgr` assigns `C-100` to `REP-1` (`2026-01-01`) and reassigns `REP-2` (`2026-02-01`), and `trades -> accounts -> funds` forms a 2-hop chain (`T-900 -> A-10 -> F-01`).
-    *   **Stage A (Zero-Hints Survey, `--max-questions 3`):** Stateless `opendv model profile` returns `total_candidates=5, returned_count=3, offset=0, remaining_count=2` surfacing: (1) P1 customer attribute conflict (`credit_tier`, `legal_name`, `billing_region`, masked PII `email` `NULL` vs `<NON_NULL>` without echoing raw addresses), (2) P2 2-hop `trades -> accounts -> funds` `brg_*` candidate (oriented via table-stem/PK signals), and (3) P3 `crm_account_mgr` reassignment interval check; `--questions-offset 3` fetches the remaining 2 lower-priority questions (`trades` immutability and `credit_tier` reference-table check).
+    *   **Stage A (Zero-Hints Survey, `--max-questions 3`):** Stateless `opendv model profile` returns `total_candidates=11, returned_count=3, offset=0, remaining_count=8` (`by_priority={"P1": 1, "P2": 3, "P3": 1, "P4": 6}`), surfacing top priority items: (1) P1 customer attribute conflict (`credit_tier`, `legal_name`, `billing_region`, masked PII `email` `<NON_NULL>` vs `<NULL>` without echoing raw addresses), and P2 `brg_*` analytical hop candidates (`trades -> accounts -> funds` oriented via table-stem/PK signals); `--questions-offset 3 --max-questions 0` fetches the remaining 8 candidates including `P3` (`crm_account_mgr` reassignment interval check) and `P4` (`trades` immutability / `credit_tier` reference-table check).
     *   **Stage B (Authoritative Precedence Lowered into IR):** Applying ERP-over-CRM `survivorship_priority: ["erp", "crm"]`, `brg_trade_account_fund` (`BridgeHopSpec` chain), `esat_customer_rep_crm` (`Z2` raw + `Z3` interval view), and immutable `t_lnk_trade_account` compiles and proves `:memory:` DuckDB SQL against the CSVs (`test_business_vault_hints.py`): `vw_customer_current` projects `COALESCE(sat_customer_erp, sat_customer_crm)` (`C-100` receives `'Acme Capital'`, `'AAA'`, and `'US-EAST'` via CRM `NULL` fallback, while `email` stays isolated in `sat_customer_erp_pii` / `sat_customer_crm_pii` and excluded from `vw_customer_current`), `brg_trade_account_fund` resolves `(T-900, A-10, F-01)` via `LEFT JOIN`, `esat_customer_rep_crm` + `vw_esat_customer_rep_crm_intervals` closes `REP-1` at `2026-02-01`, and `t_lnk_trade_account` stays immutable.
 
 --------------------------------------------------------------------------------
