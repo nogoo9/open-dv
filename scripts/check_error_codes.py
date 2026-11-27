@@ -363,13 +363,45 @@ class ErrorCatalogValidator:
             if not fibo_file.is_file():
                 self.errors.append(f"V2 baseline artifact not found: {fibo_meta['path']}")
             else:
+                raw_fibo = fibo_file.read_bytes()
                 expected_sha = fibo_meta.get("sha256")
-                actual_sha = hashlib.sha256(fibo_file.read_bytes()).hexdigest()
+                actual_sha = hashlib.sha256(raw_fibo).hexdigest()
                 if actual_sha != expected_sha:
                     self.errors.append(
                         f"FIBO core pack hash mismatch for {fibo_meta['path']}: "
                         f"expected {expected_sha}, got {actual_sha}"
                     )
+                try:
+                    fibo_json = json.loads(raw_fibo.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    self.errors.append(f"Invalid FIBO core pack JSON ({fibo_meta['path']}): {exc}")
+                else:
+                    meta_obj = fibo_json.get("metadata") if isinstance(fibo_json, dict) else None
+                    actual_schema_ver = (
+                        meta_obj.get("pack_schema_version") if isinstance(meta_obj, dict) else None
+                    )
+                    if actual_schema_ver != fibo_meta.get("pack_schema_version"):
+                        self.errors.append(
+                            f"FIBO pack_schema_version mismatch: "
+                            f"expected {fibo_meta.get('pack_schema_version')!r}, "
+                            f"got {actual_schema_ver!r}"
+                        )
+                    for baseline_key, json_key in (
+                        ("concept_count", "classes"),
+                        ("property_count", "properties"),
+                        ("individual_count", "individuals"),
+                    ):
+                        actual_len = (
+                            len(fibo_json.get(json_key, {}))
+                            if isinstance(fibo_json, dict)
+                            and isinstance(fibo_json.get(json_key), dict)
+                            else None
+                        )
+                        if actual_len != fibo_meta.get(baseline_key):
+                            self.errors.append(
+                                f"FIBO {baseline_key} mismatch: "
+                                f"expected {fibo_meta.get(baseline_key)!r}, got {actual_len!r}"
+                            )
 
         starter_packs = b_data.get("starter_packs")
         if isinstance(starter_packs, dict):

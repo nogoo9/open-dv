@@ -76,11 +76,11 @@ def reject_symlinks_on_path_and_ancestors(
     stop_norms = {os.path.normcase(os.path.abspath(str(r))) for r in stop_roots}
     cur = Path(os.path.abspath(str(target)))
     while True:
-        if _is_reparse_or_symlink(cur):
-            raise _sec_error(f"Symlink or reparse point rejected at {cur}")
         cur_norm = os.path.normcase(str(cur))
         if cur_norm in stop_norms:
             break
+        if _is_reparse_or_symlink(cur):
+            raise _sec_error(f"Symlink or reparse point rejected at {cur}")
         parent = cur.parent
         if parent == cur:
             break
@@ -96,10 +96,18 @@ def validate_containment(base_dir: Path, target: Path) -> Path:
     return Path(target_real)
 
 
-def safe_open_no_follow(path: Path, flags: int, mode: int = 0o600) -> int:
+def safe_open_no_follow(
+    path: Path,
+    flags: int,
+    mode: int = 0o600,
+    *,
+    stop_roots: Sequence[Path] = (),
+) -> int:
     """Open a file with O_NOFOLLOW/O_BINARY after checking parent has no symlinks."""
-    reject_symlinks_on_path_and_ancestors(path.parent)
-    if path.exists() and _is_reparse_or_symlink(path):
+    if ".." in path.parts:
+        raise _sec_error(f"Path traversal '..' rejected in {path}")
+    reject_symlinks_on_path_and_ancestors(path.parent, stop_roots=stop_roots)
+    if _is_reparse_or_symlink(path):
         raise _sec_error(f"Refusing to open symlink or reparse target: {path}")
     open_flags = flags | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
     fd = os.open(str(path), open_flags, mode)

@@ -1,5 +1,14 @@
 """Layer 2a Open-DV V2 source adapters, profiling, DocumentMap, PII, clustering, and FIBO."""
 
+from opendv.grounding.providers.fibo import (
+    FiboReferenceOntologyLoader,
+    ReferenceOntologyCorruptError,
+    SubclassClosureMatch,
+    SubclassClosureResolver,
+    clear_fibo_loader_cache,
+    get_default_fibo_loader,
+    resolve_subclass_closure,
+)
 from opendv.sources.adapters import (
     BLOCKED_SSRF_CIDRS,
     SOURCE_ADAPTERS,
@@ -27,15 +36,6 @@ from opendv.sources.document_map import (
     compute_canonical_text_sha256,
     is_page_scanned_or_low_density,
     normalize_page_text,
-)
-from opendv.sources.fibo import (
-    FiboReferenceOntologyLoader,
-    ReferenceOntologyCorruptError,
-    SubclassClosureMatch,
-    SubclassClosureResolver,
-    clear_fibo_loader_cache,
-    get_default_fibo_loader,
-    resolve_subclass_closure,
 )
 from opendv.sources.pii import (
     MASKED_PII_TOKEN,

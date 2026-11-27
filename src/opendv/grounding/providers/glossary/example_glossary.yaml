@@ -1,0 +1,128 @@
+version: 1
+terms:
+  customer:
+    label: Customer
+    definition: Subscribing commercial organization or individual tenant billed for SaaS services.
+    aliases:
+      - Account Holder
+      - Tenant
+      - Subscriber
+    kind: entity
+    expected_type: string
+
+  subscription_plan:
+    label: Subscription Plan
+    definition: Recurring SaaS commercial tier defining feature entitlements and billing cadence.
+    aliases:
+      - Plan
+      - Tier
+    kind: entity
+    expected_type: string
+
+  billing_invoice:
+    label: Billing Invoice
+    definition: Issued billing statement recording charges, taxes, and payment due date for a billing cycle.
+    aliases:
+      - Invoice
+      - Billing Record
+    kind: event
+    expected_type: string
+
+  customer_id:
+    label: Customer ID
+    definition: Canonical enterprise identifier uniquely designating a subscribing customer.
+    aliases:
+      - Cust ID
+      - Account ID
+    kind: identifier
+    domain_entity: customer
+    identifies: customer
+    identifier_scope: enterprise_sor
+    expected_type: string
+    pattern: "^CUST-[0-9]{4,10}$"
+
+  invoice_id:
+    label: Invoice ID
+    definition: Unique billing invoice reference number issued per billing cycle.
+    aliases:
+      - Billing ID
+      - Inv No
+    kind: identifier
+    domain_entity: billing_invoice
+    identifies: billing_invoice
+    identifier_scope: enterprise_sor
+    expected_type: string
+    pattern: "^INV-[0-9]{4}-[0-9]{4,8}$"
+
+  order_total_amount:
+    label: Order Total Amount
+    definition: Gross monetary invoice total before credits and after applicable taxes.
+    aliases:
+      - Total Amount
+      - Invoice Amount
+    kind: attribute
+    domain_entity: billing_invoice
+    expected_type: decimal
+
+  invoice_issued_date:
+    label: Invoice Issued Date
+    definition: Calendar date on which the billing invoice was formally issued to the customer.
+    aliases:
+      - Issued Date
+      - Billing Date
+    kind: attribute
+    domain_entity: billing_invoice
+    expected_type: date
+
+  customer_email:
+    label: Customer Email
+    definition: Primary billing contact email address for invoice delivery and account notices.
+    aliases:
+      - Billing Email
+      - Contact Email
+    kind: attribute
+    domain_entity: customer
+    expected_type: string
+    pii_category_hint: EMAIL
+
+  iso_currency_code:
+    label: Currency Code
+    definition: Three-letter ISO 4217 settlement currency code for invoice amounts.
+    aliases:
+      - Billing Currency
+      - Currency
+    kind: code
+    domain_entity: billing_invoice
+    expected_type: string
+    allowed_values:
+      - USD
+      - EUR
+      - GBP
+      - CAD
+      - JPY
+
+  subscription_status:
+    label: Subscription Status
+    definition: Lifecycle status of a customer subscription plan.
+    aliases:
+      - Plan Status
+      - Account Status
+    kind: code
+    domain_entity: subscription_plan
+    expected_type: string
+    allowed_values:
+      - ACTIVE
+      - TRIALING
+      - PAST_DUE
+      - CANCELED
+
+  billed_to_customer:
+    label: Billed To Customer
+    definition: Relationship linking a billing invoice to the responsible customer entity.
+    aliases:
+      - Customer Ref
+      - Billed Customer
+    kind: relationship
+    domain_entity: billing_invoice
+    target_entity: customer
+    expected_type: string

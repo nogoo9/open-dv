@@ -11,11 +11,21 @@
     "fibo_core_pack": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "sha256", "concept_count"],
+      "required": [
+        "path",
+        "sha256",
+        "pack_schema_version",
+        "concept_count",
+        "property_count",
+        "individual_count"
+      ],
       "properties": {
         "path": { "type": "string", "minLength": 1 },
         "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-        "concept_count": { "type": "integer", "minimum": 1 }
+        "pack_schema_version": { "type": "string", "const": "2.0.0" },
+        "concept_count": { "type": "integer", "minimum": 1 },
+        "property_count": { "type": "integer", "minimum": 1 },
+        "individual_count": { "type": "integer", "minimum": 1 }
       }
     },
     "starter_packs": {

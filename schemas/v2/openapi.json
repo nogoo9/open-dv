@@ -639,7 +639,7 @@
         "title": "AddMcpEvidence",
         "type": "object"
       },
-      "AddRelationship": {
+      "AddRelationship-Input": {
         "additionalProperties": false,
         "description": "Introduce an OntologyRelationship.",
         "properties": {
@@ -666,7 +666,43 @@
             "type": "string"
           },
           "relationship": {
-            "$ref": "#/components/schemas/OntologyRelationship"
+            "$ref": "#/components/schemas/OntologyRelationship-Input"
+          }
+        },
+        "required": [
+          "relationship"
+        ],
+        "title": "AddRelationship",
+        "type": "object"
+      },
+      "AddRelationship-Output": {
+        "additionalProperties": false,
+        "description": "Introduce an OntologyRelationship.",
+        "properties": {
+          "op_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Op Id"
+          },
+          "op_type": {
+            "const": "AddRelationship",
+            "default": "AddRelationship",
+            "title": "Op Type",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "relationship": {
+            "$ref": "#/components/schemas/OntologyRelationship-Output"
           }
         },
         "required": [
@@ -1362,6 +1398,87 @@
           "bkcc_value"
         ],
         "title": "BusinessKeyPart",
+        "type": "object"
+      },
+      "CandidateMapping": {
+        "additionalProperties": false,
+        "description": "Ranked candidate mapping emitted for a grounded column.",
+        "properties": {
+          "confidence": {
+            "$ref": "#/components/schemas/ConfidenceInterval"
+          },
+          "entry_id": {
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "entry_kind": {
+            "enum": [
+              "class",
+              "datatype_property",
+              "object_property",
+              "individual_lifted",
+              "glossary_term",
+              "enumeration",
+              "other"
+            ],
+            "title": "Entry Kind",
+            "type": "string"
+          },
+          "evidence_contributions": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceContribution"
+            },
+            "title": "Evidence Contributions",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "origin_kind": {
+            "enum": [
+              "project_graph_a",
+              "reference_standard"
+            ],
+            "title": "Origin Kind",
+            "type": "string"
+          },
+          "rank": {
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "replaces_uris": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Replaces Uris",
+            "type": "array"
+          },
+          "semantic_context": {
+            "$ref": "#/components/schemas/SemanticContext"
+          },
+          "suggested_predicate": {
+            "enum": [
+              "skos:exactMatch",
+              "skos:closeMatch",
+              "skos:relatedMatch"
+            ],
+            "title": "Suggested Predicate",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rank",
+          "entry_id",
+          "label",
+          "entry_kind",
+          "origin_kind",
+          "confidence",
+          "suggested_predicate",
+          "semantic_context"
+        ],
+        "title": "CandidateMapping",
         "type": "object"
       },
       "CanonicalBusinessConcept": {
@@ -2249,6 +2366,289 @@
         "title": "ClearParentConcept",
         "type": "object"
       },
+      "ColumnEvidence": {
+        "additionalProperties": false,
+        "description": "Input physical/metadata evidence for a single table column.",
+        "properties": {
+          "column_name": {
+            "title": "Column Name",
+            "type": "string"
+          },
+          "data_type": {
+            "title": "Data Type",
+            "type": "string"
+          },
+          "distinct_count_est": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distinct Count Est"
+          },
+          "fk_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fk Ref"
+          },
+          "is_pk": {
+            "default": false,
+            "title": "Is Pk",
+            "type": "boolean"
+          },
+          "null_ratio": {
+            "default": 0.0,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Null Ratio",
+            "type": "number"
+          },
+          "nullable": {
+            "default": true,
+            "title": "Nullable",
+            "type": "boolean"
+          },
+          "pii_tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pii Tags",
+            "type": "array"
+          },
+          "pk_ord": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pk Ord"
+          },
+          "precomputed_shape": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ColumnShapeStats"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sample_values": {
+            "items": {},
+            "maxItems": 200,
+            "title": "Sample Values",
+            "type": "array"
+          },
+          "steward_note": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steward Note"
+          }
+        },
+        "required": [
+          "column_name",
+          "data_type"
+        ],
+        "title": "ColumnEvidence",
+        "type": "object"
+      },
+      "ColumnGroundingResult": {
+        "additionalProperties": false,
+        "description": "Final grounding outcome and diagnostics for a single column.",
+        "properties": {
+          "best_rejected_candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CandidateMapping"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateMapping"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "column_name": {
+            "title": "Column Name",
+            "type": "string"
+          },
+          "execution_mode_used": {
+            "enum": [
+              "symbolic_fast_path",
+              "agentic_reranked",
+              "symbolic_only",
+              "deterministic_only"
+            ],
+            "title": "Execution Mode Used",
+            "type": "string"
+          },
+          "grounding_receipt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grounding Receipt Id"
+          },
+          "inferred_value_profile": {
+            "$ref": "#/components/schemas/InferredValueProfile"
+          },
+          "no_match_category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "out_of_vocabulary_domain",
+                  "technical_surrogate",
+                  "system_audit_metadata",
+                  "insufficient_evidence",
+                  "below_threshold"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Match Category"
+          },
+          "no_match_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Match Detail"
+          },
+          "no_match_probability": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "No Match Probability",
+            "type": "number"
+          },
+          "review_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "competing_candidates",
+                  "wide_confidence_interval",
+                  "elevated_null_probability",
+                  "unverified_masked_values",
+                  "close_match_nuance"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Reason"
+          },
+          "selection_rule_applied": {
+            "title": "Selection Rule Applied",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "MATCHED",
+              "AMBIGUOUS",
+              "NO_MATCH"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "steward_summary": {
+            "title": "Steward Summary",
+            "type": "string"
+          },
+          "suggested_broad_parent_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Broad Parent Uri"
+          },
+          "table_name": {
+            "title": "Table Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "table_name",
+          "column_name",
+          "status",
+          "no_match_probability",
+          "steward_summary",
+          "inferred_value_profile",
+          "execution_mode_used",
+          "selection_rule_applied"
+        ],
+        "title": "ColumnGroundingResult",
+        "type": "object"
+      },
+      "ColumnPair": {
+        "additionalProperties": false,
+        "description": "Detected multi-column semantic relationship within a table.",
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "amount_currency",
+              "effective_interval",
+              "composite_key",
+              "alternative_keys"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "columns"
+        ],
+        "title": "ColumnPair",
+        "type": "object"
+      },
       "ColumnProfile": {
         "additionalProperties": false,
         "description": "Physical column profile in Graph B (up to 5 masked sample values).",
@@ -2346,6 +2746,17 @@
             "title": "Sample Values",
             "type": "array"
           },
+          "shape_stats": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ColumnShapeStats"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pre-masking column value shape, pattern, and sentinel summary."
+          },
           "sql_type": {
             "description": "Source SQL data type string.",
             "title": "Sql Type",
@@ -2377,6 +2788,128 @@
           "distinct_count_est"
         ],
         "title": "ColumnProfile",
+        "type": "object"
+      },
+      "ColumnShapeStats": {
+        "additionalProperties": false,
+        "description": "Pre-masking column value shape, pattern, and sentinel summary.",
+        "properties": {
+          "detected_sentinels": {
+            "items": {
+              "enum": [
+                "",
+                "N/A",
+                "NA",
+                "NONE",
+                "NULL",
+                "UNKNOWN",
+                "TBD",
+                "-1",
+                "-2"
+              ],
+              "type": "string"
+            },
+            "title": "Detected Sentinels",
+            "type": "array"
+          },
+          "distinct_ratio": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Distinct Ratio",
+            "type": "number"
+          },
+          "length_max": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length Max"
+          },
+          "length_min": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length Min"
+          },
+          "looks_like_enum": {
+            "default": false,
+            "title": "Looks Like Enum",
+            "type": "boolean"
+          },
+          "numeric_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Max"
+          },
+          "numeric_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Min"
+          },
+          "observed_enum_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Observed Enum Values",
+            "type": "array"
+          },
+          "pii_suppressed": {
+            "default": false,
+            "title": "Pii Suppressed",
+            "type": "boolean"
+          },
+          "profiled_non_null_count": {
+            "minimum": 0.0,
+            "title": "Profiled Non Null Count",
+            "type": "integer"
+          },
+          "structural_patterns": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Structural Patterns",
+            "type": "object"
+          },
+          "surrogate_kind": {
+            "default": "none",
+            "enum": [
+              "none",
+              "monotonic_int",
+              "random_uuid_v4",
+              "prefixed_operational_id"
+            ],
+            "title": "Surrogate Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profiled_non_null_count",
+          "distinct_ratio"
+        ],
+        "title": "ColumnShapeStats",
         "type": "object"
       },
       "ColumnTriageEntry": {
@@ -2508,6 +3041,18 @@
             "description": "Informational SQL type hint from profiling.",
             "title": "Sql Type Hint",
             "type": "string"
+          },
+          "standard_property_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional external standard property URI (e.g. FIBO).",
+            "title": "Standard Property Uri"
           }
         },
         "required": [
@@ -2602,6 +3147,18 @@
             "description": "Informational SQL type hint from profiling.",
             "title": "Sql Type Hint",
             "type": "string"
+          },
+          "standard_property_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional external standard property URI (e.g. FIBO).",
+            "title": "Standard Property Uri"
           }
         },
         "required": [
@@ -2714,6 +3271,45 @@
           "col_name"
         ],
         "title": "ConceptTableBinding",
+        "type": "object"
+      },
+      "ConfidenceInterval": {
+        "additionalProperties": false,
+        "description": "Calibrated point probability and Logit-Normal confidence interval.",
+        "properties": {
+          "calibration_mode": {
+            "enum": [
+              "analytic_logit_normal",
+              "empirical_calibrated"
+            ],
+            "title": "Calibration Mode",
+            "type": "string"
+          },
+          "level": {
+            "title": "Level",
+            "type": "number"
+          },
+          "lower": {
+            "title": "Lower",
+            "type": "number"
+          },
+          "point": {
+            "title": "Point",
+            "type": "number"
+          },
+          "upper": {
+            "title": "Upper",
+            "type": "number"
+          }
+        },
+        "required": [
+          "point",
+          "lower",
+          "upper",
+          "level",
+          "calibration_mode"
+        ],
+        "title": "ConfidenceInterval",
         "type": "object"
       },
       "ConnectorAdapterSpec": {
@@ -3840,6 +4436,36 @@
         "title": "ErrorRemediation",
         "type": "object"
       },
+      "EvidenceContribution": {
+        "additionalProperties": false,
+        "description": "Per-modality evidence contribution for candidate explainability.",
+        "properties": {
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "weight": {
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "channel",
+          "score",
+          "weight",
+          "detail"
+        ],
+        "title": "EvidenceContribution",
+        "type": "object"
+      },
       "EvidenceGroundingApproval": {
         "additionalProperties": false,
         "description": "Explicit evidence grounding approval tying a concept to formatted source_refs.",
@@ -3963,6 +4589,18 @@
             "description": "Quantized alignment confidence [0, 1].",
             "title": "Confidence"
           },
+          "grounding_receipt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional server-minted GroundingReceipt identifier.",
+            "title": "Grounding Receipt Id"
+          },
           "mapping_type": {
             "description": "SKOS alignment strength.",
             "enum": [
@@ -4006,6 +4644,18 @@
             "description": "Quantized alignment confidence [0, 1].",
             "title": "Confidence",
             "type": "string"
+          },
+          "grounding_receipt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional server-minted GroundingReceipt identifier.",
+            "title": "Grounding Receipt Id"
           },
           "mapping_type": {
             "description": "SKOS alignment strength.",
@@ -4365,7 +5015,7 @@
           "relationships": {
             "description": "Canonical Unit-of-Work relationships.",
             "items": {
-              "$ref": "#/components/schemas/OntologyRelationship"
+              "$ref": "#/components/schemas/OntologyRelationship-Output"
             },
             "title": "Relationships",
             "type": "array"
@@ -4376,6 +5026,168 @@
           "domain_namespace"
         ],
         "title": "GraphAOntology",
+        "type": "object"
+      },
+      "GroundingPolicy": {
+        "additionalProperties": false,
+        "description": "Execution policy controlling agentic reranking, calibration CI, and selection.",
+        "properties": {
+          "ci_level": {
+            "default": 0.9,
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Ci Level",
+            "type": "number"
+          },
+          "cumulative_mass_target": {
+            "default": 0.9,
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Cumulative Mass Target",
+            "type": "number"
+          },
+          "enable_table_context": {
+            "default": true,
+            "title": "Enable Table Context",
+            "type": "boolean"
+          },
+          "max_choices": {
+            "default": 3,
+            "minimum": 1.0,
+            "title": "Max Choices",
+            "type": "integer"
+          },
+          "mode": {
+            "default": "agentic",
+            "enum": [
+              "agentic",
+              "deterministic_only"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "no_match_threshold": {
+            "default": 0.65,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "No Match Threshold",
+            "type": "number"
+          },
+          "skip_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip Reason"
+          }
+        },
+        "title": "GroundingPolicy",
+        "type": "object"
+      },
+      "GroundingRequest": {
+        "additionalProperties": false,
+        "description": "Bounded batch request for synchronous/orchestrated column grounding.",
+        "properties": {
+          "global_steward_notes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Global Steward Notes",
+            "type": "array"
+          },
+          "max_columns": {
+            "default": 500,
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Max Columns",
+            "type": "integer"
+          },
+          "max_tables": {
+            "default": 50,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Max Tables",
+            "type": "integer"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/GroundingPolicy"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/TableEvidence"
+            },
+            "title": "Tables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tables"
+        ],
+        "title": "GroundingRequest",
+        "type": "object"
+      },
+      "GroundingResponse": {
+        "additionalProperties": false,
+        "description": "Top-level response returned by the column grounding engine/service.",
+        "properties": {
+          "engine_version": {
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "knowledge_source_id": {
+            "title": "Knowledge Source Id",
+            "type": "string"
+          },
+          "knowledge_source_sha256": {
+            "title": "Knowledge Source Sha256",
+            "type": "string"
+          },
+          "knowledge_source_version": {
+            "title": "Knowledge Source Version",
+            "type": "string"
+          },
+          "mode_used": {
+            "enum": [
+              "symbolic_fast_path",
+              "agentic_reranked",
+              "symbolic_only",
+              "deterministic_only"
+            ],
+            "title": "Mode Used",
+            "type": "string"
+          },
+          "skip_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip Reason"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/TableGroundingResult"
+            },
+            "title": "Tables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "knowledge_source_id",
+          "knowledge_source_version",
+          "knowledge_source_sha256",
+          "engine_version",
+          "mode_used"
+        ],
+        "title": "GroundingResponse",
         "type": "object"
       },
       "GroundingWaiverMixin": {
@@ -5262,6 +6074,112 @@
           "audit_claim_notice"
         ],
         "title": "ImportReadinessReport",
+        "type": "object"
+      },
+      "InferredValueProfile": {
+        "additionalProperties": false,
+        "description": "Inferred logical type, counts, PII flags, and shape stats for a column.",
+        "properties": {
+          "declared_logical_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "FIXED_BINARY_32",
+                  "UTF8_STRING",
+                  "INT32",
+                  "INT64",
+                  "DATE32",
+                  "TIMESTAMP_UTC_US",
+                  "BOOLEAN",
+                  "JSON_DOCUMENT"
+                ],
+                "type": "string"
+              },
+              {
+                "$ref": "#/components/schemas/DecimalType"
+              },
+              {
+                "$ref": "#/components/schemas/ArrayType-Output"
+              },
+              {
+                "$ref": "#/components/schemas/MapType-Output"
+              }
+            ],
+            "title": "Declared Logical Type"
+          },
+          "inferred_logical_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "FIXED_BINARY_32",
+                  "UTF8_STRING",
+                  "INT32",
+                  "INT64",
+                  "DATE32",
+                  "TIMESTAMP_UTC_US",
+                  "BOOLEAN",
+                  "JSON_DOCUMENT"
+                ],
+                "type": "string"
+              },
+              {
+                "$ref": "#/components/schemas/DecimalType"
+              },
+              {
+                "$ref": "#/components/schemas/ArrayType-Output"
+              },
+              {
+                "$ref": "#/components/schemas/MapType-Output"
+              },
+              {
+                "const": "unknown",
+                "type": "string"
+              }
+            ],
+            "title": "Inferred Logical Type"
+          },
+          "masked_count": {
+            "minimum": 0.0,
+            "title": "Masked Count",
+            "type": "integer"
+          },
+          "non_null_count": {
+            "minimum": 0.0,
+            "title": "Non Null Count",
+            "type": "integer"
+          },
+          "observed_sample_count": {
+            "minimum": 0.0,
+            "title": "Observed Sample Count",
+            "type": "integer"
+          },
+          "pii_tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pii Tags",
+            "type": "array"
+          },
+          "shape": {
+            "$ref": "#/components/schemas/ColumnShapeStats"
+          },
+          "type_confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Type Confidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "observed_sample_count",
+          "non_null_count",
+          "masked_count",
+          "declared_logical_type",
+          "inferred_logical_type",
+          "type_confidence",
+          "shape"
+        ],
+        "title": "InferredValueProfile",
         "type": "object"
       },
       "KeyAuthorityPattern": {
@@ -6162,7 +7080,7 @@
                       "AddExternalMapping": "#/components/schemas/AddExternalMapping-Input",
                       "AddKeyAuthorityPattern": "#/components/schemas/AddKeyAuthorityPattern",
                       "AddMcpEvidence": "#/components/schemas/AddMcpEvidence",
-                      "AddRelationship": "#/components/schemas/AddRelationship",
+                      "AddRelationship": "#/components/schemas/AddRelationship-Input",
                       "AddSourceCitation": "#/components/schemas/AddSourceCitation",
                       "AddSynonym": "#/components/schemas/AddSynonym",
                       "AddTableBinding": "#/components/schemas/AddTableBinding",
@@ -6188,7 +7106,9 @@
                       "SetConceptKeyAuthority": "#/components/schemas/SetConceptKeyAuthority",
                       "SetDescription": "#/components/schemas/SetDescription",
                       "SetParentConcept": "#/components/schemas/SetParentConcept",
-                      "UpdateAttributeMetadata": "#/components/schemas/UpdateAttributeMetadata-Input"
+                      "UpdateAttributeMetadata": "#/components/schemas/UpdateAttributeMetadata-Input",
+                      "UpdateEnumerationMetadata": "#/components/schemas/UpdateEnumerationMetadata",
+                      "UpdateRelationshipMetadata": "#/components/schemas/UpdateRelationshipMetadata"
                     },
                     "propertyName": "op_type"
                   },
@@ -6200,7 +7120,7 @@
                       "$ref": "#/components/schemas/AddAttribute-Input"
                     },
                     {
-                      "$ref": "#/components/schemas/AddRelationship"
+                      "$ref": "#/components/schemas/AddRelationship-Input"
                     },
                     {
                       "$ref": "#/components/schemas/AddEnumeration"
@@ -6291,6 +7211,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/RemoveKeyAuthorityPattern"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UpdateRelationshipMetadata"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UpdateEnumerationMetadata"
                     },
                     {
                       "$ref": "#/components/schemas/RescoreExternalMapping-Input"
@@ -6397,6 +7323,18 @@
             "title": "Enumeration Name",
             "type": "string"
           },
+          "standard_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional external standard enumeration URI.",
+            "title": "Standard Uri"
+          },
           "target_reference_table": {
             "description": "Target Zone Z0 reference table name (ref_*).",
             "title": "Target Reference Table",
@@ -6411,6 +7349,76 @@
           "description"
         ],
         "title": "OntologyEnumeration",
+        "type": "object"
+      },
+      "OntologyGroundReq": {
+        "additionalProperties": false,
+        "description": "Top-level API/CLI request for standalone or project-backed ontology grounding.",
+        "properties": {
+          "fibo_pack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fibo Pack"
+          },
+          "glossary_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Glossary Path"
+          },
+          "knowledge_source": {
+            "default": "fibo",
+            "enum": [
+              "fibo",
+              "glossary"
+            ],
+            "title": "Knowledge Source",
+            "type": "string"
+          },
+          "policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroundingPolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroundingRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "OntologyGroundReq",
         "type": "object"
       },
       "OntologyProposalSpec": {
@@ -6428,7 +7436,7 @@
                   "AddExternalMapping": "#/components/schemas/AddExternalMapping-Output",
                   "AddKeyAuthorityPattern": "#/components/schemas/AddKeyAuthorityPattern",
                   "AddMcpEvidence": "#/components/schemas/AddMcpEvidence",
-                  "AddRelationship": "#/components/schemas/AddRelationship",
+                  "AddRelationship": "#/components/schemas/AddRelationship-Output",
                   "AddSourceCitation": "#/components/schemas/AddSourceCitation",
                   "AddSynonym": "#/components/schemas/AddSynonym",
                   "AddTableBinding": "#/components/schemas/AddTableBinding",
@@ -6454,7 +7462,9 @@
                   "SetConceptKeyAuthority": "#/components/schemas/SetConceptKeyAuthority",
                   "SetDescription": "#/components/schemas/SetDescription",
                   "SetParentConcept": "#/components/schemas/SetParentConcept",
-                  "UpdateAttributeMetadata": "#/components/schemas/UpdateAttributeMetadata-Output"
+                  "UpdateAttributeMetadata": "#/components/schemas/UpdateAttributeMetadata-Output",
+                  "UpdateEnumerationMetadata": "#/components/schemas/UpdateEnumerationMetadata",
+                  "UpdateRelationshipMetadata": "#/components/schemas/UpdateRelationshipMetadata"
                 },
                 "propertyName": "op_type"
               },
@@ -6466,7 +7476,7 @@
                   "$ref": "#/components/schemas/AddAttribute-Output"
                 },
                 {
-                  "$ref": "#/components/schemas/AddRelationship"
+                  "$ref": "#/components/schemas/AddRelationship-Output"
                 },
                 {
                   "$ref": "#/components/schemas/AddEnumeration"
@@ -6559,6 +7569,12 @@
                   "$ref": "#/components/schemas/RemoveKeyAuthorityPattern"
                 },
                 {
+                  "$ref": "#/components/schemas/UpdateRelationshipMetadata"
+                },
+                {
+                  "$ref": "#/components/schemas/UpdateEnumerationMetadata"
+                },
+                {
                   "$ref": "#/components/schemas/RescoreExternalMapping-Output"
                 }
               ]
@@ -6599,7 +7615,7 @@
         "title": "OntologyProposalSpec",
         "type": "object"
       },
-      "OntologyRelationship": {
+      "OntologyRelationship-Input": {
         "additionalProperties": false,
         "description": "Canonical Unit-of-Work relationship between concepts in GraphAOntology.",
         "properties": {
@@ -6624,6 +7640,26 @@
             "title": "Grain Semantics",
             "type": "string"
           },
+          "link_attributes": {
+            "description": "Optional junction/transactional link payload attributes.",
+            "items": {
+              "$ref": "#/components/schemas/ConceptAttribute-Input"
+            },
+            "title": "Link Attributes",
+            "type": "array"
+          },
+          "played_by_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional entity class URI playing this role.",
+            "title": "Played By Uri"
+          },
           "relationship_name": {
             "description": "Human-readable relationship name.",
             "minLength": 1,
@@ -6636,10 +7672,240 @@
             "title": "Relationship Uri",
             "type": "string"
           },
+          "role_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional standard role class URI.",
+            "title": "Role Uri"
+          },
+          "source_anchor_col_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Origin anchor column name when distinct from FK.",
+            "title": "Source Anchor Col Name"
+          },
+          "source_col_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Origin source column name.",
+            "title": "Source Col Name"
+          },
           "source_concept_uri": {
             "description": "Origin concept URI.",
             "title": "Source Concept Uri",
             "type": "string"
+          },
+          "source_table_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source table identifier.",
+            "title": "Source Table Id"
+          },
+          "standard_property_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional external standard property URI.",
+            "title": "Standard Property Uri"
+          },
+          "target_col_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target source column name.",
+            "title": "Target Col Name"
+          },
+          "target_concept_uri": {
+            "description": "Target concept URI.",
+            "title": "Target Concept Uri",
+            "type": "string"
+          },
+          "target_link": {
+            "description": "Intended Zone Z2 Link entity name (lnk_*).",
+            "title": "Target Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "relationship_uri",
+          "relationship_name",
+          "source_concept_uri",
+          "target_concept_uri",
+          "cardinality",
+          "target_link",
+          "grain_semantics",
+          "description"
+        ],
+        "title": "OntologyRelationship",
+        "type": "object"
+      },
+      "OntologyRelationship-Output": {
+        "additionalProperties": false,
+        "description": "Canonical Unit-of-Work relationship between concepts in GraphAOntology.",
+        "properties": {
+          "cardinality": {
+            "description": "Structural relationship cardinality.",
+            "enum": [
+              "ONE_TO_ONE",
+              "ONE_TO_MANY",
+              "MANY_TO_ONE",
+              "MANY_TO_MANY"
+            ],
+            "title": "Cardinality",
+            "type": "string"
+          },
+          "description": {
+            "description": "Business meaning of the relationship.",
+            "title": "Description",
+            "type": "string"
+          },
+          "grain_semantics": {
+            "description": "Unit-of-Work grain definition for the relationship.",
+            "title": "Grain Semantics",
+            "type": "string"
+          },
+          "link_attributes": {
+            "description": "Optional junction/transactional link payload attributes.",
+            "items": {
+              "$ref": "#/components/schemas/ConceptAttribute-Output"
+            },
+            "title": "Link Attributes",
+            "type": "array"
+          },
+          "played_by_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional entity class URI playing this role.",
+            "title": "Played By Uri"
+          },
+          "relationship_name": {
+            "description": "Human-readable relationship name.",
+            "minLength": 1,
+            "title": "Relationship Name",
+            "type": "string"
+          },
+          "relationship_uri": {
+            "description": "Unique canonical relationship URI.",
+            "minLength": 1,
+            "title": "Relationship Uri",
+            "type": "string"
+          },
+          "role_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional standard role class URI.",
+            "title": "Role Uri"
+          },
+          "source_anchor_col_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Origin anchor column name when distinct from FK.",
+            "title": "Source Anchor Col Name"
+          },
+          "source_col_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Origin source column name.",
+            "title": "Source Col Name"
+          },
+          "source_concept_uri": {
+            "description": "Origin concept URI.",
+            "title": "Source Concept Uri",
+            "type": "string"
+          },
+          "source_table_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source table identifier.",
+            "title": "Source Table Id"
+          },
+          "standard_property_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional external standard property URI.",
+            "title": "Standard Property Uri"
+          },
+          "target_col_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target source column name.",
+            "title": "Target Col Name"
           },
           "target_concept_uri": {
             "description": "Target concept URI.",
@@ -6723,7 +7989,7 @@
                       "AddExternalMapping": "#/components/schemas/AddExternalMapping-Input",
                       "AddKeyAuthorityPattern": "#/components/schemas/AddKeyAuthorityPattern",
                       "AddMcpEvidence": "#/components/schemas/AddMcpEvidence",
-                      "AddRelationship": "#/components/schemas/AddRelationship",
+                      "AddRelationship": "#/components/schemas/AddRelationship-Input",
                       "AddSourceCitation": "#/components/schemas/AddSourceCitation",
                       "AddSynonym": "#/components/schemas/AddSynonym",
                       "AddTableBinding": "#/components/schemas/AddTableBinding",
@@ -6749,7 +8015,9 @@
                       "SetConceptKeyAuthority": "#/components/schemas/SetConceptKeyAuthority",
                       "SetDescription": "#/components/schemas/SetDescription",
                       "SetParentConcept": "#/components/schemas/SetParentConcept",
-                      "UpdateAttributeMetadata": "#/components/schemas/UpdateAttributeMetadata-Input"
+                      "UpdateAttributeMetadata": "#/components/schemas/UpdateAttributeMetadata-Input",
+                      "UpdateEnumerationMetadata": "#/components/schemas/UpdateEnumerationMetadata",
+                      "UpdateRelationshipMetadata": "#/components/schemas/UpdateRelationshipMetadata"
                     },
                     "propertyName": "op_type"
                   },
@@ -6761,7 +8029,7 @@
                       "$ref": "#/components/schemas/AddAttribute-Input"
                     },
                     {
-                      "$ref": "#/components/schemas/AddRelationship"
+                      "$ref": "#/components/schemas/AddRelationship-Input"
                     },
                     {
                       "$ref": "#/components/schemas/AddEnumeration"
@@ -6852,6 +8120,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/RemoveKeyAuthorityPattern"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UpdateRelationshipMetadata"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UpdateEnumerationMetadata"
                     },
                     {
                       "$ref": "#/components/schemas/RescoreExternalMapping-Input"
@@ -8716,6 +9990,17 @@
             "title": "Concept Uri",
             "type": "string"
           },
+          "grounding_receipt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grounding Receipt Id"
+          },
           "mapping_type": {
             "default": "skos:exactMatch",
             "enum": [
@@ -8754,6 +10039,17 @@
           "reference_pack_sha256": {
             "title": "Reference Pack Sha256",
             "type": "string"
+          },
+          "replaced_standard_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replaced Standard Uri"
           },
           "standard_uri": {
             "title": "Standard Uri",
@@ -9483,6 +10779,129 @@
           }
         },
         "title": "SeedRecordsSpec",
+        "type": "object"
+      },
+      "SemanticContext": {
+        "additionalProperties": false,
+        "description": "Semantic role, domain/target entity, identifier scope, and PII hints.",
+        "properties": {
+          "archetype": {
+            "anyOf": [
+              {
+                "enum": [
+                  "identifier",
+                  "code_classifier",
+                  "temporal",
+                  "quantity_measure",
+                  "value_object",
+                  "party_role",
+                  "event_occurrence",
+                  "agreement",
+                  "entity"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archetype"
+          },
+          "domain_entity_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain Entity Uri"
+          },
+          "identified_entity_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identified Entity Uri"
+          },
+          "identifier_scope": {
+            "anyOf": [
+              {
+                "enum": [
+                  "global_standard",
+                  "enterprise_sor",
+                  "local_source"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identifier Scope"
+          },
+          "pii_category_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pii Category Hint"
+          },
+          "played_by_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Played By Uri"
+          },
+          "role_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Uri"
+          },
+          "standard_authority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Authority"
+          },
+          "target_entity_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Entity Uri"
+          }
+        },
+        "title": "SemanticContext",
         "type": "object"
       },
       "SetConceptGovernanceTags": {
@@ -10390,6 +11809,194 @@
         "title": "StorageTargetReq",
         "type": "object"
       },
+      "TableAnchorCandidate": {
+        "additionalProperties": false,
+        "description": "Inferred table-level anchor concept hypothesis.",
+        "properties": {
+          "archetype": {
+            "enum": [
+              "identifier",
+              "code_classifier",
+              "temporal",
+              "quantity_measure",
+              "value_object",
+              "party_role",
+              "event_occurrence",
+              "agreement",
+              "entity"
+            ],
+            "title": "Archetype",
+            "type": "string"
+          },
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "entry_id": {
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "grounding_receipt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grounding Receipt Id"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "origin_kind": {
+            "enum": [
+              "project_graph_a",
+              "reference_standard"
+            ],
+            "title": "Origin Kind",
+            "type": "string"
+          },
+          "replaces_uris": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Replaces Uris",
+            "type": "array"
+          },
+          "suggested_predicate": {
+            "enum": [
+              "skos:exactMatch",
+              "skos:closeMatch",
+              "skos:relatedMatch"
+            ],
+            "title": "Suggested Predicate",
+            "type": "string"
+          },
+          "supporting_columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Supporting Columns",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entry_id",
+          "label",
+          "archetype",
+          "origin_kind",
+          "confidence",
+          "suggested_predicate"
+        ],
+        "title": "TableAnchorCandidate",
+        "type": "object"
+      },
+      "TableEvidence": {
+        "additionalProperties": false,
+        "description": "Input evidence bundle for a physical or logical table.",
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnEvidence"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "row_count_est": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Count Est"
+          },
+          "steward_notes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Steward Notes",
+            "type": "array"
+          },
+          "table_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table Id"
+          },
+          "table_name": {
+            "title": "Table Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "table_name",
+          "columns"
+        ],
+        "title": "TableEvidence",
+        "type": "object"
+      },
+      "TableGroundingResult": {
+        "additionalProperties": false,
+        "description": "Grounding outputs for a single table.",
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnGroundingResult"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "inferred_table_anchors": {
+            "items": {
+              "$ref": "#/components/schemas/TableAnchorCandidate"
+            },
+            "title": "Inferred Table Anchors",
+            "type": "array"
+          },
+          "paired_columns": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnPair"
+            },
+            "title": "Paired Columns",
+            "type": "array"
+          },
+          "table_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table Id"
+          },
+          "table_name": {
+            "title": "Table Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "table_name"
+        ],
+        "title": "TableGroundingResult",
+        "type": "object"
+      },
       "TableIndexEntry": {
         "additionalProperties": false,
         "description": "MinHash-clustered table index entry exposed in Step 3a.",
@@ -10862,6 +12469,17 @@
               }
             ],
             "title": "Sql Type Hint"
+          },
+          "standard_property_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Property Uri"
           }
         },
         "required": [
@@ -11001,6 +12619,17 @@
               }
             ],
             "title": "Sql Type Hint"
+          },
+          "standard_property_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Property Uri"
           }
         },
         "required": [
@@ -11008,6 +12637,124 @@
           "attribute_name"
         ],
         "title": "UpdateAttributeMetadata",
+        "type": "object"
+      },
+      "UpdateEnumerationMetadata": {
+        "additionalProperties": false,
+        "description": "Update non-breaking reference standard_uri metadata on an OntologyEnumeration.",
+        "properties": {
+          "enum_uri": {
+            "title": "Enum Uri",
+            "type": "string"
+          },
+          "op_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Op Id"
+          },
+          "op_type": {
+            "const": "UpdateEnumerationMetadata",
+            "default": "UpdateEnumerationMetadata",
+            "title": "Op Type",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "standard_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Uri"
+          }
+        },
+        "required": [
+          "enum_uri"
+        ],
+        "title": "UpdateEnumerationMetadata",
+        "type": "object"
+      },
+      "UpdateRelationshipMetadata": {
+        "additionalProperties": false,
+        "description": "Update non-breaking reference URI/role metadata on an OntologyRelationship.",
+        "properties": {
+          "op_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Op Id"
+          },
+          "op_type": {
+            "const": "UpdateRelationshipMetadata",
+            "default": "UpdateRelationshipMetadata",
+            "title": "Op Type",
+            "type": "string"
+          },
+          "played_by_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Played By Uri"
+          },
+          "rationale": {
+            "default": "",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "relationship_uri": {
+            "title": "Relationship Uri",
+            "type": "string"
+          },
+          "role_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Uri"
+          },
+          "standard_property_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Property Uri"
+          }
+        },
+        "required": [
+          "relationship_uri"
+        ],
+        "title": "UpdateRelationshipMetadata",
         "type": "object"
       },
       "ValidationBumpSpec": {
@@ -11795,6 +13542,44 @@
           }
         },
         "summary": "Fibo Qa"
+      }
+    },
+    "/api/v1/ontology/ground": {
+      "post": {
+        "operationId": "ground_ontology_api_v1_ontology_ground_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OntologyGroundReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroundingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ground Ontology"
       }
     },
     "/api/v1/projects": {

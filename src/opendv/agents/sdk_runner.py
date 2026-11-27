@@ -21,6 +21,9 @@ from opendv.agents.cli_subprocess_base import (
     redact_telemetry_text,
     validate_cli_structured_output,
 )
+from opendv.agents.cli_subprocess_base import (
+    extract_tool_use_input as _extract_tool_use_input,
+)
 from opendv.agents.ports import (
     AgentHarnessPort,
     AgentTurnRequest,
@@ -110,6 +113,7 @@ async def close_sdk_client(client: Any, *, used_aio: bool = False) -> None:
 _COORD_TOOL_NAMES: tuple[str, ...] = (
     "search_concepts",
     "search_fibo",
+    "ground_columns",
     "propose_ontology_delta",
     "ask_domain_clarification",
     "dispatch_scout",
@@ -240,39 +244,36 @@ _build_sdk_client = build_sdk_client
 def _extract_sdk_text_and_usage(response: Any) -> tuple[str, int, int, int, list[dict[str, Any]]]:
     if isinstance(response, dict):
         text_val = str(response.get("text") or response.get("output_text") or "")
-        raw_usage = response.get("usage")
-        usage: dict[str, Any] = raw_usage if isinstance(raw_usage, dict) else {}
-        in_t = int(usage.get("input_tokens") or usage.get("prompt_token_count") or 0)
-        out_t = int(usage.get("output_tokens") or usage.get("candidates_token_count") or 0)
-        tot_t = int(usage.get("total_tokens") or usage.get("total_token_count") or (in_t + out_t))
-        scout_calls = list(response.get("scout_calls") or [])
-        return text_val, in_t, out_t, tot_t, scout_calls
+        if not text_val and isinstance(response.get("content"), list):
+            text_val = "".join(
+                str(b.get("text", ""))
+                for b in response["content"]
+                if isinstance(b, dict) and b.get("text")
+            )
+        if not text_val and (ti := _extract_tool_use_input(response)) is not None:
+            text_val = ti if isinstance(ti, str) else json.dumps(ti, separators=(",", ":"))
+        u = response["usage"] if isinstance(response.get("usage"), dict) else {}
+        in_t = int(u.get("input_tokens") or u.get("prompt_token_count") or 0)
+        out_t = int(u.get("output_tokens") or u.get("candidates_token_count") or 0)
+        tot_t = int(u.get("total_tokens") or u.get("total_token_count") or (in_t + out_t))
+        return text_val, in_t, out_t, tot_t, list(response.get("scout_calls") or [])
 
-    text_out = ""
     raw_text = getattr(response, "text", None)
     if isinstance(raw_text, str):
         text_out = raw_text
+    elif isinstance((content := getattr(response, "content", None)), list):
+        text_out = "".join(str(getattr(b, "text", "")) for b in content if getattr(b, "text", None))
     else:
-        content = getattr(response, "content", None)
-        if isinstance(content, list):
-            parts = [str(getattr(blk, "text", "")) for blk in content if getattr(blk, "text", None)]
-            text_out = "".join(parts)
-
-    usage_obj = getattr(response, "usage", None) or getattr(response, "usage_metadata", None)
-    in_t = int(
-        getattr(usage_obj, "input_tokens", 0)
-        or getattr(usage_obj, "prompt_token_count", 0)
-        or 0
-    )
+        text_out = ""
+    if not text_out and (ti := _extract_tool_use_input(response)) is not None:
+        text_out = ti if isinstance(ti, str) else json.dumps(ti, separators=(",", ":"))
+    uobj = getattr(response, "usage", None) or getattr(response, "usage_metadata", None)
+    in_t = int(getattr(uobj, "input_tokens", 0) or getattr(uobj, "prompt_token_count", 0) or 0)
     out_t = int(
-        getattr(usage_obj, "output_tokens", 0)
-        or getattr(usage_obj, "candidates_token_count", 0)
-        or 0
+        getattr(uobj, "output_tokens", 0) or getattr(uobj, "candidates_token_count", 0) or 0
     )
     tot_t = int(
-        getattr(usage_obj, "total_tokens", 0)
-        or getattr(usage_obj, "total_token_count", 0)
-        or (in_t + out_t)
+        getattr(uobj, "total_tokens", 0) or getattr(uobj, "total_token_count", 0) or (in_t + out_t)
     )
     return text_out, in_t, out_t, tot_t, []
 
@@ -319,6 +320,15 @@ class SdkHarnessRunner(AgentHarnessPort):
             kwargs["system"] = request.system_instructions.strip()
         if tools:
             kwargs["tools"] = tools
+        elif request.output_schema is not None:
+            kwargs["tools"] = [
+                {
+                    "name": "emit_structured_output",
+                    "description": "Emit structured JSON matching the required output schema.",
+                    "input_schema": request.output_schema.model_json_schema(),
+                }
+            ]
+            kwargs["tool_choice"] = {"type": "tool", "name": "emit_structured_output"}
 
         messages_api = getattr(client, "messages", None)
         if messages_api is None:
@@ -514,6 +524,8 @@ class SdkHarnessRunner(AgentHarnessPort):
             raw_structured: Any = None
             if isinstance(raw_resp, dict) and "structured_output" in raw_resp:
                 raw_structured = raw_resp["structured_output"]
+            elif request.output_schema is not None:
+                raw_structured = _extract_tool_use_input(raw_resp)
 
             validated = validate_cli_structured_output(
                 request.output_schema,

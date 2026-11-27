@@ -181,6 +181,7 @@ def export_project_bundle(
 
     mcp_receipts: list[dict[str, Any]] = []
     ocr_receipts: list[dict[str, Any]] = []
+    grounding_receipts: list[dict[str, Any]] = []
     audit_logs: list[dict[str, Any]] = []
     for ev in events:
         kind = str(ev.get("record_kind", ""))
@@ -189,6 +190,8 @@ def export_project_bundle(
             mcp_receipts.append(payload_dict)
         elif kind == "ocr_receipt":
             ocr_receipts.append(payload_dict)
+        elif kind == "grounding_receipt":
+            grounding_receipts.append(payload_dict)
         elif kind == "audit_log":
             audit_logs.append(payload_dict)
 
@@ -210,6 +213,7 @@ def export_project_bundle(
     memory_entries["vault_waivers.json"] = _json_bytes(vault_waivers)
     memory_entries["external_mcp_receipts.jsonl"] = _jsonl_bytes(mcp_receipts)
     memory_entries["ocr_receipts.jsonl"] = _jsonl_bytes(ocr_receipts)
+    memory_entries["grounding_receipts.jsonl"] = _jsonl_bytes(grounding_receipts)
     memory_entries["audit.jsonl"] = _jsonl_bytes(audit_logs)
 
     for r_kind, fname in _REV_ARRAY_FILENAMES.items():

@@ -8,6 +8,7 @@ from typing import Annotated, Any
 import typer
 
 from opendv.cli._client import CliClient
+from opendv.cli._commands_grounding import ontology_fibo_sync, ontology_ground
 from opendv.cli._output import (
     coerce_str_dict,
     format_run_summary,
@@ -48,9 +49,11 @@ ExtraTimeoutOpt = Annotated[int | None, typer.Option("--extra-timeout")]
 # ---- ontology ----
 ontology_app = typer.Typer(
     name="ontology",
-    help="Construct, ask FIBO, validate, commit, and export Graph A ontologies.",
+    help="Ground, construct, ask FIBO, validate, commit, and export Graph A ontologies.",
     no_args_is_help=True,
 )
+ontology_app.command("ground")(ontology_ground)
+ontology_app.command("fibo-sync")(ontology_fibo_sync)
 
 
 @ontology_app.command("construct")
@@ -141,7 +144,7 @@ def ontology_fibo_qa(
     namespace: Annotated[str | None, typer.Option("--namespace")] = None,
     top_k: Annotated[int, typer.Option("--top-k")] = 10,
 ) -> None:
-    """Query vendored FIBO-core reference pack using deterministic `bm25_fibo_v1`."""
+    """Query bundled FIBO Pack v2 classes using deterministic LexicalIndex."""
     run_cli_action(
         ctx,
         lambda c: c.fibo_qa(

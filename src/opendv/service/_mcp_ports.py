@@ -195,7 +195,7 @@ class SettingsStorePort(Protocol):
 
 @runtime_checkable
 class Bm25MatcherPort(Protocol):
-    """Structural Protocol matching M2A Bm25ConceptMatcher.query."""
+    """Structural Protocol matching FiboPackQueryAdapter.query."""
 
     def query(self, req: FiboQueryReq) -> FiboQueryResp:
         """Run symmetric BM25 Ask FIBO query."""

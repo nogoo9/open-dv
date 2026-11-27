@@ -6,43 +6,53 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
+from opendv.grounding.providers.fibo.loader import get_bundled_fibo_pack_sha256
 from opendv.models.ontology import GraphAOntology
 from opendv.models.project import ConceptMemorySpec
 from opendv.models.sources import DocumentMap, SourceProfile
+from opendv.models.vault_ir import map_sql_to_portable_type
 from opendv.models.wire_dtos_discovery import ConceptSummary
 from opendv.service.state_store import ProjectStateManager
 from opendv.service.workflows._project_seeds import discover_workspace_seeds
 from opendv.service.workflows._source_docs import resolve_readable_source_path
 from opendv.sources import DocumentMapBuilder
-from opendv.sources.fibo.loader import CANONICAL_FIBO_CORE_SHA256
 
-_LOGICAL_TYPE_ALIASES: dict[str, Any] = {
-    "STRING": "UTF8_STRING",
-    "TEXT": "UTF8_STRING",
-    "VARCHAR": "UTF8_STRING",
-    "CHAR": "UTF8_STRING",
-    "STR": "UTF8_STRING",
-    "INT": "INT64",
-    "INTEGER": "INT64",
-    "BIGINT": "INT64",
-    "SMALLINT": "INT32",
-    "BOOL": "BOOLEAN",
-    "DATE": "DATE32",
-    "TIMESTAMP": "TIMESTAMP_UTC_US",
-    "DATETIME": "TIMESTAMP_UTC_US",
-    "REAL": {"kind": "DECIMAL", "precision": 18, "scale": 4},
-    "DOUBLE": {"kind": "DECIMAL", "precision": 18, "scale": 4},
-    "FLOAT": {"kind": "DECIMAL", "precision": 18, "scale": 4},
-    "DECIMAL": {"kind": "DECIMAL", "precision": 18, "scale": 4},
-    "NUMERIC": {"kind": "DECIMAL", "precision": 18, "scale": 4},
-    "JSON": "JSON_DOCUMENT",
-}
+_ALLOWED_ATTR_KEYS: frozenset[str] = frozenset(
+    {
+        "name",
+        "logical_type",
+        "sql_type_hint",
+        "nullable",
+        "is_business_key",
+        "is_pii",
+        "pii_category",
+        "enum_uri",
+        "standard_property_uri",
+    }
+)
 
 
 _KEY_TIER_ALIASES: dict[str, str] = {
     "TIER_3_ENTERPRISE_STANDARD": "TIER_3_LOCAL_SCOPED",
     "TIER_2_INDUSTRY_CONSORTIUM": "TIER_2_ENTERPRISE_SOR",
 }
+
+
+def _normalize_attr_dict(raw_attr: dict[str, Any]) -> dict[str, Any]:
+    a = {k: v for k, v in raw_attr.items() if k in _ALLOWED_ATTR_KEYS}
+    if "name" not in a and "attribute_name" in raw_attr:
+        a["name"] = raw_attr["attribute_name"]
+    sql_hint = str(a.get("sql_type_hint") or raw_attr.get("data_type") or "VARCHAR")
+    a["sql_type_hint"] = sql_hint
+    raw_logical = a.get("logical_type") or sql_hint
+    a["logical_type"] = normalize_logical_type(raw_logical)
+    is_bk = bool(a.get("is_business_key", raw_attr.get("is_primary_key", False)))
+    a["is_business_key"] = is_bk
+    a.setdefault("nullable", not is_bk)
+    a.setdefault("is_pii", False)
+    return a
 
 
 def _normalize_relationship_dict(rel: dict[str, Any], *, fallback_desc: str = "") -> dict[str, Any]:
@@ -53,10 +63,16 @@ def _normalize_relationship_dict(rel: dict[str, Any], *, fallback_desc: str = ""
     desc = str(rel.get("description") if rel.get("description") is not None else fallback_desc)
     slug = "".join(ch if ch.isalnum() else "_" for ch in name.lower()).strip("_") or "rel"
     target_link = str(rel.get("target_link") or f"lnk_{slug}")
-    if not target_link.startswith(("lnk_", "t_lnk_", "sal_")):
+    if not target_link.startswith(("lnk_", "t_lnk_", "sal_", "hal_")):
         target_link = f"lnk_{target_link}"
     grain = str(rel.get("grain_semantics") or desc or "Per source-target link grain")
-    return {
+    raw_link_attrs = rel.get("link_attributes")
+    link_attrs = (
+        [_normalize_attr_dict(a) for a in raw_link_attrs if isinstance(a, dict)]
+        if isinstance(raw_link_attrs, list)
+        else []
+    )
+    out: dict[str, Any] = {
         "relationship_uri": uri,
         "relationship_name": name,
         "source_concept_uri": src_uri,
@@ -65,15 +81,27 @@ def _normalize_relationship_dict(rel: dict[str, Any], *, fallback_desc: str = ""
         "target_link": target_link,
         "grain_semantics": grain,
         "description": desc,
+        "link_attributes": link_attrs,
     }
+    for opt_key in (
+        "standard_property_uri",
+        "role_uri",
+        "played_by_uri",
+        "source_table_id",
+        "source_col_name",
+        "target_col_name",
+        "source_anchor_col_name",
+    ):
+        if rel.get(opt_key) is not None:
+            out[opt_key] = rel[opt_key]
+    return out
 
 
 def normalize_logical_type(raw_val: Any) -> Any:
-    """Map common SQL/LLM type shorthands onto PortableLogicalType."""
+    """Map SQL/LLM type shorthands onto PortableLogicalType via precision-safe mapper."""
     if isinstance(raw_val, str):
-        up = raw_val.strip().upper()
-        if up in _LOGICAL_TYPE_ALIASES:
-            return _LOGICAL_TYPE_ALIASES[up]
+        mapped = map_sql_to_portable_type(raw_val)
+        return mapped.model_dump(mode="json") if isinstance(mapped, BaseModel) else mapped
     return raw_val
 
 
@@ -90,62 +118,37 @@ def normalize_step4_raw_op(raw: dict[str, Any]) -> dict[str, Any]:
             if isinstance(item, dict):
                 m = dict(item)
                 m.setdefault("reference_pack_id", "fibo-core")
-                m.setdefault("reference_pack_sha256", CANONICAL_FIBO_CORE_SHA256)
+                m.setdefault("reference_pack_sha256", get_bundled_fibo_pack_sha256())
                 fixed_maps.append(m)
         op["external_mappings"] = fixed_maps
     if isinstance(op.get("mapping"), dict):
         m = dict(op["mapping"])
         m.setdefault("reference_pack_id", "fibo-core")
-        m.setdefault("reference_pack_sha256", CANONICAL_FIBO_CORE_SHA256)
+        m.setdefault("reference_pack_sha256", get_bundled_fibo_pack_sha256())
         op["mapping"] = m
     if isinstance(op.get("attributes"), list):
-        allowed_attr_keys = {
-            "name",
-            "logical_type",
-            "sql_type_hint",
-            "nullable",
-            "is_business_key",
-            "is_pii",
-            "pii_category",
-            "enum_uri",
-        }
-        fixed_attrs = []
-        for item in op["attributes"]:
-            if isinstance(item, dict):
-                a = {k: v for k, v in item.items() if k in allowed_attr_keys}
-                if "name" not in a and "attribute_name" in item:
-                    a["name"] = item["attribute_name"]
-                a["logical_type"] = normalize_logical_type(
-                    a.get("logical_type", "UTF8_STRING")
-                )
-                a.setdefault("sql_type_hint", "VARCHAR")
-                a.setdefault("nullable", True)
-                a.setdefault("is_business_key", False)
-                a.setdefault("is_pii", False)
-                fixed_attrs.append(a)
-        op["attributes"] = fixed_attrs
+        op["attributes"] = [
+            _normalize_attr_dict(item) for item in op["attributes"] if isinstance(item, dict)
+        ]
     if op.get("op_type") == "AddAttribute" and "attribute" not in op:
-        attr_name = op.pop("attribute_name", None) or op.pop("name", None) or "attr"
-        sql_hint = str(op.pop("data_type", None) or op.pop("sql_type_hint", None) or "VARCHAR")
-        is_bk = bool(op.pop("is_primary_key", op.pop("is_business_key", False)))
-        nullable = bool(op.pop("nullable", not is_bk))
-        is_pii = bool(op.pop("is_pii", False))
-        logical = normalize_logical_type(op.pop("logical_type", None) or sql_hint)
+        flat_attr: dict[str, Any] = {
+            "name": str(op.pop("attribute_name", None) or op.pop("name", None) or "attr"),
+            "sql_type_hint": str(
+                op.pop("data_type", None) or op.pop("sql_type_hint", None) or "VARCHAR"
+            ),
+            "is_business_key": bool(op.pop("is_primary_key", op.pop("is_business_key", False))),
+        }
+        for k in (
+            "nullable", "is_pii", "logical_type",
+            "pii_category", "enum_uri", "standard_property_uri",
+        ):
+            if k in op:
+                flat_attr[k] = op.pop(k)
         op.pop("description", None)
         op.pop("table_bindings", None)
-        op["attribute"] = {
-            "name": str(attr_name),
-            "logical_type": logical,
-            "sql_type_hint": sql_hint,
-            "nullable": nullable,
-            "is_business_key": is_bk,
-            "is_pii": is_pii,
-        }
+        op["attribute"] = _normalize_attr_dict(flat_attr)
     elif op.get("op_type") == "AddAttribute" and isinstance(op.get("attribute"), dict):
-        attr_dict = dict(op["attribute"])
-        if "logical_type" in attr_dict:
-            attr_dict["logical_type"] = normalize_logical_type(attr_dict["logical_type"])
-        op["attribute"] = attr_dict
+        op["attribute"] = _normalize_attr_dict(dict(op["attribute"]))
     elif op.get("op_type") == "AddRelationship" and "relationship" not in op:
         rel_fields = {
             k: op.pop(k)
@@ -159,6 +162,14 @@ def normalize_step4_raw_op(raw: dict[str, Any]) -> dict[str, Any]:
                 "cardinality",
                 "target_link",
                 "grain_semantics",
+                "standard_property_uri",
+                "role_uri",
+                "played_by_uri",
+                "source_table_id",
+                "source_col_name",
+                "target_col_name",
+                "source_anchor_col_name",
+                "link_attributes",
             )
             if k in op
         }

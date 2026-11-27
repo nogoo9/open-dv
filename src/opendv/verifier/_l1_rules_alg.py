@@ -32,7 +32,7 @@ _TIER_RANK: dict[KeyTierEnum, int] = {
     "TIER_3_LOCAL_SCOPED": 3,
 }
 _TIER1_HINTS: frozenset[str] = frozenset(
-    {"lei", "lei_code", "isin", "cusip", "figi", "iban", "swift_bic", "bic"}
+    {"lei", "lei_code", "isin", "mic", "figi", "iban", "swift_bic", "bic"}
 )
 _TEMPORAL_PRIORITY: tuple[str, ...] = (
     "applied_dts",

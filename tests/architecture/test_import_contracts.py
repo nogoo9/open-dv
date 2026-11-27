@@ -86,6 +86,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
     "src/opendv/models": (
         True,
         {
+            "opendv.grounding",
             "opendv.sources",
             "opendv.verifier",
             "opendv.storage",
@@ -124,9 +125,66 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
         },
         set(),
     ),
+    "src/opendv/grounding": (
+        True,
+        {
+            "opendv.sources",
+            "opendv.verifier",
+            "opendv.storage",
+            "opendv.agents",
+            "opendv.modeling",
+            "opendv.service",
+            "opendv.api",
+            "opendv.cli",
+            "duckdb",
+            "sqlglot",
+            "sqlite3",
+            "pyarrow",
+            "openpyxl",
+            "pypdf",
+            "pypdfium2",
+            "docx",
+            "pytesseract",
+            "PIL",
+            "databricks",
+            "urllib",
+            "http",
+            "socket",
+            "subprocess",
+            "httpx",
+            "requests",
+            "aiohttp",
+            "anthropic",
+            "google",
+            "fastapi",
+            "starlette",
+            "typer",
+            "mcp",
+            "rdflib",
+            "yaml",
+            "opendv_*",
+        },
+        set(),
+    ),
+    "src/opendv/grounding/kernel": (
+        True,
+        {
+            "opendv.grounding.providers",
+            "opendv.grounding.structured",
+        },
+        set(),
+    ),
+    "src/opendv/grounding/structured": (
+        True,
+        {
+            "opendv.grounding.providers",
+        },
+        set(),
+    ),
     "src/opendv/sources": (
         True,
         {
+            "opendv.sources.fibo",
             "opendv.verifier",
             "opendv.storage",
             "opendv.agents",
@@ -147,6 +205,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
     "src/opendv/verifier": (
         True,
         {
+            "opendv.grounding",
             "opendv.sources",
             "opendv.storage",
             "opendv.agents",
@@ -168,6 +227,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
     "src/opendv/storage": (
         True,
         {
+            "opendv.grounding",
             "opendv.sources",
             "opendv.verifier",
             "opendv.agents",
@@ -187,6 +247,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
     "src/opendv/agents": (
         True,
         {
+            "opendv.grounding",
             "opendv.sources",
             "opendv.storage",
             "opendv.modeling",
@@ -206,6 +267,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
     "src/opendv/modeling": (
         True,
         {
+            "opendv.grounding",
             "opendv.sources",
             "opendv.storage",
             "opendv.agents",
@@ -226,6 +288,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
     "src/opendv/service": (
         True,
         {
+            "opendv.sources.fibo",
             "opendv.api",
             "opendv.cli",
             "fastapi",
@@ -239,6 +302,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
     "src/opendv/api": (
         True,
         {
+            "opendv.grounding",
             "opendv.sources",
             "opendv.verifier",
             "opendv.storage",
@@ -256,6 +320,7 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
     "src/opendv/cli": (
         True,
         {
+            "opendv.grounding",
             "opendv.sources",
             "opendv.verifier",
             "opendv.storage",
@@ -271,6 +336,10 @@ V2_LAYER_BANS: dict[str, tuple[bool, set[str], set[str]]] = {
         },
         set(),
     ),
+}
+
+PER_FILE_IMPORT_EXCEPTIONS: dict[str, set[str]] = {
+    "src/opendv/grounding/providers/glossary/loader.py": {"yaml"},
 }
 
 
@@ -298,13 +367,15 @@ def test_v2_import_contracts(
     violations: list[str] = []
     for py_file in py_files:
         rel_path = py_file.relative_to(REPO_ROOT)
+        rel_posix = rel_path.as_posix()
+        file_exceptions = exceptions | PER_FILE_IMPORT_EXCEPTIONS.get(rel_posix, set())
         for lineno, mod in get_imports(
             py_file, package_root=src_root, include_from_targets=True
         ):
-            if any(_matches_prefix(mod, exc) for exc in exceptions):
+            if any(_matches_prefix(mod, exc) for exc in file_exceptions):
                 continue
             if any(_matches_prefix(mod, b) for b in banned):
-                violations.append(f"{rel_path}:{lineno}: banned V2 import '{mod}'")
+                violations.append(f"{rel_posix}:{lineno}: banned V2 import '{mod}'")
 
     assert not violations, (
         f"V2 layering contract violations detected in '{target_rel_dir}':\n"

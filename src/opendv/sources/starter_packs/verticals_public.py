@@ -149,7 +149,7 @@ def fixed_income_rates() -> tuple[
             "coupon_payment",
             "CouponPayment",
             "Periodic interest cashflow distribution on debt securities.",
-            f"{_FIBO}SEC/Debt/Bonds/CouponPayment",
+            f"{_FIBO}SEC/Debt/Bonds/CouponPaymentTerms",
             [
                 make_attr("payment_id", "string", is_bk=True),
                 make_attr("payment_date", "date"),
@@ -221,7 +221,7 @@ def multi_asset_ibor() -> tuple[
             "portfolio",
             "Portfolio",
             "Aggregate holding container for investments managed under a mandate.",
-            f"{_FIBO}SEC/Securities/SecurityAssets/Portfolio",
+            f"{_FIBO}FND/OwnershipAndControl/Ownership/Portfolio",
             [
                 make_attr("portfolio_code", "string", is_bk=True),
                 make_attr("portfolio_name", "string"),

@@ -8,8 +8,15 @@ from typing import Any, Literal
 
 from opendv import __version__
 from opendv.agents import AgentHarnessPort
+from opendv.grounding.providers.fibo.loader import FiboPackQueryAdapter
 from opendv.models.diagnostics import AntiPatternJustification
 from opendv.models.events import ExternalMcpReceipt, RunEventLogPage, RunStep
+from opendv.models.grounding import (
+    FiboSyncReq,
+    FiboSyncResp,
+    GroundingResponse,
+    OntologyGroundReq,
+)
 from opendv.models.project import (
     BundleManifest,
     ConceptMemorySpec,
@@ -82,7 +89,6 @@ from opendv.models.wire_dtos_vault import (
     VaultVerifyResp,
     WaiverSubmitReq,
 )
-from opendv.service.bm25_matcher import Bm25ConceptMatcher
 from opendv.service.bundles import BundleMode, ConflictPolicy
 from opendv.service.harness_svc import HarnessService
 from opendv.service.os_platform import resolve_user_state_dir
@@ -116,7 +122,8 @@ class OpenDVService:
         allow_headless_fallback: bool = True,
         readiness_service: HarnessReadinessService | None = None,
     ) -> None:
-        self.workspace_root: Path = Path(workspace_root).resolve()
+        self.raw_workspace_root: Path = Path(workspace_root)
+        self.workspace_root: Path = self.raw_workspace_root.resolve()
         self.state_dir: Path = resolve_user_state_dir(state_dir)
         self.injected_harness: AgentHarnessPort | None = harness
 
@@ -130,7 +137,7 @@ class OpenDVService:
         )
         self.state_manager = ProjectStateManager(self.workspace_root)
         self.state_manager.initialize()
-        self.matcher = Bm25ConceptMatcher()
+        self.matcher = FiboPackQueryAdapter()
         self.harnesses = HarnessService(
             self.workspace_root,
             self.settings_store,
@@ -162,6 +169,7 @@ class OpenDVService:
             matcher=self.matcher,
             injected_harness=self.injected_harness,
             readiness_service=self._readiness,
+            state_dir=self.state_dir,
         )
         self.vault = VaultService(
             state_manager=self.state_manager,
@@ -181,84 +189,62 @@ class OpenDVService:
     # ------------------------------------------------------------------
 
     def get_health(self) -> HealthResp:
-        """Return service liveness health check payload."""
         return HealthResp(status="ok", version=__version__)
 
     def get_settings(self) -> WorkspaceSettings:
-        """Load non-secret WorkspaceSettings."""
         return self.settings.get_settings()
 
     def update_settings(self, settings: WorkspaceSettings) -> WorkspaceSettings:
-        """Persist validated WorkspaceSettings without secret literals."""
         return self.settings.update_settings(settings)
 
     def list_secrets(
         self, keys: Sequence[str] = (), *, include_stored: bool = True
     ) -> list[SecretSummary]:
-        """List masked presence summaries for stored/known secret keys."""
         return self.settings.list_secrets(keys, include_stored=include_stored)
 
     def set_secret(self, key: str, value: str) -> SecretSummary:
-        """Write a user-global secret to OS keyring or user_state_file."""
         return self.settings.set_secret(key, value)
 
     def delete_secret(self, key: str) -> None:
-        """Remove a secret from user-global storage."""
         self.settings.delete_secret(key)
 
     def list_mcp_servers(self) -> list[ExternalMcpServerSpec]:
-        """List registered external MCP servers."""
         return self.settings.list_mcp_servers()
 
     def save_mcp_servers(
         self, servers: Sequence[ExternalMcpServerSpec]
     ) -> list[ExternalMcpServerSpec]:
-        """Replace registered external MCP server catalog atomically."""
         return self.settings.save_mcp_servers(servers)
 
     def upsert_mcp_server(self, spec: ExternalMcpServerSpec) -> ExternalMcpServerSpec:
-        """Insert or update a single ExternalMcpServerSpec by server_id."""
         return self.settings.upsert_mcp_server(spec)
 
     def delete_mcp_server(self, server_id: str) -> None:
-        """Delete a registered external MCP server by server_id."""
         self.settings.delete_mcp_server(server_id)
 
     def list_agent_packs(self) -> list[AgentPackSummary]:
-        """List builtin and trusted workspace SKILL.md agent packs."""
         return self.harnesses.list_packs()
 
     def get_agent_pack(self, agent_id: str) -> AgentPackDetail:
-        """Inspect a single SKILL.md agent pack."""
         return self.harnesses.get_pack(agent_id)
 
     def get_agent_readiness(self) -> ReadinessResponse:
-        """Evaluate fast Tier-1 prerequisites merged with persisted readiness cache."""
         return self.harnesses.get_readiness()
 
     async def test_agent_readiness(self, provider: HarnessProvider) -> ProviderReadinessRecord:
-        """Execute bounded Tier-2 authentication verification probe for provider."""
         return await self.harnesses.test_readiness(provider)
 
     def run_doctor(
-        self,
-        *,
-        check_agents: bool = False,
-        check_mcp: bool = False,
+        self, *, check_agents: bool = False, check_mcp: bool = False
     ) -> DoctorResponse:
-        """Run synchronous read-only Tier-1 diagnostics across settings, agents, and MCP."""
         return self.harnesses.run_doctor(check_agents=check_agents, check_mcp=check_mcp)
 
     def update_project_settings(
-        self,
-        project_id: str,
-        req: ProjectSettingsPatchReq | ProjectSettingsSnapshot,
+        self, project_id: str, req: ProjectSettingsPatchReq | ProjectSettingsSnapshot
     ) -> ProjectState:
-        """Atomically patch or replace ProjectSettingsSnapshot for future runs in project_id."""
         return self.settings.update_project_settings(project_id, req)
 
     def revoke_trusted_workspace(self, workspace_root: Path | str) -> WorkspaceSettings:
-        """Remove workspace_root from global trusted_workspaces."""
         return self.settings.revoke_trusted_workspace(workspace_root)
 
     def list_runs(
@@ -489,6 +475,20 @@ class OpenDVService:
         include_staged: bool = False,
     ) -> tuple[str, str]:
         return self.discovery.export_ontology(project_id, fmt=fmt, include_staged=include_staged)
+
+    async def ground_ontology(
+        self,
+        req: OntologyGroundReq,
+        *,
+        fibo_pack_bytes: bytes | None = None,
+        glossary_bytes: bytes | None = None,
+    ) -> GroundingResponse:
+        return await self.discovery.ground_ontology(
+            req, fibo_pack_bytes=fibo_pack_bytes, glossary_bytes=glossary_bytes
+        )
+
+    def run_fibo_sync(self, req: FiboSyncReq) -> FiboSyncResp:
+        return self.discovery.run_fibo_sync(req)
 
     # ------------------------------------------------------------------
     # Step 6: Vault Synthesis, CEGAR, Horizon Critic, Waivers, & Guided UX

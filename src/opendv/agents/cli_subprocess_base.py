@@ -530,6 +530,29 @@ async def stream_cli_subprocess_lines(
     state_out["stderr"] = stderr_bytes.decode("utf-8", errors="replace")
 
 
+def extract_tool_use_input(response: Any) -> Any:
+    """Extract tool_use input payload from Anthropic SDK message/dict response."""
+    content = (
+        response.get("content")
+        if isinstance(response, dict)
+        else getattr(response, "content", None)
+    )
+    if not isinstance(content, list):
+        return None
+    fallback: Any = None
+    for blk in content:
+        b_type = blk.get("type") if isinstance(blk, dict) else getattr(blk, "type", None)
+        b_name = blk.get("name") if isinstance(blk, dict) else getattr(blk, "name", None)
+        b_input = blk.get("input") if isinstance(blk, dict) else getattr(blk, "input", None)
+        if b_input is None:
+            continue
+        if b_name == "emit_structured_output":
+            return b_input
+        if b_type == "tool_use" and fallback is None:
+            fallback = b_input
+    return fallback
+
+
 __all__ = [
     "BASE_OS_ENV_ALLOWLIST",
     "_MAX_CLI_FLAG_CHARS",
@@ -540,6 +563,7 @@ __all__ = [
     "build_stateless_turn_prompt",
     "count_cl100k_tokens",
     "extract_json_from_stdout",
+    "extract_tool_use_input",
     "is_auth_error",
     "is_non_result_stream_event",
     "parse_ndjson_step_events",

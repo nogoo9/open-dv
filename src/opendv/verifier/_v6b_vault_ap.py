@@ -25,8 +25,8 @@ from opendv.verifier._v6b_ontology_ap import (
 )
 
 _ENUM_LOOKUP_RE = re.compile(r"(?i)(?:_code|_status|_type|_tier|_grade|_category)$")
-_TIER1_ID_SET: frozenset[str] = frozenset(
-    {"lei", "lei_code", "isin", "cusip", "figi", "iban", "swift_bic", "bic", "cik"}
+_KNOWN_STANDARD_ENTITY_IDS: frozenset[str] = frozenset(
+    {"lei", "lei_code", "isin", "cusip", "sedol", "mic", "figi", "iban", "swift_bic", "bic", "cik"}
 )
 _FORBIDDEN_Z1_EXPR_RE = re.compile(
     r"(?i)(?:\bJOIN\b|\bGROUP\s+BY\b|\bHAVING\b|\bWHERE\b|\bCASE\b[\s\S]*?\bWHEN\b|\bUNION\b)"
@@ -232,7 +232,7 @@ def lint_vault_antipatterns(
                         severity=sev,
                     )
                 )
-            is_tier1_or_entity_id = bk.col_name.lower() in _TIER1_ID_SET or (
+            is_tier1_or_entity_id = bk.col_name.lower() in _KNOWN_STANDARD_ENTITY_IDS or (
                 bk.col_name.lower().endswith("_id") and not SURROGATE_BK_RE.search(bk.col_name)
             )
             if SEQ_COL_RE.search(bk.col_name) or (

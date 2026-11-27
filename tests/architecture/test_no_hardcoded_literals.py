@@ -19,6 +19,7 @@ PROD_SOURCE_ROOTS = [
 # Namespace & infrastructure URI exemptions (Decision D2 & ADR-020)
 EXEMPT_URI_PATTERNS = [
     re.compile(r"^https?://([a-zA-Z0-9-]+\.)*w3\.org"),
+    re.compile(r"^https?://([a-zA-Z0-9-]+\.)*omg\.org"),
     re.compile(r"^https?://([a-zA-Z0-9-]+\.)*openoffice\.org"),
     re.compile(r"^https?://([a-zA-Z0-9-]+\.)*json-schema\.org"),
     re.compile(r"^https?://([a-zA-Z0-9-]+\.)*edmcouncil\.org"),
@@ -40,7 +41,8 @@ EXACT_CONFIG_MODULE_ALLOWLIST = {
     "src/opendv/service/settings_store.py",
     "src/opendv/service/bundles/zip_guard.py",
     "src/opendv/sources/clustering.py",
-    "src/opendv/sources/fibo/closure_rules.py",
+    "src/opendv/grounding/providers/fibo/closure_rules.py",
+    "src/opendv/grounding/kernel/pii_core.py",
     "src/opendv/sources/pii.py",
 }
 

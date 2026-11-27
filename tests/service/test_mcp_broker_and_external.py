@@ -417,7 +417,7 @@ async def test_broker_role_isolation_bearer_auth_and_http_tool_calls() -> None:
             r_404 = await raw_hc.get(f"http://{broker.bind_host}:{broker.port}/mcp/wrong/coord")
             assert r_404.status_code == 404
 
-        # 2. /coord exposes strictly the 5 coordinator tools (no raw evidence tools)
+        # 2. /coord exposes strictly the 6 coordinator tools (no raw evidence tools)
         async with (
             httpx2.AsyncClient(headers={"Authorization": f"Bearer {broker.coord_token}"}) as hc,
             streamable_http_client(broker.coord_url, http_client=hc) as (r_s, w_s),
@@ -429,12 +429,18 @@ async def test_broker_role_isolation_bearer_auth_and_http_tool_calls() -> None:
             assert coord_names == {
                 "search_concepts",
                 "search_fibo",
+                "ground_columns",
                 "propose_ontology_delta",
                 "ask_domain_clarification",
                 "dispatch_scout",
             }
             fibo_res = await coord_sess.call_tool("search_fibo", {"query": "account"})
             assert not (getattr(fibo_res, "is_error", False) or getattr(fibo_res, "isError", False))
+            ground_res = await coord_sess.call_tool(
+                "ground_columns", {"table_ids": ["src_tbl:holders"]}
+            )
+            assert not (getattr(ground_res, "is_error", False) or getattr(ground_res, "isError", False))
+            assert "holders" in str(ground_res.content)
             disp_res = await coord_sess.call_tool(
                 "dispatch_scout",
                 {"scout_kind": "table_cluster", "target_ids": ["cluster_00"]},

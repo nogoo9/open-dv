@@ -31,6 +31,7 @@ class RawColumnData:
     distinct_count_est: int
     raw_samples: list[str | None]
     explicit_pii_tags: list[str] = field(default_factory=list)
+    shape_samples: list[str | None] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -115,6 +116,7 @@ def extract_sqlite(
     sample_limit: int,
     preview_offset: int,
     preview_limit: int,
+    shape_sample_limit: int = 200,
 ) -> list[RawTableData]:
     path = _ensure_existing_file(uri_or_path)
     posix_path = path.as_posix()
@@ -191,14 +193,19 @@ def extract_sqlite(
                 null_cnt, dist_cnt = cur.fetchone() or (0, 0)
                 null_ratio = float(null_cnt or 0) / float(total_rows) if total_rows > 0 else 0.0
 
+                fetch_limit = max(0, sample_limit, shape_sample_limit)
                 sample_rows = _sqlite_execute_bounded(
                     cur,
                     f"SELECT {q_col} FROM {q_tbl} WHERE {q_col} IS NOT NULL",
                     "LIMIT ?",
-                    (sample_limit,),
+                    (fetch_limit,),
                     order_by_rowid=use_rowid,
                 )
-                samples: list[str | None] = [str(r[0]) for r in sample_rows]
+                non_null_fetched: list[str | None] = [str(r[0]) for r in sample_rows]
+                samples: list[str | None] = non_null_fetched[:sample_limit]
+                shape_samples: list[str | None] = (
+                    non_null_fetched[:shape_sample_limit] if shape_sample_limit > 0 else []
+                )
                 if not samples and total_rows > 0:
                     fallback_rows = _sqlite_execute_bounded(
                         cur,
@@ -220,6 +227,7 @@ def extract_sqlite(
                         null_ratio=min(1.0, max(0.0, null_ratio)),
                         distinct_count_est=int(dist_cnt or 0),
                         raw_samples=samples,
+                        shape_samples=shape_samples,
                     )
                 )
             tables.append(
@@ -248,6 +256,7 @@ def extract_duckdb_or_tabular_file(
     sample_limit: int,
     preview_offset: int,
     preview_limit: int,
+    shape_sample_limit: int = 200,
 ) -> list[RawTableData]:
     path = _ensure_existing_file(uri_or_path)
     if kind == "duckdb":
@@ -342,17 +351,20 @@ def extract_duckdb_or_tabular_file(
                 ).fetchone() or (0, 0)
                 null_ratio = float(null_cnt or 0) / float(total_rows) if total_rows > 0 else 0.0
 
-                samples: list[str | None] = [
+                fetch_limit = max(0, sample_limit, shape_sample_limit)
+                fetched: list[str | None] = [
                     str(r[0])
                     for r in _duckdb_execute_bounded(
                         conn,
                         f"SELECT CAST({q_col} AS VARCHAR) FROM {q_tbl} "
                         f"WHERE {q_col} IS NOT NULL",
                         "LIMIT ?",
-                        [sample_limit],
+                        [fetch_limit],
                         order_by_rowid=use_rowid,
                     )
                 ]
+                samples = fetched[:sample_limit]
+                shape_samples = fetched[:shape_sample_limit] if shape_sample_limit > 0 else []
                 cols.append(
                     RawColumnData(
                         col_name=col_name,
@@ -364,6 +376,7 @@ def extract_duckdb_or_tabular_file(
                         null_ratio=min(1.0, max(0.0, null_ratio)),
                         distinct_count_est=int(dist_cnt or 0),
                         raw_samples=samples,
+                        shape_samples=shape_samples,
                     )
                 )
             tables.append(
@@ -404,6 +417,7 @@ def extract_xlsx(
     sample_limit: int,
     preview_offset: int,
     preview_limit: int,
+    shape_sample_limit: int = 200,
 ) -> list[RawTableData]:
     from importlib import import_module
 
@@ -475,6 +489,11 @@ def extract_xlsx(
                     null_cnt = total_rows - len(non_null)
                     null_ratio = float(null_cnt) / float(total_rows) if total_rows > 0 else 0.0
                     samples: list[str | None] = [str(v) for v in non_null[:sample_limit]]
+                    shape_samples: list[str | None] = (
+                        [str(v) for v in non_null[:shape_sample_limit]]
+                        if shape_sample_limit > 0
+                        else []
+                    )
                     cols.append(
                         RawColumnData(
                             col_name=col_name,
@@ -486,6 +505,7 @@ def extract_xlsx(
                             null_ratio=null_ratio,
                             distinct_count_est=len({str(v) for v in non_null}),
                             raw_samples=samples,
+                            shape_samples=shape_samples,
                         )
                     )
                 tables.append(

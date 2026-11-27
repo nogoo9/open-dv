@@ -1,4 +1,4 @@
-"""34-operation discriminated OntologyDelta union and evidence grounding models."""
+"""36-operation discriminated OntologyDelta union and evidence grounding models."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ class GroundingWaiverMixin(StrictModel):
 
 
 class BaseOntologyDeltaOp(StrictModel):
-    """Shared strict base for all 34 PascalCase ontology delta operations."""
+    """Shared strict base for all 36 PascalCase ontology delta operations."""
 
     op_id: str | None = None
     rationale: str = ""
@@ -168,6 +168,7 @@ class UpdateAttributeMetadata(BaseOntologyDeltaOp):
     is_pii: bool | None = None
     pii_category: str | None = None
     enum_uri: str | None = None
+    standard_property_uri: str | None = None
 
 
 class AddTableBinding(BaseOntologyDeltaOp):
@@ -203,7 +204,7 @@ class AddKeyAuthorityPattern(BaseOntologyDeltaOp):
 
 
 # ---------------------------------------------------------------------------
-# 17 Human-Only Destructive/Steward Operations (_DOps)
+# 19 Human-Only Destructive/Steward Operations (_DOps)
 # ---------------------------------------------------------------------------
 
 
@@ -307,6 +308,8 @@ class RepinExternalMapping(BaseOntologyDeltaOp):
     reference_pack_id: str
     reference_pack_sha256: str
     mapping_type: Literal["skos:exactMatch", "skos:closeMatch"] = "skos:exactMatch"
+    replaced_standard_uri: str | None = None
+    grounding_receipt_id: str | None = None
 
 
 class RemoveTableBinding(BaseOntologyDeltaOp):
@@ -344,6 +347,24 @@ class RemoveKeyAuthorityPattern(BaseOntologyDeltaOp):
     op_type: Literal["RemoveKeyAuthorityPattern"] = "RemoveKeyAuthorityPattern"
     concept_uri: str
     authority_name: str
+
+
+class UpdateRelationshipMetadata(BaseOntologyDeltaOp):
+    """Update non-breaking reference URI/role metadata on an OntologyRelationship."""
+
+    op_type: Literal["UpdateRelationshipMetadata"] = "UpdateRelationshipMetadata"
+    relationship_uri: str
+    standard_property_uri: str | None = None
+    role_uri: str | None = None
+    played_by_uri: str | None = None
+
+
+class UpdateEnumerationMetadata(BaseOntologyDeltaOp):
+    """Update non-breaking reference standard_uri metadata on an OntologyEnumeration."""
+
+    op_type: Literal["UpdateEnumerationMetadata"] = "UpdateEnumerationMetadata"
+    enum_uri: str
+    standard_uri: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -397,6 +418,8 @@ OntologyDelta = Annotated[
     | RemoveSourceCitation
     | RemoveMcpEvidence
     | RemoveKeyAuthorityPattern
+    | UpdateRelationshipMetadata
+    | UpdateEnumerationMetadata
     | RescoreExternalMapping,
     Field(discriminator="op_type"),
 ]
@@ -441,6 +464,8 @@ HUMAN_ONLY_OPS: frozenset[str] = frozenset(
         "RemoveSourceCitation",
         "RemoveMcpEvidence",
         "RemoveKeyAuthorityPattern",
+        "UpdateRelationshipMetadata",
+        "UpdateEnumerationMetadata",
     }
 )
 
@@ -488,4 +513,6 @@ __all__ = [
     "SetDescription",
     "SetParentConcept",
     "UpdateAttributeMetadata",
+    "UpdateEnumerationMetadata",
+    "UpdateRelationshipMetadata",
 ]

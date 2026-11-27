@@ -10,8 +10,15 @@ import jsonschema
 import pytest
 import rdflib
 
+from opendv.grounding.kernel.lexical import LexicalIndex, load_lexical_matcher_config
+from opendv.grounding.providers.fibo import (
+    FINANCIAL_ACRONYMS,
+    FiboPackQueryAdapter,
+    FiboReferenceOntologyLoader,
+)
 from opendv.models.errors import ErrorCode, OpenDVError, ReferenceOntologyCorruptError
 from opendv.models.events import OcrPageReceipt
+from opendv.models.grounding_spi import KnowledgeItem
 from opendv.models.ontology import (
     CanonicalBusinessConcept,
     ExternalMapping,
@@ -19,8 +26,6 @@ from opendv.models.ontology import (
     OntologyEnumeration,
 )
 from opendv.models.wire_dtos_discovery import CitationResolveReq, FiboQueryReq
-from opendv.service.bm25_matcher import Bm25ConceptMatcher, load_bm25_matcher_config
-from opendv.service.bm25_tokenizer import tokenize_concept_text
 from opendv.service.citations import ensure_no_redacted_placeholder, resolve_citation
 from opendv.service.turtle_writer import export_ontology_turtle, write_ontology_turtle
 from opendv.sources.document_map import (
@@ -28,7 +33,6 @@ from opendv.sources.document_map import (
     compute_canonical_text_sha256,
     normalize_page_text,
 )
-from opendv.sources.fibo.loader import FiboReferenceOntologyLoader
 from opendv.sources.starter_packs import get_starter_pack_ontology
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -41,42 +45,53 @@ def test_bm25_golden_vectors_and_schema_validation() -> None:
     schema_data = json.loads(schema_path.read_text(encoding="utf-8"))
     jsonschema.validate(instance=cfg_data, schema=schema_data)
 
-    cfg = load_bm25_matcher_config(cfg_path)
+    cfg = load_lexical_matcher_config(cfg_path)
     assert cfg.matcher_id == "bm25_fibo_v1"
 
     vectors = json.loads((REPO_ROOT / "vectors" / "bm25.json").read_text(encoding="utf-8"))
+    idx = LexicalIndex(acronyms=FINANCIAL_ACRONYMS)
 
     # 1. Tokenization vectors
     for vec in vectors["tokenization_vectors"]:
-        assert tokenize_concept_text(vec["input"]) == vec["expected_tokens"], vec["description"]
+        assert idx.tokenize(vec["input"]) == vec["expected_tokens"], vec["description"]
 
     # 2. Quantization boundary vectors (ROUND_HALF_EVEN)
-    matcher = Bm25ConceptMatcher(concepts=[])
     for vec in vectors["quantization_boundary_vectors"]:
-        q = matcher.quantize_score(Decimal(vec["raw_normalized_decimal"]))
+        q = idx.quantize_score(Decimal(vec["raw_normalized_decimal"]))
         assert float(q) == pytest.approx(vec["expected_quantized"]), vec["description"]
-        assert matcher.is_grounded_score(q) is vec["is_grounded"]
+        assert idx.is_grounded_score(q) is vec["is_grounded"]
 
     # 3. Hit-gate vectors (0.6400 cap)
     for vec in vectors["hit_gate_vectors"]:
-        capped = matcher.apply_hit_gate(
+        capped = idx.apply_hit_gate(
             Decimal(vec["definition_match_raw"]),
             has_name_or_syn_hit=bool(vec["has_name_hit"] or vec["has_synonym_hit"]),
         )
         assert float(capped) == pytest.approx(vec["expected_capped"]), vec["description"]
-        assert matcher.is_grounded_score(capped) is vec["is_grounded"]
+        assert idx.is_grounded_score(capped) is vec["is_grounded"]
 
     # 4. Scoring vectors
     for vec in vectors["scoring_vectors"]:
-        vec_matcher = Bm25ConceptMatcher(concepts=vec["corpus"])
-        hits = vec_matcher.match(vec["query"], top_k=5)
-        target_hit = next(h for h in hits if h.concept_uri == vec["target_uri"])
-        assert target_hit.normalized_score == pytest.approx(vec["expected_normalized_score"])
-        assert vec_matcher.is_grounded_score(target_hit.quantized_decimal) is vec["is_grounded"]
+        items = [
+            KnowledgeItem(
+                entry_id=c["concept_uri"],
+                label=c["concept_name"],
+                entry_kind="class",
+                definition=c["definition"],
+                aliases=c["synonyms"],
+            )
+            for c in vec["corpus"]
+        ]
+        vec_idx = LexicalIndex(acronyms=FINANCIAL_ACRONYMS)
+        vec_idx.index_items(items)
+        hits = vec_idx.match(vec["query"], top_k=5)
+        target_hit = next(h for h in hits if h.entry_id == vec["target_uri"])
+        assert float(target_hit.raw_score) == pytest.approx(vec["expected_normalized_score"])
+        assert vec_idx.is_grounded_score(target_hit.raw_score) is vec["is_grounded"]
 
 
 def test_bm25_real_fibo_pack_query_and_integrity_failure(tmp_path: Path) -> None:
-    matcher = Bm25ConceptMatcher()
+    matcher = FiboPackQueryAdapter()
     resp = matcher.query(FiboQueryReq(query="Legal Entity", domain_namespace="asset_management"))
     assert resp.matches
     top = resp.matches[0]
@@ -89,8 +104,11 @@ def test_bm25_real_fibo_pack_query_and_integrity_failure(tmp_path: Path) -> None
     assert any(m.suggested_path == "PATH_A2" for m in close_resp.matches)
 
     # Corrupt fibo-core-pack.json digest raises REFERENCE_PACK_INTEGRITY_FAILURE
-    src_pack = REPO_ROOT / "src" / "opendv" / "sources" / "fibo" / "fibo-core-pack.json"
-    tampered = tmp_path / "fibo-core-tampered.json"
+    src_pack = (
+        REPO_ROOT / "src" / "opendv" / "grounding" / "providers" / "fibo" / "fibo-core-pack.json"
+    )
+    orig_sha8 = matcher.loader.pack_sha256_prefix
+    tampered = tmp_path / f"fibo-core-{orig_sha8}.json"
     payload = json.loads(src_pack.read_text(encoding="utf-8"))
     payload["metadata"]["tampered"] = True
     tampered.write_text(json.dumps(payload), encoding="utf-8")
@@ -99,10 +117,10 @@ def test_bm25_real_fibo_pack_query_and_integrity_failure(tmp_path: Path) -> None
         FiboReferenceOntologyLoader(pack_path=tampered, verify_integrity=True)
     assert exc_info.value.error_code == ErrorCode.REFERENCE_PACK_INTEGRITY_FAILURE
 
-    # Even if preloaded without verify_integrity, Bm25ConceptMatcher re-checks CANONICAL_FIBO_CORE_SHA256
+    # Even if preloaded without verify_integrity, FiboPackQueryAdapter rejects unverified loader
     unverified_loader = FiboReferenceOntologyLoader(pack_path=tampered, verify_integrity=False)
     with pytest.raises(ReferenceOntologyCorruptError) as matcher_exc:
-        Bm25ConceptMatcher(loader=unverified_loader)
+        FiboPackQueryAdapter(loader=unverified_loader)
     assert matcher_exc.value.error_code == ErrorCode.REFERENCE_PACK_INTEGRITY_FAILURE
 
 

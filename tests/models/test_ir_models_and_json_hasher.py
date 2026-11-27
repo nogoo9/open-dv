@@ -1,4 +1,4 @@
-"""Tests for RFC 8785 JCS, 34 ErrorCodes, CegarPolicy, ProjectState, 34-op OntologyDelta, and Wave IR."""
+"""Tests for RFC 8785 JCS, 34 ErrorCodes, CegarPolicy, ProjectState, 36-op OntologyDelta, and Wave IR."""
 
 from __future__ import annotations
 
@@ -110,6 +110,8 @@ from opendv.models import (
     SourceBindingSpec,
     StagingViewSpec,
     UpdateAttributeMetadata,
+    UpdateEnumerationMetadata,
+    UpdateRelationshipMetadata,
     WaiverSubmitReq,
     WorkspaceSettings,
     compute_cegar_energy,
@@ -481,18 +483,18 @@ class TestProjectNamingAndState:
             )
 
 
-class TestOntologyAnd34OpDelta:
-    """All 34 PascalCase OntologyDelta ops (16 _AOps + 17 _DOps + 1 server op) & GraphAOntology."""
+class TestOntologyAnd36OpDelta:
+    """All 36 PascalCase OntologyDelta ops (16 _AOps + 19 _DOps + 1 server op) & GraphAOntology."""
 
-    def test_all_34_ops_round_trip_and_partition_invariants(self) -> None:
+    def test_all_36_ops_round_trip_and_partition_invariants(self) -> None:
         assert len(AGENT_ADDITIVE_OPS) == 16
-        assert len(HUMAN_ONLY_OPS) == 17
+        assert len(HUMAN_ONLY_OPS) == 19
         assert len(SERVER_ONLY_OPS) == 1
         assert AGENT_ADDITIVE_OPS.isdisjoint(HUMAN_ONLY_OPS)
         assert AGENT_ADDITIVE_OPS.isdisjoint(SERVER_ONLY_OPS)
         assert HUMAN_ONLY_OPS.isdisjoint(SERVER_ONLY_OPS)
         all_op_names = AGENT_ADDITIVE_OPS | HUMAN_ONLY_OPS | SERVER_ONLY_OPS
-        assert len(all_op_names) == 34
+        assert len(all_op_names) == 36
 
         attr = ConceptAttribute(
             name="cik",
@@ -585,12 +587,13 @@ class TestOntologyAnd34OpDelta:
                 concept_uri="urn:opendv:am:concept:Issuer",
                 attribute_name="cik",
                 nullable=False,
+                standard_property_uri="https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/hasCik",
             ),
             AddTableBinding(concept_uri="urn:opendv:am:concept:Issuer", binding=binding),
             AddSourceCitation(concept_uri="urn:opendv:am:concept:Issuer", citation=citation),
             AddMcpEvidence(concept_uri="urn:opendv:am:concept:Issuer", evidence=mcp_ev),
             AddKeyAuthorityPattern(concept_uri="urn:opendv:am:concept:Issuer", pattern=ka_pat),
-            # 17 _DOps
+            # 19 _DOps
             ReparentConcept(
                 concept_uri="urn:opendv:am:concept:Issuer",
                 parent_concept_uri="urn:opendv:am:concept:LegalEntity",
@@ -623,6 +626,8 @@ class TestOntologyAnd34OpDelta:
                 standard_uri=mapping.standard_uri,
                 reference_pack_id="fibo-core-v2",
                 reference_pack_sha256="c" * 64,
+                replaced_standard_uri="https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/OldEntity",
+                grounding_receipt_id="grnd_000011112222",
             ),
             RemoveTableBinding(
                 concept_uri="urn:opendv:am:concept:Issuer",
@@ -643,6 +648,14 @@ class TestOntologyAnd34OpDelta:
             RemoveKeyAuthorityPattern(
                 concept_uri="urn:opendv:am:concept:Issuer",
                 authority_name="GLEIF",
+            ),
+            UpdateRelationshipMetadata(
+                relationship_uri=rel.relationship_uri,
+                standard_property_uri="https://spec.edmcouncil.org/fibo/ontology/FND/Relations/hasPart",
+            ),
+            UpdateEnumerationMetadata(
+                enum_uri=enum.enum_uri,
+                standard_uri="https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Severity",
             ),
             # 1 Server-only op
             RescoreExternalMapping(

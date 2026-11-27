@@ -34,7 +34,7 @@ from opendv.models.wire_dtos_discovery import FiboQueryReq, ScoutDigest
 from opendv.models.wire_dtos_vault import HorizonCriticVerdict, SemanticCriticVerdict
 from opendv.service.app_service import OpenDVService
 from opendv.service.external_mcp import ExternalMcpGateway
-from opendv.sources.fibo.loader import CANONICAL_FIBO_CORE_SHA256
+from opendv.grounding.providers.fibo.loader import get_bundled_fibo_pack_sha256
 from tests.api._api_test_helpers import build_wave1_am_draft, build_wave1_commit_ops, build_wave2_am_draft, build_wave2_commit_ops, load_project_profiles
 from tests.helpers.fake_external_mcp import LoopbackFakeExternalMcpServer
 from tests.helpers.mock_harness import DeterministicMockHarness, MockTurnScript
@@ -270,7 +270,7 @@ def _selector(req):
         if sqlite_src and pq_src and md_src and q_line:
             ops = build_wave1_commit_ops(sqlite_src.source_id, pq_src.source_id, md_src.source_id, q_line)
             ops[0]["external_mappings"] = [
-                ExternalMapping(standard_uri=fibo_uri, mapping_type="skos:exactMatch", confidence=0.92, reference_pack_id="fibo-core", reference_pack_sha256=CANONICAL_FIBO_CORE_SHA256).model_dump(mode="json")
+                ExternalMapping(standard_uri=fibo_uri, mapping_type="skos:exactMatch", confidence=0.92, reference_pack_id="fibo-core", reference_pack_sha256=get_bundled_fibo_pack_sha256()).model_dump(mode="json")
             ]
             ops[0]["mcp_evidence"] = mcp_refs
         ops.append(

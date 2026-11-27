@@ -1,14 +1,17 @@
-"""Coordinator (5 tools) implementations, HarnessBudget tracker, and hold-drain coordinator."""
+"""Coordinator (6 tools) implementations, HarnessBudget tracker, and hold-drain coordinator."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from opendv.grounding.spi import KnowledgeSource
 
 from opendv.agents.ports import ScoutToolDispatcher
 from opendv.models.diagnostics import ClarificationQuestion
@@ -51,6 +54,7 @@ from opendv.service._mcp_scout_tools import (
     scout_read_document_pages,
     scout_view_page_image,
 )
+from opendv.service.workflows._ontology_grounding import GROUNDING_MIN_CONFIDENCE
 
 _REDACTED_LEAK_RE = re.compile(r"(?:<MASKED_PII>|\[REDACTED_)")
 
@@ -74,6 +78,8 @@ class BrokerToolContext:
     ontology_rev_id: str | None = None
     sources_fingerprint: str = "fp-step4"
     discovery_mode: DiscoveryMode = "incremental_new"
+    fibo_source: KnowledgeSource | None = None
+    steward_answers: Mapping[str, str] | Sequence[str] | None = None
 
     def coord(self) -> BrokerHoldCoordinator:
         if self.hold_coord is None:
@@ -105,7 +111,7 @@ def _latest_rev_payload(
 
 def _norm_slug(name: str) -> str:
     low = name.strip().lower()
-    for prefix in ("hub_", "lnk_", "t_lnk_", "sal_", "sat_", "mas_", "esat_", "ref_"):
+    for prefix in ("hub_", "lnk_", "t_lnk_", "sal_", "hal_", "sat_", "mas_", "esat_", "ref_"):
         if low.startswith(prefix):
             low = low[len(prefix) :]
             break
@@ -120,6 +126,14 @@ def _locked_hub_names(state: ProjectStatePort, project_id: str) -> set[str]:
         return set()
     locks = EvolutionLockSpec.model_validate(raw_lock)
     return {_norm_slug(name) for name in locks.locked_hub_bks}
+
+
+def _locked_link_names(state: ProjectStatePort, project_id: str) -> set[str]:
+    raw_lock = _latest_rev_payload(state, project_id, "evolution_lock")
+    if not raw_lock:
+        return set()
+    locks = EvolutionLockSpec.model_validate(raw_lock)
+    return set(locks.locked_links.keys())
 
 
 def _slug_key(prefix: str, name: str) -> str:
@@ -235,6 +249,26 @@ def _check_quote_no_leaks(text: str, *, context: str) -> None:
         )
 
 
+def _derive_grounding_path(op: Any) -> Literal["PATH_A1", "PATH_A2", "PATH_B1", "PATH_B2"]:
+    mappings = list(getattr(op, "external_mappings", ()) or ())
+    single = getattr(op, "mapping", None)
+    if single is not None:
+        mappings.append(single)
+    qualifying = [m for m in mappings if m.confidence >= GROUNDING_MIN_CONFIDENCE]
+    if any(m.mapping_type == "skos:exactMatch" for m in qualifying):
+        return "PATH_A1"
+    if any(m.mapping_type == "skos:closeMatch" for m in qualifying):
+        return "PATH_A2"
+    if (
+        getattr(op, "table_bindings", None)
+        or getattr(op, "source_citations", None)
+        or getattr(op, "mcp_evidence", None)
+        or getattr(op, "op_type", "") in ("AddTableBinding", "AddSourceCitation", "AddMcpEvidence")
+    ):
+        return "PATH_B1"
+    return "PATH_B2"
+
+
 def coord_propose_ontology_delta(
     ctx: BrokerToolContext, ops: Sequence[ClientAdditiveOp]
 ) -> DeltaStageResp:
@@ -253,6 +287,7 @@ def coord_propose_ontology_delta(
     )
 
     locked = _locked_hub_names(ctx.state_store, ctx.project_id)
+    locked_links = _locked_link_names(ctx.state_store, ctx.project_id)
     raw_ont = _latest_rev_payload(ctx.state_store, ctx.project_id, "ontology_version")
     uri_to_name: dict[str, str] = {}
     if raw_ont:
@@ -288,6 +323,19 @@ def coord_propose_ontology_delta(
             for ev in op.mcp_evidence:
                 _check_quote_no_leaks(ev.masked_excerpt, context="AddConcept.mcp_evidence")
 
+        if (
+            op.op_type == "AddRelationship"
+            and (
+                op.relationship.relationship_uri in locked_links
+                or op.relationship.target_link in locked_links
+            )
+        ):
+            raise OpenDVError(
+                f"Cannot propose AddRelationship onto locked link '{op.relationship.target_link}'.",
+                error_code=ErrorCode.ONT_EVO_CONTRACT_VIOLATION,
+                run_id=ctx.run_id,
+            )
+
         target_uri = getattr(op, "concept_uri", None)
         target_name = uri_to_name.get(target_uri, "") if target_uri else ""
         is_locked = bool(target_name and _norm_slug(target_name) in locked)
@@ -310,7 +358,7 @@ def coord_propose_ontology_delta(
                 candidate_id=cand_id,
                 concept_name=c_name,
                 concept_uri=c_uri,
-                grounding_path="PATH_B1",
+                grounding_path=_derive_grounding_path(op),
                 table_bindings=list(op.table_bindings),
                 source_citations=list(op.source_citations),
                 mcp_evidence=list(op.mcp_evidence),
@@ -329,7 +377,7 @@ def coord_propose_ontology_delta(
                 candidate_id=cand_id,
                 concept_name=target_name or op_type,
                 concept_uri=str(target_uri or c_uri),
-                grounding_path="PATH_B1",
+                grounding_path=_derive_grounding_path(op),
                 status="QUARANTINED",
             )
 

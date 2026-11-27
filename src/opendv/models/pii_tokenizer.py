@@ -146,7 +146,12 @@ def detect_pii_in_column_name(col_name: str) -> list[str]:
     return [f"PII_COLUMN:{match.group(1).upper()}"]
 
 
-def detect_pii_in_value(value: str, *, col_name: str | None = None) -> list[str]:
+def detect_pii_in_value(
+    value: str,
+    *,
+    col_name: str | None = None,
+    exempt_high_entropy: bool = False,
+) -> list[str]:
     """Detect PII, routing numbers, PANs, raw 64-hex, or high-entropy secrets in text."""
     if not value:
         return []
@@ -167,7 +172,11 @@ def detect_pii_in_value(value: str, *, col_name: str | None = None) -> list[str]
         tags.append("CC_PAN")
     if not is_non_credential_digest_column(col_name) and RE_HEX_64.search(value):
         tags.append("HEX_64")
-    if not is_non_credential_digest_column(col_name) and find_high_entropy_tokens(value):
+    if (
+        not exempt_high_entropy
+        and not is_non_credential_digest_column(col_name)
+        and find_high_entropy_tokens(value)
+    ):
         tags.append("HIGH_ENTROPY_SECRET")
     return tags
 

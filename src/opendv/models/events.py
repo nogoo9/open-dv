@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any, Literal
+from uuid import uuid4
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from opendv.models.diagnostics import ClarificationQuestion, HorizonQuestion, StrictModel
 
@@ -57,6 +59,36 @@ class OcrPageReceipt(StrictModel):
     ocr_text_masked: str
     content_sha256: str
     ocr_box_count: int = Field(ge=0)
+
+
+class GroundingReceipt(StrictModel):
+    """Server-minted or imported provenance receipt for ontology grounding bindings."""
+
+    receipt_id: str = Field(
+        default_factory=lambda: f"grnd_{uuid4().hex[:16]}",
+        min_length=1,
+    )
+    target_kind: Literal["table_anchor", "column"]
+    table_id: str = Field(min_length=1)
+    source_column: str | None = None
+    schema_fingerprint: str = Field(min_length=1)
+    standard_uri: str
+    reference_pack_id: str
+    reference_pack_sha256: str
+    confidence: Decimal = Field(ge=Decimal("0"), le=Decimal("1"))
+    mapping_type: Literal["skos:exactMatch", "skos:closeMatch", "skos:relatedMatch"]
+    table_anchor_uri: str | None = None
+    provenance: Literal["server_verified", "imported_unverified"] = "server_verified"
+
+    @model_validator(mode="after")
+    def _validate_target_source_column(self) -> GroundingReceipt:
+        has_source_col = self.source_column is not None
+        non_blank = self.source_column is not None and bool(self.source_column.strip())
+        if self.target_kind == "column" and not non_blank:
+            raise ValueError("source_column must be non-blank when target_kind == 'column'")
+        if self.target_kind == "table_anchor" and has_source_col:
+            raise ValueError("source_column must be None when target_kind == 'table_anchor'")
+        return self
 
 
 class RunCheckpointRecord(StrictModel):
@@ -113,6 +145,7 @@ __all__ = [
     "AuditLogRecord",
     "ControlSignalRecord",
     "ExternalMcpReceipt",
+    "GroundingReceipt",
     "OcrPageReceipt",
     "RunCheckpointRecord",
     "RunEventLogPage",

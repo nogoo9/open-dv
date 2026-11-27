@@ -499,6 +499,7 @@ def extract_structured_source(
     preview_offset: int = 0,
     preview_limit: int = 50,
     access_token: str | None = None,
+    shape_sample_limit: int = 200,
 ) -> list[RawTableData]:
     """Dispatch extraction across the 6 static V2 structured source kinds."""
     return dispatch_structured_extract(
@@ -511,6 +512,7 @@ def extract_structured_source(
         sample_limit=sample_limit,
         preview_offset=preview_offset,
         preview_limit=preview_limit,
+        shape_sample_limit=shape_sample_limit,
         validate_ident_fn=validate_sql_identifier,
         open_conn_fn=open_databricks_connection,
     )

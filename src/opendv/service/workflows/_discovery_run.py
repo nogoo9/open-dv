@@ -18,6 +18,7 @@ from opendv.agents import (
     AgentTurnRequest,
     load_agent_pack_with_config,
 )
+from opendv.grounding.providers.fibo.loader import FiboPackQueryAdapter
 from opendv.models.diagnostics import ClarificationQuestion, StrictModel
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.events import RunCheckpointRecord, RunStreamEvent
@@ -33,7 +34,6 @@ from opendv.models.wire_dtos_discovery import (
     RunStateResp,
 )
 from opendv.service._mcp_tools import coord_propose_ontology_delta
-from opendv.service.bm25_matcher import Bm25ConceptMatcher
 from opendv.service.readiness import HarnessReadinessService
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.settings_store import SettingsStore
@@ -82,7 +82,7 @@ class DiscoveryRunHelper:
         state_manager: ProjectStateManager,
         settings_store: SettingsStore,
         secret_store: KeyringSecretStore,
-        matcher: Bm25ConceptMatcher,
+        matcher: FiboPackQueryAdapter,
         workspace_root: Path,
         injected_harness: AgentHarnessPort | None = None,
         readiness_service: HarnessReadinessService | None = None,
@@ -281,6 +281,7 @@ class DiscoveryRunHelper:
                 ontology_rev_id=proj.active_ontology_rev_id,
                 sources_fingerprint=fp,
                 discovery_mode=eff_mode,
+                steward_answers=answers,
             )
             prior_events = self._state.tail_run_stream_events(project_id, run_id, since_seq=0)
             broker.hold_coord.seq = max((ev.seq for ev in prior_events.events), default=0)

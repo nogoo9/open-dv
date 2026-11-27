@@ -81,7 +81,10 @@ def test_ci_workflow_dual_os_and_zero_skip_gates() -> None:
     wheel_cmd = runs[wheel_idx]
     for required_asset in (
         "opendv/api/static/index.html",
-        "opendv/sources/fibo/fibo-core-pack.json",
+        "opendv/grounding/kernel/iso_codes.json",
+        "opendv/grounding/providers/fibo/fibo-core-pack.json",
+        "opendv/grounding/providers/fibo/fibo_calibration.json",
+        "opendv/grounding/providers/glossary/example_glossary.yaml",
         "opendv/agents/packs/dv2-modeling-guide.md",
         "opendv/agents/packs/",
         "opendv/schemas/v2/",
@@ -121,11 +124,25 @@ def test_pyproject_wheel_packaging_configuration() -> None:
     assert wheel_cfg["packages"] == ["src/opendv"]
     artifacts = set(wheel_cfg["artifacts"])
     assert "src/opendv/api/static/**" in artifacts
-    assert "src/opendv/sources/fibo/fibo-core-pack.json" in artifacts
+    assert "src/opendv/grounding/kernel/iso_codes.json" in artifacts
+    assert "src/opendv/grounding/providers/fibo/fibo-core-pack.json" in artifacts
+    assert "src/opendv/grounding/providers/fibo/fibo_calibration.json" in artifacts
+    assert "src/opendv/grounding/providers/glossary/example_glossary.yaml" in artifacts
     assert wheel_cfg["force-include"]["schemas/v2"] == "opendv/schemas/v2"
 
     # Confirm tracked non-generated package inputs exist on disk
-    assert (SRC_OPENDV_DIR / "sources" / "fibo" / "fibo-core-pack.json").is_file()
+    assert (
+        SRC_OPENDV_DIR / "grounding" / "kernel" / "iso_codes.json"
+    ).is_file()
+    assert (
+        SRC_OPENDV_DIR / "grounding" / "providers" / "fibo" / "fibo-core-pack.json"
+    ).is_file()
+    assert (
+        SRC_OPENDV_DIR / "grounding" / "providers" / "fibo" / "fibo_calibration.json"
+    ).is_file()
+    assert (
+        SRC_OPENDV_DIR / "grounding" / "providers" / "glossary" / "example_glossary.yaml"
+    ).is_file()
     assert (SRC_OPENDV_DIR / "agents" / "packs" / "dv2-modeling-guide.md").is_file()
     pack_skills = sorted((SRC_OPENDV_DIR / "agents" / "packs").glob("*/SKILL.md"))
     assert len(pack_skills) == 6

@@ -10,6 +10,7 @@ from typing import Literal
 
 from pydantic import ValidationError
 
+from opendv.grounding.providers.fibo.loader import get_bundled_fibo_pack_sha256
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.project import (
     BundleProjectSnapshot,
@@ -359,6 +360,27 @@ def import_project_bundle(
             )
             if ocr_rec.doc_id in missing_set or not page_match:
                 unverified_receipt_ids.append(ocr_rec.receipt_id)
+
+        if prevalidated.grounding_receipts:
+            bundled_sha = get_bundled_fibo_pack_sha256()
+            table_fp_map = {
+                t.table_id: prof.schema_fingerprint
+                for prof in prevalidated.profiles_by_src.values()
+                for t in prof.tables
+            }
+            for g_rec in prevalidated.grounding_receipts:
+                imported_rec = g_rec.model_copy(update={"provenance": "imported_unverified"})
+                state_store.append_event_or_receipt(
+                    resolved_pid,
+                    record_kind="grounding_receipt",
+                    run_id=None,
+                    payload=imported_rec,
+                )
+                if (
+                    g_rec.reference_pack_sha256 != bundled_sha
+                    or table_fp_map.get(g_rec.table_id) != g_rec.schema_fingerprint
+                ):
+                    unverified_receipt_ids.append(g_rec.receipt_id)
 
         for audit_rec in prevalidated.audit_records:
             state_store.append_event_or_receipt(

@@ -9,9 +9,10 @@ from typing import Literal
 
 import yaml
 
+from opendv.grounding.providers.fibo.loader import FiboPackQueryAdapter
 from opendv.models.diagnostics import VerifierDiagnostic
 from opendv.models.errors import ErrorCode, OpenDVError
-from opendv.models.events import OcrPageReceipt
+from opendv.models.events import GroundingReceipt, OcrPageReceipt
 from opendv.models.json_hasher import sha256_jcs
 from opendv.models.ontology import GraphAOntology
 from opendv.models.project import (
@@ -30,7 +31,6 @@ from opendv.models.wire_dtos_discovery import (
     OntologyValidateReq,
     OntologyValidationResp,
 )
-from opendv.service.bm25_matcher import Bm25ConceptMatcher
 from opendv.service.citations import ensure_no_redacted_placeholder, resolve_citation
 from opendv.service.state_store import ProjectStateManager
 from opendv.service.workflows._ontology_deltas import (
@@ -42,7 +42,7 @@ from opendv.service.workflows._ontology_grounding import (
     collect_ungrounded_changed_concepts,
     compute_bump_spec,
 )
-from opendv.service.workflows._ontology_human_ops import rescore_concept
+from opendv.service.workflows._ontology_human_ops import reconcile_yaml_ontology
 from opendv.service.workflows._source_docs import load_doc_pages_for_record
 from opendv.verifier import lint_ontology_antipatterns
 
@@ -53,7 +53,7 @@ class DiscoveryOntologyHelper:
     def __init__(
         self,
         state_manager: ProjectStateManager,
-        matcher: Bm25ConceptMatcher,
+        matcher: FiboPackQueryAdapter,
         workspace_root: Path,
     ) -> None:
         self._state = state_manager
@@ -80,6 +80,15 @@ class DiscoveryOntologyHelper:
             rec = self._state.get_source_record(project_id, s.source_id)
             profiles.append(SourceProfile.model_validate(rec["profile"]))
         return profiles
+
+    def _load_grounding_receipts(self, project_id: str) -> dict[str, GroundingReceipt]:
+        out: dict[str, GroundingReceipt] = {}
+        for row in self._state.list_events_or_receipts(
+            project_id, record_kind="grounding_receipt"
+        ):
+            rcpt = GroundingReceipt.model_validate(row["payload"])
+            out[rcpt.receipt_id] = rcpt
+        return out
 
     def _verify_citations(
         self,
@@ -213,9 +222,7 @@ class DiscoveryOntologyHelper:
                 f"Invalid Graph A ontology YAML: {exc}",
                 error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
             ) from exc
-        return ont.model_copy(
-            update={"concepts": [rescore_concept(c, self._matcher) for c in ont.concepts]}
-        )
+        return ont
 
     def validate_ontology(
         self,
@@ -230,15 +237,29 @@ class DiscoveryOntologyHelper:
                 error_code=ErrorCode.REVISION_CONFLICT,
             )
         locks = self._load_locks(project_id)
+        profiles = self._load_source_profiles(project_id)
+        receipts_by_id = self._load_grounding_receipts(project_id)
         if req.operations is not None:
             candidate = compile_and_apply_deltas(
-                base, req.operations, actor="human", locks=locks, matcher=self._matcher
+                base,
+                req.operations,
+                actor="human",
+                locks=locks,
+                matcher=self._matcher,
+                receipts_by_id=receipts_by_id,
+                profiles=profiles,
             )
         else:
-            candidate = self._parse_yaml_ontology(req.yaml_text or "")
+            parsed = self._parse_yaml_ontology(req.yaml_text or "")
+            candidate = reconcile_yaml_ontology(
+                base,
+                parsed,
+                self._matcher,
+                receipts_by_id=receipts_by_id,
+                profiles=profiles,
+            )
             check_evolution_locks_diff(base, candidate, locks)
 
-        profiles = self._load_source_profiles(project_id)
         diags = lint_ontology_antipatterns(candidate, profiles)
         diags.extend(self._verify_citations(project_id, candidate))
         for ungrounded in collect_ungrounded_changed_concepts(base, candidate, set()):
@@ -273,12 +294,27 @@ class DiscoveryOntologyHelper:
                 error_code=ErrorCode.REVISION_CONFLICT,
             )
         locks = self._load_locks(project_id)
+        profiles = self._load_source_profiles(project_id)
+        receipts_by_id = self._load_grounding_receipts(project_id)
         if req.operations is not None:
             candidate = compile_and_apply_deltas(
-                base, req.operations, actor="human", locks=locks, matcher=self._matcher
+                base,
+                req.operations,
+                actor="human",
+                locks=locks,
+                matcher=self._matcher,
+                receipts_by_id=receipts_by_id,
+                profiles=profiles,
             )
         else:
-            candidate = self._parse_yaml_ontology(req.yaml_text or "")
+            parsed = self._parse_yaml_ontology(req.yaml_text or "")
+            candidate = reconcile_yaml_ontology(
+                base,
+                parsed,
+                self._matcher,
+                receipts_by_id=receipts_by_id,
+                profiles=profiles,
+            )
             check_evolution_locks_diff(base, candidate, locks)
 
         explicit_uris = collect_explicit_grounding_uris(req)
