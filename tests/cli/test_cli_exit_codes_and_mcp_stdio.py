@@ -997,8 +997,8 @@ def test_cli_05_contract_exports_and_markdown_reference() -> None:
     jsonschema.validate(instance=cli_spec, schema=cli_schema)
 
     top_groups = {cmd["path"][0] for cmd in cli_spec["subcommands"]}
-    assert len(top_groups) == 12
-    assert len(cli_spec["subcommands"]) == 61
+    assert len(top_groups) == 13
+    assert len(cli_spec["subcommands"]) == 67
     assert top_groups == {
         "serve",
         "doctor",
@@ -1012,6 +1012,7 @@ def test_cli_05_contract_exports_and_markdown_reference() -> None:
         "vault",
         "storage",
         "model",
+        "parse",
     }
     cmd_paths = {" ".join(cmd["path"]) for cmd in cli_spec["subcommands"]}
     assert {
@@ -1045,3 +1046,82 @@ def test_cli_05_contract_exports_and_markdown_reference() -> None:
     assert "# Open-DV V2 CLI Reference" in md
     assert "`REMOTE_BIND_UNAUTHENTICATED`" in md
     assert "`EMITTER_VERIFICATION_FAILED`" in md
+
+
+def test_cli_06_stdio_mcp_profiles_parsing_6_and_all_23_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `--profile parsing` (6 tools, no `.opendv/`) and `--profile all` (23 tools)."""
+    from opendv.cli.mcp_stdio import PARSING_MCP_TOOL_NAMES
+
+    harness = ScriptedCliHarness(project_id="mcp_all_p1")
+    ws, state_root, csv_path, svc = _setup_workspace(tmp_path, monkeypatch, harness=harness)
+    _create_certified_project(ws, csv_path, svc, harness, project_id="mcp_all_p1")
+    repo_root = find_repo_root()
+    child_env = _isolated_subprocess_env(ws, state_root, repo_root)
+
+    stateless_ws = tmp_path / "stateless_mcp_ws"
+    stateless_ws.mkdir(parents=True, exist_ok=True)
+    stateless_env = _isolated_subprocess_env(stateless_ws, state_root, repo_root)
+
+    async def _run_profiles() -> None:
+        parsing_params = StdioServerParameters(
+            command=sys.executable,
+            args=[
+                "-m",
+                "opendv.cli",
+                "mcp",
+                "serve",
+                "--transport",
+                "stdio",
+                "--profile",
+                "parsing",
+                "--allow-root",
+                str(stateless_ws),
+            ],
+            env=stateless_env,
+            cwd=str(stateless_ws),
+        )
+        async with (
+            stdio_client(parsing_params) as (r_p, w_p),
+            ClientSession(r_p, w_p) as sess_p,
+        ):
+            await sess_p.initialize()
+            p_tools = [t.name for t in (await sess_p.list_tools()).tools]
+            assert len(p_tools) == 6
+            assert set(p_tools) == set(PARSING_MCP_TOOL_NAMES)
+        assert not (stateless_ws / ".opendv").exists()
+
+        all_params = StdioServerParameters(
+            command=sys.executable,
+            args=[
+                "-m",
+                "opendv.cli",
+                "mcp",
+                "serve",
+                "--transport",
+                "stdio",
+                "--profile",
+                "all",
+                "--project",
+                "mcp_all_p1",
+                "--allow-root",
+                str(ws),
+            ],
+            env=child_env,
+            cwd=str(ws),
+        )
+        async with (
+            stdio_client(all_params) as (r_a, w_a),
+            ClientSession(r_a, w_a) as sess_a,
+        ):
+            await sess_a.initialize()
+            a_tools = [t.name for t in (await sess_a.list_tools()).tools]
+            assert len(a_tools) == 23
+            assert set(a_tools) == set(MCP_TOOL_NAMES) | set(PARSING_MCP_TOOL_NAMES)
+            proj_res = await sess_a.call_tool("project_get", {})
+            assert not proj_res.is_error
+            spec_res = await sess_a.call_tool("parse_spec", {})
+            assert not spec_res.is_error
+
+    asyncio.run(_run_profiles())

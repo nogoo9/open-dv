@@ -2,27 +2,14 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
-from typing import Final
 
+from opendv.models.document_ir import compute_canonical_text_sha256, normalize_page_text
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.events import OcrPageReceipt
+from opendv.models.pii_tokenizer import ensure_no_redacted_placeholder
 from opendv.models.sources import DocumentMap, PageMapSpec
 from opendv.models.wire_dtos_discovery import CitationResolveReq, CitationSpanResp
-from opendv.sources.document_map import compute_canonical_text_sha256, normalize_page_text
-
-_REDACTED_LEAK_RE: Final[re.Pattern[str]] = re.compile(r"(?:<MASKED_PII>|\[REDACTED_)")
-
-
-def ensure_no_redacted_placeholder(text: str) -> None:
-    """Reject quotes/payloads leaking <MASKED_PII> or [REDACTED_*] placeholders."""
-    if _REDACTED_LEAK_RE.search(text):
-        raise OpenDVError(
-            "Citation quote contains forbidden redaction placeholder "
-            "(<MASKED_PII> or [REDACTED_*]).",
-            error_code=ErrorCode.REDACTED_PLACEHOLDER_LEAK,
-        )
 
 
 def _find_nth_occurrence(haystack: str, needle: str, occurrence: int) -> int | None:

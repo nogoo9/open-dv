@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import httpx2
 import pytest
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -86,8 +85,8 @@ from opendv.service._mcp_tools import (
 )
 from opendv.service.external_mcp import ExternalMcpGateway
 from opendv.service.mcp_broker import JobMcpBroker
+from opendv.service.parsing_svc import ParsingService
 from opendv.service.state_store import ProjectStateManager, ServiceRunEventSink
-from opendv.sources.document_map import DocumentMapBuilder
 from tests.helpers.fake_external_mcp import LoopbackFakeExternalMcpServer
 from tests.helpers.mock_harness import (
     DeterministicMockHarness,
@@ -355,13 +354,11 @@ def _setup_pdf_and_table_state(state: InMemoryBrokerStateStore) -> DocumentMap:
             )
         ],
     )
-    dm, _ = DocumentMapBuilder().build_from_path(
-        source_id="custody_pdf",
-        path=_CUSTODY_PDF,
-        doc_format="pdf",
-        approved_scan_pages=[],
-        run_ocr=False,
-    )
+    _psvc = ParsingService(allowed_roots=[_CUSTODY_PDF.parent])
+    _ir = _psvc.parse_document(_CUSTODY_PDF, sink_class="LOCAL_HUMAN_IO")
+    dm = _psvc.export_ir(
+        _ir, target="document_map", sink_class="MODEL_EGRESS", doc_id="custody_pdf"
+    )["document_map"]  # type: ignore[index]
     state.add_source(
         source_id="custody_pdf",
         kind="pdf",
@@ -419,7 +416,7 @@ async def test_broker_role_isolation_bearer_auth_and_http_tool_calls() -> None:
 
         # 2. /coord exposes strictly the 6 coordinator tools (no raw evidence tools)
         async with (
-            httpx2.AsyncClient(headers={"Authorization": f"Bearer {broker.coord_token}"}) as hc,
+            httpx.AsyncClient(headers={"Authorization": f"Bearer {broker.coord_token}"}) as hc,
             streamable_http_client(broker.coord_url, http_client=hc) as (r_s, w_s),
             ClientSession(r_s, w_s) as coord_sess,
         ):
@@ -449,7 +446,7 @@ async def test_broker_role_isolation_bearer_auth_and_http_tool_calls() -> None:
 
         # 3. /scout exposes strictly the 5 read-only scout tools
         async with (
-            httpx2.AsyncClient(headers={"Authorization": f"Bearer {broker.scout_token}"}) as hc,
+            httpx.AsyncClient(headers={"Authorization": f"Bearer {broker.scout_token}"}) as hc,
             streamable_http_client(broker.scout_url, http_client=hc) as (r_s, w_s),
             ClientSession(r_s, w_s) as scout_sess,
         ):
@@ -615,10 +612,16 @@ def test_view_page_image_and_read_document_pages_on_real_pdf() -> None:
     assert dm.pages[3].is_scanned_or_low_density is True  # 1-based page 4
 
     broker = JobMcpBroker(project_id="am-ibor-2026", run_id="run-ocr", state_store=state)
+    assert broker.context.parsing_service is None
+    assert broker.context.parsed_pages == {}
 
     # Text-dense page 2 works in read_document_pages, rejected in view_page_image
     views = scout_read_document_pages(broker.context, "custody_pdf", 1, 2)
     assert len(views) == 2
+    assert set(broker.context.parsed_pages["custody_pdf"].keys()) == {1, 2}
+    views_more = scout_read_document_pages(broker.context, "custody_pdf", 2, 3)
+    assert len(views_more) == 2
+    assert set(broker.context.parsed_pages["custody_pdf"].keys()) == {1, 2, 3}
     with pytest.raises(OpenDVError) as exc_dense:
         scout_view_page_image(broker.context, "custody_pdf", 2)
     assert exc_dense.value.error_code == ErrorCode.SYNTAX_INVALID_ARGUMENT
@@ -1281,7 +1284,7 @@ async def test_broker_ipv6_delta_leaks_locks_search_and_checkpoint_seq() -> None
             assert "<MASKED_PII>" in cluster_profiles[0].columns[1].sample_values[0]
 
             async with (
-                httpx2.AsyncClient(headers={"Authorization": f"Bearer {broker.scout_token}"}) as hc,
+                httpx.AsyncClient(headers={"Authorization": f"Bearer {broker.scout_token}"}) as hc,
                 streamable_http_client(broker.scout_url, http_client=hc) as (r_s, w_s),
                 ClientSession(r_s, w_s) as scout_sess,
             ):

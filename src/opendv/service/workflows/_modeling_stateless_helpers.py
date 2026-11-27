@@ -114,7 +114,7 @@ def coerce_profile_bundle(
 
 
 def merge_profile_bundle(raw_req: dict[str, Any], bundle: ProfileBundle | None) -> dict[str, Any]:
-    """Merge ProfileBundle profiles, tokenized rows, and sample flags into request dict."""
+    """Merge ProfileBundle profiles, document_maps, tokenized rows, and flags into request dict."""
     if bundle is None:
         return raw_req
     merged = dict(raw_req)
@@ -126,6 +126,20 @@ def merge_profile_bundle(raw_req: dict[str, Any], bundle: ProfileBundle | None) 
         }
     if merged.get("table_sample_flags") is None and bundle.table_sample_flags:
         merged["table_sample_flags"] = dict(bundle.table_sample_flags)
+    if bundle.document_maps:
+        vctx = dict(merged.get("verifier_ctx") or {})
+        existing_dms = list(vctx.get("document_maps") or ())
+        seen_doc_ids = {
+            str(dm["doc_id"] if isinstance(dm, Mapping) else dm.doc_id)
+            for dm in existing_dms
+            if (isinstance(dm, Mapping) and "doc_id" in dm) or hasattr(dm, "doc_id")
+        }
+        for dm in bundle.document_maps:
+            if dm.doc_id not in seen_doc_ids:
+                seen_doc_ids.add(dm.doc_id)
+                existing_dms.append(dm.model_dump(mode="json"))
+        vctx["document_maps"] = existing_dms
+        merged["verifier_ctx"] = vctx
     return merged
 
 

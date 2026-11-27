@@ -26,6 +26,7 @@ from opendv.models.grounding_spi import (
     TableRerankAssignment,
     TableRerankResult,
 )
+from opendv.models.pii_tokenizer import strip_pii_spans
 from opendv.models.policy import STEP4_DEFAULT_BUDGET, HarnessBudget
 from opendv.models.project import EvolutionLockSpec
 from opendv.models.sources import ColumnProfile
@@ -150,6 +151,12 @@ async def ground_columns_orchestrated(
             raw = active_rerank(tname, batch, anchor_labels=albls, steward_notes=notes)
             res = await raw if inspect.isawaitable(raw) else raw
         return tkey, validate_table_rerank_result(batch, res)
+
+    for n in request.global_steward_notes:
+        if cleaned := strip_pii_spans(n, strip_placeholders=True).strip():
+            for td in draft.table_drafts.values():
+                if cleaned not in td.steward_notes:
+                    td.steward_notes.append(cleaned)
 
     tables_by_key = {(t.table_id or t.table_name): t for t in request.tables}
     pass1_tasks = [

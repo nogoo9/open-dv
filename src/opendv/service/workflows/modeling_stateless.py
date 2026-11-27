@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import re
 import secrets
+import urllib.parse
+import urllib.request
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
@@ -36,10 +40,11 @@ from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.modeling_preferences import ModelingPreferences, PkContainmentOverlap
 from opendv.models.ontology import GraphAOntology
 from opendv.models.project import TrustedWorkspaceSpec
-from opendv.models.sources import SourceProfile
+from opendv.models.sources import DocumentMap, SourceProfile
 from opendv.models.vault_ir import DraftVaultIR
 from opendv.models.wire_dtos_vault import ModelSpecResp, ProfileBundle
 from opendv.service.os_platform import resolve_user_state_dir, validate_workspace_containment
+from opendv.service.parsing_svc import ParsingService, resolve_local_source_blob
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.settings_store import SettingsStore
 from opendv.service.workflows._modeling_stateless_helpers import (
@@ -69,7 +74,50 @@ from opendv.sources import (
     validate_databricks_options,
 )
 from opendv.storage.prover.duckdb_prover import DuckDbProverAdapter
-from opendv.verifier import survey_modeling_hints
+from opendv.verifier import VerifierContext, survey_modeling_hints
+
+_WIN_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+_URI_WIN_DRIVE_RE = re.compile(r"^/?[A-Za-z]:[\\/]")
+
+
+def _unresolved_doc_candidate_path(uri_str: str, ws_path: Path | None) -> Path | None:
+    """Derive an unresolved local Path for plain paths or file:// URIs; None on bad/unsafe URIs."""
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in uri_str):
+        return None
+    raw = uri_str.strip()
+    if not raw or "::" in raw:
+        return None
+    is_win_drive = bool(_WIN_DRIVE_RE.match(raw))
+    if not is_win_drive and raw.startswith(("\\\\", "//")):
+        return None
+    if not is_win_drive and "://" in raw:
+        parsed = urllib.parse.urlparse(raw)
+        if parsed.scheme.lower() != "file" or parsed.netloc:
+            return None
+        unquoted = urllib.parse.unquote(parsed.path)
+        if not unquoted.strip() or any(ord(ch) < 32 or ord(ch) == 127 for ch in unquoted):
+            return None
+        drive_m = _URI_WIN_DRIVE_RE.match(unquoted)
+        rem = unquoted[drive_m.end() :] if drive_m else unquoted
+        if ":" in rem or "|" in rem:
+            return None
+        try:
+            decoded = urllib.request.url2pathname(unquoted)
+        except (OSError, ValueError):
+            return None
+        if not _WIN_DRIVE_RE.match(decoded) and decoded.startswith(("\\\\", "//")):
+            return None
+        cand = Path(decoded)
+    else:
+        rem = raw[2:] if is_win_drive else raw
+        if ":" in rem or "|" in rem:
+            return None
+        cand = Path(raw)
+    if ".." in cand.parts:
+        return None
+    if not cand.is_absolute():
+        cand = (ws_path if ws_path is not None else Path.cwd()) / cand
+    return cand
 
 
 def get_model_spec(
@@ -99,8 +147,9 @@ def profile_sources_stateless(
     fk_turnover_by_table: Mapping[str, Mapping[str, float]] | None = None,
     workspace_root: Path | str | None = None,
     allowed_roots: Sequence[Path | str] | None = None,
+    parsing_service: ParsingService | None = None,
 ) -> ProfileBundle:
-    """Profile structured sources statelessly with shared HMAC salt, overlaps, and survey."""
+    """Profile structured sources and unstructured documents statelessly into ProfileBundle."""
     entries = parse_source_entries(sources, sources_file)
     ont_obj: GraphAOntology | None = None
     if isinstance(ontology, GraphAOntology):
@@ -118,23 +167,51 @@ def profile_sources_stateless(
     shared_salt = secrets.token_hex(32)
     used_ids: set[str] = set()
     profiles: list[SourceProfile] = []
+    document_maps: list[DocumentMap] = []
     rows_by_table: dict[str, list[dict[str, Any]]] = {}
     sample_flags: dict[str, bool] = {}
 
     for idx, item in enumerate(entries):
         kind = as_source_kind(item["kind"])
-        if kind in DOC_SOURCE_KINDS:
-            raise OpenDVError(
-                f"Stateless structured profiler does not support document kind '{kind}'.",
-                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
-            )
-        get_source_adapter(kind)
         uri_str = item["uri"]
         if not uri_str:
             raise OpenDVError(
                 f"Empty URI/path for source at index {idx}.",
                 error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
             )
+        if kind in DOC_SOURCE_KINDS:
+            ws_path = Path(workspace_root) if workspace_root is not None else None
+            if parsing_service is not None:
+                cand_opt = _unresolved_doc_candidate_path(uri_str, ws_path)
+                if ws_path is not None and cand_opt is not None and "://" not in uri_str:
+                    doc_src: Path | str = cand_opt
+                else:
+                    doc_src = uri_str
+                id_hint = os.fspath(cand_opt) if cand_opt is not None else uri_str
+                sid = make_stateless_source_id(item["source_id"], id_hint, idx, used_ids)
+                dmap, _ = parsing_service.build_document_map(
+                    doc_src, doc_id=sid, filename=Path(id_hint).name or "document"
+                )
+            else:
+                eff_roots: Sequence[Path | str] | None = allowed_roots
+                if eff_roots is None and not os.environ.get("OPENDV_WORKSPACE_ROOTS", "").strip():
+                    cand_opt = _unresolved_doc_candidate_path(uri_str, ws_path)
+                    if cand_opt is not None:
+                        eff_roots = [Path(os.path.realpath(str(cand_opt.parent)))]
+                blob = resolve_local_source_blob(
+                    uri_str, workspace_root=ws_path, allowed_roots=eff_roots
+                )
+                doc_svc = ParsingService(workspace_root=ws_path, allowed_roots=eff_roots)
+                sid = make_stateless_source_id(
+                    item["source_id"], str(blob.path), idx, used_ids
+                )
+                dmap, _ = doc_svc.build_document_map(
+                    blob, doc_id=sid, filename=blob.path.name
+                )
+            document_maps.append(dmap)
+            continue
+
+        get_source_adapter(kind)
 
         if kind == "databricks_uc":
             validate_databricks_options(
@@ -215,6 +292,7 @@ def profile_sources_stateless(
     )
     return ProfileBundle(
         profiles=profiles,
+        document_maps=document_maps,
         pk_containment_overlaps=overlaps,
         source_rows_by_table=rows_by_table,
         table_sample_flags=sample_flags,
@@ -387,6 +465,15 @@ async def run_model_stateless(
                 upd["source_rows_by_table"] = bundle.source_rows_by_table
             if req.table_sample_flags is None and bundle.table_sample_flags:
                 upd["table_sample_flags"] = bundle.table_sample_flags
+            if bundle.document_maps:
+                base_ctx = req.verifier_ctx or VerifierContext()
+                seen_ids = {dm.doc_id for dm in base_ctx.document_maps}
+                merged_maps = list(base_ctx.document_maps)
+                for dm in bundle.document_maps:
+                    if dm.doc_id not in seen_ids:
+                        seen_ids.add(dm.doc_id)
+                        merged_maps.append(dm)
+                upd["verifier_ctx"] = base_ctx.model_copy(update={"document_maps": merged_maps})
             if upd:
                 req = req.model_copy(update=upd)
     else:

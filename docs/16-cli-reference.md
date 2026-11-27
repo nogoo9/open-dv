@@ -74,14 +74,19 @@ Unregister an external MCP server.
 
 ### `opendv mcp serve`
 
-Serve the 17-tool Open-DV lifecycle MCP server over stdio.
+Serve the Open-DV lifecycle and/or stateless parsing MCP server over stdio.
 
 - **Execution:** Local / In-process
 
 | Option | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `--transport` | `string` | no | `stdio` | MCP transport (stdio). |
-| `--project` | `string` | no | `` | Project identifier. |
+| `--profile` | `choice` | no | `project` | Tool profile: project, parsing, or all. |
+| `--project` | `string` | no | — | Project identifier (required for project and all profiles). |
+| `--allow-root` | `string` | no | — | Repeatable allowed root directory for parsing MCP tools. |
+| `--allow-unredacted` | `boolean` | no | — | Allow unredacted parse_extract or parse_render_page calls. |
+| `--max-inline-bytes` | `integer` | no | — | Maximum inline MCP response bytes before spillover (>= 1). |
+| `--spill-dir` | `path` | no | — | Directory for oversized MCP parsing payload spillover. |
 
 ### `opendv model profile`
 
@@ -246,6 +251,7 @@ Ground table columns against FIBO Pack v2 or a YAML glossary.
 | `--glossary` | `string` | no | — | Path to YAML glossary file (required with --knowledge-source glossary). |
 | `--mode` | `string` | no | — | Execution mode: agentic or deterministic_only. |
 | `--skip-reason` | `string` | no | — | Required rationale when --mode deterministic_only. |
+| `--doc` | `string` | no | — | Repeatable local document path (.pdf, .docx, .md, .txt) for --input grounding. |
 
 ### `opendv ontology validate`
 
@@ -258,6 +264,85 @@ Dry-run ontology YAML validation against invariants and vault evolution locks.
 | `--project` | `string` | yes | — | Project identifier. |
 | `--yaml` | `string` | yes | — | Path to Graph A YAML file. |
 | `--base-revision` | `string` | no | — |  |
+
+### `opendv parse export`
+
+Project ParsedDocumentIR into document_map, markdown, or streaming chunks JSONL.
+
+- **Execution:** Local / In-process
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--ir-path` | `argument:path` | yes | — | Path to ParsedDocumentIR JSON file. |
+| `--target` | `choice` | yes | — | Target projection: document_map, markdown, or chunks. |
+| `--format` | `choice` | no | `json` | Output format: json or jsonl. |
+| `--redact` | `boolean` | no | `False` | Apply MODEL_EGRESS PII masking during projection. |
+| `--out` | `path` | no | — | Write projected output atomically to file. |
+
+### `opendv parse extract`
+
+Parse a local document into canonical ParsedDocumentIR.
+
+- **Execution:** Local / In-process
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--path` | `argument:string` | yes | — | Local file path or file URI to parse. |
+| `--pages` | `string` | no | — | 1-based page range specification (e.g. 1-5,8). |
+| `--redact` | `boolean` | no | `False` | Apply MODEL_EGRESS PII masking to extracted IR. |
+| `--ocr` | `boolean` | no | `False` | Enable optional OCR extraction on scanned pages. |
+| `--out` | `path` | no | — | Write ParsedDocumentIR JSON atomically to file. |
+| `--allow-root` | `string` | no | — | Repeatable allowed workspace root directory. |
+| `--max-pages` | `integer` | no | `1000` | Maximum extracted pages allowed. |
+| `--timeout-ms` | `integer` | no | `30000` | Parser timeout in milliseconds. |
+
+### `opendv parse inspect`
+
+Inspect document page count and digital-vs-scanned classification.
+
+- **Execution:** Local / In-process
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--path` | `argument:string` | yes | — | Local file path or file URI to inspect. |
+| `--allow-root` | `string` | no | — | Repeatable allowed workspace root directory. |
+| `--max-pages` | `integer` | no | `1000` | Maximum page budget hint. |
+| `--timeout-ms` | `integer` | no | `30000` | Parser timeout in milliseconds. |
+
+### `opendv parse render-page`
+
+Render a document page PNG with scan gating and optional PII blackout.
+
+- **Execution:** Local / In-process
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--path` | `argument:string` | yes | — | Local document path or file URI to render. |
+| `--page` | `integer` | yes | — | 1-based physical page number to render. |
+| `--dpi` | `integer` | no | `150` | Render resolution in DPI (max 300). |
+| `--redact` | `boolean` | no | `False` | Apply MODEL_EGRESS PII blackout rectangles. |
+| `--ocr` | `boolean` | no | `False` | Enable optional OCR on scanned pages. |
+| `--approve-scan` | `boolean` | no | `False` | Allow unredacted scanned page viewing. |
+| `--out` | `path` | no | — | Write rendered PNG atomically to file. |
+| `--allow-root` | `string` | no | — | Repeatable allowed workspace root directory. |
+| `--timeout-ms` | `integer` | no | `30000` | Parser timeout in milliseconds. |
+
+### `opendv parse spec`
+
+Emit machine-readable IR schemas, formats, projectors, and Tier-1 capabilities.
+
+- **Execution:** Local / In-process
+
+### `opendv parse validate`
+
+Validate ParsedDocumentIR canonical hashes, span bounds, and outline structure.
+
+- **Execution:** Local / In-process
+
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `--ir-path` | `argument:path` | yes | — | Path to ParsedDocumentIR JSON file. |
+| `--out` | `path` | no | — | Write ValidationDiagnostic list JSON to file. |
 
 ### `opendv project delete`
 

@@ -92,6 +92,7 @@ from opendv.models.wire_dtos_vault import (
 from opendv.service.bundles import BundleMode, ConflictPolicy
 from opendv.service.harness_svc import HarnessService
 from opendv.service.os_platform import resolve_user_state_dir
+from opendv.service.parsing_svc import ParsingService
 from opendv.service.readiness import HarnessReadinessService
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.settings_store import SettingsStore
@@ -161,6 +162,7 @@ class OpenDVService:
             self.settings_store,
             self.secret_store,
         )
+        self.parsing = ParsingService(workspace_root=self.workspace_root)
         self.discovery = DiscoveryService(
             state_manager=self.state_manager,
             settings_store=self.settings_store,
@@ -170,6 +172,7 @@ class OpenDVService:
             injected_harness=self.injected_harness,
             readiness_service=self._readiness,
             state_dir=self.state_dir,
+            parsing_service=self.parsing,
         )
         self.vault = VaultService(
             state_manager=self.state_manager,
@@ -178,6 +181,7 @@ class OpenDVService:
             injected_harness=self.injected_harness,
             settings_store=self.settings_store,
             readiness_service=self._readiness,
+            parsing_service=self.parsing,
         )
         self.storage = StorageService(
             state_manager=self.state_manager,

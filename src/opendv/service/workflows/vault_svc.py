@@ -25,6 +25,7 @@ from opendv.models.wire_dtos_vault import (
     WaiverSubmitReq,
 )
 from opendv.service.guided_translator import GuidedUxTranslator
+from opendv.service.parsing_svc import ParsingService
 from opendv.service.readiness import HarnessReadinessService
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.settings_store import SettingsStore
@@ -99,6 +100,7 @@ class VaultService:
         injected_harness: AgentHarnessPort | None = None,
         settings_store: SettingsStore | None = None,
         readiness_service: HarnessReadinessService | None = None,
+        parsing_service: ParsingService | None = None,
     ) -> None:
         self._state = state_manager
         self._secrets = secret_store
@@ -106,6 +108,7 @@ class VaultService:
         self._injected_harness = injected_harness
         self._settings = settings_store
         self._readiness_service = readiness_service
+        self._parsing = parsing_service
         self._translator = GuidedUxTranslator()
 
     def _load_ws_settings(self) -> WorkspaceSettings:
@@ -141,6 +144,7 @@ class VaultService:
             secret_store=self._secrets,
             trusted_workspaces=ws.trusted_workspaces,
             model_overrides=dict(snap.model_overrides) or None,
+            parsing_service=self._parsing,
         )
         acquire_project_job_lease(
             self._state,
@@ -257,6 +261,7 @@ class VaultService:
             trusted_workspaces=ws.trusted_workspaces,
             model_overrides=dict(proj.settings_snapshot.model_overrides) or None,
             prior_state=prior_state,
+            parsing_service=self._parsing,
         )
         running_state = prior_state.model_copy(
             update={"status": "RUNNING", "phase": "horizon_review"}
@@ -340,6 +345,7 @@ class VaultService:
             model_overrides=dict(proj.settings_snapshot.model_overrides) or None,
             revert_to_pre_steer=revert,
             prior_state=prior_state,
+            parsing_service=self._parsing,
         )
         running_state = prior_state.model_copy(update={"status": "RUNNING", "phase": "resuming"})
         acquire_project_job_lease(
@@ -438,6 +444,7 @@ class VaultService:
             self._workspace_root,
             project_id,
             secret_store=self._secrets,
+            parsing_service=self._parsing,
         )
         report: VerifierReport = run_v1_to_v6_gates(
             ir, ctx, prover=DuckDbProverAdapter(), include_v6b=True

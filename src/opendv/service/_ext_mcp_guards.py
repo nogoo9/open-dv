@@ -4,31 +4,35 @@ from __future__ import annotations
 
 import base64
 import contextlib
-import importlib
+import io
 import ipaddress
 import os
-import shutil
 import socket
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-import httpx2
-import pypdfium2 as pdfium  # type: ignore[import-untyped]
+import httpx
+from PIL import Image
 
 from opendv.agents.cli_subprocess_base import BASE_OS_ENV_ALLOWLIST
+from opendv.models.document_ir import ParseOptions, SourceBlob
 from opendv.models.errors import ErrorCode, OpenDVError
+from opendv.models.pii_tokenizer import mask_pii_text
 from opendv.models.sources import DocumentMap, ExternalMcpServerSpec
+from opendv.parsing.redaction import (
+    is_ocr_driver_available,
+    mask_page_text_with_aba_tokens,
+    redact_png_boxes,
+    run_pytesseract_ocr,
+)
 from opendv.service._mcp_ports import (
     OcrBox,
     OcrProviderFn,
     ProjectStatePort,
-    encode_rgba_png,
-    redact_rgba_boxes,
 )
-from opendv.sources.document_map import DocumentFormat, DocumentMapBuilder
-from opendv.sources.pii import mask_pii_text
+from opendv.service.parsing_svc import ParsingService
 
 DnsResolverFn = Callable[[str, int], list[str]]
 
@@ -159,8 +163,8 @@ def validate_external_mcp_url(
     return raw
 
 
-async def reject_redirect_response_hook(response: httpx2.Response) -> None:
-    """httpx2 async event hook rejecting any 3xx HTTP redirect."""
+async def reject_redirect_response_hook(response: httpx.Response) -> None:
+    """httpx async event hook rejecting any 3xx HTTP redirect."""
     if 300 <= response.status_code < 400:
         raise _ssrf_error(
             f"External MCP endpoint attempted HTTP redirect ({response.status_code}), blocked."
@@ -217,81 +221,74 @@ def scrub_inbound_text(text: str) -> str:
     return mask_pii_text(text)
 
 
+def _fit_png_within_broker_budget(png_bytes: bytes, max_png_bytes: int = 45_000) -> bytes:
+    if len(png_bytes) <= max_png_bytes:
+        return png_bytes
+    with Image.open(io.BytesIO(png_bytes)) as src_img:
+        gray = src_img.convert("L")
+        out = io.BytesIO()
+        gray.save(out, format="PNG", optimize=True)
+        if out.tell() <= max_png_bytes:
+            return out.getvalue()
+        pal = gray.convert("P", palette=Image.Palette.ADAPTIVE, colors=16)
+        out2 = io.BytesIO()
+        pal.save(out2, format="PNG", optimize=True)
+        if out2.tell() <= max_png_bytes:
+            return out2.getvalue()
+
+        w, h = gray.size
+        scale = 0.75
+        min_dim = 32
+        while True:
+            new_w = max(1, int(w * scale))
+            new_h = max(1, int(h * scale))
+            if max(new_w, new_h) < min_dim:
+                break
+            resized = gray.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            pal_scaled = resized.convert("P", palette=Image.Palette.ADAPTIVE, colors=16)
+            out_scaled = io.BytesIO()
+            pal_scaled.save(out_scaled, format="PNG", optimize=True)
+            if out_scaled.tell() <= max_png_bytes:
+                return out_scaled.getvalue()
+            scale *= 0.75
+            if max(1, int(w * scale)) == new_w and max(1, int(h * scale)) == new_h:
+                break
+
+    raise OpenDVError(
+        f"Rendered page PNG cannot fit within {max_png_bytes} byte broker budget "
+        "even after minimum downscaling.",
+        error_code=ErrorCode.ARCHIVE_SIZE_LIMIT_EXCEEDED,
+    )
+
+
 def run_ocr_on_pdf_bytes(
     pdf_bytes: bytes,
     page_number: int,
     *,
     ocr_provider: OcrProviderFn | None = None,
 ) -> tuple[list[OcrBox], str, bytes]:
-    """Render a PDF page via pypdfium2, detect OCR boxes if available, and redact PNG bytes."""
-    doc = pdfium.PdfDocument(pdf_bytes)
-    try:
-        page = doc[page_number - 1]
-        try:
-            bitmap = page.render(scale=1.5)
-            width = int(bitmap.width)
-            height = int(bitmap.height)
-            mode = str(getattr(bitmap, "mode", "BGRA")).upper()
-            raw = bytes(bitmap.buffer)
-        finally:
-            page.close()
-    finally:
-        doc.close()
-
-    rgba = bytearray(width * height * 4)
-    if mode == "BGRA":
-        rgba[0::4] = raw[2::4]
-        rgba[1::4] = raw[1::4]
-        rgba[2::4] = raw[0::4]
-        rgba[3::4] = raw[3::4]
-    elif mode == "BGR":
-        for i in range(width * height):
-            s = i * 3
-            d = i * 4
-            rgba[d], rgba[d + 1], rgba[d + 2], rgba[d + 3] = raw[s + 2], raw[s + 1], raw[s], 255
-    elif mode == "RGB":
-        for i in range(width * height):
-            s = i * 3
-            d = i * 4
-            rgba[d], rgba[d + 1], rgba[d + 2], rgba[d + 3] = raw[s], raw[s + 1], raw[s + 2], 255
-    else:
-        rgba[:] = raw[: width * height * 4]
+    """Render a PDF page via ParsingService, run OCR if configured/available, and redact PNG."""
+    with SourceBlob.from_bytes(pdf_bytes, filename_hint="document.pdf") as blob:
+        svc = ParsingService(allowed_roots=[blob.path.parent])
+        png_bytes, _ = svc.render_document_page(
+            blob,
+            page_number,
+            sink_class="LOCAL_HUMAN_IO",
+            redaction="off",
+            approve_scan=True,
+            options=ParseOptions(dpi=108),
+        )
 
     boxes: list[OcrBox] = []
     ocr_text = ""
     if ocr_provider is not None:
-        boxes, ocr_text = ocr_provider(pdf_bytes, page_number)
-    elif shutil.which("tesseract") is not None:
-        try:
-            pytesseract = importlib.import_module("pytesseract")
-            pil_image_mod = importlib.import_module("PIL.Image")
-            img = pil_image_mod.frombytes("RGBA", (width, height), bytes(rgba))
-            data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
-            words: list[str] = []
-            for txt, conf, left, top, w, h in zip(
-                data.get("text", []),
-                data.get("conf", []),
-                data.get("left", []),
-                data.get("top", []),
-                data.get("width", []),
-                data.get("height", []),
-                strict=False,
-            ):
-                clean = str(txt).strip()
-                if not clean:
-                    continue
-                if float(conf) >= 0:
-                    boxes.append(
-                        OcrBox(int(left), int(top), int(left) + int(w), int(top) + int(h), clean)
-                    )
-                    words.append(clean)
-            ocr_text = " ".join(words)
-        except (ImportError, OSError, RuntimeError, ValueError, TypeError):
-            boxes, ocr_text = [], ""
+        boxes, ocr_text = ocr_provider(png_bytes, page_number)
+    elif is_ocr_driver_available():
+        boxes, ocr_text = run_pytesseract_ocr(png_bytes)
 
     if boxes:
-        redact_rgba_boxes(rgba, width, height, boxes)
-    png_bytes = encode_rgba_png(width, height, bytes(rgba))
+        png_bytes = redact_png_boxes(png_bytes, boxes)
+    png_bytes = _fit_png_within_broker_budget(png_bytes)
     return boxes, ocr_text, png_bytes
 
 
@@ -397,17 +394,19 @@ def resolve_doc_page_handles(
 
             png_b64: str | None = None
             masked_text = ""
+            psvc = ParsingService(allowed_roots=[src_path.parent])
             if dm.format == "pdf":
-                pdf_bytes = src_path.read_bytes()
-                boxes, ocr_text, png_bytes = run_ocr_on_pdf_bytes(
-                    pdf_bytes, raw_page, ocr_provider=ocr_provider
-                )
+                ocr_text = ""
                 if page_spec.is_scanned_or_low_density:
                     if raw_page not in approved:
                         raise OpenDVError(
                             f"Scanned page {raw_page} of '{doc_id}' is not in approved_scan_pages.",
                             error_code=ErrorCode.UNREDACTED_SCAN_BLOCKED,
                         )
+                    pdf_bytes = src_path.read_bytes()
+                    boxes, ocr_text, png_bytes = run_ocr_on_pdf_bytes(
+                        pdf_bytes, raw_page, ocr_provider=ocr_provider
+                    )
                     if len(boxes) < 1 and not _is_unredacted_ocr_allowed(
                         state_store, project_id, rec, doc_id, raw_page
                     ):
@@ -416,31 +415,40 @@ def resolve_doc_page_handles(
                             "allow_unredacted_external_ocr=True.",
                             error_code=ErrorCode.UNREDACTED_SCAN_BLOCKED,
                         )
+                else:
+                    png_bytes, _ = psvc.render_document_page(
+                        src_path,
+                        raw_page,
+                        sink_class="MODEL_EGRESS",
+                        redaction="on",
+                        options=ParseOptions(dpi=108),
+                    )
+                    png_bytes = _fit_png_within_broker_budget(png_bytes)
                 png_b64 = base64.b64encode(png_bytes).decode("ascii")
-                builder = DocumentMapBuilder()
-                _, pages = builder.build_from_bytes(
-                    source_id=doc_id,
-                    filename=dm.filename,
-                    doc_format="pdf",
-                    content=pdf_bytes,
-                    approved_scan_pages=list(approved),
-                    run_ocr=False,
+                ir = psvc.parse_document(
+                    src_path,
+                    options=ParseOptions(pages=[raw_page]),
+                    sink_class="MODEL_EGRESS",
+                    redaction="on",
                 )
-                raw_txt = pages[raw_page - 1] if raw_page - 1 < len(pages) else ""
-                combined_txt = f"{raw_txt}\n{ocr_text}".strip() if ocr_text else raw_txt
-                masked_text = mask_pii_text(combined_txt)
+                red_txt = next(
+                    (pg.canonical_text for pg in ir.pages if pg.page_number == raw_page), ""
+                )
+                if ocr_text:
+                    masked_ocr = mask_page_text_with_aba_tokens(ocr_text)
+                    combined = f"{red_txt}\n{masked_ocr}".strip() if red_txt else masked_ocr
+                    masked_text = mask_page_text_with_aba_tokens(combined)
+                else:
+                    masked_text = red_txt
             else:
-                doc_fmt: DocumentFormat = dm.format
-                builder = DocumentMapBuilder()
-                _, pages = builder.build_from_path(
-                    source_id=doc_id,
-                    path=src_path,
-                    doc_format=doc_fmt,
-                    approved_scan_pages=list(approved),
-                    run_ocr=False,
+                ir = psvc.parse_document(
+                    src_path,
+                    sink_class="MODEL_EGRESS",
+                    redaction="on",
                 )
-                raw_txt = pages[raw_page - 1] if raw_page - 1 < len(pages) else ""
-                masked_text = mask_pii_text(raw_txt)
+                masked_text = next(
+                    (pg.canonical_text for pg in ir.pages if pg.page_number == raw_page), ""
+                )
 
             doc_meta.append((doc_id, raw_page))
             resolved_obj: dict[str, Any] = {

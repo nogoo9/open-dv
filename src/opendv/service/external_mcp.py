@@ -7,9 +7,9 @@ import hashlib
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-import httpx2
+import httpx
 
 from opendv.agents.cli_subprocess_base import IsolatedTempCwd
 from opendv.models.errors import ErrorCode, OpenDVError
@@ -78,7 +78,7 @@ class ExternalMcpGateway(ExternalMcpGatewayPort):
         source_path_resolver: Callable[[str, str], Path | None] | None = None,
         dns_resolver: DnsResolverFn | None = None,
         ocr_provider: OcrProviderFn | None = None,
-        http_transport: httpx2.AsyncBaseTransport | None = None,
+        http_transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._state = state_store
         self._secrets = secret_store
@@ -145,14 +145,16 @@ class ExternalMcpGateway(ExternalMcpGatewayPort):
         from mcp.client.streamable_http import streamable_http_client
 
         async with (
-            httpx2.AsyncClient(
+            httpx.AsyncClient(
                 headers=headers,
                 follow_redirects=False,
                 timeout=float(server.timeout_seconds),
                 transport=self._http_transport,
                 event_hooks={"response": [reject_redirect_response_hook]},
             ) as hc,
-            streamable_http_client(safe_url, http_client=hc) as (read_stream, write_stream),
+            streamable_http_client(
+                safe_url, http_client=cast(Any, hc)
+            ) as (read_stream, write_stream),
             ClientSession(read_stream, write_stream) as session,
         ):
             await session.initialize()
@@ -250,7 +252,7 @@ class ExternalMcpGateway(ExternalMcpGatewayPort):
                 error_code=ErrorCode.EXTERNAL_MCP_GATEWAY_ERROR,
                 run_id=run_id,
             ) from eg
-        except (TimeoutError, httpx2.HTTPError, OSError, RuntimeError, ValueError) as exc:
+        except (TimeoutError, httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
             raise OpenDVError(
                 f"External MCP call '{server_id}:{tool_name}' failed: {exc}",
                 error_code=ErrorCode.EXTERNAL_MCP_GATEWAY_ERROR,

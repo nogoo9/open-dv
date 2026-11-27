@@ -6,6 +6,10 @@ import os
 from pathlib import Path
 from typing import Literal, cast
 
+from opendv.models.document_ir import (
+    DOC_SOURCE_KINDS as DOC_SOURCE_KINDS,
+)
+from opendv.models.document_ir import ParseOptions, SourceBlob
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.project import EvolutionLockSpec, SecretPrecedence
 from opendv.models.sources import (
@@ -22,10 +26,10 @@ from opendv.models.wire_dtos_discovery import ScanApprovalReq
 from opendv.service._remediation import build_remediation
 from opendv.service._state_ddl import VALID_SOURCE_KINDS
 from opendv.service.os_platform import validate_workspace_containment
+from opendv.service.parsing_svc import ParsingService
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.state_store import ProjectStateManager
 from opendv.sources import (
-    DocumentMapBuilder,
     build_table_index_entries,
     cluster_tables,
     profile_source,
@@ -35,8 +39,6 @@ from opendv.sources import (
 from opendv.sources import (
     preview_table as run_table_preview,
 )
-
-DOC_SOURCE_KINDS: frozenset[str] = frozenset({"pdf", "markdown", "docx", "domain_note"})
 
 
 def as_doc_format(kind: str) -> Literal["pdf", "markdown", "docx", "domain_note"]:
@@ -139,20 +141,24 @@ def load_doc_pages_for_record(
     source_id: str,
     rec: dict[str, object],
     dmap: DocumentMap,
-) -> list[str] | None:
-    """Resolve and extract normalized pages for a stored document record if binary exists."""
+    *,
+    parsing_service: ParsingService | None = None,
+) -> dict[int, str] | None:
+    """Resolve and extract 1-based normalized pages for a stored document if binary exists."""
+    _ = source_id, dmap
     disk_path = resolve_readable_source_path(state_manager, workspace_root, project_id, rec)
     if disk_path is None:
         return None
-    raw_approved = rec.get("approved_scan_pages")
-    approved = [int(p) for p in raw_approved] if isinstance(raw_approved, list) else []
-    _, pages = DocumentMapBuilder().build_from_path(
-        source_id=source_id,
-        path=disk_path,
-        doc_format=dmap.format,
-        approved_scan_pages=approved,
+    svc = parsing_service or ParsingService(
+        workspace_root=workspace_root,
+        allowed_roots=[workspace_root, state_manager.sources_dir(project_id), disk_path.parent],
     )
-    return pages
+    ir = svc.parse_document(
+        SourceBlob.from_path(disk_path),
+        sink_class="LOCAL_HUMAN_IO",
+        redaction="off",
+    )
+    return {pg.page_number: pg.canonical_text for pg in ir.pages}
 
 
 def list_tables_index(
@@ -417,6 +423,7 @@ def get_document_pages(
     *,
     page_start: int = 1,
     page_end: int | None = None,
+    parsing_service: ParsingService | None = None,
 ) -> list[PageTextView]:
     """Return masked page text views, blocking absent binaries and unapproved scans."""
     rec = state_manager.get_source_record(project_id, source_id)
@@ -437,9 +444,13 @@ def get_document_pages(
             f"Document binary for source '{source_id}' cannot be located on disk.",
             error_code=ErrorCode.SOURCE_BINARY_ABSENT,
         )
-    kind = as_doc_format(str(rec["kind"]))
     approved = {int(p) for p in rec["approved_scan_pages"]} | set(doc_map.approved_scan_pages)
-    end = page_end if page_end is not None else doc_map.page_count
+    end = min(page_end, doc_map.page_count) if page_end is not None else doc_map.page_count
+    if page_start < 1 or end < page_start:
+        raise OpenDVError(
+            f"Invalid page range [{page_start}, {page_end}] for '{source_id}'.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
     for page in doc_map.pages:
         if (
             page_start <= page.page_number <= end
@@ -450,18 +461,29 @@ def get_document_pages(
                 f"Scanned page {page.page_number} of '{source_id}' requires Steward consent.",
                 error_code=ErrorCode.UNREDACTED_SCAN_BLOCKED,
             )
-    rebuilt_map, normalized_pages = DocumentMapBuilder().build_from_path(
-        source_id=source_id,
-        path=disk_path,
-        doc_format=kind,
+    svc = parsing_service or ParsingService(
+        workspace_root=workspace_root,
+        allowed_roots=[workspace_root, state_manager.sources_dir(project_id), disk_path.parent],
+    )
+    is_pdf = doc_map.format == "pdf"
+    ir = svc.parse_document(
+        SourceBlob.from_path(disk_path),
+        options=ParseOptions(pages=list(range(page_start, end + 1))) if is_pdf else None,
+        sink_class="MODEL_EGRESS" if is_pdf else "LOCAL_HUMAN_IO",
+        redaction="on" if is_pdf else "off",
+    )
+    proj = svc.export_ir(
+        ir,
+        target="document_map",
+        sink_class="MODEL_EGRESS",
+        redaction="on",
+        doc_id=source_id,
+        filename=doc_map.filename,
         approved_scan_pages=sorted(approved),
     )
-    return DocumentMapBuilder().build_page_text_views(
-        rebuilt_map,
-        normalized_pages,
-        page_start=page_start,
-        page_end=page_end,
-    )
+    assert isinstance(proj, dict)
+    views = cast(list[PageTextView], proj["page_text_views"])
+    return views if is_pdf else [v for v in views if page_start <= v.page_number <= end]
 
 
 def approve_scan_pages(

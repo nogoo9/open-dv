@@ -6,6 +6,7 @@ import hashlib
 import uuid
 from pathlib import Path
 
+from opendv.models.document_ir import SourceBlob
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.sources import (
     ConnectorAdapterSpec,
@@ -26,13 +27,13 @@ from opendv.models.wire_dtos_discovery import (
     SourceReattachReq,
 )
 from opendv.service.os_platform import atomic_write_bytes, validate_workspace_containment
+from opendv.service.parsing_svc import ParsingService
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.state_store import ProjectStateManager
 from opendv.service.workflows._source_docs import (
     DOC_SOURCE_KINDS,
     active_evolution_locks,
     approve_scan_pages,
-    as_doc_format,
     as_source_kind,
     get_document_map,
     get_document_pages,
@@ -56,7 +57,6 @@ from opendv.service.workflows._vault_proving import (
     sync_proving_sample_cache,
 )
 from opendv.sources import (
-    DocumentMapBuilder,
     build_table_index_entries,
     get_source_adapter,
     infer_kind_from_filename,
@@ -79,10 +79,13 @@ class DiscoverySourcesHelper:
         state_manager: ProjectStateManager,
         secret_store: KeyringSecretStore,
         workspace_root: Path,
+        *,
+        parsing_service: ParsingService | None = None,
     ) -> None:
         self._state = state_manager
         self._secrets = secret_store
         self._workspace_root = workspace_root
+        self._parsing = parsing_service or ParsingService(workspace_root=workspace_root)
 
     def inspect_source(self, req: SourceInspectReq) -> SourceProfile:
         """Inspect a candidate source before project attachment."""
@@ -158,11 +161,12 @@ class DiscoverySourcesHelper:
                     f"Document source '{req.uri_or_filename}' does not exist.",
                     error_code=ErrorCode.SOURCE_BINARY_ABSENT,
                 )
-            binary_sha256 = hashlib.sha256(local_path.read_bytes()).hexdigest()
-            doc_map, _pages = DocumentMapBuilder().build_from_path(
-                source_id=source_id,
-                path=local_path,
-                doc_format=as_doc_format(kind),
+            blob = SourceBlob.from_path(local_path)
+            binary_sha256 = blob.binary_sha256
+            doc_map, _ = self._parsing.build_document_map(
+                blob,
+                doc_id=source_id,
+                filename=local_path.name,
             )
             profile = SourceProfile(
                 source_id=source_id, schema_fingerprint="", table_count=0, tables=[]
@@ -265,11 +269,16 @@ class DiscoverySourcesHelper:
         adapter_id: str
         display_name: str
         if resolved_kind in DOC_SOURCE_KINDS:
-            doc_map, _pages = DocumentMapBuilder().build_from_bytes(
-                source_id=source_id,
+            blob = SourceBlob.from_path(
+                dest,
+                binary_sha256=binary_sha256,
+                byte_size=len(content),
+                filename_hint=safe_name,
+            )
+            doc_map, _ = self._parsing.build_document_map(
+                blob,
+                doc_id=source_id,
                 filename=safe_name,
-                doc_format=as_doc_format(resolved_kind),
-                content=content,
             )
             profile = SourceProfile(
                 source_id=source_id, schema_fingerprint="", table_count=0, tables=[]
@@ -388,12 +397,13 @@ class DiscoverySourcesHelper:
                     f"Document source '{new_uri}' does not exist.",
                     error_code=ErrorCode.SOURCE_BINARY_ABSENT,
                 )
-            binary_sha256 = hashlib.sha256(local_path.read_bytes()).hexdigest()
+            blob = SourceBlob.from_path(local_path)
+            binary_sha256 = blob.binary_sha256
             approved = list(rec["approved_scan_pages"])
-            doc_map, _pages = DocumentMapBuilder().build_from_path(
-                source_id=source_id,
-                path=local_path,
-                doc_format=as_doc_format(kind),
+            doc_map, _ = self._parsing.build_document_map(
+                blob,
+                doc_id=source_id,
+                filename=local_path.name,
                 approved_scan_pages=approved,
             )
             new_profile = prior_profile
@@ -559,6 +569,7 @@ class DiscoverySourcesHelper:
             source_id,
             page_start=page_start,
             page_end=page_end,
+            parsing_service=self._parsing,
         )
 
     def approve_scan_pages(

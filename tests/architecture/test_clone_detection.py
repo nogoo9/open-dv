@@ -14,6 +14,7 @@ TARGET_DIRS = [
     "src/opendv/api",
     "src/opendv/service",
     "src/opendv/sources",
+    "src/opendv/parsing",
     "src/opendv/grounding",
     "src/opendv/agents",
 ]

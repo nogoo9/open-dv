@@ -13,10 +13,9 @@ from pydantic import BaseModel, ValidationError
 
 from opendv.agents import AgentHarnessPort
 from opendv.grounding.kernel.overlay import OverlayKnowledgeSource
-from opendv.grounding.providers.fibo.knowledge_source import FiboKnowledgeSource
 from opendv.grounding.providers.fibo.loader import FiboPackQueryAdapter
-from opendv.grounding.providers.glossary.knowledge_source import GlossaryKnowledgeSource
 from opendv.grounding.spi import KnowledgeSource
+from opendv.models.document_ir import DOC_SOURCE_KINDS, SourceBlob
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.grounding import (
     FiboProjectDriftReport,
@@ -58,6 +57,7 @@ from opendv.models.wire_dtos_discovery import (
 )
 from opendv.service.citations import resolve_citation
 from opendv.service.fibo_pack_ops import check_project_drift, install_fibo_pack
+from opendv.service.parsing_svc import ParsingService
 from opendv.service.readiness import HarnessReadinessService
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.settings_store import SettingsStore
@@ -71,7 +71,14 @@ from opendv.service.workflows._discovery_sources import (
 )
 from opendv.service.workflows._grounding_orchestrator import ground_columns_orchestrated
 from opendv.service.workflows._run_adapters import load_latest_run_state, resolve_harness
-from opendv.service.workflows._source_docs import load_doc_pages_for_record
+from opendv.service.workflows._source_docs import (
+    load_doc_pages_for_record,
+    resolve_readable_source_path,
+)
+from opendv.service.workflows.grounding_stateless import (
+    build_grounding_knowledge_source,
+    ground_ontology_stateless,
+)
 from opendv.sources.grounding_adapter import source_profiles_to_grounding_request
 
 _RFC3987_IRI_RE = re.compile(
@@ -159,6 +166,7 @@ class DiscoveryService:
         injected_harness: AgentHarnessPort | None = None,
         readiness_service: HarnessReadinessService | None = None,
         state_dir: Path | None = None,
+        parsing_service: ParsingService | None = None,
     ) -> None:
         self._state = state_manager
         self._settings = settings_store
@@ -168,8 +176,13 @@ class DiscoveryService:
         self._state_dir = state_dir
         self._matcher = matcher or FiboPackQueryAdapter()
         self._workspace_root = workspace_root
-        self._sources = DiscoverySourcesHelper(state_manager, secret_store, workspace_root)
-        self._ontology = DiscoveryOntologyHelper(state_manager, self._matcher, workspace_root)
+        self._parsing = parsing_service or ParsingService(workspace_root=workspace_root)
+        self._sources = DiscoverySourcesHelper(
+            state_manager, secret_store, workspace_root, parsing_service=self._parsing
+        )
+        self._ontology = DiscoveryOntologyHelper(
+            state_manager, self._matcher, workspace_root, parsing_service=self._parsing
+        )
         self._runs = DiscoveryRunHelper(
             state_manager=state_manager,
             settings_store=settings_store,
@@ -178,6 +191,7 @@ class DiscoveryService:
             workspace_root=workspace_root,
             injected_harness=injected_harness,
             readiness_service=readiness_service,
+            parsing_service=self._parsing,
         )
 
     def list_adapters(self) -> list[ConnectorAdapterSpec]:
@@ -334,15 +348,18 @@ class DiscoveryService:
             if req.doc_id not in (src.source_id, dmap.doc_id):
                 continue
             meta_only = str(rec["status"]) == "METADATA_ONLY_BINARY_ABSENT"
-            pages = (
+            page_map = (
                 None
                 if meta_only
                 else load_doc_pages_for_record(
-                    self._state, self._workspace_root, project_id, src.source_id, rec, dmap
+                    self._state,
+                    self._workspace_root,
+                    project_id,
+                    src.source_id,
+                    rec,
+                    dmap,
+                    parsing_service=self._parsing,
                 )
-            )
-            page_map = (
-                {idx + 1: txt for idx, txt in enumerate(pages)} if pages is not None else None
             )
             return resolve_citation(
                 req,
@@ -391,79 +408,91 @@ class DiscoveryService:
         glossary_bytes: bytes | None = None,
     ) -> GroundingResponse:
         """Run standalone or project-backed column grounding via Layer-4 orchestrator."""
-        proj = None
         if req.request is not None:
-            ground_req = req.request
-        else:
-            assert req.project_id is not None
-            proj = self._state.get_project(req.project_id)
-            profiles = [
-                SourceProfile.model_validate(prof_raw)
-                for s in self._state.list_sources(req.project_id)
-                if (
-                    prof_raw := self._state.get_source_record(req.project_id, s.source_id).get(
-                        "profile"
+            return await ground_ontology_stateless(
+                req,
+                fibo_pack_bytes=fibo_pack_bytes,
+                glossary_bytes=glossary_bytes,
+                default_loader=self._matcher.loader,
+                workspace_root=self._workspace_root,
+                state_dir=self._state_dir,
+                injected_harness=self._injected_harness,
+                readiness_service=self._readiness_service,
+                settings_store=self._settings,
+                secret_store=self._secrets,
+            )
+
+        assert req.project_id is not None
+        proj = self._state.get_project(req.project_id)
+        profiles: list[SourceProfile] = []
+        doc_inputs: list[Path | str | SourceBlob | DocumentMap] = []
+        for s in self._state.list_sources(req.project_id):
+            rec = self._state.get_source_record(req.project_id, s.source_id)
+            if (prof_raw := rec.get("profile")) is not None:
+                profiles.append(SourceProfile.model_validate(prof_raw))
+            if str(rec.get("kind")) in DOC_SOURCE_KINDS:
+                disk_path = (
+                    None
+                    if str(rec.get("status")) == "METADATA_ONLY_BINARY_ABSENT"
+                    else resolve_readable_source_path(
+                        self._state, self._workspace_root, req.project_id, rec
                     )
                 )
-                is not None
-            ]
-            try:
-                ground_req = source_profiles_to_grounding_request(
-                    profiles,
-                    project_state=proj,
-                    policy=req.policy,
-                    max_tables=50,
-                    max_columns=500,
-                )
-            except ValidationError as exc:
-                raise OpenDVError(
-                    str(exc),
-                    error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
-                ) from exc
+                if disk_path is not None:
+                    doc_inputs.append(SourceBlob.from_path(disk_path))
+                elif rec.get("document_map") is not None:
+                    doc_inputs.append(DocumentMap.model_validate(rec["document_map"]))
+        doc_notes = (
+            self._parsing.build_grounding_summary_notes(
+                doc_inputs, max_notes=5, max_chars_per_note=1500
+            )
+            if doc_inputs
+            else []
+        )
+        try:
+            ground_req = source_profiles_to_grounding_request(
+                profiles,
+                project_state=proj,
+                global_steward_notes=doc_notes[:20],
+                policy=req.policy,
+                max_tables=50,
+                max_columns=500,
+            )
+        except ValidationError as exc:
+            raise OpenDVError(
+                str(exc),
+                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+            ) from exc
 
-        if req.knowledge_source == "glossary":
-            if glossary_bytes is None and req.glossary_path == "<preloaded>":
-                raise OpenDVError(
-                    "Missing preloaded glossary bytes.",
-                    error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
-                )
-            base_source: KnowledgeSource = (
-                GlossaryKnowledgeSource(glossary_bytes=glossary_bytes)
-                if glossary_bytes is not None
-                else GlossaryKnowledgeSource(glossary_path=req.glossary_path)
+        base_source = build_grounding_knowledge_source(
+            req,
+            fibo_pack_bytes=fibo_pack_bytes,
+            glossary_bytes=glossary_bytes,
+            default_loader=self._matcher.loader,
+        )
+        existing_ont = (
+            GraphAOntology.model_validate(
+                self._state.get_revision(req.project_id, proj.active_ontology_rev_id)["payload"]
             )
-        elif fibo_pack_bytes is not None:
-            base_source = FiboKnowledgeSource(pack_bytes=fibo_pack_bytes)
-        elif req.fibo_pack is not None:
-            base_source = FiboKnowledgeSource(pack_path=req.fibo_pack)
-        else:
-            base_source = FiboKnowledgeSource(loader=self._matcher.loader)
-
-        source: KnowledgeSource = base_source
-        if proj is not None and req.project_id is not None:
-            existing_ont = (
-                GraphAOntology.model_validate(
-                    self._state.get_revision(req.project_id, proj.active_ontology_rev_id)["payload"]
-                )
-                if proj.active_ontology_rev_id is not None
-                else None
-            )
-            concept_memory = [
-                ConceptMemorySpec.model_validate(r["payload"])
-                for r in self._state.list_revisions(req.project_id, rev_kind="concept_memory")
-            ]
-            source = OverlayKnowledgeSource(
-                base_source,
-                ontology=existing_ont,
-                concept_memory=concept_memory,
-                discovery_mode=proj.settings_snapshot.discovery_mode,
-            )
+            if proj.active_ontology_rev_id is not None
+            else None
+        )
+        concept_memory = [
+            ConceptMemorySpec.model_validate(r["payload"])
+            for r in self._state.list_revisions(req.project_id, rev_kind="concept_memory")
+        ]
+        source: KnowledgeSource = OverlayKnowledgeSource(
+            base_source,
+            ontology=existing_ont,
+            concept_memory=concept_memory,
+            discovery_mode=proj.settings_snapshot.discovery_mode,
+        )
 
         harness = (
             None
             if ground_req.policy.mode == "deterministic_only"
             else resolve_harness(
-                proj.settings_snapshot if proj is not None else self._settings.load_settings(),
+                proj.settings_snapshot,
                 self._secrets,
                 injected_harness=self._injected_harness,
                 readiness_service=self._readiness_service,

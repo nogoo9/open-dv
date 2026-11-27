@@ -16,6 +16,10 @@ from opendv.grounding.providers.fibo import (
     FiboPackQueryAdapter,
     FiboReferenceOntologyLoader,
 )
+from opendv.models.document_ir import (
+    compute_canonical_text_sha256,
+    normalize_page_text,
+)
 from opendv.models.errors import ErrorCode, OpenDVError, ReferenceOntologyCorruptError
 from opendv.models.events import OcrPageReceipt
 from opendv.models.grounding_spi import KnowledgeItem
@@ -27,12 +31,8 @@ from opendv.models.ontology import (
 )
 from opendv.models.wire_dtos_discovery import CitationResolveReq, FiboQueryReq
 from opendv.service.citations import ensure_no_redacted_placeholder, resolve_citation
+from opendv.service.parsing_svc import ParsingService
 from opendv.service.turtle_writer import export_ontology_turtle, write_ontology_turtle
-from opendv.sources.document_map import (
-    DocumentMapBuilder,
-    compute_canonical_text_sha256,
-    normalize_page_text,
-)
 from opendv.sources.starter_packs import get_starter_pack_ontology
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -125,15 +125,13 @@ def test_bm25_real_fibo_pack_query_and_integrity_failure(tmp_path: Path) -> None
 
 
 def test_citations_against_real_public_am_pdf_and_markdown_and_ocr() -> None:
-    builder = DocumentMapBuilder()
+    svc = ParsingService(allowed_roots=[REPO_ROOT])
     pdf_path = REPO_ROOT / "data" / "public_am" / "am_custody_and_voting_guide.pdf"
-    pdf_map, pdf_pages = builder.build_from_path(
-        source_id="doc_custody_pdf",
-        path=pdf_path,
-        doc_format="pdf",
-        run_ocr=False,
-    )
-    parsed_pdf = {idx + 1: text for idx, text in enumerate(pdf_pages)}
+    pdf_ir = svc.parse_document(pdf_path, sink_class="LOCAL_HUMAN_IO")
+    pdf_map = svc.export_ir(
+        pdf_ir, target="document_map", sink_class="MODEL_EGRESS", doc_id="doc_custody_pdf"
+    )["document_map"]  # type: ignore[index]
+    parsed_pdf = {p.page_number: p.canonical_text for p in pdf_ir.pages}
     assert pdf_map.pages[3].is_scanned_or_low_density is True  # page 4 scanned gate
 
     quote = "CONFIDENTIAL STEWARDSHIP EXCEPTION CLAUSE"
@@ -182,12 +180,11 @@ def test_citations_against_real_public_am_pdf_and_markdown_and_ocr() -> None:
 
     # Real Markdown domain note + CRLF/tab whitespace normalization
     md_path = REPO_ROOT / "data" / "public_am" / "am_stewardship_domain_notes.md"
-    md_map, md_pages = builder.build_from_path(
-        source_id="doc_notes",
-        path=md_path,
-        doc_format="markdown",
-    )
-    md_parsed = {1: md_pages[0].replace("\n", "\r\n").replace(" ", "\t")}
+    md_ir = svc.parse_document(md_path, sink_class="LOCAL_HUMAN_IO")
+    md_map = svc.export_ir(
+        md_ir, target="document_map", sink_class="MODEL_EGRESS", doc_id="doc_notes"
+    )["document_map"]  # type: ignore[index]
+    md_parsed = {1: md_ir.pages[0].canonical_text.replace("\n", "\r\n").replace(" ", "\t")}
     md_span = resolve_citation(
         CitationResolveReq(
             doc_id="doc_notes",
@@ -301,15 +298,13 @@ def test_citations_against_real_public_am_pdf_and_markdown_and_ocr() -> None:
 
 
 def test_citations_reject_tampered_ocr_receipt_self_digest() -> None:
-    builder = DocumentMapBuilder()
+    svc = ParsingService(allowed_roots=[REPO_ROOT])
     pdf_path = REPO_ROOT / "data" / "public_am" / "am_custody_and_voting_guide.pdf"
-    pdf_map, pdf_pages = builder.build_from_path(
-        source_id="doc_custody_pdf",
-        path=pdf_path,
-        doc_format="pdf",
-        run_ocr=False,
-    )
-    parsed_pdf = {idx + 1: text for idx, text in enumerate(pdf_pages)}
+    pdf_ir = svc.parse_document(pdf_path, sink_class="LOCAL_HUMAN_IO")
+    pdf_map = svc.export_ir(
+        pdf_ir, target="document_map", sink_class="MODEL_EGRESS", doc_id="doc_custody_pdf"
+    )["document_map"]  # type: ignore[index]
+    parsed_pdf = {p.page_number: p.canonical_text for p in pdf_ir.pages}
     assert pdf_map.pages[3].is_scanned_or_low_density is True
     assert pdf_map.pages[3].ocr_box_count == 0
 

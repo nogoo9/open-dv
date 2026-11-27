@@ -37,6 +37,7 @@ from opendv.models.sources import DocumentMap, SourceProfile
 from opendv.models.vault_ir_certified import CertifiedVaultIR
 from opendv.models.wire_dtos_discovery import HoldAnswersReq, RunStateResp
 from opendv.models.wire_dtos_vault import VaultBuildReq
+from opendv.service.parsing_svc import ParsingService
 from opendv.service.secrets import KeyringSecretStore
 from opendv.service.state_store import (
     ProjectStateManager,
@@ -79,6 +80,7 @@ def load_verifier_inputs(
     real_row_proving_override: bool | None = None,
     cdc_volatility_by_table: Mapping[str, Mapping[str, float]] | None = None,
     fk_turnover_by_table: Mapping[str, Mapping[str, float]] | None = None,
+    parsing_service: ParsingService | None = None,
 ) -> tuple[
     GraphAOntology,
     list[SourceProfile],
@@ -116,13 +118,25 @@ def load_verifier_inputs(
             dmap = DocumentMap.model_validate(rec["document_map"])
             doc_maps.append(dmap)
             if not src_meta_absent:
-                pages = load_doc_pages_for_record(
-                    state_manager, workspace_root, project_id, src.source_id, rec, dmap
-                )
-                if pages is not None:
-                    page_dict = {idx + 1: text for idx, text in enumerate(pages)}
+                try:
+                    page_dict = load_doc_pages_for_record(
+                        state_manager,
+                        workspace_root,
+                        project_id,
+                        src.source_id,
+                        rec,
+                        dmap,
+                        parsing_service=parsing_service,
+                    )
+                except OpenDVError as exc:
+                    if exc.error_code != ErrorCode.SOURCE_BINARY_ABSENT:
+                        raise
+                    page_dict = None
+                if page_dict is not None:
                     parsed_doc_pages[src.source_id] = page_dict
                     parsed_doc_pages[dmap.doc_id] = page_dict
+                else:
+                    meta_absent = True
 
     clusters: list[tuple[str, Sequence[str]]] = []
     if all_tables:
@@ -290,6 +304,7 @@ def build_initial_modeling_request(
     secret_store: KeyringSecretStore | None = None,
     trusted_workspaces: Sequence[TrustedWorkspaceSpec] = (),
     model_overrides: Mapping[str, str] | None = None,
+    parsing_service: ParsingService | None = None,
 ) -> DVModelingRequest:
     """Hydrate initial Step 6 DVModelingRequest from project state, proving cache, and req."""
     snap = proj.settings_snapshot
@@ -309,6 +324,7 @@ def build_initial_modeling_request(
         real_row_proving_override=req.real_row_proving,
         cdc_volatility_by_table=req.cdc_volatility_by_table,
         fk_turnover_by_table=req.fk_turnover_by_table,
+        parsing_service=parsing_service,
     )
     guide_text, _ = load_modeling_guide(
         workspace_root=workspace_root,
@@ -360,6 +376,7 @@ def prepare_resume_cegar_request(
     model_overrides: Mapping[str, str] | None = None,
     revert_to_pre_steer: bool = False,
     prior_state: RunStateResp | None = None,
+    parsing_service: ParsingService | None = None,
 ) -> tuple[str | None, str | None, DVModelingRequest]:
     """Hydrate DVModelingRequest for Hold resume, Revert, or in-place V8 Horizon upgrade."""
     proj = state_manager.get_project(project_id)
@@ -368,6 +385,7 @@ def prepare_resume_cegar_request(
         workspace_root,
         project_id,
         secret_store=secret_store,
+        parsing_service=parsing_service,
     )
     guide_text, _ = load_modeling_guide(
         workspace_root=workspace_root,

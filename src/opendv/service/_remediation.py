@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+import shutil
 from collections.abc import Mapping, Sequence
 from typing import Literal
 
@@ -61,6 +63,8 @@ def build_remediation(
     missing_secrets: Sequence[str] = (),
     active_run_id: str | None = None,
     workspace_root: str | None = None,
+    extra_name: str = "databricks",
+    tesseract_missing: bool = False,
 ) -> ErrorRemediation:
     """Build deterministic agent-vs-human remediation guidance for a given ErrorCode."""
     if trigger == ErrorCode.DRIVER_MISSING:
@@ -93,6 +97,35 @@ def build_remediation(
                     f"Install missing '{provider}' CLI binary on PATH or switch harness provider."
                 ),
                 actions=_append_switch(actions, provider, provider_statuses),
+            )
+        if extra_name == "ocr":
+            if tesseract_missing or (
+                importlib.util.find_spec("pytesseract") is not None
+                and shutil.which("tesseract") is None
+            ):
+                return ErrorRemediation(
+                    summary=(
+                        "Install system Tesseract OCR binary and ensure 'tesseract' is on PATH."
+                    ),
+                    actions=[
+                        RemediationAction(
+                            actor="human",
+                            label="Install Tesseract OCR binary on PATH",
+                            command=None,
+                            requires_tty=True,
+                        )
+                    ],
+                )
+            return ErrorRemediation(
+                summary="Install optional 'ocr' extra required for OCR processing.",
+                actions=[
+                    RemediationAction(
+                        actor="agent",
+                        label="Install optional OCR extra",
+                        command="uv sync --extra ocr",
+                        requires_tty=False,
+                    )
+                ],
             )
         return ErrorRemediation(
             summary="Install optional 'databricks' extra required for this operation.",

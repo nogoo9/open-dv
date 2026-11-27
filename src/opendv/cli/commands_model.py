@@ -276,6 +276,8 @@ def _raise_if_non_certified(result: Any, *, json_mode: bool, label: str) -> None
 def _run_stateless_action(
     ctx: typer.Context,
     action: Callable[[CliGlobalOptions], Any],
+    *,
+    plain_formatter: Callable[[Any], str] | None = None,
 ) -> None:
     from opendv.service.secrets import scoped_env_first
 
@@ -289,7 +291,19 @@ def _run_stateless_action(
         exit_code = render_error(err, json_mode=opts.json_mode, instance=instance, data=data)
         raise typer.Exit(code=exit_code) from exc
 
-    render_success(result, json_mode=opts.json_mode)
+    plain_text = plain_formatter(result) if plain_formatter is not None else None
+    render_success(result, json_mode=opts.json_mode, plain_text=plain_text)
+
+
+def _format_profile_bundle(bundle: Any) -> str:
+    profiles = getattr(bundle, "profiles", ())
+    doc_maps = getattr(bundle, "document_maps", ())
+    tables = sum(len(getattr(p, "tables", ())) for p in profiles)
+    questions = getattr(bundle, "questions", ())
+    return (
+        f"profiles={len(profiles)} tables={tables} "
+        f"document_maps={len(doc_maps)} questions={len(questions)}"
+    )
 
 
 @model_app.command("spec")
@@ -396,7 +410,7 @@ def model_profile(
         _write_out_json(out, bundle)
         return bundle
 
-    _run_stateless_action(ctx, _run)
+    _run_stateless_action(ctx, _run, plain_formatter=_format_profile_bundle)
 
 
 @model_app.command("verify")
