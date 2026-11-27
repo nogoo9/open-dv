@@ -20,6 +20,7 @@ ACTIVE_V2_DOCS = [
     "docs/30-enterprise-dv2-modeling-and-loop-engineering.md",
     "docs/31-v2-e2e-requirements-gaps-and-uat-spec.md",
     "docs/32-v2-user-experience-and-scenario-guide.md",
+    "docs/components/modeling/README.md",
     "docs/components/modeling/user-guide.md",
     "docs/components/modeling/contributor-guide.md",
     "docs/designs/SITEMAP.md",

@@ -205,6 +205,7 @@ open-dv/
 ## 8. Documentation & Specification Map
 
 - **DV 2.0 Modeling Component & Architecture:**
+  - **Component README:** [`docs/components/modeling/README.md`](docs/components/modeling/README.md) — entry index for the `src/opendv/modeling/` 4-doc suite (`REQ-DOC-01`)
   - **Component User Guide:** [`docs/components/modeling/user-guide.md`](docs/components/modeling/user-guide.md) — Mode 1 (`opendv model spec|profile|verify`), Mode 2 (`opendv model run` / `opendv vault build`), `ModelingPreferences`, real-row proving, & troubleshooting
   - **Component Contributor Guide:** [`docs/components/modeling/contributor-guide.md`](docs/components/modeling/contributor-guide.md) — `src/opendv/modeling/` module map, Layer-3 import contracts, `D16` token budget, & extension recipes
   - **Architecture & Governance Design:** [`docs/designs/dv2-modeling-engine-and-governance.md`](docs/designs/dv2-modeling-engine-and-governance.md) — `src/opendv/modeling/` CEGAR loop, Horizon Critics (`V7`/`V8`), domain sharding, & IR-level governance
