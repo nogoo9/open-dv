@@ -12,6 +12,7 @@ from pydantic import Field, TypeAdapter, ValidationError
 
 if TYPE_CHECKING:
     from opendv.service.mcp_broker import JobMcpBroker
+    from opendv.service.parsing_svc import ParsingService
 
 from opendv.agents import (
     AgentHarnessPort,
@@ -86,6 +87,7 @@ class DiscoveryRunHelper:
         workspace_root: Path,
         injected_harness: AgentHarnessPort | None = None,
         readiness_service: HarnessReadinessService | None = None,
+        parsing_service: ParsingService | None = None,
     ) -> None:
         self._state = state_manager
         self._settings = settings_store
@@ -94,6 +96,7 @@ class DiscoveryRunHelper:
         self._workspace_root = workspace_root
         self._injected_harness = injected_harness
         self._readiness_service = readiness_service
+        self._parsing = parsing_service
 
     async def start_construction(
         self,
@@ -253,7 +256,10 @@ class DiscoveryRunHelper:
                 ontology = GraphAOntology.model_validate(rev["payload"])
 
             profiles, parsed_pages, doc_summaries = build_source_and_doc_context(
-                self._state, project_id, self._workspace_root
+                self._state,
+                project_id,
+                self._workspace_root,
+                parsing_service=self._parsing,
             )
             fp = compute_profiles_fp(profiles)
             sink = ServiceRunEventSink(self._state, project_id)
@@ -278,6 +284,7 @@ class DiscoveryRunHelper:
                     self._state, project_id, self._workspace_root
                 ),
                 parsed_pages=parsed_pages,
+                parsing_service=self._parsing,
                 ontology_rev_id=proj.active_ontology_rev_id,
                 sources_fingerprint=fp,
                 discovery_mode=eff_mode,

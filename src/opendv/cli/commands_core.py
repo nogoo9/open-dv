@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -254,33 +255,115 @@ def mcp_remove(
     run_cli_action(ctx, lambda c: c.remove_mcp_server(server_id))
 
 
+class McpProfileOpt(StrEnum):
+    """Tool profile exposed by `opendv mcp serve`."""
+
+    PROJECT = "project"
+    PARSING = "parsing"
+    ALL = "all"
+
+
 @mcp_app.command("serve")
 def mcp_serve(
     ctx: typer.Context,
     transport: Annotated[str, typer.Option("--transport", help="MCP transport (stdio).")] = "stdio",
-    project: ProjectOpt = "",
+    profile: Annotated[
+        McpProfileOpt,
+        typer.Option("--profile", help="Tool profile: project, parsing, or all."),
+    ] = McpProfileOpt.PROJECT,
+    project: Annotated[
+        str | None,
+        typer.Option(
+            "--project",
+            help="Project identifier (required for project and all profiles).",
+        ),
+    ] = None,
+    allow_root: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--allow-root",
+            help="Repeatable allowed root directory for parsing MCP tools.",
+        ),
+    ] = None,
+    allow_unredacted: Annotated[
+        bool | None,
+        typer.Option(
+            "--allow-unredacted/--no-allow-unredacted",
+            help="Allow unredacted parse_extract or parse_render_page calls.",
+        ),
+    ] = None,
+    max_inline_bytes: Annotated[
+        int | None,
+        typer.Option(
+            "--max-inline-bytes",
+            help="Maximum inline MCP response bytes before spillover (>= 1).",
+        ),
+    ] = None,
+    spill_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--spill-dir",
+            help="Directory for oversized MCP parsing payload spillover.",
+        ),
+    ] = None,
 ) -> None:
-    """Serve the 17-tool Open-DV lifecycle MCP server over stdio."""
+    """Serve the Open-DV lifecycle and/or stateless parsing MCP server over stdio."""
     opts = cli_context(ctx)
-    if transport != "stdio":
-        err = OpenDVError(
-            f"Unsupported MCP transport '{transport}'; only 'stdio' is supported.",
-            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
-        )
-        raise typer.Exit(code=render_error(err, json_mode=opts.json_mode))
-    if not project.strip():
-        err = OpenDVError(
-            "--project is required for `opendv mcp serve`.",
-            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
-        )
+
+    def _fail_arg(message: str) -> None:
+        err = OpenDVError(message, error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT)
         raise typer.Exit(code=render_error(err, json_mode=opts.json_mode))
 
+    if transport != "stdio":
+        _fail_arg(f"Unsupported MCP transport '{transport}'; only 'stdio' is supported.")
+    if max_inline_bytes is not None and max_inline_bytes < 1:
+        _fail_arg("--max-inline-bytes must be >= 1.")
+
+    if profile == McpProfileOpt.PROJECT:
+        if any(
+            val is not None
+            for val in (allow_root, allow_unredacted, max_inline_bytes, spill_dir)
+        ):
+            _fail_arg(
+                "Parsing flags (--allow-root, --allow-unredacted, --max-inline-bytes, "
+                "--spill-dir) cannot be used with --profile project."
+            )
+        if project is None or not project.strip():
+            _fail_arg("--project is required for `opendv mcp serve`.")
+    elif profile == McpProfileOpt.PARSING:
+        if project is not None:
+            _fail_arg("--project cannot be passed with --profile parsing.")
+    else:
+        if project is None or not project.strip():
+            _fail_arg("--project is required for `opendv mcp serve --profile all`.")
+
     from opendv.cli.mcp_stdio import run_mcp_stdio_server
+    from opendv.service.os_platform import resolve_user_state_dir
     from opendv.service.secrets import scoped_env_first
+
+    eff_allow_roots: list[Path] | None = None
+    eff_allow_unredacted = False
+    eff_max_inline_bytes = 65_536
+    eff_spill_dir: Path | None = None
+    if profile in (McpProfileOpt.PARSING, McpProfileOpt.ALL):
+        eff_allow_roots = list(allow_root) if allow_root is not None else [Path.cwd()]
+        eff_allow_unredacted = bool(allow_unredacted) if allow_unredacted is not None else False
+        eff_max_inline_bytes = max_inline_bytes if max_inline_bytes is not None else 65_536
+        eff_spill_dir = (
+            spill_dir if spill_dir is not None else (resolve_user_state_dir() / "parse_spill")
+        )
 
     try:
         with scoped_env_first(opts.env_first):
-            run_mcp_stdio_server(project_id=project)
+            run_mcp_stdio_server(
+                profile=profile.value,
+                project_id=project,
+                allow_roots=eff_allow_roots,
+                allow_unredacted=eff_allow_unredacted,
+                max_inline_bytes=eff_max_inline_bytes,
+                spill_dir=eff_spill_dir,
+                cli_env_first=opts.env_first,
+            )
     except _CLI_HANDLED_EXC_TYPES as exc:
         err, data, instance = coerce_cli_error(exc)
         raise typer.Exit(

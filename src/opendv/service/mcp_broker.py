@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
     from opendv.grounding.spi import KnowledgeSource
+    from opendv.service.parsing_svc import ParsingService
 
 from opendv.agents.ports import (
     AgentHarnessPort,
@@ -278,9 +279,10 @@ class JobMcpBroker:
         budget: HarnessBudget = STEP4_DEFAULT_BUDGET,
         event_sink: RunEventSink | None = None,
         workspace_seeds: list[ConceptSummary] | None = None,
-        parsed_pages: dict[str, list[str]] | None = None,
+        parsed_pages: dict[str, dict[int, str]] | None = None,
         source_path_resolver: Callable[[str, str], Any] | None = None,
         ocr_provider: OcrProviderFn | None = None,
+        parsing_service: ParsingService | None = None,
         ontology_rev_id: str | None = None,
         sources_fingerprint: str = "fp-step4",
         discovery_mode: DiscoveryMode = "incremental_new",
@@ -315,9 +317,10 @@ class JobMcpBroker:
             budget_tracker=self.budget_tracker,
             hold_coord=self.hold_coord,
             workspace_seeds=list(workspace_seeds or []),
-            parsed_pages=dict(parsed_pages or {}),
+            parsed_pages={k: dict(v) for k, v in (parsed_pages or {}).items()},
             source_path_resolver=source_path_resolver,
             ocr_provider=ocr_provider,
+            parsing_service=parsing_service,
             ontology_rev_id=ontology_rev_id,
             sources_fingerprint=sources_fingerprint,
             discovery_mode=discovery_mode,

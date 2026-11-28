@@ -32,6 +32,7 @@ from opendv.models.wire_dtos_discovery import (
     OntologyValidationResp,
 )
 from opendv.service.citations import ensure_no_redacted_placeholder, resolve_citation
+from opendv.service.parsing_svc import ParsingService
 from opendv.service.state_store import ProjectStateManager
 from opendv.service.workflows._ontology_deltas import (
     check_evolution_locks_diff,
@@ -55,10 +56,13 @@ class DiscoveryOntologyHelper:
         state_manager: ProjectStateManager,
         matcher: FiboPackQueryAdapter,
         workspace_root: Path,
+        *,
+        parsing_service: ParsingService | None = None,
     ) -> None:
         self._state = state_manager
         self._matcher = matcher
         self._workspace_root = workspace_root
+        self._parsing = parsing_service
 
     def _load_active_ontology(self, project_id: str) -> tuple[str | None, GraphAOntology]:
         proj = self._state.get_project(project_id)
@@ -102,7 +106,7 @@ class DiscoveryOntologyHelper:
             OcrPageReceipt.model_validate(r["payload"])
             for r in self._state.list_events_or_receipts(project_id, record_kind="ocr_receipt")
         ]
-        docs_by_id: dict[str, tuple[DocumentMap, list[str] | None, bool]] = {}
+        docs_by_id: dict[str, tuple[DocumentMap, dict[int, str] | None, bool]] = {}
         for s in self._state.list_sources(project_id):
             rec = self._state.get_source_record(project_id, s.source_id)
             if rec["document_map"] is None:
@@ -113,7 +117,13 @@ class DiscoveryOntologyHelper:
                 None
                 if meta_only
                 else load_doc_pages_for_record(
-                    self._state, self._workspace_root, project_id, s.source_id, rec, dmap
+                    self._state,
+                    self._workspace_root,
+                    project_id,
+                    s.source_id,
+                    rec,
+                    dmap,
+                    parsing_service=self._parsing,
                 )
             )
             docs_by_id[s.source_id] = (dmap, pages, meta_only)
@@ -146,12 +156,7 @@ class DiscoveryOntologyHelper:
                             f"document '{cit.doc_id}'.",
                             error_code=ErrorCode.CITATION_SPAN_UNRESOLVED,
                         )
-                    dmap, pages, meta_only = doc_entry
-                    page_map = (
-                        {idx + 1: txt for idx, txt in enumerate(pages)}
-                        if pages is not None
-                        else None
-                    )
+                    dmap, page_map, meta_only = doc_entry
                     resp = resolve_citation(
                         CitationResolveReq(
                             doc_id=cit.doc_id,

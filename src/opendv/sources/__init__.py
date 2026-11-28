@@ -9,6 +9,12 @@ from opendv.grounding.providers.fibo import (
     get_default_fibo_loader,
     resolve_subclass_closure,
 )
+from opendv.models.document_ir import (
+    DocumentFormat,
+    compute_canonical_text_sha256,
+    is_page_scanned_or_low_density,
+    normalize_page_text,
+)
 from opendv.sources.adapters import (
     BLOCKED_SSRF_CIDRS,
     SOURCE_ADAPTERS,
@@ -30,13 +36,6 @@ from opendv.sources.clustering import (
     collapse_shard_name,
 )
 from opendv.sources.containment import compute_pk_containment_overlaps
-from opendv.sources.document_map import (
-    DocumentFormat,
-    DocumentMapBuilder,
-    compute_canonical_text_sha256,
-    is_page_scanned_or_low_density,
-    normalize_page_text,
-)
 from opendv.sources.pii import (
     MASKED_PII_TOKEN,
     PII_TOKEN_RE,
@@ -87,7 +86,6 @@ __all__ = [
     "STARTER_PACK_IDS",
     "UPLOAD_EXT_TO_KIND",
     "DocumentFormat",
-    "DocumentMapBuilder",
     "FiboReferenceOntologyLoader",
     "ReferenceOntologyCorruptError",
     "SubclassClosureMatch",

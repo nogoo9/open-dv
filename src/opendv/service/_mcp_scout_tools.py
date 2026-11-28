@@ -7,6 +7,7 @@ import hashlib
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from opendv.models.document_ir import ParseOptions, SourceBlob, normalize_page_text
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.events import OcrPageReceipt
 from opendv.models.sources import (
@@ -17,9 +18,10 @@ from opendv.models.sources import (
     TableProfile,
 )
 from opendv.models.wire_dtos_discovery import ExternalMcpToolResult, ImageOcrResult
+from opendv.parsing.redaction import mask_page_text_with_aba_tokens
 from opendv.service._ext_mcp_guards import run_ocr_on_pdf_bytes
-from opendv.sources.document_map import DocumentFormat, DocumentMapBuilder, normalize_page_text
-from opendv.sources.pii import mask_cell_value, mask_pii_text
+from opendv.service.parsing_svc import ParsingService
+from opendv.sources.pii import mask_cell_value
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -130,29 +132,112 @@ def scout_read_document_pages(
         {"doc_id": doc_id, "page_start": page_start, "page_end": page_end},
         tool_name="read_document_pages",
     )
+    if page_start < 1 or page_end < page_start:
+        raise OpenDVError(
+            f"Invalid page range [{page_start}, {page_end}].",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
     rec, dm, src_path = _load_doc_record_and_path(ctx, doc_id)
-    approved = list(rec.get("approved_scan_pages") or dm.approved_scan_pages or ())
-    dm_eff = dm.model_copy(update={"approved_scan_pages": approved})
-    builder = DocumentMapBuilder()
+    approved = set(rec.get("approved_scan_pages") or dm.approved_scan_pages or ())
+    end = min(page_end, dm.page_count)
+    target_nums = [p.page_number for p in dm.pages if page_start <= p.page_number <= end]
 
-    pages = ctx.parsed_pages.get(doc_id)
-    if pages is None:
+    page_map = ctx.parsed_pages.setdefault(doc_id, {})
+    masked_store = getattr(ctx, "masked_doc_pages", None)
+    masked_map = masked_store.setdefault(doc_id, {}) if isinstance(masked_store, dict) else {}
+    missing = [n for n in target_nums if n not in page_map]
+    is_pdf = dm.format == "pdf"
+    if missing:
         if src_path is None or not src_path.is_file():
             raise OpenDVError(
                 f"Source file for '{doc_id}' is missing on disk.",
                 error_code=ErrorCode.SOURCE_BINARY_ABSENT,
             )
-        doc_fmt: DocumentFormat = dm.format
-        _, pages = builder.build_from_path(
-            source_id=doc_id,
-            path=src_path,
-            doc_format=doc_fmt,
-            approved_scan_pages=approved,
-            run_ocr=False,
+        psvc = ctx.parsing_service or ParsingService(allowed_roots=[src_path.parent])
+        parse_opts = ParseOptions(pages=missing) if is_pdf else None
+        ir = (
+            ctx.parsing_service.parse_document(
+                SourceBlob.from_path(src_path),
+                options=parse_opts,
+                sink_class="LOCAL_HUMAN_IO",
+                redaction="off",
+            )
+            if ctx.parsing_service is not None
+            else psvc.parse_document(
+                src_path,
+                options=parse_opts,
+                sink_class="LOCAL_HUMAN_IO",
+                redaction="off",
+            )
         )
-    views = builder.build_page_text_views(
-        dm_eff, pages, page_start=page_start, page_end=page_end
-    )
+        for pg in ir.pages:
+            page_map[pg.page_number] = (
+                "" if (pg.needs_ocr and pg.page_number not in approved) else pg.canonical_text
+            )
+        proj = psvc.export_ir(
+            ir,
+            target="document_map",
+            sink_class="MODEL_EGRESS",
+            redaction="on",
+            doc_id=dm.doc_id,
+            filename=dm.filename,
+            approved_scan_pages=sorted(approved),
+        )
+        assert isinstance(proj, dict)
+        for v in proj["page_text_views"]:
+            masked_map[v.page_number] = (
+                "" if (v.is_scanned and not v.scan_approved) else v.masked_text
+            )
+        if dm.doc_id != doc_id:
+            ctx.parsed_pages.setdefault(dm.doc_id, {}).update(page_map)
+            if isinstance(masked_store, dict):
+                masked_store.setdefault(dm.doc_id, {}).update(masked_map)
+
+    missing_masked = [n for n in target_nums if n not in masked_map]
+    if missing_masked:
+        if src_path is not None and src_path.is_file():
+            psvc = ctx.parsing_service or ParsingService(allowed_roots=[src_path.parent])
+            parse_opts = ParseOptions(pages=missing_masked) if is_pdf else None
+            ir_red = (
+                ctx.parsing_service.parse_document(
+                    SourceBlob.from_path(src_path),
+                    options=parse_opts,
+                    sink_class="MODEL_EGRESS",
+                    redaction="on",
+                )
+                if ctx.parsing_service is not None
+                else psvc.parse_document(
+                    src_path,
+                    options=parse_opts,
+                    sink_class="MODEL_EGRESS",
+                    redaction="on",
+                )
+            )
+            for pg in ir_red.pages:
+                masked_map[pg.page_number] = (
+                    "" if (pg.needs_ocr and pg.page_number not in approved) else pg.canonical_text
+                )
+        else:
+            for n in missing_masked:
+                masked_map[n] = mask_page_text_with_aba_tokens(page_map.get(n, ""))
+        if dm.doc_id != doc_id and isinstance(masked_store, dict):
+            masked_store.setdefault(dm.doc_id, {}).update(masked_map)
+
+    views = [
+        PageTextView(
+            doc_id=dm.doc_id,
+            page_number=p.page_number,
+            masked_text=(
+                ""
+                if (p.is_scanned_or_low_density and p.page_number not in approved)
+                else masked_map.get(p.page_number, "")
+            ),
+            is_scanned=p.is_scanned_or_low_density,
+            scan_approved=p.page_number in approved,
+        )
+        for p in dm.pages
+        if page_start <= p.page_number <= end
+    ]
     ctx.budget_tracker.check_payload_size(
         [v.model_dump(mode="json") for v in views], label="read_document_pages result"
     )
@@ -200,7 +285,7 @@ def scout_view_page_image(
             error_code=ErrorCode.UNREDACTED_SCAN_BLOCKED,
         )
 
-    masked_ocr = mask_pii_text(normalize_page_text(raw_ocr_text))
+    masked_ocr = mask_page_text_with_aba_tokens(normalize_page_text(raw_ocr_text))
     content_sha = hashlib.sha256(normalize_page_text(masked_ocr).encode("utf-8")).hexdigest()
     receipt_id = f"ocrr-{uuid.uuid4().hex[:12]}"
     receipt = OcrPageReceipt(

@@ -215,7 +215,7 @@
       ]
     },
     {
-      "help": "Serve the 17-tool Open-DV lifecycle MCP server over stdio.",
+      "help": "Serve the Open-DV lifecycle and/or stateless parsing MCP server over stdio.",
       "http_method": null,
       "http_route": null,
       "options": [
@@ -230,14 +230,68 @@
           "type": "string"
         },
         {
+          "choices": [
+            "project",
+            "parsing",
+            "all"
+          ],
+          "default": "project",
+          "flag": "--profile",
+          "help": "Tool profile: project, parsing, or all.",
+          "name": "profile",
+          "required": false,
+          "short": null,
+          "type": "choice"
+        },
+        {
           "choices": null,
-          "default": "",
+          "default": null,
           "flag": "--project",
-          "help": "Project identifier.",
+          "help": "Project identifier (required for project and all profiles).",
           "name": "project",
           "required": false,
           "short": null,
           "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--allow-root",
+          "help": "Repeatable allowed root directory for parsing MCP tools.",
+          "name": "allow_root",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--allow-unredacted",
+          "help": "Allow unredacted parse_extract or parse_render_page calls.",
+          "name": "allow_unredacted",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--max-inline-bytes",
+          "help": "Maximum inline MCP response bytes before spillover (>= 1).",
+          "name": "max_inline_bytes",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--spill-dir",
+          "help": "Directory for oversized MCP parsing payload spillover.",
+          "name": "spill_dir",
+          "required": false,
+          "short": null,
+          "type": "path"
         }
       ],
       "path": [
@@ -930,6 +984,16 @@
           "required": false,
           "short": null,
           "type": "string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--doc",
+          "help": "Repeatable local document path (.pdf, .docx, .md, .txt) for --input grounding.",
+          "name": "doc",
+          "required": false,
+          "short": null,
+          "type": "string"
         }
       ],
       "path": [
@@ -975,6 +1039,358 @@
       ],
       "path": [
         "ontology",
+        "validate"
+      ]
+    },
+    {
+      "help": "Project ParsedDocumentIR into document_map, markdown, or streaming chunks JSONL.",
+      "http_method": null,
+      "http_route": null,
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--ir-path",
+          "help": "Path to ParsedDocumentIR JSON file.",
+          "name": "ir_path",
+          "required": true,
+          "short": null,
+          "type": "argument:path"
+        },
+        {
+          "choices": [
+            "document_map",
+            "markdown",
+            "chunks"
+          ],
+          "default": null,
+          "flag": "--target",
+          "help": "Target projection: document_map, markdown, or chunks.",
+          "name": "target",
+          "required": true,
+          "short": null,
+          "type": "choice"
+        },
+        {
+          "choices": [
+            "json",
+            "jsonl"
+          ],
+          "default": "json",
+          "flag": "--format",
+          "help": "Output format: json or jsonl.",
+          "name": "fmt",
+          "required": false,
+          "short": null,
+          "type": "choice"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--redact",
+          "help": "Apply MODEL_EGRESS PII masking during projection.",
+          "name": "redact",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--out",
+          "help": "Write projected output atomically to file.",
+          "name": "out",
+          "required": false,
+          "short": null,
+          "type": "path"
+        }
+      ],
+      "path": [
+        "parse",
+        "export"
+      ]
+    },
+    {
+      "help": "Parse a local document into canonical ParsedDocumentIR.",
+      "http_method": null,
+      "http_route": null,
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--path",
+          "help": "Local file path or file URI to parse.",
+          "name": "path",
+          "required": true,
+          "short": null,
+          "type": "argument:string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--pages",
+          "help": "1-based page range specification (e.g. 1-5,8).",
+          "name": "pages",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--redact",
+          "help": "Apply MODEL_EGRESS PII masking to extracted IR.",
+          "name": "redact",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--ocr",
+          "help": "Enable optional OCR extraction on scanned pages.",
+          "name": "ocr",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--out",
+          "help": "Write ParsedDocumentIR JSON atomically to file.",
+          "name": "out",
+          "required": false,
+          "short": null,
+          "type": "path"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--allow-root",
+          "help": "Repeatable allowed workspace root directory.",
+          "name": "allow_root",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": 1000,
+          "flag": "--max-pages",
+          "help": "Maximum extracted pages allowed.",
+          "name": "max_pages",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": 30000,
+          "flag": "--timeout-ms",
+          "help": "Parser timeout in milliseconds.",
+          "name": "timeout_ms",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        }
+      ],
+      "path": [
+        "parse",
+        "extract"
+      ]
+    },
+    {
+      "help": "Inspect document page count and digital-vs-scanned classification.",
+      "http_method": null,
+      "http_route": null,
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--path",
+          "help": "Local file path or file URI to inspect.",
+          "name": "path",
+          "required": true,
+          "short": null,
+          "type": "argument:string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--allow-root",
+          "help": "Repeatable allowed workspace root directory.",
+          "name": "allow_root",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": 1000,
+          "flag": "--max-pages",
+          "help": "Maximum page budget hint.",
+          "name": "max_pages",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": 30000,
+          "flag": "--timeout-ms",
+          "help": "Parser timeout in milliseconds.",
+          "name": "timeout_ms",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        }
+      ],
+      "path": [
+        "parse",
+        "inspect"
+      ]
+    },
+    {
+      "help": "Render a document page PNG with scan gating and optional PII blackout.",
+      "http_method": null,
+      "http_route": null,
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--path",
+          "help": "Local document path or file URI to render.",
+          "name": "path",
+          "required": true,
+          "short": null,
+          "type": "argument:string"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--page",
+          "help": "1-based physical page number to render.",
+          "name": "page",
+          "required": true,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": 150,
+          "flag": "--dpi",
+          "help": "Render resolution in DPI (max 300).",
+          "name": "dpi",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--redact",
+          "help": "Apply MODEL_EGRESS PII blackout rectangles.",
+          "name": "redact",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--ocr",
+          "help": "Enable optional OCR on scanned pages.",
+          "name": "ocr",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": false,
+          "flag": "--approve-scan",
+          "help": "Allow unredacted scanned page viewing.",
+          "name": "approve_scan",
+          "required": false,
+          "short": null,
+          "type": "boolean"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--out",
+          "help": "Write rendered PNG atomically to file.",
+          "name": "out",
+          "required": false,
+          "short": null,
+          "type": "path"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--allow-root",
+          "help": "Repeatable allowed workspace root directory.",
+          "name": "allow_root",
+          "required": false,
+          "short": null,
+          "type": "string"
+        },
+        {
+          "choices": null,
+          "default": 30000,
+          "flag": "--timeout-ms",
+          "help": "Parser timeout in milliseconds.",
+          "name": "timeout_ms",
+          "required": false,
+          "short": null,
+          "type": "integer"
+        }
+      ],
+      "path": [
+        "parse",
+        "render-page"
+      ]
+    },
+    {
+      "help": "Emit machine-readable IR schemas, formats, projectors, and Tier-1 capabilities.",
+      "http_method": null,
+      "http_route": null,
+      "options": [],
+      "path": [
+        "parse",
+        "spec"
+      ]
+    },
+    {
+      "help": "Validate ParsedDocumentIR canonical hashes, span bounds, and outline structure.",
+      "http_method": null,
+      "http_route": null,
+      "options": [
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--ir-path",
+          "help": "Path to ParsedDocumentIR JSON file.",
+          "name": "ir_path",
+          "required": true,
+          "short": null,
+          "type": "argument:path"
+        },
+        {
+          "choices": null,
+          "default": null,
+          "flag": "--out",
+          "help": "Write ValidationDiagnostic list JSON to file.",
+          "name": "out",
+          "required": false,
+          "short": null,
+          "type": "path"
+        }
+      ],
+      "path": [
+        "parse",
         "validate"
       ]
     },

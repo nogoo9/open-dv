@@ -122,10 +122,33 @@ def ontology_ground(
         str | None,
         typer.Option("--skip-reason", help="Required rationale when --mode deterministic_only."),
     ] = None,
+    doc: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--doc",
+            help="Repeatable local document path (.pdf, .docx, .md, .txt) for --input grounding.",
+        ),
+    ] = None,
 ) -> None:
     """Ground table columns against FIBO Pack v2 or a YAML glossary."""
 
     def _run(client: CliClient) -> Any:
+        if doc is not None:
+            if project is not None:
+                raise OpenDVError(
+                    "--doc is only supported with --input, not --project.",
+                    error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+                )
+            if input_path is None:
+                raise OpenDVError(
+                    "--doc requires --input.",
+                    error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+                )
+            if not doc or any(not item.strip() for item in doc):
+                raise OpenDVError(
+                    "--doc cannot be blank.",
+                    error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+                )
         if (project is not None) == (input_path is not None):
             raise OpenDVError(
                 "Specify exactly one of --project or --input.",
@@ -141,6 +164,25 @@ def ontology_ground(
         if input_path is not None:
             raw_json = read_text_arg(input_path, label="--input")
             ground_req = GroundingRequest.model_validate_json(raw_json)
+            if doc:
+                from opendv.service.parsing_svc import ParsingService
+
+                remaining = max(0, 20 - len(ground_req.global_steward_notes))
+                if remaining > 0:
+                    doc_notes = ParsingService(allowed_roots=None).build_grounding_summary_notes(
+                        doc,
+                        max_notes=min(5, remaining),
+                        max_chars_per_note=1500,
+                    )
+                    if doc_notes:
+                        ground_req = ground_req.model_copy(
+                            update={
+                                "global_steward_notes": [
+                                    *ground_req.global_steward_notes,
+                                    *doc_notes[:remaining],
+                                ]
+                            }
+                        )
 
         policy: GroundingPolicy | None = None
         if mode is not None or skip_reason is not None:

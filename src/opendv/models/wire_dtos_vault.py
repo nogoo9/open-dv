@@ -21,7 +21,7 @@ from opendv.models.modeling_preferences import (
 )
 from opendv.models.policy import CegarPolicy
 from opendv.models.project import DbtSqlDialect, TargetManifest
-from opendv.models.sources import SourceProfile
+from opendv.models.sources import DocumentMap, SourceProfile
 from opendv.models.vault_ir import DraftVaultIR
 
 BucketAOperator = Literal[
@@ -253,6 +253,7 @@ class ProfileBundle(StrictModel):
     """Stateless Step 2/3 profile and prioritized clarification survey bundle."""
 
     profiles: list[SourceProfile] = Field(default_factory=list)
+    document_maps: list[DocumentMap] = Field(default_factory=list)
     pk_containment_overlaps: list[PkContainmentOverlap] = Field(default_factory=list)
     source_rows_by_table: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     table_sample_flags: dict[str, bool] = Field(default_factory=dict)

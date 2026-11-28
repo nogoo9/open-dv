@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import contextvars
 import inspect
+from collections.abc import Awaitable
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 from opendv.models import (
@@ -21,6 +24,20 @@ if TYPE_CHECKING:
     from opendv.service import OpenDVService
 
 _MIN_GROUNDING_TIMEOUT_SECONDS: Final[float] = 900.0
+_UNSET: Final[object] = object()
+
+
+def _run_awaitable(awaitable: Awaitable[GroundingResponse]) -> GroundingResponse:
+    async def _resolve() -> GroundingResponse:
+        return await awaitable
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_resolve())
+    ctx = contextvars.copy_context()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(ctx.run, asyncio.run, _resolve()).result()
 
 
 class GroundingClientPort(Protocol):
@@ -69,9 +86,19 @@ def execute_ground_ontology(
             if bumped:
                 cast(Any, client).timeout_seconds = prev_timeout
         return GroundingResponse.model_validate(payload)
+    if req.request is not None and getattr(client, "_service", _UNSET) is None:
+        from opendv.service.workflows.grounding_stateless import ground_ontology_stateless
+
+        return _run_awaitable(
+            ground_ontology_stateless(
+                req,
+                workspace_root=getattr(client, "workspace_root", None),
+                state_dir=getattr(client, "state_dir", None),
+            )
+        )
     res = client.service().ground_ontology(req)
     if inspect.isawaitable(res):
-        return asyncio.run(res)
+        return _run_awaitable(res)
     return res
 
 

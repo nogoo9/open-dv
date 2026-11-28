@@ -9,15 +9,16 @@ from typing import Any
 from pydantic import BaseModel
 
 from opendv.grounding.providers.fibo.loader import get_bundled_fibo_pack_sha256
+from opendv.models.document_ir import SourceBlob
 from opendv.models.ontology import GraphAOntology
 from opendv.models.project import ConceptMemorySpec
 from opendv.models.sources import DocumentMap, SourceProfile
 from opendv.models.vault_ir import map_sql_to_portable_type
 from opendv.models.wire_dtos_discovery import ConceptSummary
+from opendv.service.parsing_svc import ParsingService
 from opendv.service.state_store import ProjectStateManager
 from opendv.service.workflows._project_seeds import discover_workspace_seeds
 from opendv.service.workflows._source_docs import resolve_readable_source_path
-from opendv.sources import DocumentMapBuilder
 
 _ALLOWED_ATTR_KEYS: frozenset[str] = frozenset(
     {
@@ -188,11 +189,14 @@ def build_source_and_doc_context(
     state_store: ProjectStateManager,
     project_id: str,
     workspace_root: Path,
-) -> tuple[list[SourceProfile], dict[str, list[str]], list[str]]:
+    *,
+    parsing_service: ParsingService | None = None,
+) -> tuple[list[SourceProfile], dict[str, dict[int, str]], list[str]]:
     """Collect structured SourceProfiles and scan-gated DocumentMap page texts."""
     profiles: list[SourceProfile] = []
-    parsed_pages: dict[str, list[str]] = {}
+    parsed_pages: dict[str, dict[int, str]] = {}
     doc_summaries: list[str] = []
+    psvc = parsing_service or ParsingService(workspace_root=workspace_root)
 
     for src in state_store.list_sources(project_id):
         rec = state_store.get_source_record(project_id, src.source_id)
@@ -206,18 +210,17 @@ def build_source_and_doc_context(
         disk_path = resolve_readable_source_path(state_store, workspace_root, project_id, rec)
         if disk_path is None:
             continue
-        rebuilt, pages = DocumentMapBuilder().build_from_path(
-            source_id=src.source_id,
-            path=disk_path,
-            doc_format=dmap.format,
-            approved_scan_pages=sorted(approved),
+        ir = psvc.parse_document(
+            SourceBlob.from_path(disk_path),
+            sink_class="LOCAL_HUMAN_IO",
+            redaction="off",
         )
-        safe_pages: list[str] = []
-        for idx, page_meta in enumerate(rebuilt.pages):
-            if page_meta.is_scanned_or_low_density and page_meta.page_number not in approved:
-                safe_pages.append("")
-            else:
-                safe_pages.append(pages[idx] if idx < len(pages) else "")
+        safe_pages: dict[int, str] = {
+            pg.page_number: (
+                "" if (pg.needs_ocr and pg.page_number not in approved) else pg.canonical_text
+            )
+            for pg in ir.pages
+        }
         parsed_pages[src.source_id] = safe_pages
         parsed_pages[dmap.doc_id] = safe_pages
         doc_summaries.append(

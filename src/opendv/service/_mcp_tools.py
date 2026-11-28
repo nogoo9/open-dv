@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from opendv.grounding.spi import KnowledgeSource
+    from opendv.service.parsing_svc import ParsingService
 
 from opendv.agents.ports import ScoutToolDispatcher
 from opendv.models.diagnostics import ClarificationQuestion
@@ -23,6 +24,7 @@ from opendv.models.ontology_deltas import (
     HUMAN_ONLY_OPS,
     SERVER_ONLY_OPS,
 )
+from opendv.models.pii_tokenizer import REDACTED_LEAK_RE
 from opendv.models.project import (
     ConceptMemorySpec,
     DiscoveryMode,
@@ -56,8 +58,6 @@ from opendv.service._mcp_scout_tools import (
 )
 from opendv.service.workflows._ontology_grounding import GROUNDING_MIN_CONFIDENCE
 
-_REDACTED_LEAK_RE = re.compile(r"(?:<MASKED_PII>|\[REDACTED_)")
-
 
 @dataclass
 class BrokerToolContext:
@@ -72,9 +72,11 @@ class BrokerToolContext:
     budget_tracker: BrokerBudgetTracker = field(default_factory=BrokerBudgetTracker)
     hold_coord: BrokerHoldCoordinator | None = None
     workspace_seeds: list[ConceptSummary] = field(default_factory=list)
-    parsed_pages: dict[str, list[str]] = field(default_factory=dict)
+    parsed_pages: dict[str, dict[int, str]] = field(default_factory=dict)
+    masked_doc_pages: dict[str, dict[int, str]] = field(default_factory=dict)
     source_path_resolver: Callable[[str, str], Path | None] | None = None
     ocr_provider: OcrProviderFn | None = None
+    parsing_service: ParsingService | None = None
     ontology_rev_id: str | None = None
     sources_fingerprint: str = "fp-step4"
     discovery_mode: DiscoveryMode = "incremental_new"
@@ -242,7 +244,7 @@ def coord_search_fibo(
 
 
 def _check_quote_no_leaks(text: str, *, context: str) -> None:
-    if _REDACTED_LEAK_RE.search(text):
+    if REDACTED_LEAK_RE.search(text):
         raise OpenDVError(
             f"Redacted placeholder leaked in {context}.",
             error_code=ErrorCode.REDACTED_PLACEHOLDER_LEAK,

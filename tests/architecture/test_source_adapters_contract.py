@@ -41,7 +41,7 @@ def _get_production_py_files() -> list[Path]:
     py_files: list[Path] = []
     for py_path in (REPO_ROOT / "src" / "opendv").rglob("*.py"):
         rel = py_path.relative_to(REPO_ROOT).as_posix()
-        if rel.startswith(("src/opendv/sources/", "src/opendv/api/static/")):
+        if rel.startswith(("src/opendv/sources/", "src/opendv/parsing/", "src/opendv/api/static/")):
             continue
         py_files.append(py_path)
     return sorted(py_files)

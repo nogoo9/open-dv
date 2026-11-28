@@ -1,13 +1,10 @@
-"""Structural Protocol ports, budget/hold helpers, loopback helper, and PNG encoder."""
+"""Structural Protocol ports, budget/hold helpers, and loopback helper."""
 
 from __future__ import annotations
 
 import asyncio
 import ipaddress
 import json
-import struct
-import zlib
-from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -15,6 +12,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from pydantic import BaseModel
 
 from opendv.agents.ports import RunEventSink
+from opendv.models.document_ir import OcrBox, OcrProviderFn
 from opendv.models.errors import ErrorCode, OpenDVError
 from opendv.models.events import RunStreamEvent
 from opendv.models.policy import STEP4_DEFAULT_BUDGET, HarnessBudget
@@ -34,67 +32,6 @@ from opendv.models.wire_dtos_discovery import (
 def default_loopback_host() -> str:
     """Return IPv4 loopback address without embedding hardcoded endpoint literals."""
     return ipaddress.IPv4Address(0x7F000001).compressed
-
-
-@dataclass(frozen=True, slots=True)
-class OcrBox:
-    """Detected OCR word/line bounding box in pixel coordinates."""
-
-    x0: int
-    y0: int
-    x1: int
-    y1: int
-    text: str
-
-
-OcrProviderFn = Callable[[bytes, int], tuple[list[OcrBox], str]]
-
-
-def encode_rgba_png(width: int, height: int, rgba: bytes) -> bytes:
-    """Encode raw RGBA pixel buffer into a valid PNG byte stream using stdlib zlib."""
-    if width <= 0 or height <= 0:
-        raise ValueError("PNG dimensions must be positive")
-    stride = width * 4
-    if len(rgba) != stride * height:
-        raise ValueError("RGBA buffer size does not match width * height * 4")
-
-    raw_rows = bytearray()
-    for y in range(height):
-        raw_rows.append(0)
-        start = y * stride
-        raw_rows.extend(rgba[start : start + stride])
-
-    def _chunk(tag: bytes, data: bytes) -> bytes:
-        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
-        return struct.pack("!I", len(data)) + tag + data + struct.pack("!I", crc)
-
-    ihdr = struct.pack("!IIBBBBB", width, height, 8, 6, 0, 0, 0)
-    idat = zlib.compress(bytes(raw_rows), level=6)
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + _chunk(b"IHDR", ihdr)
-        + _chunk(b"IDAT", idat)
-        + _chunk(b"IEND", b"")
-    )
-
-
-def redact_rgba_boxes(
-    rgba: bytearray,
-    width: int,
-    height: int,
-    boxes: Sequence[OcrBox],
-) -> None:
-    """Paint solid black rectangles over OCR/PII bounding boxes in-place."""
-    for box in boxes:
-        x0 = max(0, min(width, box.x0))
-        x1 = max(0, min(width, box.x1))
-        y0 = max(0, min(height, box.y0))
-        y1 = max(0, min(height, box.y1))
-        for y in range(y0, y1):
-            row_base = y * width * 4
-            for x in range(x0, x1):
-                px = row_base + x * 4
-                rgba[px : px + 4] = b"\x00\x00\x00\xff"
 
 
 @runtime_checkable
@@ -332,6 +269,4 @@ __all__ = [
     "SecretStorePort",
     "SettingsStorePort",
     "default_loopback_host",
-    "encode_rgba_png",
-    "redact_rgba_boxes",
 ]

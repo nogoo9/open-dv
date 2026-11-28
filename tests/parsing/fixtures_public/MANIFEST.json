@@ -1,0 +1,370 @@
+{
+  "fed_g19_consumer_credit.pdf": {
+    "filename": "fed_g19_consumer_credit.pdf",
+    "url": "https://www.federalreserve.gov/releases/g19/current/g19.pdf",
+    "format_id": "pdf",
+    "extension": ".pdf",
+    "byte_size": 24753,
+    "sha256": "bbc1d1f4617449042cb113b671b8f77cbdc6984216c217ba92b92d712f62cfe0",
+    "fetched_utc": "2026-11-27T16:05:57Z",
+    "license": "U.S. Government Work (Public Domain)",
+    "structural_notes": {
+      "magic": "%PDF-1.7",
+      "page_count": 3,
+      "rotations": [
+        90,
+        90,
+        90
+      ],
+      "has_rotate_nonzero": true,
+      "encrypted": false
+    }
+  },
+  "fed_h15_interest_rates.pdf": {
+    "filename": "fed_h15_interest_rates.pdf",
+    "url": "https://www.federalreserve.gov/releases/h15/current/h15.pdf",
+    "format_id": "pdf",
+    "extension": ".pdf",
+    "byte_size": 64879,
+    "sha256": "7a40e6733e6e714166304618033dabee61554e0a7f467eb7f0fc48f819a32d3d",
+    "fetched_utc": "2026-11-27T16:05:57Z",
+    "license": "U.S. Government Work (Public Domain)",
+    "structural_notes": {
+      "magic": "%PDF-1.4",
+      "page_count": 3,
+      "rotations": [
+        0,
+        0,
+        0
+      ],
+      "has_rotate_nonzero": false,
+      "encrypted": false
+    }
+  },
+  "irs_fw9.pdf": {
+    "filename": "irs_fw9.pdf",
+    "url": "https://www.irs.gov/pub/irs-pdf/fw9.pdf",
+    "format_id": "pdf",
+    "extension": ".pdf",
+    "byte_size": 140815,
+    "sha256": "2d420cbb4123dcf1fb82595b2359cfbb5d81f00b9df9d359fcc7af361d093f53",
+    "fetched_utc": "2026-11-27T16:05:59Z",
+    "license": "U.S. Government Work (Public Domain)",
+    "structural_notes": {
+      "magic": "%PDF-1.7",
+      "page_count": 6,
+      "rotations": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "has_rotate_nonzero": false,
+      "encrypted": false
+    }
+  },
+  "irs_f1120.pdf": {
+    "filename": "irs_f1120.pdf",
+    "url": "https://www.irs.gov/pub/irs-pdf/f1120.pdf",
+    "format_id": "pdf",
+    "extension": ".pdf",
+    "byte_size": 340034,
+    "sha256": "016c7fb4042a565c23a98014b17019af7ddc89e3260dd3f926b84d6688b7be6e",
+    "fetched_utc": "2026-11-27T16:06:02Z",
+    "license": "U.S. Government Work (Public Domain)",
+    "structural_notes": {
+      "magic": "%PDF-1.7",
+      "page_count": 6,
+      "rotations": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "has_rotate_nonzero": false,
+      "encrypted": false
+    }
+  },
+  "acl_2024_findings_eacl_34.pdf": {
+    "filename": "acl_2024_findings_eacl_34.pdf",
+    "url": "https://aclanthology.org/2024.findings-eacl.34.pdf",
+    "format_id": "pdf",
+    "extension": ".pdf",
+    "byte_size": 295251,
+    "sha256": "053d05f4b6744f65396051e47859a8da4fecf9b336475b3199e78540a9918db3",
+    "fetched_utc": "2026-11-27T16:06:04Z",
+    "license": "CC-BY 4.0",
+    "structural_notes": {
+      "magic": "%PDF-1.5",
+      "page_count": 13,
+      "rotations": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "has_rotate_nonzero": false,
+      "encrypted": false
+    }
+  },
+  "irs_soi_21incddocguide.docx": {
+    "filename": "irs_soi_21incddocguide.docx",
+    "url": "https://www.irs.gov/pub/irs-soi/21incddocguide.docx",
+    "format_id": "docx",
+    "extension": ".docx",
+    "byte_size": 57513,
+    "sha256": "ebd0d892934716b0a717a3351d99826907148a6067e442a9611fb51c7d4fe6d6",
+    "fetched_utc": "2026-11-27T16:06:05Z",
+    "license": "U.S. Government Work (Public Domain)",
+    "structural_notes": {
+      "magic_hex": "504b0304",
+      "encrypted": false,
+      "ole2": false,
+      "zip_entries": 18,
+      "uncompressed_bytes": 744093,
+      "paragraph_count": 833,
+      "non_empty_paragraph_count": 728,
+      "list_item_count": 17,
+      "table_count": 1,
+      "grid_span_max": 1,
+      "grid_span_count": 0,
+      "v_merge_count": 32
+    }
+  },
+  "irs_soi_23zpdoc.docx": {
+    "filename": "irs_soi_23zpdoc.docx",
+    "url": "https://www.irs.gov/pub/irs-soi/23zpdoc.docx",
+    "format_id": "docx",
+    "extension": ".docx",
+    "byte_size": 46216,
+    "sha256": "842c962d69cb5e4f13a53f010b0ca413e5afdcc226d2a781254dbe26290542ed",
+    "fetched_utc": "2026-11-27T16:06:07Z",
+    "license": "U.S. Government Work (Public Domain)",
+    "structural_notes": {
+      "magic_hex": "504b0304",
+      "encrypted": false,
+      "ole2": false,
+      "zip_entries": 15,
+      "uncompressed_bytes": 766464,
+      "paragraph_count": 781,
+      "non_empty_paragraph_count": 714,
+      "list_item_count": 19,
+      "table_count": 1,
+      "grid_span_max": 1,
+      "grid_span_count": 0,
+      "v_merge_count": 0
+    }
+  },
+  "aspose_merged_table.docx": {
+    "filename": "aspose_merged_table.docx",
+    "url": "https://raw.githubusercontent.com/aspose-words/Aspose.Words-for-.NET/master/Examples/Data/Merged%20table.docx",
+    "format_id": "docx",
+    "extension": ".docx",
+    "byte_size": 20260,
+    "sha256": "9faa45a2534401633b94a35abb1a59205d7272d67f8fc12b240acdfedd0dce9a",
+    "fetched_utc": "2026-11-27T16:06:07Z",
+    "license": "MIT",
+    "structural_notes": {
+      "magic_hex": "504b0304",
+      "encrypted": false,
+      "ole2": false,
+      "zip_entries": 13,
+      "uncompressed_bytes": 216185,
+      "paragraph_count": 56,
+      "non_empty_paragraph_count": 51,
+      "list_item_count": 26,
+      "table_count": 1,
+      "grid_span_max": 4,
+      "grid_span_count": 13,
+      "v_merge_count": 6
+    }
+  },
+  "aspose_formatted_elements.docx": {
+    "filename": "aspose_formatted_elements.docx",
+    "url": "https://raw.githubusercontent.com/aspose-words/Aspose.Words-for-.NET/master/Examples/Data/Formatted%20elements.docx",
+    "format_id": "docx",
+    "extension": ".docx",
+    "byte_size": 61820,
+    "sha256": "b7c3bdb03bf804f8bb655d90f3ef8534d744213bfba6c709dd0a15f0fc0c5d60",
+    "fetched_utc": "2026-11-27T16:06:08Z",
+    "license": "MIT",
+    "structural_notes": {
+      "magic_hex": "504b0304",
+      "encrypted": false,
+      "ole2": false,
+      "zip_entries": 33,
+      "uncompressed_bytes": 218792,
+      "paragraph_count": 62,
+      "non_empty_paragraph_count": 34,
+      "list_item_count": 9,
+      "table_count": 1,
+      "grid_span_max": 1,
+      "grid_span_count": 0,
+      "v_merge_count": 0
+    }
+  },
+  "aspose_encrypted_ole2.docx": {
+    "filename": "aspose_encrypted_ole2.docx",
+    "url": "https://raw.githubusercontent.com/aspose-words/Aspose.Words-for-.NET/master/Examples/Data/Encrypted.docx",
+    "format_id": "docx",
+    "extension": ".docx",
+    "byte_size": 18432,
+    "sha256": "f4f528e812278f3a02c548a06542fa0ff2d0c6ddb802b2b9d853880246e69ee9",
+    "fetched_utc": "2026-11-27T16:06:08Z",
+    "license": "MIT",
+    "structural_notes": {
+      "magic_hex": "d0cf11e0a1b11ae1",
+      "encrypted": true,
+      "ole2": true
+    }
+  },
+  "fivetran_dbt_stripe_readme.md": {
+    "filename": "fivetran_dbt_stripe_readme.md",
+    "url": "https://raw.githubusercontent.com/fivetran/dbt_stripe/main/README.md",
+    "format_id": "markdown",
+    "extension": ".md",
+    "byte_size": 27764,
+    "sha256": "46b21bc9c4a3482cf3215a56475b109bcea91a260ef0ac5a359366642b2c2183",
+    "fetched_utc": "2026-11-27T16:06:08Z",
+    "license": "Apache-2.0",
+    "structural_notes": {
+      "utf8_valid": true,
+      "utf8_bom": false,
+      "char_count": 27754,
+      "line_count": 369,
+      "gt_24k": true
+    }
+  },
+  "fivetran_dbt_quickbooks_readme.md": {
+    "filename": "fivetran_dbt_quickbooks_readme.md",
+    "url": "https://raw.githubusercontent.com/fivetran/dbt_quickbooks/main/README.md",
+    "format_id": "markdown",
+    "extension": ".md",
+    "byte_size": 32185,
+    "sha256": "466b689aa05744ec87e0b915c1b520414fc023df2474afe733611afd721a3618",
+    "fetched_utc": "2026-11-27T16:06:08Z",
+    "license": "Apache-2.0",
+    "structural_notes": {
+      "utf8_valid": true,
+      "utf8_bom": false,
+      "char_count": 32167,
+      "line_count": 363,
+      "gt_24k": true
+    }
+  },
+  "fivetran_dbt_log_readme.md": {
+    "filename": "fivetran_dbt_log_readme.md",
+    "url": "https://raw.githubusercontent.com/fivetran/dbt_fivetran_log/main/README.md",
+    "format_id": "markdown",
+    "extension": ".md",
+    "byte_size": 18707,
+    "sha256": "240c34f710f1f0e98f781f379fcda6903ba68df80fa45f50d237801c1ae35b34",
+    "fetched_utc": "2026-11-27T16:06:09Z",
+    "license": "Apache-2.0",
+    "structural_notes": {
+      "utf8_valid": true,
+      "utf8_bom": false,
+      "char_count": 18697,
+      "line_count": 217,
+      "gt_24k": false
+    }
+  },
+  "datavault_automate_dv_readme.md": {
+    "filename": "datavault_automate_dv_readme.md",
+    "url": "https://raw.githubusercontent.com/Datavault-UK/automate-dv/master/README.md",
+    "format_id": "markdown",
+    "extension": ".md",
+    "byte_size": 4524,
+    "sha256": "a5979bd84eb7ba878855c67b640201ef8242f47203b4256ba463f85e0f6b2356",
+    "fetched_utc": "2026-11-27T16:06:09Z",
+    "license": "Apache-2.0",
+    "structural_notes": {
+      "utf8_valid": true,
+      "utf8_bom": false,
+      "char_count": 4524,
+      "line_count": 113,
+      "gt_24k": false
+    }
+  },
+  "rfc4180_csv.txt": {
+    "filename": "rfc4180_csv.txt",
+    "url": "https://www.rfc-editor.org/rfc/rfc4180.txt",
+    "format_id": "domain_note",
+    "extension": ".txt",
+    "byte_size": 12931,
+    "sha256": "5d9ec035aa40c0108362cb767c9e2d08c30f7225cb2a4715f484cb13c29b5f21",
+    "fetched_utc": "2026-11-27T16:06:09Z",
+    "license": "IETF RFC Trust",
+    "structural_notes": {
+      "utf8_valid": true,
+      "utf8_bom": false,
+      "char_count": 12931,
+      "line_count": 459,
+      "gt_24k": false
+    }
+  },
+  "rfc8259_json.txt": {
+    "filename": "rfc8259_json.txt",
+    "url": "https://www.rfc-editor.org/rfc/rfc8259.txt",
+    "format_id": "domain_note",
+    "extension": ".txt",
+    "byte_size": 28360,
+    "sha256": "61a5378f4255c720beb2a4b4a63b29540147c140f36988bf086291989b4cd2d7",
+    "fetched_utc": "2026-11-27T16:06:10Z",
+    "license": "IETF RFC Trust",
+    "structural_notes": {
+      "utf8_valid": true,
+      "utf8_bom": false,
+      "char_count": 28360,
+      "line_count": 915,
+      "gt_24k": true
+    }
+  },
+  "rfc6749_oauth2.txt": {
+    "filename": "rfc6749_oauth2.txt",
+    "url": "https://www.rfc-editor.org/rfc/rfc6749.txt",
+    "format_id": "domain_note",
+    "extension": ".txt",
+    "byte_size": 163498,
+    "sha256": "f204fc8661d6c92d2ec6e0b54808f961a9ad26e792f57f312d9528335519bd71",
+    "fetched_utc": "2026-11-27T16:06:10Z",
+    "license": "IETF RFC Trust",
+    "structural_notes": {
+      "utf8_valid": true,
+      "utf8_bom": false,
+      "char_count": 163498,
+      "line_count": 4335,
+      "gt_24k": true
+    }
+  },
+  "rfc9110_http_semantics.txt": {
+    "filename": "rfc9110_http_semantics.txt",
+    "url": "https://www.rfc-editor.org/rfc/rfc9110.txt",
+    "format_id": "domain_note",
+    "extension": ".txt",
+    "byte_size": 502941,
+    "sha256": "21c1cdce6ab0e5509b04d84a28000836c7a087cf786efe6f04877ebfff47232a",
+    "fetched_utc": "2026-11-27T16:06:10Z",
+    "license": "IETF RFC Trust",
+    "structural_notes": {
+      "utf8_valid": true,
+      "utf8_bom": true,
+      "char_count": 502906,
+      "line_count": 10785,
+      "gt_24k": true
+    }
+  }
+}

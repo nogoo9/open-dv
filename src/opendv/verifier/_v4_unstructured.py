@@ -5,7 +5,6 @@ Zero duckdb, sqlglot, or opendv.sources imports.
 
 from __future__ import annotations
 
-import hashlib
 import re
 
 from opendv.models.diagnostics import (
@@ -13,18 +12,17 @@ from opendv.models.diagnostics import (
     ExternalMcpEvidenceRef,
     VerifierDiagnostic,
 )
+from opendv.models.document_ir import compute_canonical_text_sha256, normalize_page_text
 from opendv.models.events import ExternalMcpReceipt, OcrPageReceipt
+from opendv.models.pii_tokenizer import REDACTED_LEAK_RE
 from opendv.models.sources import PageMapSpec
 from opendv.models.vault_ir import DecimalType, PortableLogicalType
 from opendv.models.vault_ir_certified import CertifiedVaultIR
 from opendv.verifier.ports import VerifierContext
 
-_CR_OR_CRLF_RE = re.compile(r"\r\n|\r")
-_HORIZ_WS_RE = re.compile(r"[ \t]+")
 _RAW_BLOB_VEC_RE = re.compile(
     r"(?i)(?:raw_blob|binary_bytes|pdf_bytes|embedding_vec|^vector_|_vector$)"
 )
-_REDACTED_LEAK_RE = re.compile(r"(?:<MASKED_PII>|\[REDACTED_)")
 
 _REQUIRED_AI_PROV_ATTRS: dict[str, str] = {
     "extractor_version": "UTF8_STRING",
@@ -34,16 +32,6 @@ _REQUIRED_AI_PROV_ATTRS: dict[str, str] = {
     "citation_span": "JSON_DOCUMENT",
     "source_doc_id": "UTF8_STRING",
 }
-
-
-def normalize_page_text(text: str) -> str:
-    """Normalize line endings (\r\n|\r -> \n) and horizontal whitespace ([ \t]+ -> ' ')."""
-    return _HORIZ_WS_RE.sub(" ", _CR_OR_CRLF_RE.sub("\n", text))
-
-
-def compute_canonical_text_sha256(text: str) -> str:
-    """Compute UTF-8 SHA-256 over whitespace-normalized page text."""
-    return hashlib.sha256(normalize_page_text(text).encode("utf-8")).hexdigest()
 
 
 def _diag(rule_id: str, entity_name: str, message: str) -> VerifierDiagnostic:
@@ -89,7 +77,7 @@ def _verify_citation(
     *,
     metadata_only_binary_absent: bool = False,
 ) -> None:
-    if _REDACTED_LEAK_RE.search(cit.verbatim_quote):
+    if REDACTED_LEAK_RE.search(cit.verbatim_quote):
         diags.append(
             _diag(
                 "REDACTED_PLACEHOLDER_LEAK",
@@ -257,7 +245,7 @@ def _verify_mcp_ref(
     mcp_receipts: dict[str, ExternalMcpReceipt],
     diags: list[VerifierDiagnostic],
 ) -> None:
-    if _REDACTED_LEAK_RE.search(ref.masked_excerpt):
+    if REDACTED_LEAK_RE.search(ref.masked_excerpt):
         diags.append(
             _diag(
                 "REDACTED_PLACEHOLDER_LEAK",
@@ -275,7 +263,7 @@ def _verify_mcp_ref(
             )
         )
         return
-    if _REDACTED_LEAK_RE.search(rec.masked_excerpt):
+    if REDACTED_LEAK_RE.search(rec.masked_excerpt):
         diags.append(
             _diag(
                 "REDACTED_PLACEHOLDER_LEAK",

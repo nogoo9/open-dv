@@ -106,7 +106,7 @@ from opendv.service.workflows._ontology_deltas import (
 )
 from opendv.service.workflows._ontology_human_ops import reconcile_yaml_ontology
 from opendv.service.workflows._vault_helpers import load_verifier_inputs
-from opendv.sources.document_map import compute_canonical_text_sha256
+from opendv.models.document_ir import compute_canonical_text_sha256
 from opendv.verifier._v4_unstructured import verify_v4_unstructured
 from tests.helpers import DeterministicMockHarness, MockTurnScript
 

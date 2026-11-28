@@ -35,8 +35,8 @@ from opendv.models.vault_ir import (
 )
 from opendv.models.vault_ir_certified import CertifiedVaultIR
 from opendv.models.wire_dtos_vault import BucketAOperatorCall
+from opendv.service.parsing_svc import ParsingService
 from opendv.sources.clustering import cluster_tables
-from opendv.sources.document_map import DocumentMapBuilder
 from opendv.sources.profiler import profile_source
 from opendv.storage import DuckDbProverAdapter
 from opendv.verifier import (
@@ -1035,19 +1035,20 @@ def test_alg_a1_3axis_velocity_split_triggers_above_50mb_and_skips_below() -> No
 
 def test_e2e3_real_pdfs_occurrence2_crlf_and_offline_receipts() -> None:
     """E2E-3: Real PDFs (am_custody_and_voting_guide + sample_pdfs) & METADATA_ONLY_BINARY_ABSENT."""
-    builder = DocumentMapBuilder()
-    doc_map, pages = builder.build_from_path(
-        source_id="custody_guide",
-        path=PUBLIC_AM / "am_custody_and_voting_guide.pdf",
-        doc_format="pdf",
-        run_ocr=False,
+    svc = ParsingService(allowed_roots=[PUBLIC_AM, SAMPLE_PDFS])
+    cg_ir = svc.parse_document(
+        PUBLIC_AM / "am_custody_and_voting_guide.pdf", sink_class="LOCAL_HUMAN_IO"
     )
-    scan_map, _ = builder.build_from_path(
-        source_id="scanned_schedule",
-        path=SAMPLE_PDFS / "institutional_scanned_schedule_ocr_test.pdf",
-        doc_format="pdf",
-        run_ocr=False,
+    doc_map = svc.export_ir(
+        cg_ir, target="document_map", sink_class="MODEL_EGRESS", doc_id="custody_guide"
+    )["document_map"]  # type: ignore[index]
+    pages = [p.canonical_text for p in cg_ir.pages]
+    scan_ir = svc.parse_document(
+        SAMPLE_PDFS / "institutional_scanned_schedule_ocr_test.pdf", sink_class="LOCAL_HUMAN_IO"
     )
+    scan_map = svc.export_ir(
+        scan_ir, target="document_map", sink_class="MODEL_EGRESS", doc_id="scanned_schedule"
+    )["document_map"]  # type: ignore[index]
 
     quote = "CONFIDENTIAL STEWARDSHIP EXCEPTION CLAUSE"
     # Inject \r\n + multiple spaces to exercise BUG-04 normalization
@@ -2139,13 +2140,13 @@ def test_remediation_v1_v2_v4_v5_negative_and_boundary_gates() -> None:
             "attributes": [DraftField(name="embedding_vec", logical_type="UTF8_STRING", nullable=True, is_pii=False)],
         }
     )
-    builder = DocumentMapBuilder()
-    dmap, _ = builder.build_from_path(
-        source_id="cg",
-        path=PUBLIC_AM / "am_custody_and_voting_guide.pdf",
-        doc_format="pdf",
-        run_ocr=False,
+    svc = ParsingService(allowed_roots=[PUBLIC_AM])
+    cg_ir = svc.parse_document(
+        PUBLIC_AM / "am_custody_and_voting_guide.pdf", sink_class="LOCAL_HUMAN_IO"
     )
+    dmap = svc.export_ir(
+        cg_ir, target="document_map", sink_class="MODEL_EGRESS", doc_id="cg"
+    )["document_map"]  # type: ignore[index]
     bad_span_cit = DocumentCitationRef(
         doc_id=dmap.doc_id,
         page_number=5,

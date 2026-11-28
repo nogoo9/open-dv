@@ -1,14 +1,12 @@
-"""17-tool lifecycle MCP stdio server bound directly to `OpenDVService` and `project.sqlite`."""
+"""Unified Open-DV MCP stdio server supporting project (17), parsing (6), and all (23) profiles."""
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal
 
 from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
-from pydantic import ValidationError
 
 from opendv.cli._client import resolve_cli_workspace_root
 from opendv.models import (
@@ -43,7 +41,19 @@ from opendv.models import (
     WaiverSubmitReq,
 )
 from opendv.service import OpenDVService
+from opendv.service._mcp_parse_tools import (
+    PARSING_MCP_TOOL_NAMES,
+    register_parsing_mcp_tools,
+)
+from opendv.service._mcp_parse_tools import (
+    run_mcp_async as _run_async,
+)
+from opendv.service._mcp_parse_tools import (
+    run_mcp_sync as _run_sync,
+)
 from opendv.service.mcp_broker import JobMcpBroker
+from opendv.service.os_platform import resolve_user_state_dir
+from opendv.service.parsing_svc import ParsingService
 from opendv.service.secrets import scoped_env_first
 from opendv.service.workflows._discovery_run_ctx import build_workspace_seed_concepts
 
@@ -66,37 +76,6 @@ MCP_TOOL_NAMES: tuple[str, ...] = (
     "storage_migrate",
     "storage_query",
 )
-
-
-def _raise_tool_error(tool_name: str, exc: BaseException) -> ToolError:
-    if isinstance(exc, OpenDVError):
-        mapped = exc
-    elif isinstance(exc, ValidationError):
-        mapped = OpenDVError(
-            f"Invalid tool arguments for '{tool_name}': {exc}",
-            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
-        )
-    else:
-        mapped = OpenDVError(
-            f"Tool '{tool_name}' failed: {exc}",
-            error_code=ErrorCode.AGENT_EXECUTION_FAILED,
-        )
-    problem_json = mapped.to_problem_details(instance=f"mcp://tool/{tool_name}").model_dump_json()
-    return ToolError(problem_json)
-
-
-def _run_sync[RetT](tool_name: str, fn: Callable[[], RetT]) -> RetT:
-    try:
-        return fn()
-    except (OpenDVError, ValidationError, ValueError, OSError, RuntimeError) as exc:
-        raise _raise_tool_error(tool_name, exc) from exc
-
-
-async def _run_async[RetT](tool_name: str, coro: Awaitable[RetT]) -> RetT:
-    try:
-        return await coro
-    except (OpenDVError, ValidationError, ValueError, OSError, RuntimeError) as exc:
-        raise _raise_tool_error(tool_name, exc) from exc
 
 
 def _slug_name(name: str) -> str:
@@ -154,26 +133,15 @@ def _search_concepts(svc: OpenDVService, project_id: str, query: str) -> list[Co
     return deduped
 
 
-def create_mcp_stdio_server(
+def _register_project_mcp_tools(
+    mcp: MCPServer,
     *,
+    svc: OpenDVService,
     project_id: str,
-    workspace_root: Path | str | None = None,
-    state_dir: Path | None = None,
-    service: OpenDVService | None = None,
-) -> MCPServer:
-    """Register the exact 17 lifecycle MCP tools bound to `OpenDVService` and `project.sqlite`."""
-    resolved_root = resolve_cli_workspace_root(workspace_root)
-    svc = service if service is not None else OpenDVService(resolved_root, state_dir=state_dir)
+) -> None:
     # Keep Step 4 JobMcpBroker type linked and available for in-run broker introspection.
     _broker_cls = JobMcpBroker
     _ = _broker_cls
-    mcp = MCPServer(
-        name="opendv",
-        instructions=(
-            f"Open-DV V2 lifecycle MCP server pinned to project '{project_id}'. "
-            "Errors carry structured ProblemDetails JSON."
-        ),
-    )
 
     @mcp.tool(
         name="project_get",
@@ -377,21 +345,113 @@ def create_mcp_stdio_server(
             lambda: svc.query_target(project_id, SqlQueryReq(sql=sql, limit=limit)),
         )
 
+
+def create_mcp_stdio_server(
+    *,
+    profile: Literal["project", "parsing", "all"] = "project",
+    project_id: str | None = None,
+    workspace_root: Path | str | None = None,
+    state_dir: Path | None = None,
+    service: OpenDVService | None = None,
+    parsing_service: ParsingService | None = None,
+    allow_roots: Sequence[Path] | None = None,
+    allow_unredacted: bool = False,
+    max_inline_bytes: int = 65_536,
+    spill_dir: Path | None = None,
+) -> MCPServer:
+    """Register Open-DV lifecycle (17), parsing (6), or combined (23) MCP tools."""
+    if profile not in ("project", "parsing", "all"):
+        raise OpenDVError(
+            f"Unsupported MCP profile '{profile}'.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    if max_inline_bytes < 1:
+        raise OpenDVError(
+            "--max-inline-bytes must be >= 1.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    if profile == "parsing" and project_id is not None:
+        raise OpenDVError(
+            "--project cannot be passed with --profile parsing.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+    if profile in ("project", "all") and (project_id is None or not project_id.strip()):
+        raise OpenDVError(
+            f"--project is required for --profile {profile}.",
+            error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        )
+
+    resolved_root = resolve_cli_workspace_root(workspace_root)
+    instructions = (
+        "Open-DV V2 stateless parsing MCP server. Errors carry structured ProblemDetails JSON."
+        if profile == "parsing"
+        else (
+            f"Open-DV V2 lifecycle MCP server pinned to project '{project_id}'. "
+            "Errors carry structured ProblemDetails JSON."
+        )
+    )
+    mcp = MCPServer(name="opendv", instructions=instructions)
+
+    if profile in ("project", "all"):
+        assert project_id is not None
+        svc = service if service is not None else OpenDVService(resolved_root, state_dir=state_dir)
+        _register_project_mcp_tools(mcp, svc=svc, project_id=project_id)
+
+    if profile in ("parsing", "all"):
+        eff_roots = list(allow_roots) if allow_roots is not None else [resolved_root]
+        eff_spill = (
+            spill_dir
+            if spill_dir is not None
+            else (resolve_user_state_dir(state_dir) / "parse_spill")
+        )
+        p_svc = (
+            parsing_service
+            if parsing_service is not None
+            else ParsingService(workspace_root=resolved_root, allowed_roots=eff_roots)
+        )
+        register_parsing_mcp_tools(
+            mcp,
+            parsing_service=p_svc,
+            allow_roots=eff_roots,
+            allow_unredacted=allow_unredacted,
+            max_inline_bytes=max_inline_bytes,
+            spill_dir=eff_spill,
+            workspace_root=resolved_root,
+        )
+
     return mcp
 
 
 def run_mcp_stdio_server(
     *,
-    project_id: str,
+    profile: Literal["project", "parsing", "all"] = "project",
+    project_id: str | None = None,
     workspace_root: Path | str | None = None,
     state_dir: Path | None = None,
+    allow_roots: Sequence[Path] | None = None,
+    allow_unredacted: bool = False,
+    max_inline_bytes: int = 65_536,
+    spill_dir: Path | None = None,
     cli_env_first: bool = False,
 ) -> None:
-    """Start the blocking JSON-RPC stdio loop for the 17-tool Open-DV MCP server."""
+    """Start the blocking JSON-RPC stdio loop for the Open-DV MCP server."""
     with scoped_env_first(cli_env_first):
         server = create_mcp_stdio_server(
+            profile=profile,
             project_id=project_id,
             workspace_root=workspace_root,
             state_dir=state_dir,
+            allow_roots=allow_roots,
+            allow_unredacted=allow_unredacted,
+            max_inline_bytes=max_inline_bytes,
+            spill_dir=spill_dir,
         )
         server.run(transport="stdio")
+
+
+__all__ = [
+    "MCP_TOOL_NAMES",
+    "PARSING_MCP_TOOL_NAMES",
+    "create_mcp_stdio_server",
+    "run_mcp_stdio_server",
+]

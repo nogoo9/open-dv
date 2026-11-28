@@ -47,6 +47,7 @@ from opendv.service.os_platform import (
     validate_workspace_containment,
     verify_owner_only_permissions,
 )
+from opendv.service.parsing_svc import ParsingService, resolve_local_source_blob
 from opendv.service.secrets import (
     KeyringSecretStore,
     SecretSource,
@@ -106,6 +107,7 @@ __all__ = [
     "JobMcpBroker",
     "KeyringSecretStore",
     "OpenDVService",
+    "ParsingService",
     "ProjectStateManager",
     "ProjectsService",
     "SecretSource",
@@ -135,6 +137,7 @@ __all__ = [
     "reject_symlinks_on_path_and_ancestors",
     "replace_with_retry",
     "resolve_citation",
+    "resolve_local_source_blob",
     "resolve_opendv_home",
     "resolve_user_state_dir",
     "safe_extract_binary_entries",

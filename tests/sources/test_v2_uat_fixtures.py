@@ -12,8 +12,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from opendv.service.parsing_svc import ParsingService  # noqa: E402
 from opendv.sources.clustering import build_table_index_entries, cluster_tables  # noqa: E402
-from opendv.sources.document_map import DocumentMapBuilder  # noqa: E402
 from opendv.sources.profiler import preview_table, profile_source  # noqa: E402
 from scripts.build_v2_uat_fixtures import build_all_v2_uat_fixtures  # noqa: E402
 
@@ -25,12 +25,12 @@ def test_generated_6_v2_uat_fixtures_in_public_am() -> None:
     # 1. am_custody_and_voting_guide.pdf (6 pages)
     pdf_path = PUBLIC_AM / "am_custody_and_voting_guide.pdf"
     assert pdf_path.is_file()
-    builder = DocumentMapBuilder()
-    dmap, pages = builder.build_from_path(
-        source_id="src_custody_pdf",
-        path=pdf_path,
-        doc_format="pdf",
-    )
+    svc = ParsingService(allowed_roots=[PUBLIC_AM])
+    ir = svc.parse_document(pdf_path, sink_class="LOCAL_HUMAN_IO")
+    dmap = svc.export_ir(
+        ir, target="document_map", sink_class="MODEL_EGRESS", doc_id="src_custody_pdf"
+    )["document_map"]  # type: ignore[index]
+    pages = [p.canonical_text for p in ir.pages]
     assert dmap.page_count == 6
     assert len(dmap.outline) == 6
     assert dmap.pages[2].table_headers == ["ballot_id", "issuer_cusip", "vote_choice"]

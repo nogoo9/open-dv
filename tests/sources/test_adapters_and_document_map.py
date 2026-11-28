@@ -1,8 +1,9 @@
-"""Tests for V2 source adapters, bounded profiler, SSRF guards, and DocumentMapBuilder."""
+"""Tests for V2 source adapters, bounded profiler, SSRF guards, and ParsingService."""
 
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import io
 import struct
 import sys
@@ -18,7 +19,15 @@ import httpx
 import openpyxl
 import pytest
 
+from opendv.models.document_ir import (
+    ParseOptions,
+    SourceBlob,
+    compute_canonical_text_sha256,
+    is_page_scanned_or_low_density,
+    normalize_page_text,
+)
 from opendv.models.errors import ErrorCode, OpenDVError
+from opendv.service.parsing_svc import ParsingService
 from opendv.sources._extractors import dispatch_structured_extract
 from opendv.sources.adapters import (
     SOURCE_ADAPTERS,
@@ -31,12 +40,6 @@ from opendv.sources.adapters import (
     validate_databricks_host,
     validate_databricks_options,
     validate_sql_identifier,
-)
-from opendv.sources.document_map import (
-    DocumentMapBuilder,
-    compute_canonical_text_sha256,
-    is_page_scanned_or_low_density,
-    normalize_page_text,
 )
 from opendv.sources.profiler import preview_table, profile_source
 
@@ -340,38 +343,33 @@ def test_databricks_ssrf_cidrs_redirects_driver_missing_and_pii_tags() -> None:
 
 def test_document_map_docx_markdown_and_domain_note(tmp_path: Path) -> None:
     """UAT-S2-07: Synchronous DocumentMap for .docx, .md, and inline domain_note."""
-    builder = DocumentMapBuilder()
+    svc = ParsingService(allowed_roots=[tmp_path, REPO_ROOT])
 
     # 1. Real data/public_am/am_stewardship_domain_notes.md
     md_path = PUBLIC_AM / "am_stewardship_domain_notes.md"
-    md_map, md_pages = builder.build_from_path(
-        source_id="src_md_notes",
-        path=md_path,
-        doc_format="markdown",
+    md_ir = svc.parse_document(md_path, sink_class="LOCAL_HUMAN_IO")
+    md_proj = svc.export_ir(
+        md_ir, target="document_map", sink_class="MODEL_EGRESS", doc_id="src_md_notes"
     )
+    assert isinstance(md_proj, dict)
+    md_map = md_proj["document_map"]
+    views = md_proj["page_text_views"]
     assert md_map.doc_id == "src_md_notes"
     assert md_map.page_count == 1
     assert md_map.pages[0].page_number == 1
     assert len(md_map.outline) >= 1
-    views = builder.build_page_text_views(md_map, md_pages)
     assert len(views) == 1
     assert views[0].doc_id == "src_md_notes"
 
     # 2. Inline domain_note with CRLF normalization
     note_lf = "# Policy\nRule A   requires  review.\n"
     note_crlf = "# Policy\r\nRule A\t\t requires\t review.\r\n"
-    m1, p1 = builder.build_from_bytes(
-        source_id="src_note_1",
-        filename="inline_note.txt",
-        doc_format="domain_note",
-        content=note_lf,
-    )
-    m2, _ = builder.build_from_bytes(
-        source_id="src_note_2",
-        filename="inline_note.txt",
-        doc_format="domain_note",
-        content=note_crlf,
-    )
+    with SourceBlob.from_bytes(note_lf.encode("utf-8"), filename_hint="inline_note.txt") as b1:
+        ir1 = svc.parse_document(b1, sink_class="LOCAL_HUMAN_IO")
+        m1 = svc.export_ir(ir1, target="document_map", sink_class="MODEL_EGRESS", doc_id="src_note_1")["document_map"]  # type: ignore[index]
+    with SourceBlob.from_bytes(note_crlf.encode("utf-8"), filename_hint="inline_note.txt") as b2:
+        ir2 = svc.parse_document(b2, sink_class="LOCAL_HUMAN_IO")
+        m2 = svc.export_ir(ir2, target="document_map", sink_class="MODEL_EGRESS", doc_id="src_note_2")["document_map"]  # type: ignore[index]
     assert m1.page_count == 1
     assert m1.pages[0].canonical_text_sha256 == m2.pages[0].canonical_text_sha256
     assert compute_canonical_text_sha256(note_lf) == compute_canonical_text_sha256(note_crlf)
@@ -390,17 +388,18 @@ def test_document_map_docx_markdown_and_domain_note(tmp_path: Path) -> None:
     d.save(buf)
     docx_path.write_bytes(buf.getvalue())
 
-    dx_map, dx_pages = builder.build_from_path(
-        source_id="src_docx",
-        path=docx_path,
-        doc_format="docx",
+    dx_ir = svc.parse_document(docx_path, sink_class="LOCAL_HUMAN_IO")
+    dx_proj = svc.export_ir(
+        dx_ir, target="document_map", sink_class="MODEL_EGRESS", doc_id="src_docx"
     )
+    assert isinstance(dx_proj, dict)
+    dx_map = dx_proj["document_map"]
+    dx_views = dx_proj["page_text_views"]
     assert dx_map.doc_id == "src_docx"
     assert dx_map.page_count == 1
     assert dx_map.pages[0].page_number == 1
     assert dx_map.pages[0].table_headers == ["fund_code", "limit_bps"]
     assert dx_map.outline[0].title == "Investment Mandate"
-    dx_views = builder.build_page_text_views(dx_map, dx_pages)
     assert "<MASKED_PII>" in dx_views[0].masked_text
     assert "steward.lead@fund-example.com" not in dx_views[0].masked_text
 
@@ -412,53 +411,75 @@ def test_scanned_page_boundaries_ocr_fallback_and_sample_pdfs() -> None:
     assert is_page_scanned_or_low_density(14, 0) is True
     assert is_page_scanned_or_low_density(15, 0) is False
 
-    builder = DocumentMapBuilder()
+    svc = ParsingService(allowed_roots=[REPO_ROOT])
     # Real scanned PDF test in examples/sample_pdfs/
     scanned_pdf = SAMPLE_PDFS / "institutional_scanned_schedule_ocr_test.pdf"
-    sc_map, sc_pages = builder.build_from_path(
-        source_id="src_scanned",
-        path=scanned_pdf,
-        doc_format="pdf",
+    sc_ir = svc.parse_document(scanned_pdf, sink_class="LOCAL_HUMAN_IO")
+    sc_proj = svc.export_ir(
+        sc_ir, target="document_map", sink_class="MODEL_EGRESS", doc_id="src_scanned"
     )
+    assert isinstance(sc_proj, dict)
+    sc_map = sc_proj["document_map"]
+    views_unapproved = sc_proj["page_text_views"]
     assert sc_map.page_count == 2
     assert sc_map.pages[0].is_scanned_or_low_density is False
     assert sc_map.pages[1].is_scanned_or_low_density is True
     assert sc_map.pages[1].ocr_box_count == 0
 
-    views_unapproved = builder.build_page_text_views(sc_map, sc_pages)
     assert views_unapproved[1].is_scanned is True
     assert views_unapproved[1].scan_approved is False
 
-    # Mocked OCR path verifying ocr_box_count >= 1 + PII masking
+    # Mocked OCR path verifying OCR boxes + text + PII masking
     fake_tess = MagicMock()
     fake_tess.Output.DICT = "dict"
     fake_tess.image_to_data.return_value = {
         "text": ["Borrower", "SSN", "123-45-6789"],
         "conf": ["95", "92", "90"],
+        "left": [10, 80, 120],
+        "top": [10, 10, 10],
+        "width": [60, 30, 90],
+        "height": [20, 20, 20],
     }
-    fake_pil = MagicMock()
-    fake_pil_image = MagicMock()
-    fake_pil.Image = fake_pil_image
+    orig_find_spec = importlib.util.find_spec
     with (
-        patch("opendv.sources.document_map.shutil.which", return_value="/usr/bin/tesseract"),
-        patch.dict(
-            sys.modules,
-            {"pytesseract": fake_tess, "PIL": fake_pil, "PIL.Image": fake_pil_image},
+        patch("opendv.parsing.redaction.shutil.which", return_value="/usr/bin/tesseract"),
+        patch(
+            "opendv.parsing.redaction.importlib.util.find_spec",
+            side_effect=lambda name, *a, **kw: (
+                object() if name == "pytesseract" else orig_find_spec(name, *a, **kw)
+            ),
         ),
+        patch.dict(sys.modules, {"pytesseract": fake_tess}),
     ):
-        ocr_map, ocr_pages = builder.build_from_path(
-            source_id="src_scanned_ocr",
-            path=scanned_pdf,
-            doc_format="pdf",
-            approved_scan_pages=[2],
+        ocr_ir = svc.parse_document(
+            scanned_pdf,
+            options=ParseOptions(ocr=True),
+            sink_class="LOCAL_HUMAN_IO",
         )
-    assert ocr_map.pages[1].ocr_box_count == 3
-    assert "Borrower" in ocr_pages[1]
-    assert "123-45-6789" in ocr_pages[1]
-    assert ocr_map.pages[1].char_count == len(ocr_pages[1])
-    assert ocr_map.pages[1].canonical_text_sha256 == compute_canonical_text_sha256(ocr_pages[1])
+        _, render_res = svc.render_document_page(
+            scanned_pdf,
+            2,
+            sink_class="MODEL_EGRESS",
+            options=ParseOptions(ocr=True),
+        )
+    ocr_proj = svc.export_ir(
+        ocr_ir,
+        target="document_map",
+        sink_class="MODEL_EGRESS",
+        doc_id="src_scanned_ocr",
+        approved_scan_pages=[2],
+    )
+    assert isinstance(ocr_proj, dict)
+    ocr_map = ocr_proj["document_map"]
+    ocr_views = ocr_proj["page_text_views"]
+    ocr_pages = {p.page_number: p.canonical_text for p in ocr_ir.pages}
+    assert render_res.ocr_used is True
+    assert render_res.ocr_boxes_applied >= 1
+    assert "Borrower" in ocr_pages[2]
+    assert "123-45-6789" in ocr_pages[2]
+    assert ocr_map.pages[1].char_count == len(ocr_pages[2])
+    assert ocr_map.pages[1].canonical_text_sha256 == compute_canonical_text_sha256(ocr_pages[2])
     assert ocr_map.pages[1].canonical_text_sha256 != sc_map.pages[1].canonical_text_sha256
-    ocr_views = builder.build_page_text_views(ocr_map, ocr_pages)
     assert ocr_views[1].scan_approved is True
     assert "Borrower" in ocr_views[1].masked_text
     assert "<MASKED_PII>" in ocr_views[1].masked_text
@@ -470,11 +491,10 @@ def test_scanned_page_boundaries_ocr_fallback_and_sample_pdfs() -> None:
         ("fdic_section3_2_loans_credit_risk.pdf", 88),
         ("occ_comptrollers_handbook_rating_credit_risk.pdf", 69),
     ):
-        dmap, _ = builder.build_from_path(
-            source_id=f"src_{pdf_name}",
-            path=SAMPLE_PDFS / pdf_name,
-            doc_format="pdf",
-        )
+        ir_i = svc.parse_document(SAMPLE_PDFS / pdf_name, sink_class="LOCAL_HUMAN_IO")
+        dmap = svc.export_ir(
+            ir_i, target="document_map", sink_class="MODEL_EGRESS", doc_id=f"src_{pdf_name}"
+        )["document_map"]  # type: ignore[index]
         assert dmap.page_count == expected_pages
         assert dmap.pages[0].canonical_text_sha256
 
@@ -486,25 +506,17 @@ def test_scanned_page_boundaries_ocr_fallback_and_sample_pdfs() -> None:
         compute_canonical_text_sha256(crlf_text)
     )
 
-    # Corrupt PDF fails cleanly with SYNTAX_INVALID_ARGUMENT
+    # Corrupt PDF fails cleanly with VERIFICATION_GATE_FAILED
     with pytest.raises(OpenDVError) as corrupt_exc:
-        builder.build_from_path(
-            source_id="src_corrupt",
-            path=SRC_MATRIX / "corrupt_document.pdf",
-            doc_format="pdf",
-        )
-    assert corrupt_exc.value.error_code == ErrorCode.SYNTAX_INVALID_ARGUMENT
+        svc.parse_document(SRC_MATRIX / "corrupt_document.pdf", sink_class="LOCAL_HUMAN_IO")
+    assert corrupt_exc.value.error_code == ErrorCode.VERIFICATION_GATE_FAILED
 
     # Non-UTF-8 markdown/domain_note bytes fail cleanly with SYNTAX_INVALID_ARGUMENT
-    for fmt in ("markdown", "domain_note"):
-        with pytest.raises(OpenDVError) as utf_exc:
-            builder.build_from_bytes(
-                source_id="src_bad_utf8",
-                filename="bad.md",
-                doc_format=fmt,
-                content=b"\xff\xfe\xfd",
-            )
-        assert utf_exc.value.error_code == ErrorCode.SYNTAX_INVALID_ARGUMENT
+    for fname in ("bad.md", "bad.txt"):
+        with SourceBlob.from_bytes(b"\xff\xfe\xfd", filename_hint=fname) as bad_blob:
+            with pytest.raises(OpenDVError) as utf_exc:
+                svc.parse_document(bad_blob, sink_class="LOCAL_HUMAN_IO")
+            assert utf_exc.value.error_code == ErrorCode.SYNTAX_INVALID_ARGUMENT
 
 
 def test_corrupt_binary_files_map_to_syntax_invalid_argument(tmp_path: Path) -> None:

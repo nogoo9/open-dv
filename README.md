@@ -4,6 +4,7 @@
 [![Data Vault: 2.0 Verified](https://img.shields.io/badge/Data%20Vault-2.0%205--Zone%20(Z0--Z4)-181715.svg)](docs/DV2_AGENT_REFERENCE_GUIDE.md)
 [![Ontology Grounding: FIBO Pack v2 + Glossary](https://img.shields.io/badge/Ontology%20Grounding-FIBO%20Pack%20v2%20%2B%20Glossary-2d7a4f.svg)](docs/components/grounding/user-guide.md)
 [![Modeling Engine: Two-Mode DV 2.0](https://img.shields.io/badge/Modeling%20Engine-Two--Mode%20DV%202.0-2d7a4f.svg)](docs/components/modeling/user-guide.md)
+[![Unstructured Parsing: LiteParse + Pillow](https://img.shields.io/badge/Unstructured%20Parsing-LiteParse%20%2B%20Pillow-2d7a4f.svg)](docs/components/parsing/user-guide.md)
 [![Design System: WCAG 2.1 AA](https://img.shields.io/badge/Design%20System-Claude%20WCAG%20AA-8f442d.svg)](DESIGN.md)
 [![Storage Targets: 11 Emitters](https://img.shields.io/badge/Emitters-11%20Targets-2d7a4f.svg)](src/opendv/storage/)
 
@@ -45,9 +46,11 @@ flowchart LR
 - **Two-Mode DV 2.0 Modeling Engine ([User Guide](docs/components/modeling/user-guide.md) | [Architecture Design](docs/designs/dv2-modeling-engine-and-governance.md)):**
   - **Mode 1 (Stateless External-Agent CLI + Skill):** `opendv model spec | profile | verify` together with [`.agents/skills/opendv-modeling/SKILL.md`](.agents/skills/opendv-modeling/SKILL.md) lets external coding agents (Antigravity, Claude Code, Codex, Gemini CLI) profile sources, author `VaultSchemaIR v2.0`, and verify against deterministic `V1`–`V6b` gates plus real-row DuckDB proving with zero project DB setup.
   - **Mode 2 (Managed Autonomous CEGAR Engine):** `src/opendv/modeling/` (`opendv model run` and `opendv vault build`) orchestrates multi-turn synthesis, static/evolution/runtime `V1`–`V6b` gates, Horizon Critic (`V7`/`V8`) review, real-row DuckDB proving (`real_row_proving`, `proving_sample_rows`), large-catalog domain sharding, and `ModelingPreferences` (`business_context_hints`) governance.
+- **Unstructured Parsing Engine ([User Guide](docs/components/parsing/user-guide.md) | [Architecture Design](docs/designs/unstructured-parsing-engine.md) | [Skill](.agents/skills/opendv-parsing/SKILL.md)):**
+  - Pure Layer-2 parsing core (`src/opendv/parsing/`) over `liteparse`, `BoundedZipReader` + DOM-ordered `python-docx`, and stdlib `.md`/`.txt` emitting canonical `ParsedDocumentIR` and DuckDB-ready `ChunkRecord` JSONL with `LOCAL_HUMAN_IO` vs. `MODEL_EGRESS` sink isolation, `Pillow` PII blackout (+ optional `[ocr]`), stateless `opendv parse`, and unified `opendv mcp serve --profile project|parsing|all`.
 - **5-Zone Standard (`Z0–Z4`):** `bronze` (`Z0`), `staging` (`Z1`), `raw_vault` (`Z2`), `business_vault` (`Z3`), and `information_mart` (`Z4`).
 - **5-Layer Python Core (`src/opendv/`):** Consolidated clean-sheet package backed by SQLite WAL `project.sqlite` persistence (`5` tables), Win32/POSIX ACL-hardened `KeyringSecretStore`, and `34` closed `ErrorCode`s.
-- **Unified `opendv` CLI + `:8420` Web Workbench:** One Python CLI (`61` subcommands across `12` groups defined in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json)) running either in-process or remotely via `--api-url`, plus a React 19 WCAG 2.1 AA Web Workbench ([`web/`](web/)) and read-only MCP bridge (`opendv mcp serve`).
+- **Unified `opendv` CLI + `:8420` Web Workbench:** One Python CLI (`67` subcommands across `13` groups defined in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json)) running either in-process or remotely via `--api-url`, plus a React 19 WCAG 2.1 AA Web Workbench ([`web/`](web/)) and read-only MCP bridge (`opendv mcp serve`).
 
 ---
 
@@ -155,17 +158,18 @@ The React 19 Web Workbench ([`web/`](web/), governed by [`DESIGN.md`](DESIGN.md)
 
 ## 4. CLI Command Reference (`opendv`) & MCP Server
 
-All `61` subcommands across `12` groups are defined canonically in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json) and auto-documented in [`docs/16-cli-reference.md`](docs/16-cli-reference.md):
+All `67` subcommands across `13` groups are defined canonically in [`schemas/v2/cli-spec.json`](schemas/v2/cli-spec.json) and auto-documented in [`docs/16-cli-reference.md`](docs/16-cli-reference.md):
 
 | Command Group | Key Subcommands | Purpose |
 | :--- | :--- | :--- |
 | `opendv project` | `init`, `list`, `show`, `delete`, `export`, `import`, `settings show\|set` | Create, inspect, configure per-project settings snapshots, and export/import portable `.opendv.zip` archives (`core_project_state` default; `--full-demo` optional). |
 | `opendv source` | `adapters`, `inspect`, `attach`, `list`, `reattach`, `detach`, `note`, `approve-scan` | Inspect/attach CSV, Parquet, SQLite, DuckDB, Postgres, PDF, Markdown, or unstructured notes with SSRF/PII checks. |
+| `opendv parse` | `spec`, `inspect`, `extract`, `render-page`, `validate`, `export` | Stateless local `.pdf`/`.docx`/`.md`/`.txt` inspection, layout IR extraction, Pillow/OCR PII blackout rendering, IR validation, and DuckDB-ready `chunks` JSONL export ([Component Guide](docs/components/parsing/user-guide.md)). |
 | `opendv model` | `spec`, `profile`, `verify`, `run` | Mode 1 stateless external-agent spec/profile/real-row IR verification (`V1`–`V6b`) and Mode 2 autonomous CEGAR modeling runs ([Component Guide](docs/components/modeling/user-guide.md)). |
 | `opendv ontology` | `construct`, `answer`, `control`, `validate`, `commit`, `export`, `ground`, `fibo-qa`, `fibo-sync` | Construct & evolve `GraphAOntology` via CAS `OntologyDelta`s, ground columns against FIBO Pack v2 or YAML glossaries, & audit/repin FIBO drift ([Component Guide](docs/components/grounding/user-guide.md)). |
 | `opendv vault` | `build`, `status`, `control`, `hold`, `horizon`, `logs`, `verify`, `waive` | Run the 3-Loop CEGAR `VaultSchemaIR v2.0` builder, inspect SSE logs, resolve steward holds, manage waivers & Horizon Critic checks. |
 | `opendv storage` | `compile`, `migrate`, `query`, `regenerate` | Lower verified `VaultSchemaIR v2.0` to any of the `11` Step-7 targets (`v7`), run sandbox/migrations, and issue guarded read-only SQL queries. |
-| `opendv agents` / `mcp` | `agents list\|inspect`, `mcp list\|register\|remove\|serve` | Manage built-in agent harnesses and launch the read-only local MCP server (`opendv mcp serve`). |
+| `opendv agents` / `mcp` | `agents list\|inspect`, `mcp list\|register\|remove\|serve` | Manage built-in agent harnesses and launch the stdio MCP server (`opendv mcp serve --profile project\|parsing\|all`). |
 | `opendv secrets` / `settings` / `doctor` / `serve` | `secrets set\|list\|delete`, `settings show\|set\|project-set\|models\|trust-workspace\|profile {list,set,delete,test}`, `doctor [--probe]`, `serve` | Manage user-global OS keyring secrets, CEGAR & modeling policies, connection profiles, trusted workspaces, system/harness readiness, and the `:8420` HTTP/SSE host. |
 
 Use global `--api-url http://127.0.0.1:8420` to proxy any CLI command through a running `:8420` server, or omit it for direct in-process execution over `.opendv/projects/<id>/project.sqlite`.
@@ -179,15 +183,17 @@ open-dv/
 ├── src/opendv/                    # Consolidated Python core (strict downward 5-layer DAG)
 │   ├── models/                    # Layer 1: StrictModel DTOs, VaultSchemaIR v2.0, Grounding & SPI DTOs, 34 ErrorCodes, RFC 8785 JCS
 │   ├── grounding/                 # Layer 2a: Synchronous grounding kernel, Logit-Normal calibration, FIBO Pack v2, Glossary & Overlay SPI
-│   ├── sources/                   # Layer 2b: ConnectorAdapter SPI, pre-masking profiler, PII re-exports, grounding_adapter
+│   ├── sources/                   # Layer 2b: ConnectorAdapter SPI, structured pre-masking profiler, PII re-exports, grounding_adapter
+│   ├── parsing/                   # Layer 2: Pure local PDF/DOCX/MD/TXT parsing core, Pillow/OCR redaction, & projectors
 │   ├── verifier/                  # Layer 2: 3-loop CEGAR prover, static/evolution rules, ProblemDetails patches
 │   ├── storage/                   # Layer 2: DuckDB prover sandbox, readonly SQL guard, 11 Step-7 dialect emitters
 │   ├── agents/                    # Layer 3: Harness adapters (agy, claude-cli, claude, gemini), Tier-2 probes, budget meter
 │   ├── modeling/                  # Layer 3: DV 2.0 Modeling Engine (Mode 1/2, CEGAR loop, V7/V8 critics, sharding, steering)
-│   ├── service/                   # Layer 4: OpenDVService, project.sqlite WAL store, zip_guard, KeyringSecretStore, grounding orchestrator & pack ops
+│   ├── service/                   # Layer 4: OpenDVService, project.sqlite WAL store, zip_guard, KeyringSecretStore, ParsingService & bridges
 │   ├── api/                       # Layer 5: FastAPI REST + SSE (:8420), loopback security guard, static UI host
-│   └── cli/                       # Layer 5: Unified Typer CLI (61 subcommands) + stdio MCP + schemas/v2 contract exporter
+│   └── cli/                       # Layer 5: Unified Typer CLI (67 subcommands) + stdio MCP + schemas/v2 contract exporter
 ├── .agents/skills/opendv-modeling/# External-agent SKILL.md for Mode 1 stateless DV 2.0 modeling
+├── .agents/skills/opendv-parsing/ # External-agent SKILL.md for stateless document parsing & MCP --profile parsing
 ├── web/                           # React 19 + Vite + Bun 4-tab WCAG 2.1 AA Web Workbench
 ├── apps/opendv-website/           # Astro documentation & V2 showcase site
 ├── schemas/v2/                    # Canonical cli-spec.json, error-codes.json, openapi.json, baseline-digests.json
@@ -233,6 +239,12 @@ open-dv/
   - **Component Contributor Guide:** [`docs/components/modeling/contributor-guide.md`](docs/components/modeling/contributor-guide.md) — `src/opendv/modeling/` module map, Layer-3 import contracts, `D16` token budget, & extension recipes
   - **Architecture & Governance Design:** [`docs/designs/dv2-modeling-engine-and-governance.md`](docs/designs/dv2-modeling-engine-and-governance.md) — `src/opendv/modeling/` CEGAR loop, Horizon Critics (`V7`/`V8`), domain sharding, & IR-level governance
   - **External-Agent Modeling Skill:** [`.agents/skills/opendv-modeling/SKILL.md`](.agents/skills/opendv-modeling/SKILL.md) — normative Mode 1 protocol for external coding agents
+- **Unstructured Parsing Component & Architecture:**
+  - **Component README:** [`docs/components/parsing/README.md`](docs/components/parsing/README.md) — entry index for the `src/opendv/parsing/` 4-doc suite (`REQ-DOC-01`)
+  - **Component User Guide:** [`docs/components/parsing/user-guide.md`](docs/components/parsing/user-guide.md) — `opendv parse`, `opendv mcp serve --profile parsing|all`, Python SPI, PII regex limits, & worked examples
+  - **Component Contributor Guide:** [`docs/components/parsing/contributor-guide.md`](docs/components/parsing/contributor-guide.md) — `src/opendv/parsing/` 16-module map, Layer-2 import contracts, `D16` token budget, & extension recipes
+  - **Architecture Design:** [`docs/designs/unstructured-parsing-engine.md`](docs/designs/unstructured-parsing-engine.md) — `LiteParse` / `BoundedZipReader` / `Pillow` parsing core, sink isolation, & cross-component bridges
+  - **External-Agent Parsing Skill:** [`.agents/skills/opendv-parsing/SKILL.md`](.agents/skills/opendv-parsing/SKILL.md) — normative stateless CLI & MCP parsing protocol for external coding agents
 - **Authoritative Sitemap:** [`docs/designs/SITEMAP.md`](docs/designs/SITEMAP.md)
 - **Clean-Sheet V2 Architecture & UI Specs:** [`docs/designs/v2-clean-sheet-architecture.md`](docs/designs/v2-clean-sheet-architecture.md), [`docs/designs/v2-workbench-ui-design.md`](docs/designs/v2-workbench-ui-design.md)
 - **V2 Discovery, Modeling, E2E & UAT Suite (`docs/29..33`):**

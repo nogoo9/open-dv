@@ -164,16 +164,24 @@ def validate_workspace_containment(
             error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
         )
 
-    cand_norm = os.path.normcase(resolved_str)
+    safe_cand = os.path.normpath(resolved_str)
     for root in effective_roots:
-        root_str = os.fspath(root)
-        root_norm = os.path.normcase(root_str)
-        try:
-            common = os.path.commonpath([cand_norm, root_norm])
-        except ValueError:
-            continue
-        if common == root_norm:
-            return Path(resolved_str)
+        root_norm = os.path.normpath(os.fspath(root))
+        if safe_cand == root_norm:
+            return Path(root_norm)
+        root_prefix = root_norm if root_norm.endswith(os.sep) else root_norm + os.sep
+        if safe_cand.startswith(root_prefix):
+            return Path(safe_cand)
+        if os.name == "nt":
+            cand_case = os.path.normpath(os.path.normcase(safe_cand))
+            root_case = os.path.normpath(os.path.normcase(root_norm))
+            if cand_case == root_case:
+                return Path(root_case)
+            root_case_prefix = (
+                root_case if root_case.endswith(os.sep) else root_case + os.sep
+            )
+            if cand_case.startswith(root_case_prefix):
+                return Path(cand_case)
 
     raise OpenDVError(
         f"Workspace path '{workspace_path}' escapes configured OPENDV_WORKSPACE_ROOTS boundary.",

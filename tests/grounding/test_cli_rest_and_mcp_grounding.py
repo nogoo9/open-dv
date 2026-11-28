@@ -268,14 +268,14 @@ def _make_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> OpenDVServ
 
 
 # ---------------------------------------------------------------------------
-# 1. CLI Contract Parity (61 commands) + `ontology ground` + `ontology fibo-sync`
+# 1. CLI Contract Parity (67 commands) + `ontology ground` + `ontology fibo-sync`
 # ---------------------------------------------------------------------------
 
 
-def test_cli_spec_has_48_subcommands_including_ground_and_fibo_sync() -> None:
+def test_cli_spec_has_67_subcommands_including_ground_and_fibo_sync() -> None:
     spec = build_cli_spec()
     subcommands = spec["subcommands"]
-    assert len(subcommands) == 61
+    assert len(subcommands) == 67
     by_cmd = {" ".join(entry["path"]): entry for entry in subcommands}
     assert by_cmd["ontology ground"]["http_method"] == "POST"
     assert by_cmd["ontology ground"]["http_route"] == "/api/v1/ontology/ground"
@@ -501,6 +501,36 @@ def test_execute_ground_ontology_bumps_and_restores_remote_timeout() -> None:
         execute_ground_ontology(client, OntologyGroundReq(project_id="fail"))
     assert seen_timeouts == [900.0, 900.0]
     assert client.timeout_seconds == 120.0
+
+
+def test_cli_ontology_ground_input_does_not_create_workspace_opendv_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ws = tmp_path / "ws"
+    ws.mkdir(parents=True, exist_ok=True)
+    local_app = tmp_path / "localapp"
+    local_app.mkdir(parents=True, exist_ok=True)
+    opendv_home = ws / ".opendv"
+    monkeypatch.setenv("OPENDV_HOME", str(opendv_home))
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app))
+    monkeypatch.setenv("XDG_DATA_HOME", str(local_app))
+    monkeypatch.setenv("XDG_STATE_HOME", str(local_app))
+    monkeypatch.chdir(ws)
+
+    req_path = ws / "ground_req.json"
+    req_path.write_text(_sample_ground_req().model_dump_json(), encoding="utf-8")
+
+    runner = CliRunner()
+    app = build_cli_app()
+    res = runner.invoke(
+        app,
+        ["--json", "ontology", "ground", "--input", str(req_path)],
+    )
+    assert res.exit_code == 0, res.stdout
+    payload = json.loads(res.stdout)
+    assert payload["ok"] is True
+    assert payload["data"]["mode_used"] == "deterministic_only"
+    assert not opendv_home.exists()
 
 
 def test_cli_ontology_fibo_sync_local_drift_repin_and_remote_reject(
