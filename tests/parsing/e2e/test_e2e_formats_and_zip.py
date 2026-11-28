@@ -169,7 +169,8 @@ def test_f01_t1_service_pdf_rotate_90_180_270_normalized_bbox_bounds(
         else:
             assert pg.width_pt == 612.0
             assert pg.height_pt == 792.0
-        assert "financial summary" in pg.canonical_text.lower()
+        # Linux PDFium /Helvetica substitution can insert intra-word spaces on rotated text.
+        assert "rotatedpagefinancialsummary" in "".join(pg.canonical_text.lower().split())
         for blk in ir.blocks:
             for sp in blk.spans:
                 if sp.bbox is not None:
