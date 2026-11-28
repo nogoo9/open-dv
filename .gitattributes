@@ -17,3 +17,8 @@ apps/opendv-website/**/*.css text eol=lf
 *.sqlite binary
 *.parquet binary
 *.pdf binary
+*.docx binary
+
+# Byte-exact public corpus fixtures verified by SHA-256 against MANIFEST.json
+tests/parsing/fixtures_public/*.md binary
+tests/parsing/fixtures_public/*.txt binary

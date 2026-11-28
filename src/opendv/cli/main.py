@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import sys
 from collections.abc import Sequence
@@ -102,8 +104,19 @@ def build_cli_app() -> typer.Typer:
 app: typer.Typer = build_cli_app()
 
 
+def _ensure_utf8_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if (
+            isinstance(stream, io.TextIOWrapper)
+            and (stream.encoding or "").lower().replace("-", "") != "utf8"
+        ):
+            with contextlib.suppress(AttributeError, OSError, ValueError):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the `opendv` CLI returning a typed `CliExitCode` integer."""
+    _ensure_utf8_stdio()
     args = list(argv) if argv is not None else sys.argv[1:]
     json_flag = "--json" in args
     try:
