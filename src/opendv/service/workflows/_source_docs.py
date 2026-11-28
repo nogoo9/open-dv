@@ -121,7 +121,10 @@ def resolve_readable_source_path(
 ) -> Path | None:
     cfg = ConnectorConfigPayload.model_validate(rec["connector_config"])
     if cfg.uploaded_relpath:
-        cand = state_manager.project_dir(project_id) / cfg.uploaded_relpath
+        proj_dir = state_manager.project_dir(project_id)
+        cand = validate_workspace_containment(
+            proj_dir / cfg.uploaded_relpath, allowed_roots=(proj_dir,)
+        )
         if cand.is_file():
             return cand
     raw = str(cfg.uri_or_path or rec["uri_or_filename"])

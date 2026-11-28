@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
 import threading
@@ -133,7 +134,15 @@ class ProjectStateManager:
         self.db_path: Path = self.opendv_home / "project.sqlite"
 
     def project_dir(self, project_id: str) -> Path:
-        return self.opendv_home / "projects" / project_id
+        projects_root = os.path.normpath(os.path.abspath(str(self.opendv_home / "projects")))
+        prefix = projects_root if projects_root.endswith(os.sep) else projects_root + os.sep
+        cand = os.path.normpath(os.path.abspath(os.path.join(projects_root, project_id)))
+        if not cand.startswith(prefix):
+            raise OpenDVError(
+                f"Invalid project_id '{project_id}': escapes projects directory.",
+                error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+            )
+        return Path(cand)
 
     def runs_dir(self, project_id: str) -> Path:
         return self.project_dir(project_id) / "runs"
