@@ -57,7 +57,8 @@ def _sha256_file(path: Path) -> str:
 def _count_black_pixels(png_bytes: bytes) -> int:
     with Image.open(io.BytesIO(png_bytes)) as img:
         rgb = img.convert("RGB")
-        return sum(1 for px in rgb.getdata() if px == (0, 0, 0))
+        raw = rgb.tobytes()
+        return sum(1 for i in range(0, len(raw), 3) if raw[i : i + 3] == b"\x00\x00\x00")
 
 
 # ---------------------------------------------------------------------------

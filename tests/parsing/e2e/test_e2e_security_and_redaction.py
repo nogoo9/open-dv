@@ -33,7 +33,8 @@ def _decode_png(png_bytes: bytes) -> Image.Image:
 
 def _count_black_pixels(img: Image.Image) -> int:
     rgb = img.convert("RGB")
-    return sum(1 for px in rgb.getdata() if px == (0, 0, 0))
+    raw = rgb.tobytes()
+    return sum(1 for i in range(0, len(raw), 3) if raw[i : i + 3] == b"\x00\x00\x00")
 
 
 def _box_has_black_pixels(img: Image.Image, x0: int, y0: int, x1: int, y1: int) -> bool:
@@ -44,7 +45,8 @@ def _box_has_black_pixels(img: Image.Image, x0: int, y0: int, x1: int, y1: int) 
     if cx1 <= cx0 or cy1 <= cy0:
         return False
     crop = img.crop((cx0, cy0, cx1, cy1)).convert("RGB")
-    return any(px == (0, 0, 0) for px in crop.getdata())
+    raw = crop.tobytes()
+    return any(raw[i : i + 3] == b"\x00\x00\x00" for i in range(0, len(raw), 3))
 
 
 # ---------------------------------------------------------------------------
